@@ -22,7 +22,7 @@
 
 ## Instructions to build
 ```sh
-git clone https://github.com/yourusername/autoagents.git
+git clone https://github.com/liquidos-ai/autoagents.git
 cd autoagents
 cargo build --release
 ```
