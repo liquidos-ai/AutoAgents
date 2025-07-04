@@ -73,7 +73,21 @@ impl SimpleExecutor {
             let arguments = tool.function.arguments.clone();
             for tool_self in self.tools.clone() {
                 if tool.function.name == tool_self.name() {
-                    let result = tool_self.run(serde_json::from_str(&arguments.clone()).unwrap());
+                    let parsed_args = match serde_json::from_str(&arguments) {
+                        Ok(args) => args,
+                        Err(e) => {
+                            // Return error as ToolCallResult with error details
+                            return Ok(Some(ToolCallResult {
+                                tool_name: tool.function.name.clone(),
+                                arguments: arguments.clone().into(),
+                                result: serde_json::json!({
+                                    "error": format!("Invalid tool arguments: {}", e),
+                                    "details": e.to_string()
+                                }),
+                            }));
+                        }
+                    };
+                    let result = tool_self.run(parsed_args);
                     // let result = llm.call_tool(tool_name, arguments.clone());
                     return Ok(Some(ToolCallResult {
                         tool_name: tool.function.name.clone(),

@@ -1,6 +1,5 @@
 use autoagents_llm::chat::ChatMessage;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Submission IDs are used to track agent tasks
@@ -25,45 +24,69 @@ pub enum Event {
         prompt: String,
     },
 
+    /// A task has started execution
+    TaskStarted {
+        sub_id: SubmissionId,
+        agent_id: AgentID,
+        task_description: String,
+    },
+
     /// A task has been completed
     TaskComplete {
         sub_id: SubmissionId,
         result: TaskResult,
     },
 
-    /// A message from the agent to be presented to the user
+    /// A task encountered an error
+    TaskError { sub_id: SubmissionId, error: String },
+
+    /// An agent message to the user
     AgentMessage {
         sub_id: SubmissionId,
         message: AgentMessage,
     },
 
-    /// A tool request from the agent
-    ToolRequest {
-        sub_id: SubmissionId,
-        event_id: EventId,
-        request: ToolRequest,
+    /// Tool call has started
+    ToolCallStarted { tool_name: String, args: String },
+
+    /// Tool call has completed (simple)
+    ToolCallCompletedSimple { tool_name: String, success: bool },
+
+    /// Tool call requested (with ID)
+    ToolCallRequested {
+        id: String,
+        tool_name: String,
+        arguments: String,
     },
 
-    /// A response to a tool request
-    ToolResponse {
-        sub_id: SubmissionId,
-        event_id: EventId,
-        response: ToolResponse,
+    /// Tool call completed (with ID and result)
+    ToolCallCompleted {
+        id: String,
+        tool_name: String,
+        result: serde_json::Value,
     },
 
-    /// An input request for the user
-    InputRequest {
-        sub_id: SubmissionId,
-        event_id: EventId,
-        prompt: String,
+    /// Tool call has failed
+    ToolCallFailed {
+        id: String,
+        tool_name: String,
+        error: String,
     },
 
-    /// A response to an input request
-    InputResponse {
-        sub_id: SubmissionId,
-        event_id: EventId,
-        input: String,
+    /// A turn has started
+    TurnStarted {
+        turn_number: usize,
+        max_turns: usize,
     },
+
+    /// A turn has completed
+    TurnCompleted {
+        turn_number: usize,
+        final_turn: bool,
+    },
+
+    /// A warning message
+    Warning { message: String },
 
     /// An error occurred during task execution
     Error { sub_id: SubmissionId, error: String },
@@ -93,71 +116,4 @@ pub struct AgentMessage {
 
     /// Optional chat messages for a full conversation history
     pub chat_messages: Option<Vec<ChatMessage>>,
-}
-
-/// A request to use a tool
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolRequest {
-    /// The name of the tool to use
-    pub tool_name: String,
-
-    /// The arguments to the tool
-    pub arguments: serde_json::Value,
-
-    /// Whether the tool needs approval
-    pub needs_approval: bool,
-}
-
-/// A response from a tool
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ToolResponse {
-    /// The tool was approved and executed
-    Success(serde_json::Value),
-
-    /// The tool was denied
-    Denied,
-
-    /// The tool execution failed
-    Failure(String),
-}
-
-/// Protocol commands for controlling agent execution
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Command {
-    /// Submit a new task to an agent
-    Submit {
-        agent_id: Uuid,
-        prompt: String,
-        context: Option<HashMap<String, String>>,
-    },
-
-    /// Submit a new task with a specific ID
-    SubmitWithId {
-        sub_id: SubmissionId,
-        agent_id: Uuid,
-        prompt: String,
-        context: Option<HashMap<String, String>>,
-    },
-
-    /// Approve a tool request
-    ApproveTool {
-        sub_id: SubmissionId,
-        event_id: EventId,
-    },
-
-    /// Deny a tool request
-    DenyTool {
-        sub_id: SubmissionId,
-        event_id: EventId,
-    },
-
-    /// Provide input for an input request
-    ProvideInput {
-        sub_id: SubmissionId,
-        event_id: EventId,
-        input: String,
-    },
-
-    /// Abort a task
-    Abort { sub_id: SubmissionId },
 }

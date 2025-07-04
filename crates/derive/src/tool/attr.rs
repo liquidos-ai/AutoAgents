@@ -8,7 +8,6 @@ pub(crate) struct ToolAttributes {
     pub(crate) name: LitStr,
     pub(crate) description: LitStr,
     pub(crate) input: Type,
-    pub(crate) output: Type,
 }
 
 #[derive(EnumString, Display)]
@@ -19,8 +18,6 @@ pub(crate) enum ToolAttributeKeys {
     Description,
     #[strum(serialize = "input")]
     Input,
-    #[strum(serialize = "output")]
-    Output,
     Unknown(String),
 }
 
@@ -30,7 +27,6 @@ impl From<Ident> for ToolAttributeKeys {
             "name" => Self::Name,
             "description" => Self::Description,
             "input" => Self::Input,
-            "output" => Self::Output,
             other => Self::Unknown(other.to_string()),
         }
     }
@@ -41,7 +37,6 @@ impl Parse for ToolAttributes {
         let mut name = None;
         let mut description = None;
         let mut args = None;
-        let mut output = None;
         while !input.is_empty() {
             let key: Ident = input.parse()?;
             let key_span = key.span();
@@ -58,9 +53,6 @@ impl Parse for ToolAttributes {
                 }
                 ToolAttributeKeys::Input => {
                     args = Some(input.parse::<Type>()?);
-                }
-                ToolAttributeKeys::Output => {
-                    output = Some(input.parse::<Type>()?);
                 }
                 ToolAttributeKeys::Unknown(other) => {
                     return Err(syn::Error::new(
@@ -90,12 +82,6 @@ impl Parse for ToolAttributes {
                 syn::Error::new(
                     input.span(),
                     format!("Missing attribute: {}", ToolAttributeKeys::Input),
-                )
-            })?,
-            output: output.ok_or_else(|| {
-                syn::Error::new(
-                    input.span(),
-                    format!("Missing attribute: {}", ToolAttributeKeys::Output),
                 )
             })?,
         })

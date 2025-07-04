@@ -1,6 +1,5 @@
 use clap::{Parser, ValueEnum};
 use std::sync::Arc;
-mod chat;
 mod simple;
 use autoagents::{core::error::Error, llm::backends::openai::OpenAI, llm::builder::LLMBuilder};
 

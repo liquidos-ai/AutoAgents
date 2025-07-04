@@ -1,13 +1,12 @@
-use crate::agent::base::BaseAgent;
-use crate::agent::executor::AgentExecutor;
+use crate::agent::error::RunnableAgentError;
 use crate::agent::result::AgentRunResult;
-use crate::agent::runnable::{RunnableAgent, RunnableAgentBuilder};
-use crate::error::Error;
+use crate::agent::runnable::RunnableAgent;
 use crate::protocol::{AgentID, Event, SessionId, SubmissionId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::mpsc::error::SendError;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::JoinError;
 use tokio_stream::wrappers::ReceiverStream;
@@ -27,6 +26,12 @@ pub enum SessionError {
 
     #[error("Task join error: {0}")]
     TaskJoinError(#[from] JoinError),
+
+    #[error("Event error: {0}")]
+    EventError(#[from] SendError<Event>),
+
+    #[error("RunnableAgent error: {0}")]
+    RunnableAgentError(#[from] RunnableAgentError),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,22 +85,18 @@ impl Session {
         )
     }
 
-    pub async fn add_task(&self, task: Task) {
+    pub async fn add_task(&self, task: Task) -> Result<(), SessionError> {
         let task_clone = task.clone();
-        if self
-            .tx_event
+        self.tx_event
             .send(Event::NewTask {
                 sub_id: task_clone.submission_id,
                 agent_id: task_clone.agent_id,
                 prompt: task_clone.prompt,
             })
-            .await
-            .is_err()
-        {
-            panic!("Failed to send NewTask event");
-        }
+            .await?;
         let mut state = self.state.lock().await;
         state.task_queue.push(task);
+        Ok(())
     }
 
     pub async fn set_current_task(&self, task: Task) {
@@ -141,22 +142,15 @@ impl Session {
         self.rx_event.take().map(ReceiverStream::new)
     }
 
-    pub async fn register_agent_with_id<E>(&self, agent_id: Uuid, agent: BaseAgent<E>)
-    where
-        E: AgentExecutor,
-        E::Output: Into<Value> + Send,
-        E::Error: std::error::Error + Send + Sync + 'static,
-    {
-        let builder = RunnableAgentBuilder::new();
-        let runnable_agent = builder.build(agent);
-        self.agents.write().await.insert(agent_id, runnable_agent);
+    pub async fn register_agent_with_id(&self, agent_id: Uuid, agent: Arc<dyn RunnableAgent>) {
+        self.agents.write().await.insert(agent_id, agent);
     }
 
     pub async fn run_task(
         &self,
         task: Option<Task>,
         agent_id: AgentID,
-    ) -> Result<AgentRunResult, Error> {
+    ) -> Result<AgentRunResult, SessionError> {
         let task = task.ok_or_else(|| SessionError::EmptyTask)?;
         let agent = self
             .agents
@@ -169,19 +163,16 @@ impl Session {
         let join_handle = agent.spawn_task(task, self.tx_event.clone());
 
         // Await the task completion:
-        let result: Result<AgentRunResult, Error> = match join_handle.await {
-            Ok(run_result) => run_result,
-            Err(join_err) => Err(SessionError::from(join_err).into()),
-        };
-        result
+        let result = join_handle.await?;
+        Ok(result?)
     }
 
-    pub async fn run(&self, agent_id: Uuid) -> Result<AgentRunResult, Error> {
+    pub async fn run(&self, agent_id: Uuid) -> Result<AgentRunResult, SessionError> {
         let task = self.get_top_task().await;
         self.run_task(task, agent_id).await
     }
 
-    pub async fn run_all(&self, agent_id: Uuid) -> Result<Vec<AgentRunResult>, Error> {
+    pub async fn run_all(&self, agent_id: Uuid) -> Result<Vec<AgentRunResult>, SessionError> {
         let mut results = Vec::new();
         while !self.is_task_queue_empty().await {
             let result = self.run(agent_id).await?;

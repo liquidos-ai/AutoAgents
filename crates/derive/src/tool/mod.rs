@@ -18,7 +18,6 @@ impl ToolParser {
         let tool_name_literal = tool_attrs.name.clone();
         let tool_description = tool_attrs.description;
         let args_type = tool_attrs.input;
-        let output_type = tool_attrs.output;
         let tool_struct_ident = Ident::new(&tool_attrs.name.value(), fn_name.span());
 
         let expanded = quote! {
@@ -33,11 +32,10 @@ impl ToolParser {
                 fn description(&self) -> &'static str {
                     #tool_description
                 }
-                fn run(&self, args: Value) -> serde_json::Value {
-                    let typed_args: #args_type = serde_json::from_value(args)
-                        .expect("Failed to deserialize arguments");
-                    let result: #output_type = #fn_name(typed_args);
-                    serde_json::to_value(result).expect("Failed to serialize output")
+                fn run(&self, args: Value) -> Result<serde_json::Value, ToolCallError> {
+                    let typed_args: #args_type = serde_json::from_value(args)?;
+                    let result = #fn_name(typed_args)?;
+                    Ok(serde_json::to_value(result)?)
                 }
                 fn args_schema(&self) -> Value {
                     // Retrieve the JSON schema string from the input type.
