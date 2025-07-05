@@ -2,12 +2,9 @@
 //!
 //! This module provides a basic FIFO (First In, First Out) memory that maintains
 //! a fixed-size window of the most recent conversation messages.
-
-use std::collections::VecDeque;
-
 use async_trait::async_trait;
-
 use autoagents_llm::{chat::ChatMessage, error::LLMError};
+use std::collections::VecDeque;
 
 use super::{MemoryProvider, MemoryType};
 
@@ -28,23 +25,6 @@ pub enum TrimStrategy {
 /// - Memory-constrained environments
 /// - Cases where only recent context matters
 ///
-/// # Examples
-///
-/// ```rust
-/// use llm::memory::SlidingWindowMemory;
-/// use llm::chat::ChatMessage;
-///
-/// let mut memory = SlidingWindowMemory::new(3);
-///
-/// // Store messages - only the last 3 will be kept
-/// memory.remember(&ChatMessage::user().content("Hello").build()).await?;
-/// memory.remember(&ChatMessage::assistant().content("Hi there!").build()).await?;
-/// memory.remember(&ChatMessage::user().content("How are you?").build()).await?;
-/// memory.remember(&ChatMessage::assistant().content("I'm doing well!").build()).await?;
-///
-/// // Only the last 3 messages are kept
-/// assert_eq!(memory.size(), 3);
-/// ```
 #[derive(Debug, Clone)]
 pub struct SlidingWindowMemory {
     messages: VecDeque<ChatMessage>,
@@ -64,15 +44,6 @@ impl SlidingWindowMemory {
     ///
     /// Panics if `window_size` is 0
     ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use llm::memory::SlidingWindowMemory;
-    ///
-    /// let memory = SlidingWindowMemory::new(10);
-    /// assert_eq!(memory.window_size(), 10);
-    /// assert!(memory.is_empty());
-    /// ```
     pub fn new(window_size: usize) -> Self {
         Self::with_strategy(window_size, TrimStrategy::Drop)
     }

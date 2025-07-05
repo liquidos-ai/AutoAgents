@@ -1,4 +1,8 @@
-use crate::{agent::error::AgentError, environment::EnvironmentError, session::SessionError};
+use crate::{
+    agent::error::{AgentError, RunnableAgentError},
+    environment::EnvironmentError,
+    session::SessionError,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -8,4 +12,6 @@ pub enum Error {
     SessionError(#[from] SessionError),
     #[error(transparent)]
     AgentError(#[from] AgentError),
+    #[error(transparent)]
+    RunnableAgentError(#[from] RunnableAgentError),
 }

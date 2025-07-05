@@ -47,7 +47,7 @@ pub mod secret_store;
 pub mod models;
 
 mod tool;
-pub use tool::{ToolInputT, ToolT};
+pub use tool::{ToolCallError, ToolInputT, ToolT};
 
 #[inline]
 /// Initialize logging using env_logger if the "logging" feature is enabled.

@@ -1,21 +1,12 @@
-//! Memory module for storing and retrieving conversation history.
-//!
-//! This module provides various memory implementations for LLM conversations:
-//! - SlidingWindowMemory: Simple FIFO memory with size limit
-//! - EmbeddingMemory: Semantic search using embeddings (future)
-//! - RAGMemory: Document-based retrieval (future)
-
-pub mod chat_wrapper;
-pub mod cond_macros;
-pub mod shared_memory;
-pub mod sliding_window;
-
 use async_trait::async_trait;
 use autoagents_llm::{chat::ChatMessage, error::LLMError};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::broadcast;
+
+mod sliding_window;
+pub use sliding_window::SlidingWindowMemory;
 
 /// Event emitted when a message is added to reactive memory
 #[derive(Debug, Clone)]
@@ -76,10 +67,6 @@ impl MessageCondition {
         }
     }
 }
-
-pub use chat_wrapper::ChatWithMemory;
-pub use shared_memory::SharedMemory;
-pub use sliding_window::{SlidingWindowMemory, TrimStrategy};
 
 /// Types of memory implementations available
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
