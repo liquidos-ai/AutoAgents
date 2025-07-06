@@ -16,15 +16,15 @@ use tokio::sync::{mpsc, RwLock};
 
 /// The default agent output structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentOutput {
+pub struct ReActAgentOutput {
     /// The agent's response
     pub response: String,
     /// Any tool calls made during execution
     pub tool_calls: Vec<ToolCallResult>,
 }
 
-impl From<AgentOutput> for Value {
-    fn from(output: AgentOutput) -> Self {
+impl From<ReActAgentOutput> for Value {
+    fn from(output: ReActAgentOutput) -> Self {
         serde_json::to_value(output).unwrap_or(Value::Null)
     }
 }
@@ -49,26 +49,8 @@ pub enum ReActExecutorError {
 }
 
 /// A ReAct-style executor that handles tool calls and conversation flow
-#[derive(Debug, Default)]
-pub struct ReActExecutor {
-    config: ExecutorConfig,
-}
-
-impl ReActExecutor {
-    pub fn with_config(mut self, config: ExecutorConfig) -> Self {
-        self.config = config;
-        self
-    }
-
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_max_turns(mut self, max_turns: usize) -> Self {
-        self.config.max_turns = max_turns;
-        self
-    }
-
+#[async_trait]
+pub trait ReActExecutor: Send + Sync + 'static {
     /// Process tool calls from the LLM response
     async fn process_tool_calls(
         &self,
@@ -147,16 +129,6 @@ impl ReActExecutor {
 
         results
     }
-}
-
-#[async_trait]
-impl AgentExecutor for ReActExecutor {
-    type Output = AgentOutput;
-    type Error = ReActExecutorError;
-
-    fn config(&self) -> &ExecutorConfig {
-        &self.config
-    }
 
     async fn process_turn(
         &self,
@@ -164,11 +136,9 @@ impl AgentExecutor for ReActExecutor {
         memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
         tools: &[Arc<Box<dyn ToolT>>],
         agent_config: &AgentConfig,
-        task: &Task,
         state: Arc<RwLock<AgentState>>,
-        turn_number: usize,
         tx_event: mpsc::Sender<Event>,
-    ) -> Result<TurnResult<Self::Output>, Self::Error> {
+    ) -> Result<TurnResult<ReActAgentOutput>, ReActExecutorError> {
         // Build conversation history
         let mut messages = vec![ChatMessage {
             role: ChatRole::Assistant,
@@ -180,15 +150,6 @@ impl AgentExecutor for ReActExecutor {
         if let Some(memory) = memory {
             let history = memory.read().await.recall("", None).await.unwrap();
             messages.extend(history);
-        }
-
-        // Add the current task if this is the first turn
-        if turn_number == 0 {
-            messages.push(ChatMessage {
-                role: ChatRole::User,
-                message_type: MessageType::Text,
-                content: task.prompt.clone(),
-            });
         }
 
         // Make LLM call with tools
@@ -221,22 +182,76 @@ impl AgentExecutor for ReActExecutor {
             }
 
             // Continue to next turn to let the LLM see the tool results
-            Ok(TurnResult::Continue(Some(AgentOutput {
+            Ok(TurnResult::Continue(Some(ReActAgentOutput {
                 response: response_text,
                 tool_calls: tool_results,
             })))
         } else {
             // No tool calls, this is the final response
-            Ok(TurnResult::Complete(AgentOutput {
+            Ok(TurnResult::Complete(ReActAgentOutput {
                 response: response_text,
                 tool_calls: Vec::new(),
             }))
         }
     }
+}
 
-    fn max_turns_error(&self) -> Self::Error {
-        ReActExecutorError::MaxTurnsExceeded {
-            max_turns: self.config.max_turns,
+#[async_trait]
+impl<T: ReActExecutor> AgentExecutor for T {
+    type Output = ReActAgentOutput;
+    type Error = ReActExecutorError;
+
+    fn config(&self) -> ExecutorConfig {
+        ExecutorConfig { max_turns: 10 }
+    }
+
+    async fn execute(
+        &self,
+        llm: Arc<dyn LLMProvider>,
+        memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+        tools: &[Arc<Box<dyn ToolT>>],
+        agent_config: &AgentConfig,
+        _task: Task,
+        state: Arc<RwLock<AgentState>>,
+        tx_event: mpsc::Sender<Event>,
+    ) -> Result<Self::Output, Self::Error> {
+        let max_turns = self.config().max_turns;
+
+        for turn in 0..max_turns {
+            match self
+                .process_turn(
+                    llm.clone(),
+                    memory.clone(),
+                    tools,
+                    agent_config,
+                    state.clone(),
+                    tx_event.clone(),
+                )
+                .await?
+            {
+                TurnResult::Complete(result) => {
+                    return Ok(result);
+                }
+                TurnResult::Continue(_) => {
+                    continue;
+                }
+                TurnResult::Error(msg) => {
+                    eprintln!("Turn {} error: {}", turn, msg);
+                    continue;
+                }
+                TurnResult::Fatal(_error) => {
+                    // Fatal errors should be of type Self::Error
+                    return Err(ReActExecutorError::MaxTurnsExceeded {
+                        max_turns: self.config().max_turns,
+                    });
+                }
+            }
         }
+
+        // Reached max turns without completion
+        eprintln!("Reached maximum turns ({}) without completion", max_turns);
+        Err(ReActExecutorError::MaxTurnsExceeded {
+            max_turns: self.config().max_turns,
+        })
     }
 }

@@ -24,7 +24,7 @@ pub struct WeatherArgs {
 )]
 fn get_weather(args: WeatherArgs) -> Result<String, ToolCallError> {
     println!("ToolCall: GetWeather {:?}", args);
-    if args.city == "Chennai" || args.city == "Hyderabad" {
+    if args.city == "Hyderabad" {
         Ok(format!(
             "The current temperature in {} is 28 degrees celsius",
             args.city
@@ -45,6 +45,7 @@ fn get_weather(args: WeatherArgs) -> Result<String, ToolCallError> {
     name = "weather_agent",
     description = "You are a weather assistant that helps users get weather information.",
     tools = [WeatherTool],
+    executor = ReActExecutor,
     output = String,
 )]
 pub struct WeatherAgent {}
@@ -119,9 +120,8 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
     let weather_agent = WeatherAgent {};
-    let executor = ReActExecutor::new();
 
-    let agent = AgentBuilder::new(weather_agent, executor)
+    let agent = AgentBuilder::new(weather_agent)
         .with_llm(llm)
         .with_memory(sliding_window_memory)
         .build()
@@ -137,17 +137,15 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     // Add tasks
     let _ = environment
-        .add_task(agent_id, "Hello! My name is John")
+        .add_task(agent_id, "What is the weather in Hyderabad and New York?")
         .await?;
 
-    let _ = environment.add_task(agent_id, "What is My name?").await?;
-
-    // let _ = environment
-    //     .add_task(
-    //         agent_id,
-    //         "Compare the weather between Chennai and New York. Which city is warmer?",
-    //     )
-    //     .await?;
+    let _ = environment
+        .add_task(
+            agent_id,
+            "Compare the weather between Chennai and New York. Which city is warmer?",
+        )
+        .await?;
 
     // Run all tasks
     let _ = environment.run_all(agent_id, None).await?;

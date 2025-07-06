@@ -1,6 +1,5 @@
 use super::base::{AgentDeriveT, BaseAgent};
 use super::error::RunnableAgentError;
-use super::executor::AgentExecutor;
 use super::result::AgentRunResult;
 use crate::protocol::{Event, TaskResult};
 use crate::session::Task;
@@ -59,14 +58,14 @@ pub trait RunnableAgent: Send + Sync + 'static {
 }
 
 /// Wrapper that makes BaseAgent<T> implement RunnableAgent
-pub struct RunnableAgentImpl<T: AgentDeriveT, E: AgentExecutor> {
-    agent: BaseAgent<T, E>,
+pub struct RunnableAgentImpl<T: AgentDeriveT> {
+    agent: BaseAgent<T>,
     state: Arc<RwLock<AgentState>>,
     id: Uuid,
 }
 
-impl<T: AgentDeriveT, E: AgentExecutor> RunnableAgentImpl<T, E> {
-    pub fn new(agent: BaseAgent<T, E>) -> Self {
+impl<T: AgentDeriveT> RunnableAgentImpl<T> {
+    pub fn new(agent: BaseAgent<T>) -> Self {
         Self {
             agent,
             state: Arc::new(RwLock::new(AgentState::new())),
@@ -80,7 +79,7 @@ impl<T: AgentDeriveT, E: AgentExecutor> RunnableAgentImpl<T, E> {
 }
 
 #[async_trait]
-impl<T, E: AgentExecutor> RunnableAgent for RunnableAgentImpl<T, E>
+impl<T> RunnableAgent for RunnableAgentImpl<T>
 where
     T: AgentDeriveT,
 {
@@ -121,7 +120,7 @@ where
         // Execute the agent's logic using the executor
         match self
             .agent
-            .executor
+            .inner()
             .execute(
                 self.agent.llm(),
                 self.agent.memory(),
@@ -136,16 +135,6 @@ where
             Ok(output) => {
                 // Convert output to Value
                 let value: Value = output.into();
-
-                // Record the response in state
-                {
-                    // let mut state = self.state.write().await;
-                    // state.record_message(
-                    //     "assistant".to_string(),
-                    //     serde_json::to_string_pretty(&value)
-                    //         .unwrap_or_else(|_| "Unknown".to_string()),
-                    // );
-                }
 
                 // Update memory with the result
                 if let Some(memory) = self.agent.memory() {
@@ -190,11 +179,11 @@ where
 }
 
 /// Extension trait for converting BaseAgent to RunnableAgent
-pub trait IntoRunnable<T: AgentDeriveT, E: AgentExecutor> {
+pub trait IntoRunnable<T: AgentDeriveT> {
     fn into_runnable(self) -> Arc<dyn RunnableAgent>;
 }
 
-impl<T: AgentDeriveT, E: AgentExecutor> IntoRunnable<T, E> for BaseAgent<T, E> {
+impl<T: AgentDeriveT> IntoRunnable<T> for BaseAgent<T> {
     fn into_runnable(self) -> Arc<dyn RunnableAgent> {
         Arc::new(RunnableAgentImpl::new(self))
     }

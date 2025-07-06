@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 /// Core trait that defines agent metadata and behavior
 /// This trait is implemented via the #[agent] macro
 #[async_trait]
-pub trait AgentDeriveT: Send + Sync + 'static {
+pub trait AgentDeriveT: Send + Sync + 'static + AgentExecutor {
     /// The output type this agent produces
     type Output: Serialize + DeserializeOwned + Send + Sync + Into<Value>;
 
@@ -33,26 +33,23 @@ pub struct AgentConfig {
 
 /// Base agent type that wraps an AgentDeriveT implementation with additional runtime components
 #[derive(Clone)]
-pub struct BaseAgent<T: AgentDeriveT, E: AgentExecutor> {
+pub struct BaseAgent<T: AgentDeriveT> {
     /// The inner agent implementation (from macro)
     pub inner: Arc<T>,
     /// LLM provider for this agent
     pub llm: Arc<dyn LLMProvider>,
-    /// Executor for this agent
-    pub executor: E,
     /// Optional memory provider
     pub memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
     /// Cached tools as Arc for efficiency
     tools: Vec<Arc<Box<dyn ToolT>>>,
 }
 
-impl<T: AgentDeriveT, E: AgentExecutor> BaseAgent<T, E> {
+impl<T: AgentDeriveT> BaseAgent<T> {
     /// Create a new BaseAgent wrapping an AgentDeriveT implementation
     pub fn new(
         inner: T,
         llm: Arc<dyn LLMProvider>,
         memory: Option<Box<dyn MemoryProvider>>,
-        executor: E,
     ) -> Self {
         // Convert tools to Arc for efficient sharing
         let tools = inner.tools().into_iter().map(Arc::new).collect();
@@ -60,9 +57,12 @@ impl<T: AgentDeriveT, E: AgentExecutor> BaseAgent<T, E> {
             inner: Arc::new(inner),
             llm,
             memory: memory.map(|m| Arc::new(RwLock::new(m))),
-            executor,
             tools,
         }
+    }
+
+    pub fn inner(&self) -> Arc<T> {
+        self.inner.clone()
     }
 
     /// Get the agent's name
@@ -99,27 +99,25 @@ impl<T: AgentDeriveT, E: AgentExecutor> BaseAgent<T, E> {
 }
 
 /// Builder for creating BaseAgent instances from AgentDeriveT implementations
-pub struct AgentBuilder<T: AgentDeriveT, E: AgentExecutor> {
+pub struct AgentBuilder<T: AgentDeriveT + AgentExecutor> {
     inner: T,
-    executor: E,
     llm: Option<Arc<dyn LLMProvider>>,
     memory: Option<Box<dyn MemoryProvider>>,
 }
 
-impl<T: AgentDeriveT + 'static, E: AgentExecutor> AgentBuilder<T, E> {
+impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
     /// Create a new builder with an AgentDeriveT implementation
-    pub fn new(inner: T, executor: E) -> Self {
+    pub fn new(inner: T) -> Self {
         Self {
             inner,
-            executor,
             llm: None,
             memory: None,
         }
     }
 
     /// Create a builder from an existing agent (for compatibility)
-    pub fn from_agent(inner: T, executor: E) -> Self {
-        Self::new(inner, executor)
+    pub fn from_agent(inner: T) -> Self {
+        Self::new(inner)
     }
 
     /// Set the LLM provider
@@ -137,7 +135,7 @@ impl<T: AgentDeriveT + 'static, E: AgentExecutor> AgentBuilder<T, E> {
     /// Build the BaseAgent
     pub fn build(self) -> Result<Arc<dyn RunnableAgent>, &'static str> {
         let llm = self.llm.ok_or("LLM provider is required")?;
-        Ok(BaseAgent::new(self.inner, llm, self.memory, self.executor).into_runnable())
+        Ok(BaseAgent::new(self.inner, llm, self.memory).into_runnable())
     }
 
     /// Build the BaseAgent with memory (for compatibility)
@@ -146,6 +144,6 @@ impl<T: AgentDeriveT + 'static, E: AgentExecutor> AgentBuilder<T, E> {
         memory: Box<dyn MemoryProvider>,
     ) -> Result<Arc<dyn RunnableAgent>, &'static str> {
         let llm = self.llm.ok_or("LLM provider is required")?;
-        Ok(BaseAgent::new(self.inner, llm, Some(memory), self.executor).into_runnable())
+        Ok(BaseAgent::new(self.inner, llm, Some(memory)).into_runnable())
     }
 }
