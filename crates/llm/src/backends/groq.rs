@@ -134,6 +134,8 @@ impl ChatProvider for Groq {
                 role: match m.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
+                    ChatRole::Tool => "tool",
+                    ChatRole::System => "system",
                 },
                 content: &m.content,
             })

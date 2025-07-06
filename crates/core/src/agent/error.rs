@@ -1,9 +1,6 @@
 use std::fmt::Debug;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum AgentError {}
-
 /// Error type for RunnableAgent operations
 #[derive(Debug, Error)]
 pub enum RunnableAgentError {
@@ -61,4 +58,10 @@ where
     fn from(error: tokio::sync::mpsc::error::SendError<T>) -> Self {
         Self::EventSendError(error.to_string())
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AgentBuildError {
+    #[error("Build Failure")]
+    BuildFailure(String),
 }

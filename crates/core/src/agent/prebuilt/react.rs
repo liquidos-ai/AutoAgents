@@ -7,19 +7,17 @@ use crate::session::Task;
 use crate::tool::ToolCallResult;
 use async_trait::async_trait;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, Tool};
-use autoagents_llm::{LLMProvider, ToolT};
+use autoagents_llm::{LLMProvider, ToolCall, ToolT};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::{mpsc, RwLock};
 
-/// The default agent output structure
+/// Output of the ReAct-style agent
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReActAgentOutput {
-    /// The agent's response
     pub response: String,
-    /// Any tool calls made during execution
     pub tool_calls: Vec<ToolCallResult>,
 }
 
@@ -29,7 +27,6 @@ impl From<ReActAgentOutput> for Value {
     }
 }
 
-/// Error types for the default executor
 #[derive(Error, Debug)]
 pub enum ReActExecutorError {
     #[error("LLM error: {0}")]
@@ -48,83 +45,71 @@ pub enum ReActExecutorError {
     Other(String),
 }
 
-/// A ReAct-style executor that handles tool calls and conversation flow
 #[async_trait]
 pub trait ReActExecutor: Send + Sync + 'static {
-    /// Process tool calls from the LLM response
     async fn process_tool_calls(
         &self,
-        tools: &[Arc<Box<dyn ToolT>>],
+        tools: &[Box<dyn ToolT>],
         tool_calls: Vec<autoagents_llm::ToolCall>,
         tx_event: mpsc::Sender<Event>,
+        _memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
     ) -> Vec<ToolCallResult> {
         let mut results = Vec::new();
 
-        for tc in tool_calls {
-            let tool_name = tc.function.name.clone();
-            let tool_args = tc.function.arguments.clone();
+        for call in &tool_calls {
+            let tool_name = call.function.name.clone();
+            let tool_args = call.function.arguments.clone();
 
-            // Find the matching tool
-            if let Some(tool) = tools.iter().find(|t| t.name() == tool_name) {
-                let _ = tx_event
-                    .send(Event::ToolCallRequested {
-                        id: tc.id.clone(),
-                        tool_name: tool_name.clone(),
-                        arguments: tool_args.clone(),
-                    })
-                    .await;
-
-                // Parse the arguments and execute the tool
-                let result = match serde_json::from_str::<serde_json::Value>(&tool_args) {
-                    Ok(parsed_args) => match tool.run(parsed_args) {
-                        Ok(output) => ToolCallResult {
+            let result = match tools.iter().find(|t| t.name() == tool_name) {
+                Some(tool) => {
+                    let _ = tx_event
+                        .send(Event::ToolCallRequested {
+                            id: call.id.clone(),
                             tool_name: tool_name.clone(),
-                            success: true,
-                            arguments: serde_json::from_str(&tool_args)
-                                .unwrap_or(serde_json::Value::Null),
-                            result: output,
+                            arguments: tool_args.clone(),
+                        })
+                        .await;
+
+                    match serde_json::from_str::<Value>(&tool_args) {
+                        Ok(parsed_args) => match tool.run(parsed_args) {
+                            Ok(output) => ToolCallResult {
+                                tool_name: tool_name.clone(),
+                                success: true,
+                                arguments: serde_json::from_str(&tool_args).unwrap_or(Value::Null),
+                                result: output,
+                            },
+                            Err(e) => ToolCallResult {
+                                tool_name: tool_name.clone(),
+                                success: false,
+                                arguments: serde_json::from_str(&tool_args).unwrap_or(Value::Null),
+                                result: serde_json::json!({"error": e.to_string()}),
+                            },
                         },
                         Err(e) => ToolCallResult {
                             tool_name: tool_name.clone(),
                             success: false,
-                            arguments: serde_json::from_str(&tool_args)
-                                .unwrap_or(serde_json::Value::Null),
-                            result: serde_json::json!({
-                                "error": e.to_string()
-                            }),
+                            arguments: Value::Null,
+                            result: serde_json::json!({"error": format!("Failed to parse arguments: {}", e)}),
                         },
-                    },
-                    Err(e) => ToolCallResult {
-                        tool_name: tool_name.clone(),
-                        success: false,
-                        arguments: serde_json::Value::Null,
-                        result: serde_json::json!({
-                            "error": format!("Failed to parse arguments: {}", e)
-                        }),
-                    },
-                };
-
-                let _ = tx_event
-                    .send(Event::ToolCallCompleted {
-                        id: tc.id.clone(),
-                        tool_name: tool_name.clone(),
-                        result: result.result.clone(),
-                    })
-                    .await;
-
-                results.push(result);
-            } else {
-                // Tool not found
-                let result = ToolCallResult {
+                    }
+                }
+                None => ToolCallResult {
                     tool_name: tool_name.clone(),
                     success: false,
-                    arguments: serde_json::from_str(&tool_args).unwrap_or(serde_json::Value::Null),
-                    result: serde_json::json!({
-                        "error": format!("Tool '{}' not found", tool_name)
-                    }),
-                };
-                results.push(result);
-            }
+                    arguments: serde_json::from_str(&tool_args).unwrap_or(Value::Null),
+                    result: serde_json::json!({"error": format!("Tool '{}' not found", tool_name)}),
+                },
+            };
+
+            let _ = tx_event
+                .send(Event::ToolCallCompleted {
+                    id: call.id.clone(),
+                    tool_name: tool_name.clone(),
+                    result: result.result.clone(),
+                })
+                .await;
+
+            results.push(result);
         }
 
         results
@@ -134,28 +119,37 @@ pub trait ReActExecutor: Send + Sync + 'static {
         &self,
         llm: Arc<dyn LLMProvider>,
         memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-        tools: &[Arc<Box<dyn ToolT>>],
+        tools: &[Box<dyn ToolT>],
         agent_config: &AgentConfig,
         state: Arc<RwLock<AgentState>>,
         tx_event: mpsc::Sender<Event>,
     ) -> Result<TurnResult<ReActAgentOutput>, ReActExecutorError> {
-        // Build conversation history
-        let mut messages = vec![ChatMessage {
-            role: ChatRole::Assistant,
-            message_type: MessageType::Text,
-            content: agent_config.description.clone(),
-        }];
+        let mut messages = vec![];
 
-        // Add conversation history from state
-        if let Some(memory) = memory {
-            let history = memory.read().await.recall("", None).await.unwrap();
-            messages.extend(history);
+        if let Some(memory) = &memory {
+            messages = memory
+                .read()
+                .await
+                .recall("", None)
+                .await
+                .unwrap_or_default();
         }
 
-        // Make LLM call with tools
+        // Add system message at the beginning if not present
+        if messages.is_empty() || messages[0].role != ChatRole::System {
+            messages.insert(
+                0,
+                ChatMessage {
+                    role: ChatRole::System,
+                    message_type: MessageType::Text,
+                    content: agent_config.description.clone(),
+                },
+            );
+        }
+
         let response = if !tools.is_empty() {
-            let tools: Vec<Tool> = tools.iter().map(|arc_tool| arc_tool.into()).collect();
-            llm.chat_with_tools(&messages, Some(&tools))
+            let tools_serialized: Vec<Tool> = tools.iter().map(Tool::from).collect();
+            llm.chat_with_tools(&messages, Some(&tools_serialized))
                 .await
                 .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?
         } else {
@@ -164,33 +158,89 @@ pub trait ReActExecutor: Send + Sync + 'static {
                 .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?
         };
 
-        let response_text = response.text().clone().unwrap_or_default();
+        let response_text = response.text().unwrap_or_default();
 
-        // Check if there are tool calls to process
         if let Some(tool_calls) = response.tool_calls() {
-            // Process tool calls
             let tool_results = self
-                .process_tool_calls(tools, tool_calls.clone(), tx_event.clone())
+                .process_tool_calls(tools, tool_calls.clone(), tx_event.clone(), memory.clone())
                 .await;
 
-            // Record tool calls in state
+            // Store tool calls and results in memory
+            if let Some(mem) = &memory {
+                let mut mem = mem.write().await;
+
+                // Record that assistant is calling tools
+                let _ = mem
+                    .remember(&ChatMessage {
+                        role: ChatRole::Assistant,
+                        message_type: MessageType::ToolUse(tool_calls.clone()),
+                        content: response_text.clone(),
+                    })
+                    .await;
+
+                // Create ToolCall objects with the results for ToolResult message type
+                let mut result_tool_calls = Vec::new();
+                for (tool_call, result) in tool_calls.iter().zip(&tool_results) {
+                    let result_content = if result.success {
+                        match &result.result {
+                            serde_json::Value::String(s) => s.clone(),
+                            other => serde_json::to_string(other).unwrap_or_default(),
+                        }
+                    } else {
+                        serde_json::json!({"error": format!("{:?}", result.result)}).to_string()
+                    };
+
+                    // Create a new ToolCall with the result in the arguments field
+                    result_tool_calls.push(ToolCall {
+                        id: tool_call.id.clone(),
+                        call_type: tool_call.call_type.clone(),
+                        function: autoagents_llm::FunctionCall {
+                            name: tool_call.function.name.clone(),
+                            arguments: result_content,
+                        },
+                    });
+                }
+
+                // Store tool results using ToolResult message type with Tool role
+                let _ = mem
+                    .remember(&ChatMessage {
+                        role: ChatRole::Tool,
+                        message_type: MessageType::ToolResult(result_tool_calls),
+                        content: String::new(),
+                    })
+                    .await;
+            }
+
             {
-                let mut state_guard = state.write().await;
+                let mut guard = state.write().await;
                 for result in &tool_results {
-                    state_guard.record_tool_call(result.clone());
+                    guard.record_tool_call(result.clone());
                 }
             }
 
-            // Continue to next turn to let the LLM see the tool results
+            // Continue to let the LLM generate a response based on tool results
             Ok(TurnResult::Continue(Some(ReActAgentOutput {
                 response: response_text,
                 tool_calls: tool_results,
             })))
         } else {
-            // No tool calls, this is the final response
+            // Record the final response in memory
+            if !response_text.is_empty() {
+                if let Some(mem) = &memory {
+                    let mut mem = mem.write().await;
+                    let _ = mem
+                        .remember(&ChatMessage {
+                            role: ChatRole::Assistant,
+                            message_type: MessageType::Text,
+                            content: response_text.clone(),
+                        })
+                        .await;
+                }
+            }
+
             Ok(TurnResult::Complete(ReActAgentOutput {
                 response: response_text,
-                tool_calls: Vec::new(),
+                tool_calls: vec![],
             }))
         }
     }
@@ -209,20 +259,22 @@ impl<T: ReActExecutor> AgentExecutor for T {
         &self,
         llm: Arc<dyn LLMProvider>,
         memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-        tools: &[Arc<Box<dyn ToolT>>],
+        tools: Vec<Box<dyn ToolT>>,
         agent_config: &AgentConfig,
         _task: Task,
         state: Arc<RwLock<AgentState>>,
         tx_event: mpsc::Sender<Event>,
     ) -> Result<Self::Output, Self::Error> {
         let max_turns = self.config().max_turns;
+        let mut accumulated_tool_calls = Vec::new();
+        let mut final_response = String::new();
 
         for turn in 0..max_turns {
             match self
                 .process_turn(
                     llm.clone(),
                     memory.clone(),
-                    tools,
+                    &tools,
                     agent_config,
                     state.clone(),
                     tx_event.clone(),
@@ -230,28 +282,42 @@ impl<T: ReActExecutor> AgentExecutor for T {
                 .await?
             {
                 TurnResult::Complete(result) => {
+                    // If we have accumulated tool calls, merge them with the final result
+                    if !accumulated_tool_calls.is_empty() {
+                        return Ok(ReActAgentOutput {
+                            response: result.response,
+                            tool_calls: accumulated_tool_calls,
+                        });
+                    }
                     return Ok(result);
                 }
-                TurnResult::Continue(_) => {
+                TurnResult::Continue(Some(partial_result)) => {
+                    // Accumulate tool calls and continue for final response
+                    accumulated_tool_calls.extend(partial_result.tool_calls);
+                    if !partial_result.response.is_empty() {
+                        final_response = partial_result.response;
+                    }
                     continue;
                 }
+                TurnResult::Continue(None) => continue,
                 TurnResult::Error(msg) => {
                     eprintln!("Turn {} error: {}", turn, msg);
                     continue;
                 }
-                TurnResult::Fatal(_error) => {
-                    // Fatal errors should be of type Self::Error
-                    return Err(ReActExecutorError::MaxTurnsExceeded {
-                        max_turns: self.config().max_turns,
-                    });
+                TurnResult::Fatal(_) => {
+                    return Err(ReActExecutorError::MaxTurnsExceeded { max_turns });
                 }
             }
         }
 
-        // Reached max turns without completion
-        eprintln!("Reached maximum turns ({}) without completion", max_turns);
-        Err(ReActExecutorError::MaxTurnsExceeded {
-            max_turns: self.config().max_turns,
-        })
+        // If we've exhausted turns but have results, return what we have
+        if !final_response.is_empty() || !accumulated_tool_calls.is_empty() {
+            Ok(ReActAgentOutput {
+                response: final_response,
+                tool_calls: accumulated_tool_calls,
+            })
+        } else {
+            Err(ReActExecutorError::MaxTurnsExceeded { max_turns })
+        }
     }
 }

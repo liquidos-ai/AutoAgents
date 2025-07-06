@@ -323,6 +323,8 @@ impl ChatProvider for Ollama {
                 role: match msg.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
+                    ChatRole::Tool => "tool",
+                    ChatRole::System => "system",
                 },
                 content: &msg.content,
             })
@@ -397,6 +399,8 @@ impl ChatProvider for Ollama {
                 role: match msg.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
+                    ChatRole::Tool => "tool",
+                    ChatRole::System => "system",
                 },
                 content: &msg.content,
             })

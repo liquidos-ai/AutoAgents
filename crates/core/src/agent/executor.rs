@@ -56,7 +56,7 @@ pub trait AgentExecutor: Send + Sync + 'static {
         &self,
         llm: Arc<dyn LLMProvider>,
         memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-        tools: &[Arc<Box<dyn ToolT>>],
+        tools: Vec<Box<dyn ToolT>>,
         agent_config: &AgentConfig,
         task: Task,
         state: Arc<RwLock<AgentState>>,

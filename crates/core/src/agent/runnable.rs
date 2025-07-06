@@ -1,6 +1,7 @@
 use super::base::{AgentDeriveT, BaseAgent};
 use super::error::RunnableAgentError;
 use super::result::AgentRunResult;
+use crate::memory::MemoryProvider;
 use crate::protocol::{Event, TaskResult};
 use crate::session::Task;
 use crate::tool::ToolCallResult;
@@ -47,6 +48,8 @@ pub trait RunnableAgent: Send + Sync + 'static {
         task: Task,
         tx_event: mpsc::Sender<Event>,
     ) -> Result<AgentRunResult, RunnableAgentError>;
+
+    fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>>;
 
     fn spawn_task(
         self: Arc<Self>,
@@ -95,6 +98,10 @@ where
         self.id
     }
 
+    fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>> {
+        self.agent.memory()
+    }
+
     async fn run(
         self: Arc<Self>,
         task: Task,
@@ -124,7 +131,7 @@ where
             .execute(
                 self.agent.llm(),
                 self.agent.memory(),
-                &self.agent.tools(),
+                self.agent.tools(),
                 &self.agent.agent_config(),
                 task.clone(),
                 self.state.clone(),
@@ -135,18 +142,6 @@ where
             Ok(output) => {
                 // Convert output to Value
                 let value: Value = output.into();
-
-                // Update memory with the result
-                if let Some(memory) = self.agent.memory() {
-                    let mut mem = memory.write().await;
-                    let result_msg = ChatMessage {
-                        role: ChatRole::Assistant,
-                        message_type: MessageType::Text,
-                        content: serde_json::to_string_pretty(&value)
-                            .unwrap_or_else(|_| "Unknown".to_string()),
-                    };
-                    let _ = mem.remember(&result_msg).await;
-                }
 
                 // Create task result
                 let task_result = TaskResult::Value(value.clone());

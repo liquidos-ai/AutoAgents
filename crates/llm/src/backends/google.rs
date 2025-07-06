@@ -516,6 +516,8 @@ impl ChatProvider for Google {
                 _ => match msg.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "model",
+                    ChatRole::Tool => "tool",
+                    ChatRole::System => "system",
                 },
             };
 
@@ -691,6 +693,8 @@ impl ChatProvider for Google {
                 _ => match msg.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "model",
+                    ChatRole::Tool => "tool",
+                    ChatRole::System => "system",
                 },
             };
 
@@ -861,6 +865,8 @@ impl ChatProvider for Google {
             let role = match msg.role {
                 ChatRole::User => "user",
                 ChatRole::Assistant => "model",
+                ChatRole::Tool => "tool",
+                ChatRole::System => "system",
             };
 
             chat_contents.push(GoogleChatContent {

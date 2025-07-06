@@ -1,4 +1,4 @@
-use super::{AgentExecutor, IntoRunnable, RunnableAgent};
+use super::{error::AgentBuildError, AgentExecutor, IntoRunnable, RunnableAgent};
 use crate::memory::MemoryProvider;
 use async_trait::async_trait;
 use autoagents_llm::{LLMProvider, ToolT};
@@ -40,8 +40,6 @@ pub struct BaseAgent<T: AgentDeriveT> {
     pub llm: Arc<dyn LLMProvider>,
     /// Optional memory provider
     pub memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-    /// Cached tools as Arc for efficiency
-    tools: Vec<Arc<Box<dyn ToolT>>>,
 }
 
 impl<T: AgentDeriveT> BaseAgent<T> {
@@ -52,12 +50,10 @@ impl<T: AgentDeriveT> BaseAgent<T> {
         memory: Option<Box<dyn MemoryProvider>>,
     ) -> Self {
         // Convert tools to Arc for efficient sharing
-        let tools = inner.tools().into_iter().map(Arc::new).collect();
         Self {
             inner: Arc::new(inner),
             llm,
             memory: memory.map(|m| Arc::new(RwLock::new(m))),
-            tools,
         }
     }
 
@@ -76,8 +72,8 @@ impl<T: AgentDeriveT> BaseAgent<T> {
     }
 
     /// Get the tools as Arc-wrapped references
-    pub fn tools(&self) -> Vec<Arc<Box<dyn ToolT>>> {
-        self.tools.clone()
+    pub fn tools(&self) -> Vec<Box<dyn ToolT>> {
+        self.inner.tools()
     }
 
     pub fn agent_config(&self) -> AgentConfig {
@@ -133,8 +129,10 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
     }
 
     /// Build the BaseAgent
-    pub fn build(self) -> Result<Arc<dyn RunnableAgent>, &'static str> {
-        let llm = self.llm.ok_or("LLM provider is required")?;
+    pub fn build(self) -> Result<Arc<dyn RunnableAgent>, AgentBuildError> {
+        let llm = self.llm.ok_or(AgentBuildError::BuildFailure(
+            "LLM provider is required".to_string(),
+        ))?;
         Ok(BaseAgent::new(self.inner, llm, self.memory).into_runnable())
     }
 
@@ -142,8 +140,10 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
     pub fn build_with_memory(
         self,
         memory: Box<dyn MemoryProvider>,
-    ) -> Result<Arc<dyn RunnableAgent>, &'static str> {
-        let llm = self.llm.ok_or("LLM provider is required")?;
+    ) -> Result<Arc<dyn RunnableAgent>, AgentBuildError> {
+        let llm = self.llm.ok_or(AgentBuildError::BuildFailure(
+            "LLM provider is required".to_string(),
+        ))?;
         Ok(BaseAgent::new(self.inner, llm, Some(memory)).into_runnable())
     }
 }

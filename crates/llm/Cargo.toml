@@ -9,7 +9,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["openai"]
+default = ["full"]
 full = [
     "openai",
     "anthropic",

@@ -1,7 +1,6 @@
 use autoagents::core::agent::base::AgentBuilder;
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::protocol::Event;
 use autoagents::llm::{LLMProvider, ToolCallError, ToolInputT, ToolT};
 use autoagents_core::agent::{AgentDeriveT, ReActExecutor};
 use autoagents_core::memory::SlidingWindowMemory;
@@ -9,7 +8,6 @@ use autoagents_derive::{agent, tool, ToolInput};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct WeatherArgs {
@@ -50,70 +48,6 @@ fn get_weather(args: WeatherArgs) -> Result<String, ToolCallError> {
 )]
 pub struct WeatherAgent {}
 
-fn handle_events(event_stream: Option<ReceiverStream<Event>>) {
-    if let Some(mut event_stream) = event_stream {
-        tokio::spawn(async move {
-            while let Some(event) = event_stream.next().await {
-                match event {
-                    Event::TaskStarted {
-                        agent_id,
-                        task_description,
-                        ..
-                    } => {
-                        println!(
-                            "📋 Task Started - Agent: {:?}, Task: {}",
-                            agent_id, task_description
-                        );
-                    }
-                    Event::ToolCallRequested {
-                        tool_name,
-                        arguments,
-                        ..
-                    } => {
-                        println!(
-                            "🔧 Tool Call Started: {} with args: {}",
-                            tool_name, arguments
-                        );
-                    }
-                    Event::ToolCallCompleted {
-                        tool_name, result, ..
-                    } => {
-                        println!(
-                            "✅ Tool Call Completed: {} - Result: {:?}",
-                            tool_name, result
-                        );
-                    }
-                    Event::TaskComplete { result, .. } => {
-                        println!("✨ Task Complete: {:?}", result);
-                    }
-                    Event::Warning { message } => {
-                        println!("⚠️  Warning: {}", message);
-                    }
-                    Event::TurnStarted {
-                        turn_number,
-                        max_turns,
-                    } => {
-                        println!("🔄 Turn {}/{} started", turn_number + 1, max_turns);
-                    }
-                    Event::TurnCompleted {
-                        turn_number,
-                        final_turn,
-                    } => {
-                        println!(
-                            "✓ Turn {} completed{}",
-                            turn_number + 1,
-                            if final_turn { " (final)" } else { "" }
-                        );
-                    }
-                    _ => {
-                        println!("📡 Event: {:?}", event);
-                    }
-                }
-            }
-        });
-    }
-}
-
 pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     println!("Starting Weather Agent Example...\n");
 
@@ -124,16 +58,13 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let agent = AgentBuilder::new(weather_agent)
         .with_llm(llm)
         .with_memory(sliding_window_memory)
-        .build()
-        .unwrap();
+        .build()?;
 
     // Create environment and set up event handling
     let mut environment = Environment::new(None).await;
-    let receiver = environment.take_event_receiver(None).await;
-    handle_events(receiver);
 
     // Register the agent
-    let agent_id = environment.register_agent(agent, None).await?;
+    let agent_id = environment.register_agent(agent.clone(), None).await?;
 
     // Add tasks
     let _ = environment
@@ -143,12 +74,13 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let _ = environment
         .add_task(
             agent_id,
-            "Compare the weather between Chennai and New York. Which city is warmer?",
+            "Compare the weather between Hyderabad and New York. Which city is warmer?",
         )
         .await?;
 
     // Run all tasks
-    let _ = environment.run_all(agent_id, None).await?;
+    let results = environment.run_all(agent_id, None).await?;
+    println!("Results: {:?}", results.last());
 
     // Shutdown
     let _ = environment.shutdown().await;

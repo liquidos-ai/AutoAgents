@@ -11,10 +11,14 @@ use crate::{error::LLMError, ToolCall};
 /// Role of a participant in a chat conversation.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ChatRole {
+    /// System
+    System,
     /// The user/human participant in the conversation
     User,
     /// The AI assistant participant in the conversation
     Assistant,
+    /// Tool/function response
+    Tool,
 }
 
 /// The supported MIME type of an image.

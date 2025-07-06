@@ -362,6 +362,8 @@ impl ChatProvider for XAI {
                 role: match m.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
+                    ChatRole::Tool => "tool",
+                    ChatRole::System => "system",
                 },
                 content: &m.content,
             })
@@ -481,6 +483,8 @@ impl ChatProvider for XAI {
                 role: match m.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
+                    ChatRole::System => "system",
+                    ChatRole::Tool => "tool",
                 },
                 content: &m.content,
             })

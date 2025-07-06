@@ -1,5 +1,5 @@
 use crate::{
-    agent::error::{AgentError, RunnableAgentError},
+    agent::{error::AgentBuildError, error::RunnableAgentError},
     environment::EnvironmentError,
     session::SessionError,
 };
@@ -11,7 +11,7 @@ pub enum Error {
     #[error(transparent)]
     SessionError(#[from] SessionError),
     #[error(transparent)]
-    AgentError(#[from] AgentError),
+    AgentBuildError(#[from] AgentBuildError),
     #[error(transparent)]
     RunnableAgentError(#[from] RunnableAgentError),
 }

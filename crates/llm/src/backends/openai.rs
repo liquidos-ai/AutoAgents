@@ -723,6 +723,8 @@ fn chat_message_to_api_message(chat_msg: ChatMessage) -> OpenAIChatMessage<'stat
         role: match chat_msg.role {
             ChatRole::User => "user",
             ChatRole::Assistant => "assistant",
+            ChatRole::System => "system",
+            ChatRole::Tool => "tool",
         },
         tool_call_id: None,
         content: match &chat_msg.message_type {
