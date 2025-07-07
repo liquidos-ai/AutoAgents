@@ -58,7 +58,7 @@ pub enum LLMBackend {
 ///
 /// ```
 /// use std::str::FromStr;
-/// use llm::builder::LLMBackend;
+/// use autoagents_llm::builder::LLMBackend;
 ///
 /// let backend = LLMBackend::from_str("openai").unwrap();
 /// assert!(matches!(backend, LLMBackend::OpenAI));

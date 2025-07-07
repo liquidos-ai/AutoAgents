@@ -42,7 +42,6 @@ groq = []
 azure_openai = []
 logging = ["dep:env_logger"]
 
-
 [dependencies]
 tokio = { workspace = true }
 async-trait = { workspace = true }
@@ -62,3 +61,7 @@ dirs = { workspace = true }
 regex = { workspace = true }
 base64 = "0.22.1"
 either = { version = "1.15.0", features = ["serde"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+mockito = { workspace = true }

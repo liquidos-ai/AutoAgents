@@ -136,7 +136,7 @@ pub struct FunctionTool {
 /// ## Example
 ///
 /// ```
-/// use llm::chat::StructuredOutputFormat;
+/// use autoagents_llm::chat::StructuredOutputFormat;
 /// use serde_json::json;
 ///
 /// let response_format = r#"
