@@ -247,6 +247,7 @@ pub trait ChatResponse: std::fmt::Debug + std::fmt::Display + Send + Sync {
     fn thinking(&self) -> Option<String> {
         None
     }
+    fn clone_box(&self) -> Box<dyn ChatResponse>;
 }
 
 /// Trait for providers that support chat-style interactions.
@@ -348,6 +349,16 @@ impl ChatMessage {
     pub fn assistant() -> ChatMessageBuilder {
         ChatMessageBuilder::new(ChatRole::Assistant)
     }
+
+    /// Create a new builder for a system message
+    pub fn system() -> ChatMessageBuilder {
+        ChatMessageBuilder::new(ChatRole::System)
+    }
+
+    /// Create a new builder for a tool message
+    pub fn tool() -> ChatMessageBuilder {
+        ChatMessageBuilder::new(ChatRole::Tool)
+    }
 }
 
 /// Builder for ChatMessage
@@ -395,6 +406,12 @@ impl ChatMessageBuilder {
     /// Set the message type as ToolUse
     pub fn tool_use(mut self, tools: Vec<ToolCall>) -> Self {
         self.message_type = MessageType::ToolUse(tools);
+        self
+    }
+
+    pub fn tool_call_id<S: Into<String>>(self, _id: S) -> Self {
+        // This is a placeholder. The actual tool call ID might need to be
+        // stored differently, depending on the final ChatMessage structure.
         self
     }
 

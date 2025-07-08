@@ -1,6 +1,8 @@
+use crate::agent::types::SimpleError;
 use autoagents_llm::error::LLMError;
 
 use crate::{
+
     agent::error::{AgentBuildError, RunnableAgentError},
     environment::EnvironmentError,
     session::SessionError,
@@ -18,4 +20,10 @@ pub enum Error {
     RunnableAgentError(#[from] RunnableAgentError),
     #[error(transparent)]
     LLMError(#[from] LLMError),
+}
+
+impl From<SimpleError> for Error {
+    fn from(e: SimpleError) -> Self {
+        Error::RunnableAgentError(e.into())
+    }
 }

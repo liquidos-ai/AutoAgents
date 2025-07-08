@@ -1,4 +1,5 @@
 use super::base::{AgentDeriveT, BaseAgent};
+use super::executor::AgentExecutor;
 use super::error::RunnableAgentError;
 use super::result::AgentRunResult;
 use crate::error::Error;
@@ -6,6 +7,8 @@ use crate::memory::MemoryProvider;
 use crate::protocol::{Event, TaskResult};
 use crate::session::Task;
 use crate::tool::ToolCallResult;
+use futures::{Stream, StreamExt};
+use std::pin::Pin;
 use async_trait::async_trait;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
 use serde_json::Value;
@@ -40,8 +43,8 @@ impl AgentState {
 /// Trait for agents that can be executed within the system
 #[async_trait]
 pub trait RunnableAgent: Send + Sync + 'static {
-    fn name(&self) -> &'static str;
-    fn description(&self) -> &'static str;
+    fn name(&self) -> String;
+    fn description(&self) -> String;
     fn id(&self) -> Uuid;
 
     async fn run(
@@ -49,6 +52,11 @@ pub trait RunnableAgent: Send + Sync + 'static {
         task: Task,
         tx_event: mpsc::Sender<Event>,
     ) -> Result<AgentRunResult, Error>;
+
+    fn stream(
+        self: Arc<Self>,
+        task: Task,
+    ) -> Pin<Box<dyn Stream<Item = Result<Event, Error>> + Send>>;
 
     fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>>;
 
@@ -85,13 +93,14 @@ impl<T: AgentDeriveT> RunnableAgentImpl<T> {
 #[async_trait]
 impl<T> RunnableAgent for RunnableAgentImpl<T>
 where
-    T: AgentDeriveT,
+    T: AgentExecutor + AgentDeriveT,
+    T::Error: Into<Error>,
 {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> String {
         self.agent.name()
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> String {
         self.agent.description()
     }
 
@@ -172,6 +181,26 @@ where
             }
         }
     }
+
+    fn stream(
+        self: Arc<Self>,
+        task: Task,
+    ) -> Pin<Box<dyn Stream<Item = Result<Event, Error>> + Send>> {
+        let stream = self
+            .agent
+            .inner()
+            .stream(
+                self.agent.llm(),
+                self.agent.memory(),
+                self.agent.tools(),
+                &self.agent.agent_config(),
+                task,
+                self.state.clone(),
+            )
+            .map(|result| result.map_err(Into::into));
+
+        Box::pin(stream)
+    }
 }
 
 /// Extension trait for converting BaseAgent to RunnableAgent
@@ -179,7 +208,10 @@ pub trait IntoRunnable<T: AgentDeriveT> {
     fn into_runnable(self) -> Arc<dyn RunnableAgent>;
 }
 
-impl<T: AgentDeriveT> IntoRunnable<T> for BaseAgent<T> {
+impl<T: AgentDeriveT> IntoRunnable<T> for BaseAgent<T>
+where
+    T::Error: Into<Error>,
+{
     fn into_runnable(self) -> Arc<dyn RunnableAgent> {
         Arc::new(RunnableAgentImpl::new(self))
     }

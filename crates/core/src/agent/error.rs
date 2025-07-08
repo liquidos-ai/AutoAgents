@@ -1,3 +1,4 @@
+use crate::agent::types::SimpleError;
 use std::fmt::Debug;
 use thiserror::Error;
 
@@ -51,6 +52,14 @@ impl RunnableAgentError {
 }
 
 /// Specific conversion for tokio mpsc send errors
+
+
+impl From<SimpleError> for RunnableAgentError {
+    fn from(error: SimpleError) -> Self {
+        Self::ExecutorError(error.to_string())
+    }
+}
+
 impl<T> From<tokio::sync::mpsc::error::SendError<T>> for RunnableAgentError
 where
     T: Debug + Send + 'static,
