@@ -165,19 +165,19 @@ impl std::fmt::Display for FunctionCall {
 }
 
 /// Response from OpenAI's chat API endpoint.
-#[derive(Deserialize, Debug)]
-struct OpenAIChatResponse {
+#[derive(Deserialize, Debug, Clone)]
+pub struct OpenAIChatResponse {
     choices: Vec<OpenAIChatChoice>,
 }
 
 /// Individual choice within an OpenAI chat API response.
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct OpenAIChatChoice {
     message: OpenAIChatMsg,
 }
 
 /// Message content within an OpenAI chat API response.
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct OpenAIChatMsg {
     #[allow(dead_code)]
     role: String,
@@ -293,6 +293,10 @@ impl From<StructuredOutputFormat> for OpenAIResponseFormat {
 impl ChatResponse for OpenAIChatResponse {
     fn text(&self) -> Option<String> {
         self.choices.first().and_then(|c| c.message.content.clone())
+    }
+
+    fn clone_box(&self) -> Box<dyn ChatResponse> {
+        Box::new(self.clone())
     }
 
     fn tool_calls(&self) -> Option<Vec<ToolCall>> {

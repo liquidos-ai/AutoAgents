@@ -1,4 +1,3 @@
-use crate::agent::types::SimpleError;
 use autoagents_llm::error::LLMError;
 
 use crate::{
@@ -22,8 +21,3 @@ pub enum Error {
     LLMError(#[from] LLMError),
 }
 
-impl From<SimpleError> for Error {
-    fn from(e: SimpleError) -> Self {
-        Error::RunnableAgentError(e.into())
-    }
-}

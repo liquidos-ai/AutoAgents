@@ -6,6 +6,8 @@ use autoagents_llm::backends::openai::OpenAI;
 use autoagents_llm::builder::LLMBuilder;
 use futures::StreamExt;
 use std::io::{stdout, Write};
+
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
@@ -42,20 +44,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Process the stream
     while let Some(event_result) = stream.next().await {
         match event_result {
-            Ok(event) => {
-                if let Event::Token(token) = event {
-                    print!("{}", token);
-                    stdout().flush().unwrap();
+            Ok(event) => match event {
+                Event::Token(text) => {
+                    print!("{}", text);
+                    stdout().flush()?;
                 }
-            }
+                _ => {}
+            },
             Err(e) => {
-                eprintln!("An error occurred in the stream: {}", e);
+                eprintln!("\nAn error occurred in the stream: {}", e);
                 break;
             }
         }
     }
 
-    // Add a final newline for clean output
+    // Print a final newline to move to the next line in the console
     println!();
 
     println!("--- Agent Stream Finished ---");

@@ -6,15 +6,13 @@ use crate::memory::MemoryProvider;
 use crate::protocol::Event;
 use crate::session::Task;
 use crate::tool::ToolCallResult;
-use async_stream::stream;
 use async_trait::async_trait;
 use autoagents_llm::chat::{ChatMessage, Tool};
 use autoagents_llm::error::LLMError;
 use autoagents_llm::{LLMProvider, ToolCall, ToolT};
-use futures::{Stream, StreamExt};
 
+use crate::error::Error;
 use serde_json::Value;
-use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
@@ -40,8 +38,8 @@ impl AgentDeriveT for SimpleAgent {
         self.description.clone()
     }
 
-        fn tools(&self) -> Vec<Box<dyn ToolT>> {
-        self.executor.tools.iter().map(|t| t.clone_box()).collect()
+    fn tools(&self) -> Vec<Box<dyn ToolT>> {
+        self.executor.tools.clone()
     }
 }
 
@@ -69,18 +67,7 @@ impl AgentExecutor for SimpleAgent {
             .await
     }
 
-    fn stream(
-        &self,
-        llm: Arc<dyn LLMProvider>,
-        memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-        tools: Vec<Box<dyn ToolT>>,
-        agent_config: &AgentConfig,
-        task: Task,
-        state: Arc<RwLock<AgentState>>,
-    ) -> Pin<Box<dyn Stream<Item = Result<Event, Self::Error>> + Send>> {
-        self.executor
-            .stream(llm, memory, tools, agent_config, task, state)
-    }
+
 }
 
 // --- SimpleExecutor --- //
@@ -97,7 +84,7 @@ impl Clone for SimpleExecutor {
         Self {
             system_prompt: self.system_prompt.clone(),
             max_turns: self.max_turns,
-            tools: self.tools.iter().map(|t| t.clone_box()).collect(),
+            tools: self.tools.clone(),
         }
     }
 }
@@ -127,7 +114,7 @@ impl SimpleExecutor {
             let args: Value = serde_json::from_str(&call.function.arguments)
                 .map_err(|e| SimpleError::ToolError(format!("Invalid JSON arguments: {}", e)))?;
 
-            let result = tool.run(args).await;
+            let result = tool.run(args);
             let success = result.is_ok();
             let result_value = match result {
                 Ok(value) => value,
@@ -169,10 +156,12 @@ impl AgentExecutor for SimpleExecutor {
         let system_prompt = self.system_prompt.clone();
         messages.push(ChatMessage::system().content(system_prompt).build());
         if let Some(mem) = memory {
-            messages.extend(mem.read().await.messages());
+            let history = mem.read().await.recall("", None).await?;
+            messages.extend(history);
         }
         messages.push(ChatMessage::user().content(&task.prompt).build());
-        let _stream = llm.chat_stream(messages.as_slice()).await?;
+        // This line is now handled by the runnable agent's stream method
+        // let _stream = llm.chat_stream(messages.as_slice(), None).await?;
 
         let mut turn_count = 0;
         loop {
@@ -198,40 +187,7 @@ impl AgentExecutor for SimpleExecutor {
         }
     }
 
-    fn stream(
-        &self,
-        llm: Arc<dyn LLMProvider>,
-        _memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-        tools: Vec<Box<dyn ToolT>>,
-        _agent_config: &AgentConfig,
-        task: Task,
-        _state: Arc<RwLock<AgentState>>,
-    ) -> Pin<Box<dyn Stream<Item = Result<Event, Self::Error>> + Send>> {
-        let system_prompt = self.system_prompt.clone();
-        let mut messages = vec![ChatMessage::system().content(system_prompt).build()];
-        messages.push(ChatMessage::user().content(&task.prompt).build());
-        let _llm_tools = tools.iter().map(Tool::from).collect::<Vec<_>>();
 
-        Box::pin(stream! {
-            let mut stream = match llm.chat_stream(messages.as_slice()).await {
-                Ok(s) => s,
-                Err(e) => {
-                    yield Err(SimpleError::from(e));
-                    return;
-                }
-            };
-
-            while let Some(token_result) = stream.next().await {
-                match token_result {
-                    Ok(token) => yield Ok(Event::Token(token)),
-                    Err(e) => {
-                        yield Err(SimpleError::from(e));
-                        return;
-                    }
-                }
-            }
-        })
-    }
 }
 
 impl SimpleExecutor {
@@ -344,6 +300,12 @@ pub enum SimpleError {
 impl From<LLMError> for SimpleError {
     fn from(e: LLMError) -> Self {
         SimpleError::LLMError(e.to_string())
+    }
+}
+
+impl From<SimpleError> for Error {
+    fn from(e: SimpleError) -> Self {
+        Error::RunnableAgentError(e.into())
     }
 }
 

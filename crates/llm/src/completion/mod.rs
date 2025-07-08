@@ -28,6 +28,10 @@ impl ChatResponse for CompletionResponse {
     fn tool_calls(&self) -> Option<Vec<ToolCall>> {
         None
     }
+
+    fn clone_box(&self) -> Box<dyn ChatResponse> {
+        Box::new(self.clone())
+    }
 }
 
 impl CompletionRequest {

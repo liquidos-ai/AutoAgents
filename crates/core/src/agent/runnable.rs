@@ -1,5 +1,4 @@
 use super::base::{AgentDeriveT, BaseAgent};
-use super::executor::AgentExecutor;
 use super::error::RunnableAgentError;
 use super::result::AgentRunResult;
 use crate::error::Error;
@@ -7,15 +6,18 @@ use crate::memory::MemoryProvider;
 use crate::protocol::{Event, TaskResult};
 use crate::session::Task;
 use crate::tool::ToolCallResult;
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use std::pin::Pin;
 use async_trait::async_trait;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
+use autoagents_llm::error::LLMError;
+use futures::StreamExt;
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
+use crate::agent::executor::AgentExecutor;
 
 /// State tracking for agent execution
 #[derive(Debug, Default, Clone)]
@@ -97,11 +99,11 @@ where
     T::Error: Into<Error>,
 {
     fn name(&self) -> String {
-        self.agent.name()
+        self.agent.name().to_string()
     }
 
     fn description(&self) -> String {
-        self.agent.description()
+        self.agent.description().to_string()
     }
 
     fn id(&self) -> Uuid {
@@ -186,20 +188,19 @@ where
         self: Arc<Self>,
         task: Task,
     ) -> Pin<Box<dyn Stream<Item = Result<Event, Error>> + Send>> {
-        let stream = self
-            .agent
-            .inner()
-            .stream(
-                self.agent.llm(),
-                self.agent.memory(),
-                self.agent.tools(),
-                &self.agent.agent_config(),
-                task,
-                self.state.clone(),
-            )
-            .map(|result| result.map_err(Into::into));
+        let llm = self.agent.llm();
+        let prompt = task.prompt.clone();
 
-        Box::pin(stream)
+        let stream = async_stream::try_stream! {
+            let messages = vec![ChatMessage::user().content(prompt).build()];
+            let mut llm_stream = llm.chat_stream(&messages).await?;
+
+            while let Some(token) = llm_stream.next().await {
+                yield Event::Token(token?);
+            }
+        };
+
+        Box::pin(stream.map(|result: Result<Event, LLMError>| result.map_err(Error::from)))
     }
 }
 

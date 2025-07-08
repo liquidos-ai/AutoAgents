@@ -33,6 +33,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
 futures = { workspace = true }
+async-stream = { workspace = true }
 dirs = { workspace = true }
 regex = { workspace = true }
 tokio-stream.workspace = true
