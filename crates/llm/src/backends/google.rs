@@ -13,23 +13,24 @@
 //!
 //! # Example
 //! ```no_run
-//! use llm::backends::google::Google;
-//! use llm::chat::{ChatMessage, ChatRole, ChatProvider};
+//! use autoagents_llm::backends::google::Google;
+//! use autoagents_llm::chat::{ChatMessage, ChatRole, ChatProvider};
 //!
 //! #[tokio::main]
 //! async fn main() {
 //! let client = Google::new(
 //!     "your-api-key",
-//!     None, // Use default model
-//!     Some(1000), // Max tokens
-//!     Some(0.7), // Temperature
-//!     None, // Default timeout
-//!     None, // No system prompt
-//!     None, // No streaming
-//!     None, // Default top_p
-//!     None, // Default top_k
-//!     None, // No JSON schema
-//!     None, // No tools
+//!     None, // base_url
+//!     None, // model
+//!     Some(1000), // max_tokens
+//!     Some(0.7), // temperature
+//!     None, // timeout_seconds
+//!     None, // system
+//!     None, // stream
+//!     None, // top_p
+//!     None, // top_k
+//!     None, // json_schema
+//!     None, // tools
 //! );
 //!
 //! let messages = vec![
@@ -68,6 +69,8 @@ use std::sync::Arc;
 pub struct Google {
     /// API key for authentication with Google's API
     pub api_key: String,
+    /// Base URL for the API
+    pub base_url: String,
     /// Model identifier (e.g. "gemini-1.5-flash")
     pub model: String,
     /// Maximum number of tokens to generate in responses
@@ -450,6 +453,7 @@ impl Google {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         api_key: impl Into<String>,
+        base_url: Option<String>,
         model: Option<String>,
         max_tokens: Option<u32>,
         temperature: Option<f32>,
@@ -467,6 +471,7 @@ impl Google {
         }
         Self {
             api_key: api_key.into(),
+            base_url: base_url.unwrap_or_else(|| "https://generativelanguage.googleapis.com".to_string()),
             model: model.unwrap_or_else(|| "gemini-1.5-flash".to_string()),
             max_tokens,
             temperature,
@@ -620,7 +625,8 @@ impl ChatProvider for Google {
         }
 
         let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
+            "{base_url}/v1beta/models/{model}:generateContent?key={key}",
+            base_url = self.base_url,
             model = self.model,
             key = self.api_key
         );
@@ -635,7 +641,14 @@ impl ChatProvider for Google {
 
         log::debug!("Google Gemini HTTP status: {}", resp.status());
 
-        let resp = resp.error_for_status()?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let error_text = resp.text().await?;
+            return Err(LLMError::ResponseFormatError {
+                message: format!("Google API returned error status: {}", status),
+                raw_response: error_text,
+            });
+        }
 
         // Get the raw response text for debugging
         let resp_text = resp.text().await?;
@@ -797,10 +810,10 @@ impl ChatProvider for Google {
         }
 
         let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
+            "{base_url}/v1beta/models/{model}:generateContent?key={key}",
+            base_url = self.base_url,
             model = self.model,
             key = self.api_key
-
         );
 
         let mut request = self.client.post(&url).json(&req_body);
@@ -813,7 +826,14 @@ impl ChatProvider for Google {
 
         log::debug!("Google Gemini HTTP status (tool): {}", resp.status());
 
-        let resp = resp.error_for_status()?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let error_text = resp.text().await?;
+            return Err(LLMError::ResponseFormatError {
+                message: format!("Google API returned error status: {}", status),
+                raw_response: error_text,
+            });
+        }
 
         // Get the raw response text for debugging
         let resp_text = resp.text().await?;
@@ -914,7 +934,8 @@ impl ChatProvider for Google {
         };
 
         let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={key}",
+            "{base_url}/v1beta/models/{model}:streamGenerateContent?alt=sse&key={key}",
+            base_url = self.base_url,
             model = self.model,
             key = self.api_key
         );
@@ -1060,6 +1081,7 @@ impl LLMBuilder<Google> {
 
         let google = crate::backends::google::Google::new(
             api_key,
+            self.base_url,
             self.model,
             self.max_tokens,
             self.temperature,
