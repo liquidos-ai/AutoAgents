@@ -1,0 +1,10 @@
+[package]
+name = "streaming_agent"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+autoagents-core = { path = "../../crates/core" }
+autoagents-llm = { workspace = true, features = ["openai"] }
+tokio = { version = "1.36.0", features = ["full"] }
+futures = "0.3"

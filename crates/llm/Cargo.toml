@@ -48,6 +48,7 @@ ureq = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true, optional = true }
 chrono = { workspace = true }
+async-stream = { workspace = true }
 dirs = { workspace = true }
 regex = { workspace = true }
 base64 = "0.22.1"

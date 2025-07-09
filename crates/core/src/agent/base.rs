@@ -15,10 +15,10 @@ pub trait AgentDeriveT: Send + Sync + 'static + AgentExecutor {
     type Output: Serialize + DeserializeOwned + Send + Sync + Into<Value>;
 
     /// Get the agent's description
-    fn description(&self) -> &'static str;
+    fn description(&self) -> String;
 
     /// Get the agent's name
-    fn name(&self) -> &'static str;
+    fn name(&self) -> String;
 
     /// Get the tools available to this agent
     fn tools(&self) -> Vec<Box<dyn ToolT>>;
@@ -62,12 +62,12 @@ impl<T: AgentDeriveT> BaseAgent<T> {
     }
 
     /// Get the agent's name
-    pub fn name(&self) -> &'static str {
+    pub fn name(&self) -> String {
         self.inner.name()
     }
 
     /// Get the agent's description
-    pub fn description(&self) -> &'static str {
+    pub fn description(&self) -> String {
         self.inner.description()
     }
 
@@ -129,7 +129,11 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
     }
 
     /// Build the BaseAgent
-    pub fn build(self) -> Result<Arc<dyn RunnableAgent>, Error> {
+    pub fn build(self) -> Result<Arc<dyn RunnableAgent>, Error>
+    where
+        T: AgentExecutor,
+        T::Error: Into<Error>,
+    {
         let llm = self.llm.ok_or(AgentBuildError::BuildFailure(
             "LLM provider is required".to_string(),
         ))?;
@@ -140,7 +144,11 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
     pub fn build_with_memory(
         self,
         memory: Box<dyn MemoryProvider>,
-    ) -> Result<Arc<dyn RunnableAgent>, Error> {
+    ) -> Result<Arc<dyn RunnableAgent>, Error>
+    where
+        T: AgentExecutor,
+        T::Error: Into<Error>,
+    {
         let llm = self.llm.ok_or(AgentBuildError::BuildFailure(
             "LLM provider is required".to_string(),
         ))?;

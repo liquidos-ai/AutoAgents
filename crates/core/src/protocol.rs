@@ -90,6 +90,9 @@ pub enum Event {
 
     /// An error occurred during task execution
     Error { sub_id: SubmissionId, error: String },
+
+    /// A token has been streamed from the LLM
+    Token(String),
 }
 
 /// Results from a completed task

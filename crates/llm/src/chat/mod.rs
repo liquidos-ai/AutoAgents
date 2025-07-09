@@ -241,12 +241,22 @@ impl Serialize for ToolChoice {
     }
 }
 
+/// Represents an event in a streaming chat response.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum StreamEvent {
+    /// A text token part of the response.
+    Token(String),
+    /// A tool call requested by the model.
+    ToolCall(Vec<ToolCall>),
+}
+
 pub trait ChatResponse: std::fmt::Debug + std::fmt::Display + Send + Sync {
     fn text(&self) -> Option<String>;
     fn tool_calls(&self) -> Option<Vec<ToolCall>>;
     fn thinking(&self) -> Option<String> {
         None
     }
+    fn clone_box(&self) -> Box<dyn ChatResponse>;
 }
 
 /// Trait for providers that support chat-style interactions.
@@ -300,6 +310,27 @@ pub trait ChatProvider: Sync + Send {
         ))
     }
 
+    /// Sends a streaming chat request to the provider with messages and tools.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - The conversation history
+    /// * `tools` - Optional slice of tools to use
+    ///
+    /// # Returns
+    ///
+    /// A stream of `StreamEvent`s, which can be text tokens or tool calls.
+    async fn chat_stream_with_tools(
+        &self,
+        _messages: &[ChatMessage],
+        _tools: Option<&[Tool]>,
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>, LLMError>
+    {
+        Err(LLMError::Generic(
+            "Streaming with tools not supported for this provider".to_string(),
+        ))
+    }
+
     /// Get current memory contents if provider supports memory
     async fn memory_contents(&self) -> Option<Vec<ChatMessage>> {
         None
@@ -348,6 +379,16 @@ impl ChatMessage {
     pub fn assistant() -> ChatMessageBuilder {
         ChatMessageBuilder::new(ChatRole::Assistant)
     }
+
+    /// Create a new builder for a system message
+    pub fn system() -> ChatMessageBuilder {
+        ChatMessageBuilder::new(ChatRole::System)
+    }
+
+    /// Create a new builder for a tool message
+    pub fn tool() -> ChatMessageBuilder {
+        ChatMessageBuilder::new(ChatRole::Tool)
+    }
 }
 
 /// Builder for ChatMessage
@@ -395,6 +436,12 @@ impl ChatMessageBuilder {
     /// Set the message type as ToolUse
     pub fn tool_use(mut self, tools: Vec<ToolCall>) -> Self {
         self.message_type = MessageType::ToolUse(tools);
+        self
+    }
+
+    pub fn tool_call_id<S: Into<String>>(self, _id: S) -> Self {
+        // This is a placeholder. The actual tool call ID might need to be
+        // stored differently, depending on the final ChatMessage structure.
         self
     }
 

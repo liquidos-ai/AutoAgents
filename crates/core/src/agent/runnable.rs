@@ -6,13 +6,18 @@ use crate::memory::MemoryProvider;
 use crate::protocol::{Event, TaskResult};
 use crate::session::Task;
 use crate::tool::ToolCallResult;
+use futures::Stream;
+use std::pin::Pin;
 use async_trait::async_trait;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
+use autoagents_llm::error::LLMError;
+use futures::StreamExt;
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
+use crate::agent::executor::AgentExecutor;
 
 /// State tracking for agent execution
 #[derive(Debug, Default, Clone)]
@@ -40,8 +45,8 @@ impl AgentState {
 /// Trait for agents that can be executed within the system
 #[async_trait]
 pub trait RunnableAgent: Send + Sync + 'static {
-    fn name(&self) -> &'static str;
-    fn description(&self) -> &'static str;
+    fn name(&self) -> String;
+    fn description(&self) -> String;
     fn id(&self) -> Uuid;
 
     async fn run(
@@ -49,6 +54,11 @@ pub trait RunnableAgent: Send + Sync + 'static {
         task: Task,
         tx_event: mpsc::Sender<Event>,
     ) -> Result<AgentRunResult, Error>;
+
+    fn stream(
+        self: Arc<Self>,
+        task: Task,
+    ) -> Pin<Box<dyn Stream<Item = Result<Event, Error>> + Send>>;
 
     fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>>;
 
@@ -85,14 +95,15 @@ impl<T: AgentDeriveT> RunnableAgentImpl<T> {
 #[async_trait]
 impl<T> RunnableAgent for RunnableAgentImpl<T>
 where
-    T: AgentDeriveT,
+    T: AgentExecutor + AgentDeriveT,
+    T::Error: Into<Error>,
 {
-    fn name(&self) -> &'static str {
-        self.agent.name()
+    fn name(&self) -> String {
+        self.agent.name().to_string()
     }
 
-    fn description(&self) -> &'static str {
-        self.agent.description()
+    fn description(&self) -> String {
+        self.agent.description().to_string()
     }
 
     fn id(&self) -> Uuid {
@@ -172,6 +183,25 @@ where
             }
         }
     }
+
+    fn stream(
+        self: Arc<Self>,
+        task: Task,
+    ) -> Pin<Box<dyn Stream<Item = Result<Event, Error>> + Send>> {
+        let llm = self.agent.llm();
+        let prompt = task.prompt.clone();
+
+        let stream = async_stream::try_stream! {
+            let messages = vec![ChatMessage::user().content(prompt).build()];
+            let mut llm_stream = llm.chat_stream(&messages).await?;
+
+            while let Some(token) = llm_stream.next().await {
+                yield Event::Token(token?);
+            }
+        };
+
+        Box::pin(stream.map(|result: Result<Event, LLMError>| result.map_err(Error::from)))
+    }
 }
 
 /// Extension trait for converting BaseAgent to RunnableAgent
@@ -179,7 +209,10 @@ pub trait IntoRunnable<T: AgentDeriveT> {
     fn into_runnable(self) -> Arc<dyn RunnableAgent>;
 }
 
-impl<T: AgentDeriveT> IntoRunnable<T> for BaseAgent<T> {
+impl<T: AgentDeriveT> IntoRunnable<T> for BaseAgent<T>
+where
+    T::Error: Into<Error>,
+{
     fn into_runnable(self) -> Arc<dyn RunnableAgent> {
         Arc::new(RunnableAgentImpl::new(self))
     }
