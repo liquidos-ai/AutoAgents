@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create a task
     let task = Task::new(
-        "Tell me a future of auto agents that wrote in rust",
+        "Tell me about the future of auto agents written in Rust.",
         None,
     );
 
