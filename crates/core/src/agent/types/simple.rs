@@ -8,8 +8,10 @@ use crate::session::Task;
 use crate::tool::ToolCallResult;
 use async_trait::async_trait;
 use autoagents_llm::chat::{ChatMessage, Tool};
+use async_stream::stream;
 use autoagents_llm::error::LLMError;
 use autoagents_llm::{LLMProvider, ToolCall, ToolT};
+use futures::StreamExt;
 
 use crate::error::Error;
 use serde_json::Value;
@@ -67,7 +69,18 @@ impl AgentExecutor for SimpleAgent {
             .await
     }
 
-
+    fn stream(
+        &self,
+        llm: Arc<dyn LLMProvider>,
+        memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+        tools: Vec<Box<dyn ToolT>>,
+        agent_config: &AgentConfig,
+        task: Task,
+        state: Arc<RwLock<AgentState>>,
+        tx_event: mpsc::Sender<Event>,
+    ) -> std::pin::Pin<Box<dyn futures::Stream<Item = Result<Event, Self::Error>> + Send + '_>> {
+        self.executor.stream(llm, memory, tools, agent_config, task, state, tx_event)
+    }
 }
 
 // --- SimpleExecutor --- //
@@ -187,7 +200,53 @@ impl AgentExecutor for SimpleExecutor {
         }
     }
 
+    fn stream(
+        &self,
+        llm: Arc<dyn LLMProvider>,
+        memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+        _tools: Vec<Box<dyn ToolT>>,
+        _agent_config: &AgentConfig,
+        task: Task,
+        _state: Arc<RwLock<AgentState>>,
+        _tx_event: mpsc::Sender<Event>,
+    ) -> std::pin::Pin<Box<dyn futures::Stream<Item = Result<Event, Self::Error>> + Send>> {
+        let mut messages: Vec<ChatMessage> = vec![];
+        let system_prompt = self.system_prompt.clone();
+        messages.push(ChatMessage::system().content(system_prompt).build());
 
+        let llm_clone = llm.clone();
+        let task_clone = task.clone();
+
+        Box::pin(stream! {
+            if let Some(mem) = memory {
+                let history = match mem.read().await.recall("", None).await {
+                    Ok(h) => h,
+                    Err(e) => {
+                        yield Err(e.into());
+                        return;
+                    }
+                };
+                messages.extend(history);
+            }
+            messages.push(ChatMessage::user().content(&task_clone.prompt).build());
+
+            let llm_stream = match llm_clone.chat_stream(messages.as_slice()).await {
+                Ok(s) => s,
+                Err(e) => {
+                    yield Err(e.into());
+                    return;
+                }
+            };
+
+            let mut llm_stream = llm_stream;
+            while let Some(token_result) = llm_stream.next().await {
+                match token_result {
+                    Ok(token) => yield Ok(Event::Token(token)),
+                    Err(e) => yield Err(e.into()),
+                }
+            }
+        })
+    }
 }
 
 impl SimpleExecutor {

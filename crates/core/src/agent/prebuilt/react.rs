@@ -255,6 +255,110 @@ impl<T: ReActExecutor> AgentExecutor for T {
         ExecutorConfig { max_turns: 10 }
     }
 
+    fn stream(
+        &self,
+        llm: Arc<dyn LLMProvider>,
+        memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+        tools: Vec<Box<dyn ToolT>>,
+        _agent_config: &AgentConfig,
+        task: Task,
+        _state: Arc<RwLock<AgentState>>,
+        tx_event: mpsc::Sender<Event>,
+    ) -> std::pin::Pin<Box<dyn futures::Stream<Item = Result<Event, Self::Error>> + Send + '_>> {
+        use futures::StreamExt;
+        let max_turns = self.config().max_turns;
+
+        Box::pin(async_stream::stream! {
+            if let Some(mem) = &memory {
+                let _ = mem.write().await.remember(&ChatMessage {
+                    role: ChatRole::User,
+                    message_type: MessageType::Text,
+                    content: task.prompt.clone(),
+                }).await;
+            }
+
+            for _turn in 0..max_turns {
+                let messages = if let Some(mem) = &memory {
+                    mem.read().await.recall("", None).await.unwrap_or_default()
+                } else {
+                    vec![]
+                };
+
+                let tools_serialized: Vec<Tool> = tools.iter().map(Tool::from).collect();
+                let mut llm_stream = match llm.chat_stream_with_tools(&messages, Some(&tools_serialized)).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        yield Err(ReActExecutorError::LLMError(e.to_string()));
+                        return;
+                    }
+                };
+
+                let mut assistant_response = String::new();
+                let mut tool_calls_to_process: Option<Vec<ToolCall>> = None;
+
+                while let Some(event_result) = llm_stream.next().await {
+                    match event_result {
+                        Ok(autoagents_llm::chat::StreamEvent::Token(token)) => {
+                            assistant_response.push_str(&token);
+                            yield Ok(Event::Token(token));
+                        }
+                        Ok(autoagents_llm::chat::StreamEvent::ToolCall(tool_calls)) => {
+                            tool_calls_to_process = Some(tool_calls);
+                            break; // Exit to process tool calls
+                        }
+                        Err(e) => {
+                            yield Err(ReActExecutorError::LLMError(e.to_string()));
+                            return;
+                        }
+                    }
+                }
+
+                if let Some(tool_calls) = tool_calls_to_process {
+                    if let Some(mem) = &memory {
+                        let _ = mem.write().await.remember(&ChatMessage {
+                            role: ChatRole::Assistant,
+                            message_type: MessageType::ToolUse(tool_calls.clone()),
+                            content: assistant_response, // Save the thought process
+                        }).await;
+                    }
+
+                    let tool_results = self.process_tool_calls(&tools, tool_calls.clone(), tx_event.clone(), memory.clone()).await;
+
+                    if let Some(mem) = &memory {
+                         let mut result_tool_calls = Vec::new();
+                         for (tool_call, result) in tool_calls.iter().zip(&tool_results) {
+                             let result_content = serde_json::to_string(&result.result).unwrap_or_default();
+                             result_tool_calls.push(ToolCall {
+                                 id: tool_call.id.clone(),
+                                 call_type: tool_call.call_type.clone(),
+                                 function: autoagents_llm::FunctionCall {
+                                     name: tool_call.function.name.clone(),
+                                     arguments: result_content,
+                                 },
+                             });
+                         }
+
+                        let _ = mem.write().await.remember(&ChatMessage {
+                            role: ChatRole::Tool,
+                            message_type: MessageType::ToolResult(result_tool_calls),
+                            content: String::new(),
+                        }).await;
+                    }
+                } else {
+                    // No tool calls, this is the final answer
+                    if let Some(mem) = &memory {
+                         let _ = mem.write().await.remember(&ChatMessage {
+                            role: ChatRole::Assistant,
+                            message_type: MessageType::Text,
+                            content: assistant_response,
+                        }).await;
+                    }
+                    break; // End of conversation
+                }
+            }
+        })
+    }
+
     async fn execute(
         &self,
         llm: Arc<dyn LLMProvider>,

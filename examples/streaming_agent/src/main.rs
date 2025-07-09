@@ -1,4 +1,5 @@
-use autoagents_core::agent::runnable::IntoRunnable;
+use autoagents_core::agent::executor::AgentExecutor;
+use autoagents_core::agent::runnable::AgentState;
 use autoagents_core::agent::types::simple::SimpleAgentBuilder;
 use autoagents_core::protocol::Event;
 use autoagents_core::session::Task;
@@ -6,7 +7,8 @@ use autoagents_llm::backends::openai::OpenAI;
 use autoagents_llm::builder::LLMBuilder;
 use futures::StreamExt;
 use std::io::{stdout, Write};
-
+use std::sync::Arc;
+use tokio::sync::{mpsc, RwLock};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,19 +29,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_llm(llm)
     .build()?;
 
-    // Convert to a runnable agent
-    let runnable_agent = agent.into_runnable();
-
     // Create a task
     let task = Task::new(
-        "Tell me a short story about a robot who learns to dream.",
+        "Tell me a future of auto agents that wrote in rust",
         None,
     );
 
     println!("--- Starting Agent Stream ---");
 
-    // Get the stream
-    let mut stream = runnable_agent.stream(task);
+    // Get the stream from the executor
+    let executor = agent.inner();
+    let agent_state = Arc::new(RwLock::new(AgentState::new()));
+    let (tx_event, _rx_event) = mpsc::channel(100);
+
+    let mut stream = executor.stream(
+        agent.llm(),
+        agent.memory(),
+        agent.tools(),
+        &agent.agent_config(),
+        task,
+        agent_state,
+        tx_event,
+    );
 
     // Process the stream
     while let Some(event_result) = stream.next().await {

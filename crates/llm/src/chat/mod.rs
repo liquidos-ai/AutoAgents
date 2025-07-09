@@ -241,6 +241,15 @@ impl Serialize for ToolChoice {
     }
 }
 
+/// Represents an event in a streaming chat response.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum StreamEvent {
+    /// A text token part of the response.
+    Token(String),
+    /// A tool call requested by the model.
+    ToolCall(Vec<ToolCall>),
+}
+
 pub trait ChatResponse: std::fmt::Debug + std::fmt::Display + Send + Sync {
     fn text(&self) -> Option<String>;
     fn tool_calls(&self) -> Option<Vec<ToolCall>>;
@@ -298,6 +307,27 @@ pub trait ChatProvider: Sync + Send {
     {
         Err(LLMError::Generic(
             "Streaming not supported for this provider".to_string(),
+        ))
+    }
+
+    /// Sends a streaming chat request to the provider with messages and tools.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - The conversation history
+    /// * `tools` - Optional slice of tools to use
+    ///
+    /// # Returns
+    ///
+    /// A stream of `StreamEvent`s, which can be text tokens or tool calls.
+    async fn chat_stream_with_tools(
+        &self,
+        _messages: &[ChatMessage],
+        _tools: Option<&[Tool]>,
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>, LLMError>
+    {
+        Err(LLMError::Generic(
+            "Streaming with tools not supported for this provider".to_string(),
         ))
     }
 

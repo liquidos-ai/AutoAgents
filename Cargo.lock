@@ -159,6 +159,7 @@ dependencies = [
 name = "autoagents-llm"
 version = "0.2.0-alpha.0"
 dependencies = [
+ "async-stream",
  "async-trait",
  "base64",
  "chrono",

@@ -62,4 +62,17 @@ pub trait AgentExecutor: Send + Sync + 'static {
         state: Arc<RwLock<AgentState>>,
         tx_event: mpsc::Sender<Event>,
     ) -> Result<Self::Output, Self::Error>;
+
+    /// Stream the agent's execution with the given task
+    #[allow(clippy::too_many_arguments)]
+    fn stream(
+        &self,
+        llm: Arc<dyn LLMProvider>,
+        memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+        tools: Vec<Box<dyn ToolT>>,
+        agent_config: &AgentConfig,
+        task: Task,
+        state: Arc<RwLock<AgentState>>,
+        tx_event: mpsc::Sender<Event>,
+    ) -> std::pin::Pin<Box<dyn futures::Stream<Item = Result<Event, Self::Error>> + Send + '_>>;
 }

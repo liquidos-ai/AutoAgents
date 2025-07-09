@@ -14,13 +14,13 @@ use crate::{
 };
 use crate::{
     builder::LLMBuilder,
-    chat::{ChatResponse, ToolChoice},
+    chat::{ChatResponse, StreamEvent, ToolChoice},
     FunctionCall, ToolCall,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use either::*;
-use futures::stream::Stream;
+use futures::{stream::Stream, StreamExt};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -207,9 +207,30 @@ struct OpenAIChatStreamChoice {
 }
 
 /// Delta content within an OpenAI streaming chat API response.
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Default)]
 struct OpenAIChatStreamDelta {
+    role: Option<String>,
     content: Option<String>,
+    tool_calls: Option<Vec<OpenAIStreamToolCall>>,
+}
+
+#[derive(Deserialize, Debug, Default, Clone)]
+struct OpenAIStreamToolCall {
+    index: usize,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default, rename = "type")]
+    call_type: Option<String>,
+    #[serde(default)]
+    function: Option<OpenAIStreamFunctionCall>,
+}
+
+#[derive(Deserialize, Debug, Default, Clone)]
+struct OpenAIStreamFunctionCall {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    arguments: Option<String>,
 }
 
 /// An object specifying the format that the model must output.
@@ -717,6 +738,151 @@ impl ChatProvider for OpenAI {
         }
 
         Ok(crate::chat::create_sse_stream(response, parse_sse_chunk))
+    }
+
+    async fn chat_stream_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>, LLMError>
+    {
+        let openai_msgs: Vec<OpenAIChatMessage> = messages
+            .iter()
+            .map(|m| chat_message_to_api_message(m.clone()))
+            .collect();
+
+        let body = OpenAIChatRequest {
+            model: &self.model,
+            messages: openai_msgs,
+            max_tokens: self.max_tokens,
+            temperature: self.temperature,
+            stream: true,
+            top_p: self.top_p,
+            top_k: self.top_k,
+            tools: tools.map(|t| t.to_vec()),
+            tool_choice: self.tool_choice.clone(),
+            reasoning_effort: self.reasoning_effort.clone(),
+            response_format: self.json_schema.clone().map(|s| s.into()),
+            web_search_options: None, // Simplified for now
+        };
+
+        let url = self
+            .base_url
+            .join("chat/completions")
+            .map_err(|e| LLMError::HttpError(e.to_string()))?;
+
+        let request = self.client.post(url).bearer_auth(&self.api_key).json(&body);
+
+        let response = request
+            .send()
+            .await
+            .map_err(|e| LLMError::HttpError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            let err_body = response.text().await.unwrap_or_default();
+            return Err(LLMError::HttpError(format!(
+                "Request failed: {}",
+                err_body
+            )));
+        }
+
+        let mut stream = response.bytes_stream();
+
+        Ok(Box::pin(async_stream::stream! {
+            let mut buffer = Vec::new();
+            let mut tool_calls_aggregator: std::collections::HashMap<usize, OpenAIStreamToolCall> =
+                std::collections::HashMap::new();
+
+            while let Some(chunk_result) = stream.next().await {
+                let chunk = match chunk_result {
+                    Ok(c) => c,
+                    Err(e) => {
+                        yield Err(LLMError::HttpError(e.to_string()));
+                        return;
+                    }
+                };
+
+                buffer.extend_from_slice(&chunk);
+
+                while let Some(i) = buffer.windows(2).position(|w| w == b"\n\n") {
+                    let sse_data = buffer.drain(..i + 2).collect::<Vec<u8>>();
+                    let sse_str = String::from_utf8_lossy(&sse_data);
+
+                    for line in sse_str.lines() {
+                        if line == "data: [DONE]" {
+                            break;
+                        }
+
+                        if line.starts_with("data: ") {
+                            let json_str = &line[6..];
+                            let response: Result<OpenAIChatStreamResponse, _> = serde_json::from_str(json_str);
+
+                            match response {
+                                Ok(res) => {
+                                    if let Some(choice) = res.choices.first() {
+                                        let delta = &choice.delta;
+
+                                        if let Some(content) = &delta.content {
+                                            if !content.is_empty() {
+                                                yield Ok(StreamEvent::Token(content.clone()));
+                                            }
+                                        }
+
+                                        if let Some(tool_chunks) = &delta.tool_calls {
+                                            for chunk in tool_chunks {
+                                                let entry = tool_calls_aggregator
+                                                    .entry(chunk.index)
+                                                    .or_insert_with(Default::default);
+
+                                                if let Some(id) = &chunk.id {
+                                                    entry.id = Some(id.clone());
+                                                }
+                                                if let Some(call_type) = &chunk.call_type {
+                                                    entry.call_type = Some(call_type.clone());
+                                                }
+                                                if let Some(function) = &chunk.function {
+                                                    let func_entry = entry.function.get_or_insert_with(Default::default);
+                                                    if let Some(name) = &function.name {
+                                                        func_entry.name = Some(name.clone());
+                                                    }
+                                                    if let Some(args) = &function.arguments {
+                                                        func_entry.arguments.get_or_insert_with(String::new).push_str(args);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    log::warn!("Failed to parse SSE JSON: {}. JSON: '{}'", e, json_str);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !tool_calls_aggregator.is_empty() {
+                let mut complete_tool_calls: Vec<ToolCall> = Vec::new();
+                for (_, aggregated) in tool_calls_aggregator {
+                    if let (Some(id), Some(call_type), Some(function)) = (aggregated.id, aggregated.call_type, aggregated.function) {
+                        if let (Some(name), Some(arguments)) = (function.name, function.arguments) {
+                            complete_tool_calls.push(ToolCall {
+                                id,
+                                call_type,
+                                function: FunctionCall {
+                                    name,
+                                    arguments,
+                                },
+                            });
+                        }
+                    }
+                }
+                if !complete_tool_calls.is_empty() {
+                    yield Ok(StreamEvent::ToolCall(complete_tool_calls));
+                }
+            }
+        }))
     }
 }
 
