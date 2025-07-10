@@ -13,8 +13,8 @@
 //!
 //! # Example
 //! ```no_run
-//! use llm::backends::google::Google;
-//! use llm::chat::{ChatMessage, ChatRole, ChatProvider};
+//! use autoagents_llm::backends::google::Google;
+//! use autoagents_llm::chat::{ChatMessage, ChatRole, ChatProvider};
 //!
 //! #[tokio::main]
 //! async fn main() {
