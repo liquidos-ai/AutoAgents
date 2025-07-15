@@ -11,34 +11,6 @@
 //! - Configuration options for temperature, tokens, top_p, top_k etc.
 //! - Streaming support
 //!
-//! # Example
-//! ```no_run
-//! use llm::backends::google::Google;
-//! use llm::chat::{ChatMessage, ChatRole, ChatProvider};
-//!
-//! #[tokio::main]
-//! async fn main() {
-//! let client = Google::new(
-//!     "your-api-key",
-//!     None, // Use default model
-//!     Some(1000), // Max tokens
-//!     Some(0.7), // Temperature
-//!     None, // Default timeout
-//!     None, // No system prompt
-//!     None, // No streaming
-//!     None, // Default top_p
-//!     None, // Default top_k
-//!     None, // No JSON schema
-//!     None, // No tools
-//! );
-//!
-//! let messages = vec![
-//!     ChatMessage::user().content("Hello!").build()
-//! ];
-//!
-//! let response = client.chat(&messages).await.unwrap();
-//! println!("{}", response);
-//! }
 //! ```
 
 use crate::{
