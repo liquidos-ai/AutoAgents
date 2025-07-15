@@ -312,7 +312,11 @@ impl ChatProvider for Ollama {
     /// # Returns
     ///
     /// The model's response text or an error
-    async fn chat(&self, messages: &[ChatMessage]) -> Result<Box<dyn ChatResponse>, LLMError> {
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.base_url.is_empty() {
             return Err(LLMError::InvalidRequest("Missing base_url".to_string()));
         }
@@ -341,7 +345,7 @@ impl ChatProvider for Ollama {
         }
 
         // Ollama doesn't require the "name" field in the schema, so we just use the schema itself
-        let format = if let Some(schema) = &self.json_schema {
+        let format = if let Some(schema) = &json_schema {
             schema.schema.as_ref().map(|schema| OllamaResponseFormat {
                 format: OllamaResponseType::StructuredOutput(schema.clone()),
             })
@@ -388,6 +392,7 @@ impl ChatProvider for Ollama {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.base_url.is_empty() {
             return Err(LLMError::InvalidRequest("Missing base_url".to_string()));
@@ -420,7 +425,7 @@ impl ChatProvider for Ollama {
         let ollama_tools = tools.map(|t| t.iter().map(OllamaTool::from).collect());
 
         // Ollama doesn't require the "name" field in the schema, so we just use the schema itself
-        let format = if let Some(schema) = &self.json_schema {
+        let format = if let Some(schema) = &json_schema {
             schema.schema.as_ref().map(|schema| OllamaResponseFormat {
                 format: OllamaResponseType::StructuredOutput(schema.clone()),
             })
@@ -476,7 +481,11 @@ impl CompletionProvider for Ollama {
     /// # Returns
     ///
     /// The completion response containing the generated text or an error
-    async fn complete(&self, req: &CompletionRequest) -> Result<CompletionResponse, LLMError> {
+    async fn complete(
+        &self,
+        req: &CompletionRequest,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<CompletionResponse, LLMError> {
         if self.base_url.is_empty() {
             return Err(LLMError::InvalidRequest("Missing base_url".to_string()));
         }

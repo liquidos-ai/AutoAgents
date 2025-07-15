@@ -790,7 +790,11 @@ impl CompletionProvider for OpenAI {
     /// Sends a completion request to OpenAI's API.
     ///
     /// Currently not implemented.
-    async fn complete(&self, _req: &CompletionRequest) -> Result<CompletionResponse, LLMError> {
+    async fn complete(
+        &self,
+        _req: &CompletionRequest,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<CompletionResponse, LLMError> {
         Ok(CompletionResponse {
             text: "OpenAI completion not implemented.".into(),
         })

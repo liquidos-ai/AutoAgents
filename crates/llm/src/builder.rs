@@ -715,6 +715,7 @@ mod tests {
         async fn complete(
             &self,
             _req: &crate::completion::CompletionRequest,
+            _json_schema: Option<crate::chat::StructuredOutputFormat>,
         ) -> Result<crate::completion::CompletionResponse, LLMError> {
             unimplemented!()
         }

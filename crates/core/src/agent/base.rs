@@ -155,3 +155,290 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
         Ok(BaseAgent::new(self.inner, llm, Some(memory)).into_runnable())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::executor::{AgentExecutor, ExecutorConfig};
+    use crate::agent::output::AgentOutputT;
+    use crate::agent::runnable::AgentState;
+    use crate::memory::MemoryProvider;
+    use crate::protocol::Event;
+    use crate::session::Task;
+    use async_trait::async_trait;
+    use autoagents_llm::{
+        chat::{ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat},
+        completion::{CompletionProvider, CompletionRequest, CompletionResponse},
+        embedding::EmbeddingProvider,
+        error::LLMError,
+        models::ModelsProvider,
+        LLMProvider, ToolCall, ToolT,
+    };
+    use serde::{Deserialize, Serialize};
+    use std::sync::Arc;
+    use tokio::sync::{mpsc, RwLock};
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct TestAgentOutput {
+        result: String,
+    }
+
+    impl From<TestAgentOutput> for Value {
+        fn from(output: TestAgentOutput) -> Self {
+            serde_json::to_value(output).unwrap_or(Value::Null)
+        }
+    }
+
+    impl AgentOutputT for TestAgentOutput {
+        fn output_schema() -> &'static str {
+            r#"{"type":"object","properties":{"result":{"type":"string"}},"required":["result"]}"#
+        }
+
+        fn structured_output_format() -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "result": {"type": "string"}
+                },
+                "required": ["result"]
+            })
+        }
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    enum TestError {
+        #[error("Test error: {0}")]
+        TestError(String),
+    }
+
+    struct MockAgentImpl {
+        name: String,
+        description: String,
+        should_fail: bool,
+    }
+
+    impl MockAgentImpl {
+        fn new(name: &str, description: &str) -> Self {
+            Self {
+                name: name.to_string(),
+                description: description.to_string(),
+                should_fail: false,
+            }
+        }
+
+        fn with_failure(name: &str, description: &str) -> Self {
+            Self {
+                name: name.to_string(),
+                description: description.to_string(),
+                should_fail: true,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl AgentDeriveT for MockAgentImpl {
+        type Output = TestAgentOutput;
+
+        fn name(&self) -> &'static str {
+            Box::leak(self.name.clone().into_boxed_str())
+        }
+
+        fn description(&self) -> &'static str {
+            Box::leak(self.description.clone().into_boxed_str())
+        }
+
+        fn output_schema(&self) -> Option<Value> {
+            Some(TestAgentOutput::structured_output_format())
+        }
+
+        fn tools(&self) -> Vec<Box<dyn ToolT>> {
+            vec![]
+        }
+    }
+
+    #[async_trait]
+    impl AgentExecutor for MockAgentImpl {
+        type Output = TestAgentOutput;
+        type Error = TestError;
+
+        fn config(&self) -> ExecutorConfig {
+            ExecutorConfig::default()
+        }
+
+        async fn execute(
+            &self,
+            _llm: Arc<dyn LLMProvider>,
+            _memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+            _tools: Vec<Box<dyn ToolT>>,
+            _agent_config: &AgentConfig,
+            task: Task,
+            _state: Arc<RwLock<AgentState>>,
+            _tx_event: mpsc::Sender<Event>,
+        ) -> Result<Self::Output, Self::Error> {
+            if self.should_fail {
+                return Err(TestError::TestError("Mock execution failed".to_string()));
+            }
+
+            Ok(TestAgentOutput {
+                result: format!("Processed: {}", task.prompt),
+            })
+        }
+    }
+
+    // Mock LLM Provider
+    struct MockLLMProvider;
+
+    #[async_trait]
+    impl ChatProvider for MockLLMProvider {
+        async fn chat_with_tools(
+            &self,
+            _messages: &[ChatMessage],
+            _tools: Option<&[autoagents_llm::chat::Tool]>,
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            Ok(Box::new(MockChatResponse {
+                text: Some("Mock response".to_string()),
+            }))
+        }
+    }
+
+    #[async_trait]
+    impl CompletionProvider for MockLLMProvider {
+        async fn complete(
+            &self,
+            _req: &CompletionRequest,
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<CompletionResponse, LLMError> {
+            Ok(CompletionResponse {
+                text: "Mock completion".to_string(),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl EmbeddingProvider for MockLLMProvider {
+        async fn embed(&self, _text: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
+            Ok(vec![vec![0.1, 0.2, 0.3]])
+        }
+    }
+
+    #[async_trait]
+    impl ModelsProvider for MockLLMProvider {}
+
+    impl LLMProvider for MockLLMProvider {}
+
+    struct MockChatResponse {
+        text: Option<String>,
+    }
+
+    impl ChatResponse for MockChatResponse {
+        fn text(&self) -> Option<String> {
+            self.text.clone()
+        }
+
+        fn tool_calls(&self) -> Option<Vec<ToolCall>> {
+            None
+        }
+    }
+
+    impl std::fmt::Debug for MockChatResponse {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "MockChatResponse")
+        }
+    }
+
+    impl std::fmt::Display for MockChatResponse {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.text.as_deref().unwrap_or(""))
+        }
+    }
+
+    #[test]
+    fn test_agent_config_creation() {
+        let config = AgentConfig {
+            name: "test_agent".to_string(),
+            description: "A test agent".to_string(),
+            output_schema: None,
+        };
+
+        assert_eq!(config.name, "test_agent");
+        assert_eq!(config.description, "A test agent");
+        assert!(config.output_schema.is_none());
+    }
+
+    #[test]
+    fn test_agent_config_with_schema() {
+        let schema = StructuredOutputFormat {
+            name: "TestSchema".to_string(),
+            description: Some("Test schema".to_string()),
+            schema: Some(serde_json::json!({"type": "object"})),
+            strict: Some(true),
+        };
+
+        let config = AgentConfig {
+            name: "test_agent".to_string(),
+            description: "A test agent".to_string(),
+            output_schema: Some(schema.clone()),
+        };
+
+        assert_eq!(config.name, "test_agent");
+        assert_eq!(config.description, "A test agent");
+        assert!(config.output_schema.is_some());
+        assert_eq!(config.output_schema.unwrap().name, "TestSchema");
+    }
+
+    #[test]
+    fn test_base_agent_creation() {
+        let mock_agent = MockAgentImpl::new("test", "test description");
+        let llm = Arc::new(MockLLMProvider);
+        let base_agent = BaseAgent::new(mock_agent, llm, None);
+
+        assert_eq!(base_agent.name(), "test");
+        assert_eq!(base_agent.description(), "test description");
+        assert!(base_agent.memory().is_none());
+    }
+
+    #[test]
+    fn test_base_agent_with_memory() {
+        let mock_agent = MockAgentImpl::new("test", "test description");
+        let llm = Arc::new(MockLLMProvider);
+        let memory = Box::new(crate::memory::SlidingWindowMemory::new(5));
+        let base_agent = BaseAgent::new(mock_agent, llm, Some(memory));
+
+        assert_eq!(base_agent.name(), "test");
+        assert_eq!(base_agent.description(), "test description");
+        assert!(base_agent.memory().is_some());
+    }
+
+    #[test]
+    fn test_base_agent_inner() {
+        let mock_agent = MockAgentImpl::new("test", "test description");
+        let llm = Arc::new(MockLLMProvider);
+        let base_agent = BaseAgent::new(mock_agent, llm, None);
+
+        let inner = base_agent.inner();
+        assert_eq!(inner.name(), "test");
+        assert_eq!(inner.description(), "test description");
+    }
+
+    #[test]
+    fn test_base_agent_tools() {
+        let mock_agent = MockAgentImpl::new("test", "test description");
+        let llm = Arc::new(MockLLMProvider);
+        let base_agent = BaseAgent::new(mock_agent, llm, None);
+
+        let tools = base_agent.tools();
+        assert!(tools.is_empty());
+    }
+
+    #[test]
+    fn test_base_agent_llm() {
+        let mock_agent = MockAgentImpl::new("test", "test description");
+        let llm = Arc::new(MockLLMProvider);
+        let base_agent = BaseAgent::new(mock_agent, llm.clone(), None);
+
+        let agent_llm = base_agent.llm();
+        // The llm() method returns Arc<dyn LLMProvider>, so we just verify it exists
+        assert!(Arc::strong_count(&agent_llm) > 0);
+    }
+}

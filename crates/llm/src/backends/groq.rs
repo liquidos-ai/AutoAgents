@@ -4,7 +4,7 @@
 
 use crate::{
     builder::LLMBuilder,
-    chat::{ChatMessage, ChatProvider, ChatResponse, ChatRole, Tool},
+    chat::{ChatMessage, ChatProvider, ChatResponse, ChatRole, StructuredOutputFormat, Tool},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
     error::LLMError,
@@ -123,7 +123,11 @@ impl Groq {
 
 #[async_trait]
 impl ChatProvider for Groq {
-    async fn chat(&self, messages: &[ChatMessage]) -> Result<Box<dyn ChatResponse>, LLMError> {
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError("Missing Groq API key".to_string()));
         }
@@ -192,6 +196,7 @@ impl ChatProvider for Groq {
         &self,
         _messages: &[ChatMessage],
         _tools: Option<&[Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         todo!()
     }
@@ -199,7 +204,11 @@ impl ChatProvider for Groq {
 
 #[async_trait]
 impl CompletionProvider for Groq {
-    async fn complete(&self, _req: &CompletionRequest) -> Result<CompletionResponse, LLMError> {
+    async fn complete(
+        &self,
+        _req: &CompletionRequest,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<CompletionResponse, LLMError> {
         Ok(CompletionResponse {
             text: "Groq completion not implemented.".into(),
         })

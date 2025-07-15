@@ -8,6 +8,695 @@ use tokio::sync::broadcast;
 mod sliding_window;
 pub use sliding_window::SlidingWindowMemory;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
+    use autoagents_llm::error::LLMError;
+    use std::sync::Arc;
+    use tokio::sync::broadcast;
+
+    // Mock memory provider for testing
+    struct MockMemoryProvider {
+        messages: Vec<ChatMessage>,
+        should_fail: bool,
+    }
+
+    impl MockMemoryProvider {
+        fn new() -> Self {
+            Self {
+                messages: Vec::new(),
+                should_fail: false,
+            }
+        }
+
+        fn with_failure() -> Self {
+            Self {
+                messages: Vec::new(),
+                should_fail: true,
+            }
+        }
+
+        fn with_messages(messages: Vec<ChatMessage>) -> Self {
+            Self {
+                messages,
+                should_fail: false,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl MemoryProvider for MockMemoryProvider {
+        async fn remember(&mut self, message: &ChatMessage) -> Result<(), LLMError> {
+            if self.should_fail {
+                return Err(LLMError::ProviderError("Mock memory error".to_string()));
+            }
+            self.messages.push(message.clone());
+            Ok(())
+        }
+
+        async fn recall(
+            &self,
+            _query: &str,
+            limit: Option<usize>,
+        ) -> Result<Vec<ChatMessage>, LLMError> {
+            if self.should_fail {
+                return Err(LLMError::ProviderError("Mock recall error".to_string()));
+            }
+            let limit = limit.unwrap_or(self.messages.len());
+            Ok(self.messages.iter().take(limit).cloned().collect())
+        }
+
+        async fn clear(&mut self) -> Result<(), LLMError> {
+            if self.should_fail {
+                return Err(LLMError::ProviderError("Mock clear error".to_string()));
+            }
+            self.messages.clear();
+            Ok(())
+        }
+
+        fn memory_type(&self) -> MemoryType {
+            MemoryType::SlidingWindow
+        }
+
+        fn size(&self) -> usize {
+            self.messages.len()
+        }
+    }
+
+    #[test]
+    fn test_memory_type_serialization() {
+        let sliding_window = MemoryType::SlidingWindow;
+        let serialized = serde_json::to_string(&sliding_window).unwrap();
+        assert_eq!(serialized, "\"SlidingWindow\"");
+    }
+
+    #[test]
+    fn test_memory_type_deserialization() {
+        let deserialized: MemoryType = serde_json::from_str("\"SlidingWindow\"").unwrap();
+        assert_eq!(deserialized, MemoryType::SlidingWindow);
+    }
+
+    #[test]
+    fn test_memory_type_debug() {
+        let sliding_window = MemoryType::SlidingWindow;
+        let debug_str = format!("{:?}", sliding_window);
+        assert!(debug_str.contains("SlidingWindow"));
+    }
+
+    #[test]
+    fn test_memory_type_clone() {
+        let sliding_window = MemoryType::SlidingWindow;
+        let cloned = sliding_window.clone();
+        assert_eq!(sliding_window, cloned);
+    }
+
+    #[test]
+    fn test_memory_type_equality() {
+        let type1 = MemoryType::SlidingWindow;
+        let type2 = MemoryType::SlidingWindow;
+        assert_eq!(type1, type2);
+    }
+
+    #[test]
+    fn test_message_condition_any() {
+        let condition = MessageCondition::Any;
+        let message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "test message".to_string(),
+        };
+        let event = MessageEvent {
+            role: "user".to_string(),
+            msg: message,
+        };
+        assert!(condition.matches(&event));
+    }
+
+    #[test]
+    fn test_message_condition_eq() {
+        let condition = MessageCondition::Eq("test message".to_string());
+        let message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "test message".to_string(),
+        };
+        let event = MessageEvent {
+            role: "user".to_string(),
+            msg: message,
+        };
+        assert!(condition.matches(&event));
+
+        let different_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "different message".to_string(),
+        };
+        let different_event = MessageEvent {
+            role: "user".to_string(),
+            msg: different_message,
+        };
+        assert!(!condition.matches(&different_event));
+    }
+
+    #[test]
+    fn test_message_condition_contains() {
+        let condition = MessageCondition::Contains("test".to_string());
+        let message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "this is a test message".to_string(),
+        };
+        let event = MessageEvent {
+            role: "user".to_string(),
+            msg: message,
+        };
+        assert!(condition.matches(&event));
+
+        let non_matching_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "this is different".to_string(),
+        };
+        let non_matching_event = MessageEvent {
+            role: "user".to_string(),
+            msg: non_matching_message,
+        };
+        assert!(!condition.matches(&non_matching_event));
+    }
+
+    #[test]
+    fn test_message_condition_not_contains() {
+        let condition = MessageCondition::NotContains("error".to_string());
+        let message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "this is a test message".to_string(),
+        };
+        let event = MessageEvent {
+            role: "user".to_string(),
+            msg: message,
+        };
+        assert!(condition.matches(&event));
+
+        let error_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "this is an error message".to_string(),
+        };
+        let error_event = MessageEvent {
+            role: "user".to_string(),
+            msg: error_message,
+        };
+        assert!(!condition.matches(&error_event));
+    }
+
+    #[test]
+    fn test_message_condition_role_is() {
+        let condition = MessageCondition::RoleIs("user".to_string());
+        let message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "test message".to_string(),
+        };
+        let event = MessageEvent {
+            role: "user".to_string(),
+            msg: message,
+        };
+        assert!(condition.matches(&event));
+
+        let assistant_event = MessageEvent {
+            role: "assistant".to_string(),
+            msg: ChatMessage {
+                role: ChatRole::Assistant,
+                message_type: MessageType::Text,
+                content: "test message".to_string(),
+            },
+        };
+        assert!(!condition.matches(&assistant_event));
+    }
+
+    #[test]
+    fn test_message_condition_role_not() {
+        let condition = MessageCondition::RoleNot("system".to_string());
+        let message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "test message".to_string(),
+        };
+        let event = MessageEvent {
+            role: "user".to_string(),
+            msg: message,
+        };
+        assert!(condition.matches(&event));
+
+        let system_event = MessageEvent {
+            role: "system".to_string(),
+            msg: ChatMessage {
+                role: ChatRole::System,
+                message_type: MessageType::Text,
+                content: "test message".to_string(),
+            },
+        };
+        assert!(!condition.matches(&system_event));
+    }
+
+    #[test]
+    fn test_message_condition_len_gt() {
+        let condition = MessageCondition::LenGt(5);
+        let long_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "this is a long message".to_string(),
+        };
+        let long_event = MessageEvent {
+            role: "user".to_string(),
+            msg: long_message,
+        };
+        assert!(condition.matches(&long_event));
+
+        let short_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "hi".to_string(),
+        };
+        let short_event = MessageEvent {
+            role: "user".to_string(),
+            msg: short_message,
+        };
+        assert!(!condition.matches(&short_event));
+    }
+
+    #[test]
+    fn test_message_condition_custom() {
+        let condition = MessageCondition::Custom(Arc::new(|msg| msg.content.starts_with("hello")));
+        let hello_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "hello world".to_string(),
+        };
+        let hello_event = MessageEvent {
+            role: "user".to_string(),
+            msg: hello_message,
+        };
+        assert!(condition.matches(&hello_event));
+
+        let goodbye_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "goodbye world".to_string(),
+        };
+        let goodbye_event = MessageEvent {
+            role: "user".to_string(),
+            msg: goodbye_message,
+        };
+        assert!(!condition.matches(&goodbye_event));
+    }
+
+    #[test]
+    fn test_message_condition_empty() {
+        let condition = MessageCondition::Empty;
+        let empty_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "".to_string(),
+        };
+        let empty_event = MessageEvent {
+            role: "user".to_string(),
+            msg: empty_message,
+        };
+        assert!(condition.matches(&empty_event));
+
+        let non_empty_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "not empty".to_string(),
+        };
+        let non_empty_event = MessageEvent {
+            role: "user".to_string(),
+            msg: non_empty_message,
+        };
+        assert!(!condition.matches(&non_empty_event));
+    }
+
+    #[test]
+    fn test_message_condition_all() {
+        let condition = MessageCondition::All(vec![
+            MessageCondition::Contains("test".to_string()),
+            MessageCondition::LenGt(5),
+            MessageCondition::RoleIs("user".to_string()),
+        ]);
+
+        let matching_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "this is a test message".to_string(),
+        };
+        let matching_event = MessageEvent {
+            role: "user".to_string(),
+            msg: matching_message,
+        };
+        assert!(condition.matches(&matching_event));
+
+        let non_matching_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "hi".to_string(),
+        };
+        let non_matching_event = MessageEvent {
+            role: "user".to_string(),
+            msg: non_matching_message,
+        };
+        assert!(!condition.matches(&non_matching_event));
+    }
+
+    #[test]
+    fn test_message_condition_any_of() {
+        let condition = MessageCondition::AnyOf(vec![
+            MessageCondition::Contains("hello".to_string()),
+            MessageCondition::Contains("goodbye".to_string()),
+            MessageCondition::Empty,
+        ]);
+
+        let hello_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "hello world".to_string(),
+        };
+        let hello_event = MessageEvent {
+            role: "user".to_string(),
+            msg: hello_message,
+        };
+        assert!(condition.matches(&hello_event));
+
+        let goodbye_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "goodbye world".to_string(),
+        };
+        let goodbye_event = MessageEvent {
+            role: "user".to_string(),
+            msg: goodbye_message,
+        };
+        assert!(condition.matches(&goodbye_event));
+
+        let empty_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "".to_string(),
+        };
+        let empty_event = MessageEvent {
+            role: "user".to_string(),
+            msg: empty_message,
+        };
+        assert!(condition.matches(&empty_event));
+
+        let non_matching_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "test message".to_string(),
+        };
+        let non_matching_event = MessageEvent {
+            role: "user".to_string(),
+            msg: non_matching_message,
+        };
+        assert!(!condition.matches(&non_matching_event));
+    }
+
+    #[test]
+    fn test_message_condition_regex() {
+        let condition = MessageCondition::Regex(r"\d+".to_string());
+        let number_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "there are 123 items".to_string(),
+        };
+        let number_event = MessageEvent {
+            role: "user".to_string(),
+            msg: number_message,
+        };
+        assert!(condition.matches(&number_event));
+
+        let no_number_message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "no numbers here".to_string(),
+        };
+        let no_number_event = MessageEvent {
+            role: "user".to_string(),
+            msg: no_number_message,
+        };
+        assert!(!condition.matches(&no_number_event));
+    }
+
+    #[test]
+    fn test_message_condition_regex_invalid() {
+        let condition = MessageCondition::Regex("[invalid regex".to_string());
+        let message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "test message".to_string(),
+        };
+        let event = MessageEvent {
+            role: "user".to_string(),
+            msg: message,
+        };
+        assert!(!condition.matches(&event));
+    }
+
+    #[test]
+    fn test_message_event_creation() {
+        let message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "test message".to_string(),
+        };
+        let event = MessageEvent {
+            role: "user".to_string(),
+            msg: message.clone(),
+        };
+        assert_eq!(event.role, "user");
+        assert_eq!(event.msg.content, "test message");
+    }
+
+    #[test]
+    fn test_message_event_clone() {
+        let message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "test message".to_string(),
+        };
+        let event = MessageEvent {
+            role: "user".to_string(),
+            msg: message,
+        };
+        let cloned = event.clone();
+        assert_eq!(event.role, cloned.role);
+        assert_eq!(event.msg.content, cloned.msg.content);
+    }
+
+    #[test]
+    fn test_message_event_debug() {
+        let message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "test message".to_string(),
+        };
+        let event = MessageEvent {
+            role: "user".to_string(),
+            msg: message,
+        };
+        let debug_str = format!("{:?}", event);
+        assert!(debug_str.contains("MessageEvent"));
+        assert!(debug_str.contains("user"));
+    }
+
+    #[tokio::test]
+    async fn test_mock_memory_provider_remember() {
+        let mut provider = MockMemoryProvider::new();
+        let message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "test message".to_string(),
+        };
+
+        let result = provider.remember(&message).await;
+        assert!(result.is_ok());
+        assert_eq!(provider.size(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_mock_memory_provider_remember_failure() {
+        let mut provider = MockMemoryProvider::with_failure();
+        let message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "test message".to_string(),
+        };
+
+        let result = provider.remember(&message).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Mock memory error"));
+    }
+
+    #[tokio::test]
+    async fn test_mock_memory_provider_recall() {
+        let messages = vec![
+            ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: "first message".to_string(),
+            },
+            ChatMessage {
+                role: ChatRole::Assistant,
+                message_type: MessageType::Text,
+                content: "second message".to_string(),
+            },
+        ];
+        let provider = MockMemoryProvider::with_messages(messages);
+
+        let result = provider.recall("", None).await;
+        assert!(result.is_ok());
+        let recalled = result.unwrap();
+        assert_eq!(recalled.len(), 2);
+        assert_eq!(recalled[0].content, "first message");
+        assert_eq!(recalled[1].content, "second message");
+    }
+
+    #[tokio::test]
+    async fn test_mock_memory_provider_recall_with_limit() {
+        let messages = vec![
+            ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: "first message".to_string(),
+            },
+            ChatMessage {
+                role: ChatRole::Assistant,
+                message_type: MessageType::Text,
+                content: "second message".to_string(),
+            },
+        ];
+        let provider = MockMemoryProvider::with_messages(messages);
+
+        let result = provider.recall("", Some(1)).await;
+        assert!(result.is_ok());
+        let recalled = result.unwrap();
+        assert_eq!(recalled.len(), 1);
+        assert_eq!(recalled[0].content, "first message");
+    }
+
+    #[tokio::test]
+    async fn test_mock_memory_provider_recall_failure() {
+        let provider = MockMemoryProvider::with_failure();
+
+        let result = provider.recall("", None).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Mock recall error"));
+    }
+
+    #[tokio::test]
+    async fn test_mock_memory_provider_clear() {
+        let messages = vec![ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "first message".to_string(),
+        }];
+        let mut provider = MockMemoryProvider::with_messages(messages);
+        assert_eq!(provider.size(), 1);
+
+        let result = provider.clear().await;
+        assert!(result.is_ok());
+        assert_eq!(provider.size(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_mock_memory_provider_clear_failure() {
+        let mut provider = MockMemoryProvider::with_failure();
+
+        let result = provider.clear().await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Mock clear error"));
+    }
+
+    #[test]
+    fn test_mock_memory_provider_memory_type() {
+        let provider = MockMemoryProvider::new();
+        assert_eq!(provider.memory_type(), MemoryType::SlidingWindow);
+    }
+
+    #[test]
+    fn test_mock_memory_provider_size() {
+        let provider = MockMemoryProvider::new();
+        assert_eq!(provider.size(), 0);
+
+        let messages = vec![ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "message".to_string(),
+        }];
+        let provider_with_messages = MockMemoryProvider::with_messages(messages);
+        assert_eq!(provider_with_messages.size(), 1);
+    }
+
+    #[test]
+    fn test_mock_memory_provider_is_empty() {
+        let provider = MockMemoryProvider::new();
+        assert!(provider.is_empty());
+
+        let messages = vec![ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "message".to_string(),
+        }];
+        let provider_with_messages = MockMemoryProvider::with_messages(messages);
+        assert!(!provider_with_messages.is_empty());
+    }
+
+    #[test]
+    fn test_memory_provider_default_methods() {
+        let provider = MockMemoryProvider::new();
+        assert!(!provider.needs_summary());
+        assert!(provider.get_event_receiver().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_memory_provider_remember_with_role() {
+        let mut provider = MockMemoryProvider::new();
+        let message = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "test message".to_string(),
+        };
+
+        let result = provider
+            .remember_with_role(&message, "custom_role".to_string())
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(provider.size(), 1);
+    }
+
+    #[test]
+    fn test_memory_provider_mark_for_summary() {
+        let mut provider = MockMemoryProvider::new();
+        provider.mark_for_summary(); // Should not panic
+        assert!(!provider.needs_summary()); // Default implementation
+    }
+
+    #[test]
+    fn test_memory_provider_replace_with_summary() {
+        let mut provider = MockMemoryProvider::new();
+        provider.replace_with_summary("Summary text".to_string()); // Should not panic
+        assert_eq!(provider.size(), 0); // Should not change size in default implementation
+    }
+}
+
 /// Event emitted when a message is added to reactive memory
 #[derive(Debug, Clone)]
 pub struct MessageEvent {

@@ -1,6 +1,10 @@
 use async_trait::async_trait;
 
-use crate::{chat::ChatResponse, error::LLMError, ToolCall};
+use crate::{
+    chat::{ChatResponse, StructuredOutputFormat},
+    error::LLMError,
+    ToolCall,
+};
 
 /// A request for text completion from an LLM provider.
 #[derive(Debug, Clone)]
@@ -104,7 +108,11 @@ pub trait CompletionProvider {
     /// # Returns
     ///
     /// The generated completion text or an error
-    async fn complete(&self, req: &CompletionRequest) -> Result<CompletionResponse, LLMError>;
+    async fn complete(
+        &self,
+        req: &CompletionRequest,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<CompletionResponse, LLMError>;
 }
 
 impl std::fmt::Display for CompletionResponse {
@@ -334,7 +342,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl CompletionProvider for MockCompletionProvider {
-        async fn complete(&self, req: &CompletionRequest) -> Result<CompletionResponse, LLMError> {
+        async fn complete(
+            &self,
+            req: &CompletionRequest,
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<CompletionResponse, LLMError> {
             if self.should_fail {
                 Err(LLMError::ProviderError("Mock provider error".to_string()))
             } else {
@@ -350,7 +362,7 @@ mod tests {
         let provider = MockCompletionProvider::new("Test response");
         let request = CompletionRequest::new("Test prompt");
 
-        let result = provider.complete(&request).await;
+        let result = provider.complete(&request, None).await;
         assert!(result.is_ok());
 
         let response = result.unwrap();
@@ -362,7 +374,7 @@ mod tests {
         let provider = MockCompletionProvider::new_failing();
         let request = CompletionRequest::new("Test prompt");
 
-        let result = provider.complete(&request).await;
+        let result = provider.complete(&request, None).await;
         assert!(result.is_err());
 
         let error = result.unwrap_err();
@@ -377,7 +389,7 @@ mod tests {
             .temperature(0.7)
             .build();
 
-        let result = provider.complete(&request).await;
+        let result = provider.complete(&request, None).await;
         assert!(result.is_ok());
 
         let response = result.unwrap();

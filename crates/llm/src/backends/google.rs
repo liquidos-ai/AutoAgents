@@ -493,7 +493,11 @@ impl ChatProvider for Google {
     /// # Returns
     ///
     /// The model's response text or an error
-    async fn chat(&self, messages: &[ChatMessage]) -> Result<Box<dyn ChatResponse>, LLMError> {
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError("Missing Google API key".to_string()));
         }
@@ -573,14 +577,13 @@ impl ChatProvider for Google {
             && self.temperature.is_none()
             && self.top_p.is_none()
             && self.top_k.is_none()
-            && self.json_schema.is_none()
+            && json_schema.is_none()
         {
             None
         } else {
             // If json_schema and json_schema.schema are not None, use json_schema.schema as the response schema and set response_mime_type to JSON
             // Google's API doesn't need the schema to have a "name" field, so we can just use the schema directly.
-            let (response_mime_type, response_schema) = if let Some(json_schema) = &self.json_schema
-            {
+            let (response_mime_type, response_schema) = if let Some(json_schema) = &json_schema {
                 if let Some(schema) = &json_schema.schema {
                     // If the schema has an "additionalProperties" field (as required by OpenAI), remove it as Google's API doesn't support it
                     let mut schema = schema.clone();
@@ -670,6 +673,7 @@ impl ChatProvider for Google {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError("Missing Google API key".to_string()));
@@ -756,8 +760,7 @@ impl ChatProvider for Google {
         let generation_config = {
             // If json_schema and json_schema.schema are not None, use json_schema.schema as the response schema and set response_mime_type to JSON
             // Google's API doesn't need the schema to have a "name" field, so we can just use the schema directly.
-            let (response_mime_type, response_schema) = if let Some(json_schema) = &self.json_schema
-            {
+            let (response_mime_type, response_schema) = if let Some(json_schema) = &json_schema {
                 if let Some(schema) = &json_schema.schema {
                     // If the schema has an "additionalProperties" field (as required by OpenAI), remove it as Google's API doesn't support it
                     let mut schema = schema.clone();
@@ -954,9 +957,13 @@ impl CompletionProvider for Google {
     /// # Returns
     ///
     /// The completion response or an error
-    async fn complete(&self, req: &CompletionRequest) -> Result<CompletionResponse, LLMError> {
+    async fn complete(
+        &self,
+        req: &CompletionRequest,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<CompletionResponse, LLMError> {
         let chat_message = ChatMessage::user().content(req.prompt.clone()).build();
-        if let Some(text) = self.chat(&[chat_message]).await?.text() {
+        if let Some(text) = self.chat(&[chat_message], json_schema).await?.text() {
             Ok(CompletionResponse { text })
         } else {
             Err(LLMError::ProviderError(

@@ -633,7 +633,11 @@ impl CompletionProvider for Anthropic {
     /// Sends a completion request to Anthropic's API.
     ///
     /// Converts the completion request into a chat message format.
-    async fn complete(&self, _req: &CompletionRequest) -> Result<CompletionResponse, LLMError> {
+    async fn complete(
+        &self,
+        _req: &CompletionRequest,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<CompletionResponse, LLMError> {
         unimplemented!()
     }
 }

@@ -399,6 +399,7 @@ mod tests {
         async fn complete(
             &self,
             _req: &completion::CompletionRequest,
+            _json_schema: Option<chat::StructuredOutputFormat>,
         ) -> Result<completion::CompletionResponse, error::LLMError> {
             Ok(completion::CompletionResponse {
                 text: "Mock completion".to_string(),
@@ -466,7 +467,7 @@ mod tests {
         let provider = MockLLMProvider;
         let request = completion::CompletionRequest::new("Test prompt");
 
-        let response = provider.complete(&request).await.unwrap();
+        let response = provider.complete(&request, None).await.unwrap();
         assert_eq!(response.text, "Mock completion");
     }
 

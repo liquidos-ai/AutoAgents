@@ -6,10 +6,7 @@ publish = false
 
 [dependencies]
 autoagents-derive = { path = "../../crates/derive" }
-autoagents = { path = "../../crates/autoagents", features = [
-    "openai",
-    "anthropic",
-] }
+autoagents = { path = "../../crates/autoagents", features = ["full"] }
 tokio = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }

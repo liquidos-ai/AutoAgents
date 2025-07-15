@@ -2,6 +2,7 @@
 //!
 //! This module provides integration with DeepSeek's models through their API.
 
+use crate::chat::StructuredOutputFormat;
 use crate::ToolCall;
 use crate::{
     builder::LLMBuilder,
@@ -120,7 +121,11 @@ impl ChatProvider for DeepSeek {
     /// # Returns
     ///
     /// The provider's response text or an error
-    async fn chat(&self, messages: &[ChatMessage]) -> Result<Box<dyn ChatResponse>, LLMError> {
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError("Missing DeepSeek API key".to_string()));
         }
@@ -196,6 +201,7 @@ impl ChatProvider for DeepSeek {
         &self,
         _messages: &[ChatMessage],
         _tools: Option<&[Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         todo!()
     }
@@ -203,7 +209,11 @@ impl ChatProvider for DeepSeek {
 
 #[async_trait]
 impl CompletionProvider for DeepSeek {
-    async fn complete(&self, _req: &CompletionRequest) -> Result<CompletionResponse, LLMError> {
+    async fn complete(
+        &self,
+        _req: &CompletionRequest,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<CompletionResponse, LLMError> {
         Ok(CompletionResponse {
             text: "DeepSeek completion not implemented.".into(),
         })

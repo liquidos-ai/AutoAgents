@@ -2,7 +2,7 @@
 /// This module provides integration with Phind's language model API.
 use crate::{
     builder::LLMBuilder,
-    chat::{ChatResponse, Tool},
+    chat::{ChatResponse, StructuredOutputFormat, Tool},
     ToolCall,
 };
 use crate::{
@@ -180,7 +180,11 @@ impl ChatProvider for Phind {
     /// # Returns
     ///
     /// The provider's response text or an error
-    async fn chat(&self, messages: &[ChatMessage]) -> Result<Box<dyn ChatResponse>, LLMError> {
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
         let mut message_history = vec![];
         for m in messages {
             let role_str = match m.role {
@@ -255,6 +259,7 @@ impl ChatProvider for Phind {
         &self,
         _messages: &[ChatMessage],
         _tools: Option<&[Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         todo!()
     }
@@ -263,11 +268,18 @@ impl ChatProvider for Phind {
 /// Implementation of completion functionality for Phind.
 #[async_trait]
 impl CompletionProvider for Phind {
-    async fn complete(&self, _req: &CompletionRequest) -> Result<CompletionResponse, LLMError> {
+    async fn complete(
+        &self,
+        _req: &CompletionRequest,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<CompletionResponse, LLMError> {
         let chat_resp = self
-            .chat(&[crate::chat::ChatMessage::user()
-                .content(_req.prompt.clone())
-                .build()])
+            .chat(
+                &[crate::chat::ChatMessage::user()
+                    .content(_req.prompt.clone())
+                    .build()],
+                json_schema,
+            )
             .await?;
         if let Some(text) = chat_resp.text() {
             Ok(CompletionResponse { text })

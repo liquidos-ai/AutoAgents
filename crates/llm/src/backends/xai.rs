@@ -351,7 +351,11 @@ impl ChatProvider for XAI {
     /// # Returns
     ///
     /// The generated response text, or an error if the request fails.
-    async fn chat(&self, messages: &[ChatMessage]) -> Result<Box<dyn ChatResponse>, LLMError> {
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError("Missing X.AI API key".to_string()));
         }
@@ -383,7 +387,7 @@ impl ChatProvider for XAI {
         // There's currently no check for these, so we'll leave it up to the user to provide a valid schema.
         // Unknown if XAI requires these too, but since it copies everything else from OpenAI, it's likely.
         let response_format: Option<XAIResponseFormat> =
-            self.json_schema.as_ref().map(|s| XAIResponseFormat {
+            json_schema.as_ref().map(|s| XAIResponseFormat {
                 response_type: XAIResponseType::JsonSchema,
                 json_schema: Some(s.clone()),
             });
@@ -454,9 +458,10 @@ impl ChatProvider for XAI {
         &self,
         messages: &[ChatMessage],
         _tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         // XAI doesn't support tools yet, fall back to regular chat
-        self.chat(messages).await
+        self.chat(messages, json_schema).await
     }
 
     /// Sends a streaming chat request to X.AI's API.
@@ -553,7 +558,11 @@ impl CompletionProvider for XAI {
     /// # Returns
     ///
     /// A placeholder response indicating the functionality is not implemented.
-    async fn complete(&self, _req: &CompletionRequest) -> Result<CompletionResponse, LLMError> {
+    async fn complete(
+        &self,
+        _req: &CompletionRequest,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<CompletionResponse, LLMError> {
         Ok(CompletionResponse {
             text: "X.AI completion not implemented.".into(),
         })

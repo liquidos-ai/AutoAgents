@@ -401,6 +401,7 @@ impl ChatProvider for AzureOpenAI {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError(
@@ -447,8 +448,7 @@ impl ChatProvider for AzureOpenAI {
         }
 
         // Build the response format object
-        let response_format: Option<OpenAIResponseFormat> =
-            self.json_schema.clone().map(|s| s.into());
+        let response_format: Option<OpenAIResponseFormat> = json_schema.clone().map(|s| s.into());
 
         let request_tools = tools.map(|t| t.to_vec()).or_else(|| self.tools.clone());
         let request_tool_choice = if request_tools.is_some() {
@@ -524,8 +524,12 @@ impl ChatProvider for AzureOpenAI {
         }
     }
 
-    async fn chat(&self, messages: &[ChatMessage]) -> Result<Box<dyn ChatResponse>, LLMError> {
-        self.chat_with_tools(messages, None).await
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        self.chat_with_tools(messages, None, json_schema).await
     }
 }
 
@@ -534,7 +538,11 @@ impl CompletionProvider for AzureOpenAI {
     /// Sends a completion request to OpenAI's API.
     ///
     /// Currently not implemented.
-    async fn complete(&self, _req: &CompletionRequest) -> Result<CompletionResponse, LLMError> {
+    async fn complete(
+        &self,
+        _req: &CompletionRequest,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<CompletionResponse, LLMError> {
         Ok(CompletionResponse {
             text: "OpenAI completion not implemented.".into(),
         })
