@@ -1,0 +1,5 @@
+[book]
+authors = ["Liquidos AI Team", "saivishwak"]
+language = "en"
+src = "src"
+title = "AutoAgents - Rust Multi-Agent Framework"
