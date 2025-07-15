@@ -322,7 +322,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
                 }
                 TurnResult::Continue(None) => continue,
                 TurnResult::Error(msg) => {
-                    eprintln!("Turn {} error: {}", turn, msg);
+                    eprintln!("Turn {turn} error: {msg}");
                     continue;
                 }
                 TurnResult::Fatal(_) => {

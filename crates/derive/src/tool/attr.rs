@@ -57,7 +57,7 @@ impl Parse for ToolAttributes {
                 ToolAttributeKeys::Unknown(other) => {
                     return Err(syn::Error::new(
                         key_span,
-                        format!("Unexpected attribute key: {}", other),
+                        format!("Unexpected attribute key: {other}"),
                     ))
                 }
             }

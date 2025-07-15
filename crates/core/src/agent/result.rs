@@ -139,7 +139,7 @@ mod tests {
                 serde_json::from_str(&exec_output.response).map_err(|e| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
-                        format!("Failed to parse agent response: {}", e),
+                        format!("Failed to parse agent response: {e}"),
                     )
                 })
             })
@@ -162,7 +162,7 @@ mod tests {
                 serde_json::from_str(&exec_output.response).map_err(|e| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
-                        format!("Failed to parse agent response: {}", e),
+                        format!("Failed to parse agent response: {e}"),
                     )
                 })
             });

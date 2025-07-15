@@ -86,7 +86,7 @@ impl Parse for FieldSchemaAttr {
                 FieldAttributeKeys::Unknown(other) => {
                     return Err(syn::Error::new(
                         key_span,
-                        format!("Unexpected field attribute key: {}", other),
+                        format!("Unexpected field attribute key: {other}"),
                     ))
                 }
             }

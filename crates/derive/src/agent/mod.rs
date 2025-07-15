@@ -83,7 +83,7 @@ impl Parse for AgentAttributes {
                 AgentAttributeKeys::Unknown(other) => {
                     return Err(syn::Error::new(
                         key_span,
-                        format!("Unexpected attribute key: {}", other),
+                        format!("Unexpected attribute key: {other}"),
                     ))
                 }
             }
@@ -130,27 +130,25 @@ impl AgentParser {
         let output_type = agent_attrs.output;
         let executor_type = agent_attrs.executor_type;
 
-        let output_schema_impl = if let Some(ref output_ty) = output_type {
-            quote! {
-                fn output_schema(&self) -> Option<Value> {
-                    Some(<#output_ty>::structured_output_format())
-                }
-            }
-        } else {
-            quote! {
-                fn output_schema(&self) -> Option<Value> {
-                    None
-                }
-            }
+        let quoted_output_type = match &output_type {
+            Some(output_ty) => quote! { #output_ty },
+            None => quote! { String },
         };
 
-        let output_type = if output_type.is_some() {
-            quote! {
-                String
+        let output_schema_impl = match &output_type {
+            Some(output_ty) => {
+                quote! {
+                    fn output_schema(&self) -> Option<Value> {
+                        Some(<#output_ty>::structured_output_format())
+                    }
+                }
             }
-        } else {
-            quote! {
-               String
+            None => {
+                quote! {
+                    fn output_schema(&self) -> Option<Value> {
+                        None
+                    }
+                }
             }
         };
 
@@ -158,7 +156,7 @@ impl AgentParser {
             #input_struct
 
             impl AgentDeriveT for #struct_name {
-                type Output = #output_type;
+                type Output = #quoted_output_type;
 
                 fn name(&self) -> &'static str {
                     #agent_name_literal

@@ -113,7 +113,7 @@ impl ParallelEvaluator {
                 }
                 Err(e) => {
                     // Log the error but continue with other results
-                    eprintln!("Error from provider {}: {}", id, e);
+                    eprintln!("Error from provider {id}: {e}");
                 }
             }
         }
@@ -169,7 +169,7 @@ impl ParallelEvaluator {
                 }
                 Err(e) => {
                     // Log the error but continue with other results
-                    eprintln!("Error from provider {}: {}", id, e);
+                    eprintln!("Error from provider {id}: {e}");
                 }
             }
         }
@@ -219,7 +219,7 @@ impl ParallelEvaluator {
                 }
                 Err(e) => {
                     // Log the error but continue with other results
-                    eprintln!("Error from provider {}: {}", id, e);
+                    eprintln!("Error from provider {id}: {e}");
                 }
             }
         }

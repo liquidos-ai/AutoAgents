@@ -217,7 +217,7 @@ impl OutputParser {
                 }
                 return Err(Error::new(
                     proc_macro2::Span::call_site(),
-                    format!("Unsupported data type: {}", type_str),
+                    format!("Unsupported data type: {type_str}"),
                 ));
             }
         };

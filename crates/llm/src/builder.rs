@@ -356,7 +356,7 @@ impl<L: LLMProvider> LLMBuilder<L> {
             Some(ToolChoice::Tool(ref name)) => {
                 match self.tools.clone().map(|tools| tools.iter().any(|tool| tool.function.name == *name)) {
                         Some(true) => Ok((self.tools.clone(), self.tool_choice.clone())),
-                        _ => Err(LLMError::ToolConfigError(format!("Tool({}) cannot be tool choice: no tool with name {} found.  Did you forget to add it with .function?", name, name))),
+                        _ => Err(LLMError::ToolConfigError(format!("Tool({name}) cannot be tool choice: no tool with name {name} found.  Did you forget to add it with .function?"))),
                     }
             }
             Some(_) if self.tools.is_none() => Err(LLMError::ToolConfigError(

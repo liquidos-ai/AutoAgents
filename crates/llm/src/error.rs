@@ -27,23 +27,22 @@ pub enum LLMError {
 impl fmt::Display for LLMError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LLMError::HttpError(e) => write!(f, "HTTP Error: {}", e),
-            LLMError::AuthError(e) => write!(f, "Auth Error: {}", e),
-            LLMError::InvalidRequest(e) => write!(f, "Invalid Request: {}", e),
-            LLMError::ProviderError(e) => write!(f, "Provider Error: {}", e),
-            LLMError::Generic(e) => write!(f, "Generic Error : {}", e),
+            LLMError::HttpError(e) => write!(f, "HTTP Error: {e}"),
+            LLMError::AuthError(e) => write!(f, "Auth Error: {e}"),
+            LLMError::InvalidRequest(e) => write!(f, "Invalid Request: {e}"),
+            LLMError::ProviderError(e) => write!(f, "Provider Error: {e}"),
+            LLMError::Generic(e) => write!(f, "Generic Error : {e}"),
             LLMError::ResponseFormatError {
                 message,
                 raw_response,
             } => {
                 write!(
                     f,
-                    "Response Format Error: {}. Raw response: {}",
-                    message, raw_response
+                    "Response Format Error: {message}. Raw response: {raw_response}"
                 )
             }
-            LLMError::JsonError(e) => write!(f, "JSON Parse Error: {}", e),
-            LLMError::ToolConfigError(e) => write!(f, "Tool Configuration Error: {}", e),
+            LLMError::JsonError(e) => write!(f, "JSON Parse Error: {e}"),
+            LLMError::ToolConfigError(e) => write!(f, "Tool Configuration Error: {e}"),
         }
     }
 }
