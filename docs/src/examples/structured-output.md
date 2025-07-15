@@ -1,1 +1,0 @@
-# Structured Output Agent

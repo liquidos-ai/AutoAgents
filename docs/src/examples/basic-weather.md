@@ -40,7 +40,7 @@ pub struct WeatherArgs {
 )]
 fn get_weather(args: WeatherArgs) -> Result<String, ToolCallError> {
     println!("ToolCall: GetWeather {:?}", args);
-    
+
     // Simulate weather data (in real implementation, call weather API)
     match args.city.as_str() {
         "Hyderabad" => Ok(format!(
@@ -123,12 +123,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the LLM provider (requires API key)
     let api_key = std::env::var("OPENAI_API_KEY")
         .expect("OPENAI_API_KEY environment variable must be set");
-    
+
     let llm = Arc::new(autoagents::llm::OpenAIProvider::new(&api_key)?);
-    
+
     // Run the weather agent example
     simple_agent(llm).await?;
-    
+
     Ok(())
 }
 ```
@@ -273,8 +273,8 @@ The weather tool demonstrates:
 2. **Add dependencies to Cargo.toml:**
    ```toml
    [dependencies]
-   autoagents = { version = "0.2.0-alpha.0", features = ["openai"] }
-   autoagents-derive = "0.2.0-alpha.0"
+   autoagents = { git = "https://github.com/liquidos-ai/AutoAgents", features = ["openai"] }
+   autoagents-derive = {git = "https://github.com/liquidos-ai/AutoAgents"}
    tokio = { version = "1.0", features = ["full"] }
    serde = { version = "1.0", features = ["derive"] }
    serde_json = "1.0"
@@ -333,21 +333,21 @@ fn get_detailed_weather(args: DetailedWeatherArgs) -> Result<String, ToolCallErr
 async fn get_real_weather(args: WeatherArgs) -> Result<String, ToolCallError> {
     let api_key = std::env::var("OPENWEATHER_API_KEY")
         .map_err(|_| ToolCallError::Configuration("Missing OpenWeather API key".into()))?;
-    
+
     let url = format!(
         "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric",
         args.city, api_key
     );
-    
+
     let response = reqwest::get(&url).await
         .map_err(|e| ToolCallError::RuntimeError(e.into()))?;
-    
+
     let weather_data: serde_json::Value = response.json().await
         .map_err(|e| ToolCallError::RuntimeError(e.into()))?;
-    
+
     let temp = weather_data["main"]["temp"].as_f64().unwrap_or(0.0);
     let description = weather_data["weather"][0]["description"].as_str().unwrap_or("Unknown");
-    
+
     Ok(format!("The current temperature in {} is {:.1}°C with {}", args.city, temp, description))
 }
 ```
