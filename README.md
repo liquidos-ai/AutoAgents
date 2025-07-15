@@ -8,7 +8,7 @@
   [![Crates.io](https://img.shields.io/crates/v/autoagents.svg)](https://crates.io/crates/autoagents)
   [![Documentation](https://docs.rs/autoagents/badge.svg)](https://docs.rs/autoagents)
   [![License](https://img.shields.io/crates/l/autoagents.svg)](https://github.com/liquidos-ai/AutoAgents#license)
-  [![Build Status](https://github.com/liquidos-ai/AutoAgents/workflows/CI/badge.svg)](https://github.com/liquidos-ai/AutoAgents/actions)
+  [![Build Status](https://github.com/liquidos-ai/AutoAgents/workflows/coverage/badge.svg)](https://github.com/liquidos-ai/AutoAgents/actions)
   [![codecov](https://codecov.io/gh/liquidos-ai/AutoAgents/graph/badge.svg)](https://codecov.io/gh/liquidos-ai/AutoAgents)
 
   [Documentation](https://docs.rs/autoagents) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
