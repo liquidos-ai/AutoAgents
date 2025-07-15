@@ -6,6 +6,8 @@ use syn::{
     Token, Type,
 };
 
+pub(crate) mod output;
+
 pub(crate) struct AgentAttributes {
     pub(crate) name: LitStr,
     pub(crate) description: LitStr,
@@ -141,6 +143,10 @@ impl AgentParser {
 
                 fn name(&self) -> &'static str {
                     #agent_name_literal
+                }
+
+                fn output_schema(&self) -> Value {
+                    #output_type::structured_output_format()
                 }
 
                 fn description(&self) -> &'static str {

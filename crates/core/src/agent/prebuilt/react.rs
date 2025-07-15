@@ -27,6 +27,20 @@ impl From<ReActAgentOutput> for Value {
     }
 }
 
+impl ReActAgentOutput {
+    /// Extract the agent output from the ReAct response
+    /// This parses the response string as JSON and deserializes it to the target type
+    pub fn extract_agent_output<T>(val: Value) -> Result<T, ReActExecutorError>
+    where
+        T: for<'de> serde::Deserialize<'de>,
+    {
+        let react_output: Self = serde_json::from_value(val)
+            .map_err(|e| ReActExecutorError::AgentOutputError(e.to_string()))?;
+        serde_json::from_str(&react_output.response)
+            .map_err(|e| ReActExecutorError::AgentOutputError(e.to_string()))
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ReActExecutorError {
     #[error("LLM error: {0}")]
@@ -43,6 +57,9 @@ pub enum ReActExecutorError {
 
     #[error("Other error: {0}")]
     Other(String),
+
+    #[error("Extracting Agent Output Error: {0}")]
+    AgentOutputError(String),
 }
 
 #[async_trait]
@@ -149,11 +166,15 @@ pub trait ReActExecutor: Send + Sync + 'static {
 
         let response = if !tools.is_empty() {
             let tools_serialized: Vec<Tool> = tools.iter().map(Tool::from).collect();
-            llm.chat_with_tools(&messages, Some(&tools_serialized))
-                .await
-                .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?
+            llm.chat_with_tools(
+                &messages,
+                Some(&tools_serialized),
+                agent_config.output_schema.clone(),
+            )
+            .await
+            .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?
         } else {
-            llm.chat(&messages)
+            llm.chat(&messages, agent_config.output_schema.clone())
                 .await
                 .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?
         };
@@ -319,5 +340,51 @@ impl<T: ReActExecutor> AgentExecutor for T {
         } else {
             Err(ReActExecutorError::MaxTurnsExceeded { max_turns })
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+    struct TestAgentOutput {
+        value: i32,
+        message: String,
+    }
+
+    #[test]
+    fn test_extract_agent_output_success() {
+        let agent_output = TestAgentOutput {
+            value: 42,
+            message: "Hello, world!".to_string(),
+        };
+
+        let react_output = ReActAgentOutput {
+            response: serde_json::to_string(&agent_output).unwrap(),
+            tool_calls: vec![],
+        };
+
+        let react_value = serde_json::to_value(react_output).unwrap();
+        let extracted: TestAgentOutput =
+            ReActAgentOutput::extract_agent_output(react_value).unwrap();
+        assert_eq!(extracted, agent_output);
+    }
+
+    #[test]
+    fn test_extract_agent_output_invalid_json() {
+        let react_output = ReActAgentOutput {
+            response: "invalid json".to_string(),
+            tool_calls: vec![],
+        };
+
+        let react_value = serde_json::to_value(react_output).unwrap();
+        let result: Result<TestAgentOutput, _> =
+            ReActAgentOutput::extract_agent_output(react_value);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to parse agent response"));
     }
 }

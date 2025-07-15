@@ -4,7 +4,10 @@
 
 use crate::{
     builder::{LLMBackend, LLMBuilder},
-    chat::{ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, Tool, ToolChoice},
+    chat::{
+        ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StructuredOutputFormat,
+        Tool, ToolChoice,
+    },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
     error::LLMError,
@@ -312,6 +315,7 @@ impl ChatProvider for Anthropic {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError("Missing Anthropic API key".to_string()));
@@ -500,8 +504,12 @@ impl ChatProvider for Anthropic {
     /// # Returns
     ///
     /// The provider's response text or an error
-    async fn chat(&self, messages: &[ChatMessage]) -> Result<Box<dyn ChatResponse>, LLMError> {
-        self.chat_with_tools(messages, None).await
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        self.chat_with_tools(messages, None, json_schema).await
     }
 
     /// Sends a streaming chat request to Anthropic's API.

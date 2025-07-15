@@ -11,4 +11,6 @@ pub(crate) enum JsonType {
     Boolean,
     #[strum(serialize = "object")]
     Object,
+    #[strum(serialize = "array")]
+    Array,
 }

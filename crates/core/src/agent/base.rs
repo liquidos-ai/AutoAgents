@@ -1,8 +1,9 @@
-use super::{error::AgentBuildError, AgentExecutor, IntoRunnable, RunnableAgent};
+use super::{
+    error::AgentBuildError, output::AgentOutputT, AgentExecutor, IntoRunnable, RunnableAgent,
+};
 use crate::{error::Error, memory::MemoryProvider};
 use async_trait::async_trait;
-use autoagents_llm::{LLMProvider, ToolT};
-use serde::{de::DeserializeOwned, Serialize};
+use autoagents_llm::{chat::StructuredOutputFormat, LLMProvider, ToolT};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -12,10 +13,12 @@ use tokio::sync::RwLock;
 #[async_trait]
 pub trait AgentDeriveT: Send + Sync + 'static + AgentExecutor {
     /// The output type this agent produces
-    type Output: Serialize + DeserializeOwned + Send + Sync + Into<Value>;
+    type Output: AgentOutputT;
 
     /// Get the agent's description
     fn description(&self) -> &'static str;
+
+    fn output_schema(&self) -> Value;
 
     /// Get the agent's name
     fn name(&self) -> &'static str;
@@ -29,6 +32,8 @@ pub struct AgentConfig {
     pub name: String,
     /// The agent's description
     pub description: String,
+    /// The output schema for the agent
+    pub output_schema: Option<StructuredOutputFormat>,
 }
 
 /// Base agent type that wraps an AgentDeriveT implementation with additional runtime components
@@ -77,9 +82,13 @@ impl<T: AgentDeriveT> BaseAgent<T> {
     }
 
     pub fn agent_config(&self) -> AgentConfig {
+        let output_schema = self.inner().output_schema();
+        let structured_schema: StructuredOutputFormat =
+            serde_json::from_value(output_schema).unwrap();
         AgentConfig {
             name: self.name().into(),
             description: self.description().into(),
+            output_schema: Some(structured_schema),
         }
     }
 

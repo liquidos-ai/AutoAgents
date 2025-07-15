@@ -1,7 +1,7 @@
 mod attr;
 pub(crate) mod field;
 pub(crate) mod input;
-mod json;
+pub(crate) mod json;
 use attr::ToolAttributes;
 use proc_macro::TokenStream;
 use quote::quote;

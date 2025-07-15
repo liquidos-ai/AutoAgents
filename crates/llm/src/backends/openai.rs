@@ -468,6 +468,7 @@ impl ChatProvider for OpenAI {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError("Missing OpenAI API key".to_string()));
@@ -514,8 +515,7 @@ impl ChatProvider for OpenAI {
             );
         }
 
-        let response_format: Option<OpenAIResponseFormat> =
-            self.json_schema.clone().map(|s| s.into());
+        let response_format: Option<OpenAIResponseFormat> = json_schema.clone().map(|s| s.into());
 
         let request_tools = tools.map(|t| t.to_vec()).or_else(|| self.tools.clone());
 
@@ -617,8 +617,12 @@ impl ChatProvider for OpenAI {
         }
     }
 
-    async fn chat(&self, messages: &[ChatMessage]) -> Result<Box<dyn ChatResponse>, LLMError> {
-        self.chat_with_tools(messages, None).await
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        self.chat_with_tools(messages, None, json_schema).await
     }
 
     /// Sends a streaming chat request to OpenAI's API.

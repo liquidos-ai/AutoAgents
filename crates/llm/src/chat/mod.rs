@@ -261,8 +261,12 @@ pub trait ChatProvider: Sync + Send {
     /// # Returns
     ///
     /// The provider's response text or an error
-    async fn chat(&self, messages: &[ChatMessage]) -> Result<Box<dyn ChatResponse>, LLMError> {
-        self.chat_with_tools(messages, None).await
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        self.chat_with_tools(messages, None, json_schema).await
     }
 
     /// Sends a chat request to the provider with a sequence of messages and tools.
@@ -279,6 +283,7 @@ pub trait ChatProvider: Sync + Send {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError>;
 
     /// Sends a streaming chat request to the provider with a sequence of messages.
@@ -321,7 +326,7 @@ pub trait ChatProvider: Sync + Send {
                 .join("\n"),
         );
         let req = [ChatMessage::user().content(prompt).build()];
-        self.chat(&req)
+        self.chat(&req, None)
             .await?
             .text()
             .ok_or(LLMError::Generic("no text in summary response".into()))
