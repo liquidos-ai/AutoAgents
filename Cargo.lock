@@ -99,6 +99,8 @@ version = "0.2.0-alpha.0"
 dependencies = [
  "autoagents-core",
  "autoagents-llm",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

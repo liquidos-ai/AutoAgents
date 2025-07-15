@@ -502,3 +502,534 @@ impl FunctionBuilder {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::LLMError;
+    use serde_json::json;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_llm_backend_from_str() {
+        assert!(matches!(
+            LLMBackend::from_str("openai").unwrap(),
+            LLMBackend::OpenAI
+        ));
+        assert!(matches!(
+            LLMBackend::from_str("OpenAI").unwrap(),
+            LLMBackend::OpenAI
+        ));
+        assert!(matches!(
+            LLMBackend::from_str("OPENAI").unwrap(),
+            LLMBackend::OpenAI
+        ));
+        assert!(matches!(
+            LLMBackend::from_str("anthropic").unwrap(),
+            LLMBackend::Anthropic
+        ));
+        assert!(matches!(
+            LLMBackend::from_str("ollama").unwrap(),
+            LLMBackend::Ollama
+        ));
+        assert!(matches!(
+            LLMBackend::from_str("deepseek").unwrap(),
+            LLMBackend::DeepSeek
+        ));
+        assert!(matches!(
+            LLMBackend::from_str("xai").unwrap(),
+            LLMBackend::XAI
+        ));
+        assert!(matches!(
+            LLMBackend::from_str("phind").unwrap(),
+            LLMBackend::Phind
+        ));
+        assert!(matches!(
+            LLMBackend::from_str("google").unwrap(),
+            LLMBackend::Google
+        ));
+        assert!(matches!(
+            LLMBackend::from_str("groq").unwrap(),
+            LLMBackend::Groq
+        ));
+        assert!(matches!(
+            LLMBackend::from_str("azure-openai").unwrap(),
+            LLMBackend::AzureOpenAI
+        ));
+
+        let result = LLMBackend::from_str("invalid");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unknown LLM backend"));
+    }
+
+    #[test]
+    fn test_param_builder_new() {
+        let builder = ParamBuilder::new("test_param");
+        assert_eq!(builder.name, "test_param");
+        assert_eq!(builder.property_type, "string");
+        assert_eq!(builder.description, "");
+        assert!(builder.items.is_none());
+        assert!(builder.enum_list.is_none());
+    }
+
+    #[test]
+    fn test_param_builder_fluent_interface() {
+        let builder = ParamBuilder::new("test_param")
+            .type_of("integer")
+            .description("A test parameter")
+            .enum_values(vec!["option1".to_string(), "option2".to_string()]);
+
+        assert_eq!(builder.name, "test_param");
+        assert_eq!(builder.property_type, "integer");
+        assert_eq!(builder.description, "A test parameter");
+        assert_eq!(
+            builder.enum_list,
+            Some(vec!["option1".to_string(), "option2".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_param_builder_with_items() {
+        let item_property = ParameterProperty {
+            property_type: "string".to_string(),
+            description: "Array item".to_string(),
+            items: None,
+            enum_list: None,
+        };
+
+        let builder = ParamBuilder::new("array_param")
+            .type_of("array")
+            .description("An array parameter")
+            .items(item_property);
+
+        assert_eq!(builder.name, "array_param");
+        assert_eq!(builder.property_type, "array");
+        assert_eq!(builder.description, "An array parameter");
+        assert!(builder.items.is_some());
+    }
+
+    #[test]
+    fn test_param_builder_build() {
+        let builder = ParamBuilder::new("test_param")
+            .type_of("string")
+            .description("A test parameter");
+
+        let (name, property) = builder.build();
+        assert_eq!(name, "test_param");
+        assert_eq!(property.property_type, "string");
+        assert_eq!(property.description, "A test parameter");
+    }
+
+    #[test]
+    fn test_function_builder_new() {
+        let builder = FunctionBuilder::new("test_function");
+        assert_eq!(builder.name, "test_function");
+        assert_eq!(builder.description, "");
+        assert!(builder.parameters.is_empty());
+        assert!(builder.required.is_empty());
+        assert!(builder.raw_schema.is_none());
+    }
+
+    #[test]
+    fn test_function_builder_fluent_interface() {
+        let param = ParamBuilder::new("name")
+            .type_of("string")
+            .description("Name");
+        let builder = FunctionBuilder::new("test_function")
+            .description("A test function")
+            .param(param)
+            .required(vec!["name".to_string()]);
+
+        assert_eq!(builder.name, "test_function");
+        assert_eq!(builder.description, "A test function");
+        assert_eq!(builder.parameters.len(), 1);
+        assert_eq!(builder.required, vec!["name".to_string()]);
+    }
+
+    #[test]
+    fn test_function_builder_with_json_schema() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "age": {"type": "integer"}
+            },
+            "required": ["name", "age"]
+        });
+
+        let builder = FunctionBuilder::new("test_function").json_schema(schema.clone());
+        assert_eq!(builder.raw_schema, Some(schema));
+    }
+
+    #[test]
+    fn test_function_builder_build_with_parameters() {
+        let param = ParamBuilder::new("name").type_of("string");
+        let tool = FunctionBuilder::new("test_function")
+            .description("A test function")
+            .param(param)
+            .required(vec!["name".to_string()])
+            .build();
+
+        assert_eq!(tool.tool_type, "function");
+        assert_eq!(tool.function.name, "test_function");
+        assert_eq!(tool.function.description, "A test function");
+        assert!(tool.function.parameters.is_object());
+    }
+
+    #[test]
+    fn test_function_builder_build_with_raw_schema() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"}
+            }
+        });
+
+        let tool = FunctionBuilder::new("test_function")
+            .json_schema(schema.clone())
+            .build();
+
+        assert_eq!(tool.function.parameters, schema);
+    }
+
+    // Mock LLM provider for testing
+    struct MockLLMProvider;
+
+    #[async_trait::async_trait]
+    impl crate::chat::ChatProvider for MockLLMProvider {
+        async fn chat_with_tools(
+            &self,
+            _messages: &[crate::chat::ChatMessage],
+            _tools: Option<&[crate::chat::Tool]>,
+            _json_schema: Option<crate::chat::StructuredOutputFormat>,
+        ) -> Result<Box<dyn crate::chat::ChatResponse>, LLMError> {
+            unimplemented!()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::completion::CompletionProvider for MockLLMProvider {
+        async fn complete(
+            &self,
+            _req: &crate::completion::CompletionRequest,
+        ) -> Result<crate::completion::CompletionResponse, LLMError> {
+            unimplemented!()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::embedding::EmbeddingProvider for MockLLMProvider {
+        async fn embed(&self, _text: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
+            unimplemented!()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::models::ModelsProvider for MockLLMProvider {}
+
+    impl crate::LLMProvider for MockLLMProvider {}
+
+    #[test]
+    fn test_llm_builder_new() {
+        let builder = LLMBuilder::<MockLLMProvider>::new();
+        assert!(builder.api_key.is_none());
+        assert!(builder.base_url.is_none());
+        assert!(builder.model.is_none());
+        assert!(builder.max_tokens.is_none());
+        assert!(builder.temperature.is_none());
+        assert!(builder.system.is_none());
+        assert!(builder.timeout_seconds.is_none());
+        assert!(builder.stream.is_none());
+        assert!(builder.tools.is_none());
+        assert!(builder.tool_choice.is_none());
+    }
+
+    #[test]
+    fn test_llm_builder_default() {
+        let builder = LLMBuilder::<MockLLMProvider>::default();
+        assert!(builder.api_key.is_none());
+        assert!(builder.base_url.is_none());
+        assert!(builder.model.is_none());
+        assert_eq!(builder.validator_attempts, 0);
+    }
+
+    #[test]
+    fn test_llm_builder_api_key() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().api_key("test_key");
+        assert_eq!(builder.api_key, Some("test_key".to_string()));
+    }
+
+    #[test]
+    fn test_llm_builder_base_url() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().base_url("https://api.example.com");
+        assert_eq!(
+            builder.base_url,
+            Some("https://api.example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_llm_builder_model() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().model("gpt-4");
+        assert_eq!(builder.model, Some("gpt-4".to_string()));
+    }
+
+    #[test]
+    fn test_llm_builder_max_tokens() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().max_tokens(1000);
+        assert_eq!(builder.max_tokens, Some(1000));
+    }
+
+    #[test]
+    fn test_llm_builder_temperature() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().temperature(0.7);
+        assert_eq!(builder.temperature, Some(0.7));
+    }
+
+    #[test]
+    fn test_llm_builder_system() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().system("You are a helpful assistant");
+        assert_eq!(
+            builder.system,
+            Some("You are a helpful assistant".to_string())
+        );
+    }
+
+    #[test]
+    fn test_llm_builder_reasoning_effort() {
+        let builder = LLMBuilder::<MockLLMProvider>::new()
+            .reasoning_effort(crate::chat::ReasoningEffort::High);
+        assert_eq!(builder.reasoning_effort, Some("high".to_string()));
+    }
+
+    #[test]
+    fn test_llm_builder_reasoning() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().reasoning(true);
+        assert_eq!(builder.reasoning, Some(true));
+    }
+
+    #[test]
+    fn test_llm_builder_reasoning_budget_tokens() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().reasoning_budget_tokens(5000);
+        assert_eq!(builder.reasoning_budget_tokens, Some(5000));
+    }
+
+    #[test]
+    fn test_llm_builder_timeout_seconds() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().timeout_seconds(30);
+        assert_eq!(builder.timeout_seconds, Some(30));
+    }
+
+    #[test]
+    fn test_llm_builder_stream() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().stream(true);
+        assert_eq!(builder.stream, Some(true));
+    }
+
+    #[test]
+    fn test_llm_builder_top_p() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().top_p(0.9);
+        assert_eq!(builder.top_p, Some(0.9));
+    }
+
+    #[test]
+    fn test_llm_builder_top_k() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().top_k(50);
+        assert_eq!(builder.top_k, Some(50));
+    }
+
+    #[test]
+    fn test_llm_builder_embedding_encoding_format() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().embedding_encoding_format("float");
+        assert_eq!(builder.embedding_encoding_format, Some("float".to_string()));
+    }
+
+    #[test]
+    fn test_llm_builder_embedding_dimensions() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().embedding_dimensions(1536);
+        assert_eq!(builder.embedding_dimensions, Some(1536));
+    }
+
+    #[test]
+    fn test_llm_builder_schema() {
+        let schema = crate::chat::StructuredOutputFormat {
+            name: "Test".to_string(),
+            description: None,
+            schema: None,
+            strict: None,
+        };
+        let builder = LLMBuilder::<MockLLMProvider>::new().schema(schema.clone());
+        assert_eq!(builder.json_schema, Some(schema));
+    }
+
+    #[test]
+    fn test_llm_builder_validator() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().validator(|response| {
+            if response.contains("error") {
+                Err("Response contains error".to_string())
+            } else {
+                Ok(())
+            }
+        });
+        assert!(builder.validator.is_some());
+    }
+
+    #[test]
+    fn test_llm_builder_validator_attempts() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().validator_attempts(3);
+        assert_eq!(builder.validator_attempts, 3);
+    }
+
+    #[test]
+    fn test_llm_builder_function() {
+        let function = FunctionBuilder::new("test_function")
+            .description("A test function")
+            .param(ParamBuilder::new("name").type_of("string"));
+
+        let builder = LLMBuilder::<MockLLMProvider>::new().function(function);
+        assert!(builder.tools.is_some());
+        assert_eq!(builder.tools.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_llm_builder_multiple_functions() {
+        let function1 = FunctionBuilder::new("function1");
+        let function2 = FunctionBuilder::new("function2");
+
+        let builder = LLMBuilder::<MockLLMProvider>::new()
+            .function(function1)
+            .function(function2);
+
+        assert!(builder.tools.is_some());
+        assert_eq!(builder.tools.as_ref().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_llm_builder_enable_parallel_tool_use() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().enable_parallel_tool_use(true);
+        assert_eq!(builder.enable_parallel_tool_use, Some(true));
+    }
+
+    #[test]
+    fn test_llm_builder_tool_choice() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().tool_choice(ToolChoice::Auto);
+        assert!(matches!(builder.tool_choice, Some(ToolChoice::Auto)));
+    }
+
+    #[test]
+    fn test_llm_builder_disable_tools() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().disable_tools();
+        assert!(matches!(builder.tool_choice, Some(ToolChoice::None)));
+    }
+
+    #[test]
+    fn test_llm_builder_api_version() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().api_version("2023-05-15");
+        assert_eq!(builder.api_version, Some("2023-05-15".to_string()));
+    }
+
+    #[test]
+    fn test_llm_builder_deployment_id() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().deployment_id("my-deployment");
+        assert_eq!(builder.deployment_id, Some("my-deployment".to_string()));
+    }
+
+    #[test]
+    fn test_llm_builder_validate_tool_config_valid() {
+        let function = FunctionBuilder::new("test_function");
+        let builder = LLMBuilder::<MockLLMProvider>::new()
+            .function(function)
+            .tool_choice(ToolChoice::Tool("test_function".to_string()));
+
+        let result = builder.validate_tool_config();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_llm_builder_validate_tool_config_invalid_tool_name() {
+        let function = FunctionBuilder::new("test_function");
+        let builder = LLMBuilder::<MockLLMProvider>::new()
+            .function(function)
+            .tool_choice(ToolChoice::Tool("nonexistent_function".to_string()));
+
+        let result = builder.validate_tool_config();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("no tool with name nonexistent_function found"));
+    }
+
+    #[test]
+    fn test_llm_builder_validate_tool_config_tool_choice_without_tools() {
+        let builder = LLMBuilder::<MockLLMProvider>::new().tool_choice(ToolChoice::Auto);
+
+        let result = builder.validate_tool_config();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Tool choice cannot be set without tools configured"));
+    }
+
+    #[test]
+    fn test_llm_builder_validate_tool_config_auto_choice() {
+        let function = FunctionBuilder::new("test_function");
+        let builder = LLMBuilder::<MockLLMProvider>::new()
+            .function(function)
+            .tool_choice(ToolChoice::Auto);
+
+        let result = builder.validate_tool_config();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_llm_builder_validate_tool_config_no_tool_choice() {
+        let function = FunctionBuilder::new("test_function");
+        let builder = LLMBuilder::<MockLLMProvider>::new().function(function);
+
+        let result = builder.validate_tool_config();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_llm_builder_chaining() {
+        let builder = LLMBuilder::<MockLLMProvider>::new()
+            .api_key("test_key")
+            .model("gpt-4")
+            .max_tokens(2000)
+            .temperature(0.8)
+            .system("You are helpful")
+            .timeout_seconds(60)
+            .stream(true)
+            .top_p(0.95)
+            .top_k(40)
+            .embedding_encoding_format("float")
+            .embedding_dimensions(1536)
+            .validator_attempts(5)
+            .reasoning(true)
+            .reasoning_budget_tokens(10000)
+            .api_version("2023-05-15")
+            .deployment_id("test-deployment");
+
+        assert_eq!(builder.api_key, Some("test_key".to_string()));
+        assert_eq!(builder.model, Some("gpt-4".to_string()));
+        assert_eq!(builder.max_tokens, Some(2000));
+        assert_eq!(builder.temperature, Some(0.8));
+        assert_eq!(builder.system, Some("You are helpful".to_string()));
+        assert_eq!(builder.timeout_seconds, Some(60));
+        assert_eq!(builder.stream, Some(true));
+        assert_eq!(builder.top_p, Some(0.95));
+        assert_eq!(builder.top_k, Some(40));
+        assert_eq!(builder.embedding_encoding_format, Some("float".to_string()));
+        assert_eq!(builder.embedding_dimensions, Some(1536));
+        assert_eq!(builder.validator_attempts, 5);
+        assert_eq!(builder.reasoning, Some(true));
+        assert_eq!(builder.reasoning_budget_tokens, Some(10000));
+        assert_eq!(builder.api_version, Some("2023-05-15".to_string()));
+        assert_eq!(builder.deployment_id, Some("test-deployment".to_string()));
+    }
+}
