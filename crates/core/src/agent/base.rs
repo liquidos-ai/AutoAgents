@@ -18,7 +18,7 @@ pub trait AgentDeriveT: Send + Sync + 'static + AgentExecutor {
     /// Get the agent's description
     fn description(&self) -> &'static str;
 
-    fn output_schema(&self) -> Value;
+    fn output_schema(&self) -> Option<Value>;
 
     /// Get the agent's name
     fn name(&self) -> &'static str;
@@ -83,12 +83,11 @@ impl<T: AgentDeriveT> BaseAgent<T> {
 
     pub fn agent_config(&self) -> AgentConfig {
         let output_schema = self.inner().output_schema();
-        let structured_schema: StructuredOutputFormat =
-            serde_json::from_value(output_schema).unwrap();
+        let structured_schema = output_schema.map(|schema| serde_json::from_value(schema).unwrap());
         AgentConfig {
             name: self.name().into(),
             description: self.description().into(),
-            output_schema: Some(structured_schema),
+            output_schema: structured_schema,
         }
     }
 

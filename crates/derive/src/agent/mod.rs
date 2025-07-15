@@ -12,7 +12,7 @@ pub(crate) struct AgentAttributes {
     pub(crate) name: LitStr,
     pub(crate) description: LitStr,
     pub(crate) tools: Option<Vec<Ident>>,
-    pub(crate) output: Type,
+    pub(crate) output: Option<Type>,
     pub(crate) executor_type: Type,
 }
 
@@ -104,12 +104,7 @@ impl Parse for AgentAttributes {
                     format!("Missing attribute: {}", AgentAttributeKeys::Description),
                 )
             })?,
-            output: output.ok_or_else(|| {
-                syn::Error::new(
-                    input.span(),
-                    format!("Missing attribute: {}", AgentAttributeKeys::Output),
-                )
-            })?,
+            output,
             executor_type: executor_type.ok_or_else(|| {
                 syn::Error::new(
                     input.span(),
@@ -135,6 +130,30 @@ impl AgentParser {
         let output_type = agent_attrs.output;
         let executor_type = agent_attrs.executor_type;
 
+        let output_schema_impl = if let Some(ref output_ty) = output_type {
+            quote! {
+                fn output_schema(&self) -> Option<Value> {
+                    Some(<#output_ty>::structured_output_format())
+                }
+            }
+        } else {
+            quote! {
+                fn output_schema(&self) -> Option<Value> {
+                    None
+                }
+            }
+        };
+
+        let output_type = if output_type.is_some() {
+            quote! {
+                String
+            }
+        } else {
+            quote! {
+               String
+            }
+        };
+
         let expanded = quote! {
             #input_struct
 
@@ -145,9 +164,7 @@ impl AgentParser {
                     #agent_name_literal
                 }
 
-                fn output_schema(&self) -> Value {
-                    #output_type::structured_output_format()
-                }
+                #output_schema_impl
 
                 fn description(&self) -> &'static str {
                     #agent_description

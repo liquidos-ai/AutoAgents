@@ -1,11 +1,10 @@
 use autoagents::core::agent::base::AgentBuilder;
-use autoagents::core::agent::output::AgentOutputT;
-use autoagents::core::agent::{AgentDeriveT, ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::{AgentDeriveT, ReActExecutor};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::memory::SlidingWindowMemory;
 use autoagents::llm::{LLMProvider, ToolCallError, ToolInputT, ToolT};
-use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
+use autoagents_derive::{agent, tool, ToolInput};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -40,21 +39,11 @@ fn get_weather(args: WeatherArgs) -> Result<String, ToolCallError> {
     }
 }
 
-/// Weather agent output with structured information
-#[derive(Debug, Serialize, Deserialize, AgentOutput)]
-pub struct WeatherAgentOutput {
-    #[output(description = "The weather information including temperature")]
-    weather: String,
-    #[output(description = "A human-readable description of the weather comparison")]
-    pretty_description: String,
-}
-
 #[agent(
     name = "weather_agent",
     description = "You are a weather assistant that helps users get weather information.",
     tools = [WeatherTool],
     executor = ReActExecutor,
-    output = WeatherAgentOutput,
 )]
 pub struct WeatherAgent {}
 
@@ -91,12 +80,7 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     // Run all tasks
     let results = environment.run_all(agent_id, None).await?;
     let last_result = results.last().unwrap();
-    let agent_output: WeatherAgentOutput =
-        last_result.extract_agent_output(ReActAgentOutput::extract_agent_output)?;
-    println!(
-        "Results: {}, {}",
-        agent_output.weather, agent_output.pretty_description
-    );
+    println!("Results: {}", last_result.output.as_ref().unwrap());
 
     // Shutdown
     let _ = environment.shutdown().await;

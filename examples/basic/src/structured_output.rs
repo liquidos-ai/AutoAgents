@@ -28,7 +28,7 @@ fn get_weather(args: AdditionArgs) -> Result<i64, ToolCallError> {
     Ok(args.left + args.right)
 }
 
-/// Weather agent output with structured information
+/// Math agent output with Value and Explanation
 #[derive(Debug, Serialize, Deserialize, AgentOutput)]
 pub struct MathAgentOutput {
     #[output(description = "The addition result")]
@@ -42,7 +42,7 @@ pub struct MathAgentOutput {
     description = "You are a Math agent.",
     tools = [Addition],
     executor = ReActExecutor,
-    output = MathAgentOutput,
+    output = MathAgentOutput
 )]
 pub struct MathAgent {}
 

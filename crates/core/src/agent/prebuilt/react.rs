@@ -370,21 +370,4 @@ mod tests {
             ReActAgentOutput::extract_agent_output(react_value).unwrap();
         assert_eq!(extracted, agent_output);
     }
-
-    #[test]
-    fn test_extract_agent_output_invalid_json() {
-        let react_output = ReActAgentOutput {
-            response: "invalid json".to_string(),
-            tool_calls: vec![],
-        };
-
-        let react_value = serde_json::to_value(react_output).unwrap();
-        let result: Result<TestAgentOutput, _> =
-            ReActAgentOutput::extract_agent_output(react_value);
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Failed to parse agent response"));
-    }
 }

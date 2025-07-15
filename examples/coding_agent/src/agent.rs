@@ -1,6 +1,7 @@
 use autoagents::core::agent::{AgentDeriveT, ReActExecutor};
 use autoagents::llm::ToolT;
 use autoagents_derive::agent;
+use serde_json::Value;
 
 use crate::tools::{
     AnalyzeCodeTool, DeleteFileTool, FileSearchTool, GrepTool, ListDirectoryTool, ReadFileTool,
@@ -60,7 +61,6 @@ Remember: You are a systematic problem solver. Think through each step, use your
         AnalyzeCodeTool
     ],
     executor = ReActExecutor,
-    output = String,
 )]
 pub struct CodingAgent {}
 
@@ -96,6 +96,5 @@ Keep responses under 2 lines unless showing code or results.",
         AnalyzeCodeTool
     ],
     executor = ReActExecutor,
-    output = String,
 )]
 pub struct ConciseCodingAgent {}
