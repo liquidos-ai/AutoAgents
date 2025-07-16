@@ -52,6 +52,7 @@ dirs = { workspace = true }
 regex = { workspace = true }
 base64 = "0.22.1"
 either = { version = "1.15.0", features = ["serde"] }
+async-stream = "0.3"
 
 [dev-dependencies]
 tempfile = "3.10.1"

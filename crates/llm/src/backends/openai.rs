@@ -14,7 +14,7 @@ use crate::{
 };
 use crate::{
     builder::LLMBuilder,
-    chat::{ChatResponse, ToolChoice},
+    chat::{ChatResponse, ChatStreamResponse, ToolChoice},
     FunctionCall, ToolCall,
 };
 use async_trait::async_trait;
@@ -207,9 +207,11 @@ struct OpenAIChatStreamChoice {
 }
 
 /// Delta content within an OpenAI streaming chat API response.
+/// Delta content within an OpenAI streaming chat API response.
 #[derive(Deserialize, Debug)]
 struct OpenAIChatStreamDelta {
     content: Option<String>,
+    tool_calls: Option<Vec<crate::chat::ToolCallChunk>>,
 }
 
 /// An object specifying the format that the model must output.
@@ -455,6 +457,152 @@ impl OpenAI {
 
 #[async_trait]
 impl ChatProvider for OpenAI {
+    async fn chat_stream_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<ChatStreamResponse, LLMError>> + Send>>, LLMError> {
+        let mut openai_messages = Vec::new();
+        if let Some(system_prompt) = &self.system {
+            openai_messages.push(OpenAIChatMessage {
+                role: "system",
+                content: Some(Either::Right(system_prompt.clone())),
+                tool_calls: None,
+                tool_call_id: None,
+            });
+        }
+
+        for msg in messages {
+            match &msg.message_type {
+                MessageType::ToolResult(calls) => {
+                    for call in calls {
+                        openai_messages.push(OpenAIChatMessage {
+                            role: "tool",
+                            content: Some(Either::Right(call.function.arguments.clone())),
+                            tool_calls: None,
+                            tool_call_id: Some(call.id.clone()),
+                        });
+                    }
+                }
+                _ => {
+                    let role = match msg.role {
+                        ChatRole::User => "user",
+                        ChatRole::Assistant => "assistant",
+                        ChatRole::System => "system",
+                        ChatRole::Tool => "tool", // Should not happen due to the outer match
+                    };
+
+                    let (content, tool_calls) = match &msg.message_type {
+                        MessageType::Text => (Some(Either::Right(msg.content.clone())), None),
+                        MessageType::ToolUse(calls) => (
+                            Some(Either::Right(msg.content.clone())),
+                            Some(
+                                calls
+                                    .iter()
+                                    .map(|c| OpenAIFunctionCall {
+                                        id: &c.id,
+                                        content_type: "function",
+                                        function: OpenAIFunctionPayload {
+                                            name: &c.function.name,
+                                            arguments: &c.function.arguments,
+                                        },
+                                    })
+                                    .collect(),
+                            ),
+                        ),
+                        _ => (None, None), // ToolResult is handled above
+                    };
+
+                    openai_messages.push(OpenAIChatMessage {
+                        role,
+                        content,
+                        tool_calls,
+                        tool_call_id: None,
+                    });
+                }
+            }
+        }
+
+        let request = OpenAIChatRequest {
+            model: &self.model,
+            messages: openai_messages,
+            max_tokens: self.max_tokens,
+            temperature: self.temperature,
+            stream: true, // Explicitly set stream to true
+            top_p: self.top_p,
+            top_k: self.top_k,
+            tools: tools.map(|t| t.to_vec()),
+            tool_choice: self.tool_choice.clone(),
+            reasoning_effort: self.reasoning_effort.clone(),
+            response_format: json_schema.map(OpenAIResponseFormat::from),
+            web_search_options: None, // Add web search options if needed
+        };
+
+        let mut url = self.base_url.clone();
+        url.path_segments_mut()
+            .unwrap()
+            .push("chat")
+            .push("completions");
+
+        let response = self
+            .client
+            .post(url)
+            .bearer_auth(&self.api_key)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| LLMError::HttpError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            let error_body = response.text().await.unwrap_or_default();
+            return Err(LLMError::ProviderError(error_body));
+        }
+
+        let stream = response.bytes_stream();
+
+        let response_stream = async_stream::try_stream! {
+            let mut buffer = Vec::new();
+            for await chunk in stream {
+                buffer.extend_from_slice(&chunk.map_err(|e| LLMError::HttpError(e.to_string()))?);
+
+                while let Some(i) = buffer.iter().position(|&b| b == b'\n') {
+                    let line = buffer.drain(..=i).collect::<Vec<u8>>();
+                    let line_str = String::from_utf8_lossy(&line).trim().to_string();
+
+                    if line_str.starts_with("data: ") {
+                        let json_str = &line_str[6..];
+
+                        if json_str == "[DONE]" {
+                            break;
+                        }
+
+                        match serde_json::from_str::<OpenAIChatStreamResponse>(json_str) {
+                            Ok(stream_response) => {
+                                if let Some(choice) = stream_response.choices.into_iter().next() {
+                                    let delta = choice.delta;
+                                    let text = delta.content.unwrap_or_default();
+                                    let tool_calls = delta.tool_calls.unwrap_or_default();
+
+                                    yield ChatStreamResponse {
+                                        text,
+                                        tool_calls,
+                                        finish_reason: None, // OpenAI doesn't seem to provide this per chunk
+                                    };
+                                }
+                            }
+                            Err(e) => {
+                                yield Err(LLMError::ResponseFormatError{ message: e.to_string(), raw_response: json_str.to_string() })?;
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        Ok(Box::pin(response_stream))
+    }
+
     /// Sends a chat request to OpenAI's API.
     ///
     /// # Arguments

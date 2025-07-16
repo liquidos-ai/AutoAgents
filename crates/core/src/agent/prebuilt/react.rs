@@ -6,8 +6,9 @@ use crate::protocol::Event;
 use crate::session::Task;
 use crate::tool::ToolCallResult;
 use async_trait::async_trait;
-use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, Tool};
+use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, Tool, ToolCallChunk};
 use autoagents_llm::{LLMProvider, ToolCall, ToolT};
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -164,27 +165,44 @@ pub trait ReActExecutor: Send + Sync + 'static {
             );
         }
 
-        let response = if !tools.is_empty() {
-            let tools_serialized: Vec<Tool> = tools.iter().map(Tool::from).collect();
-            llm.chat_with_tools(
-                &messages,
-                Some(&tools_serialized),
-                agent_config.output_schema.clone(),
-            )
-            .await
-            .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?
-        } else {
-            llm.chat(&messages, agent_config.output_schema.clone())
-                .await
-                .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?
-        };
+        let tools_serialized: Vec<Tool> = tools.iter().map(Tool::from).collect();
+        let mut stream = llm.chat_stream_with_tools(
+            &messages,
+            if tools.is_empty() { None } else { Some(&tools_serialized) },
+            agent_config.output_schema.clone(),
+        )
+        .await
+        .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?;
 
-        let response_text = response.text().unwrap_or_default();
+        let mut response_text = String::new();
+        let mut tool_calls_chunks: Vec<ToolCallChunk> = Vec::new();
 
-        if let Some(tool_calls) = response.tool_calls() {
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| ReActExecutorError::LLMError(e.to_string()))?;
+            response_text.push_str(&chunk.text);
+            tool_calls_chunks.extend(chunk.tool_calls);
+        }
+
+        if !tool_calls_chunks.is_empty() {
+            // Reconstruct ToolCall from chunks
+            let mut tool_calls_map: std::collections::HashMap<usize, ToolCall> = std::collections::HashMap::new();
+            for chunk in tool_calls_chunks {
+                let entry = tool_calls_map.entry(chunk.index).or_insert_with(|| ToolCall {
+                    id: chunk.id.clone(),
+                    call_type: chunk.call_type.clone(),
+                    function: autoagents_llm::FunctionCall {
+                        name: chunk.function.name.clone(),
+                        arguments: String::new(),
+                    },
+                });
+                entry.function.arguments.push_str(&chunk.function.arguments);
+            }
+            let tool_calls: Vec<ToolCall> = tool_calls_map.into_values().collect();
+
             let tool_results = self
                 .process_tool_calls(tools, tool_calls.clone(), tx_event.clone(), memory.clone())
                 .await;
+
 
             // Store tool calls and results in memory
             if let Some(mem) = &memory {
