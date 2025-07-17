@@ -47,6 +47,10 @@ pub trait AgentExecutor: Send + Sync + 'static {
     type Output: Serialize + DeserializeOwned + Clone + Send + Sync + Into<Value>;
     type Error: Error + Send + Sync + 'static;
 
+    /// Create a "not supported" error
+    fn not_supported() -> Self::Error;
+
+
     /// Get the configuration for this executor
     fn config(&self) -> ExecutorConfig;
 
@@ -62,6 +66,19 @@ pub trait AgentExecutor: Send + Sync + 'static {
         state: Arc<RwLock<AgentState>>,
         tx_event: mpsc::Sender<Event>,
     ) -> Result<Self::Output, Self::Error>;
+
+    async fn execute_stream(
+        &self,
+        _llm: Arc<dyn LLMProvider>,
+        _memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+        _tools: Vec<Box<dyn ToolT>>,
+        _agent_config: &AgentConfig,
+        _task: Task,
+        _state: Arc<RwLock<AgentState>>,
+        _tx_event: mpsc::Sender<Event>,
+    ) -> Result<Self::Output, Self::Error> {
+        Err(Self::not_supported())
+    }
 }
 
 #[cfg(test)]
@@ -128,6 +145,10 @@ mod tests {
     impl AgentExecutor for MockExecutor {
         type Output = TestOutput;
         type Error = TestError;
+
+        fn not_supported() -> Self::Error {
+            TestError::TestError("Streaming not supported".to_string())
+        }
 
         fn config(&self) -> ExecutorConfig {
             ExecutorConfig {

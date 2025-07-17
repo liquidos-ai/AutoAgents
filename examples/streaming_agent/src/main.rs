@@ -18,6 +18,9 @@ enum UseCase {
 struct Args {
     #[arg(short, long, help = "usecase")]
     usecase: UseCase,
+
+    #[arg(long, help = "Enable streaming execution", default_value_t = false)]
+    stream: bool,
 }
 
 #[tokio::main]
@@ -37,7 +40,7 @@ async fn main() -> Result<(), Error> {
         .expect("Failed to build LLM");
 
     match args.usecase {
-        UseCase::Simple => simple::simple_agent(llm).await?,
+        UseCase::Simple => simple::simple_agent(llm, args.stream).await?,
         UseCase::Events => events::events_agent(llm).await?,
         //UseCase::Structured => structured_output::math_agent(llm).await?,
     }

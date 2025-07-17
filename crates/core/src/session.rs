@@ -182,6 +182,49 @@ impl Session {
         }
         Ok(results)
     }
+
+    pub async fn run_task_stream(
+        &self,
+        task: Option<Task>,
+        agent_id: AgentID,
+    ) -> Result<AgentRunResult, Error> {
+        let task = task.ok_or(SessionError::EmptyTask)?;
+        let agents = self.agents.read().await;
+        let agent = agents
+            .get(&agent_id)
+            .ok_or_else(|| SessionError::AgentNotFound(agent_id))?;
+
+        self.tx_event
+            .send(Event::TaskStarted {
+                sub_id: task.submission_id,
+                agent_id,
+                task_description: task.prompt.clone(),
+            })
+            .await
+            .map_err(|e| Error::RunnableAgentError(e.into()))?;
+
+        let result = agent.clone().run_stream(task.clone(), self.tx_event.clone()).await?;
+
+        self.tx_event
+            .send(Event::TaskComplete {
+                sub_id: task.submission_id,
+                result: result.clone().into(),
+            })
+            .await
+            .map_err(|e| Error::RunnableAgentError(e.into()))?;
+
+        Ok(result)
+    }
+
+    pub async fn run_all_stream(&self, agent_id: Uuid) -> Result<Vec<AgentRunResult>, Error> {
+        let mut results = Vec::new();
+        while !self.is_task_queue_empty().await {
+            let task = self.get_top_task().await;
+            let result = self.run_task_stream(task, agent_id).await?;
+            results.push(result);
+        }
+        Ok(results)
+    }
 }
 
 #[derive(Default)]
@@ -219,7 +262,7 @@ mod tests {
     use super::*;
     use crate::agent::result::AgentRunResult;
     use crate::agent::runnable::RunnableAgent;
-    use crate::protocol::Event;
+    use crate::protocol::{Event, TaskResult, TaskStatus};
     use async_trait::async_trait;
     use std::sync::Arc;
     use tokio::sync::mpsc;

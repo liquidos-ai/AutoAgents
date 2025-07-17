@@ -47,7 +47,7 @@ fn get_weather(args: WeatherArgs) -> Result<String, ToolCallError> {
 )]
 pub struct WeatherAgent {}
 
-pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
+pub async fn simple_agent(llm: Arc<dyn LLMProvider>, stream: bool) -> Result<(), Error> {
     println!("Starting Weather Agent Example...\n");
 
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
@@ -78,7 +78,13 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         .await?;
 
     // Run all tasks
-    let results = environment.run_all(agent_id, None).await?;
+    let results = if stream {
+        println!("Running in streaming mode...");
+        environment.run_all_stream(agent_id, None).await?
+    } else {
+        println!("Running in non-streaming mode...");
+        environment.run_all(agent_id, None).await?
+    };
     let last_result = results.last().unwrap();
     println!("Results: {}", last_result.output.as_ref().unwrap());
 

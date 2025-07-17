@@ -50,6 +50,18 @@ pub trait RunnableAgent: Send + Sync + 'static {
         tx_event: mpsc::Sender<Event>,
     ) -> Result<AgentRunResult, Error>;
 
+    async fn run_stream(
+        self: Arc<Self>,
+        task: Task,
+        tx_event: mpsc::Sender<Event>,
+    ) -> Result<AgentRunResult, Error> {
+        let _ = task;
+        let _ = tx_event;
+        Err(Error::RunnableAgentError(
+            RunnableAgentError::NotSupported("Streaming is not supported by this agent".to_string()),
+        ))
+    }
+
     fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>>;
 
     fn spawn_task(
@@ -101,6 +113,76 @@ where
 
     fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>> {
         self.agent.memory()
+    }
+
+    async fn run_stream(
+        self: Arc<Self>,
+        task: Task,
+        tx_event: mpsc::Sender<Event>,
+    ) -> Result<AgentRunResult, Error> {
+        // Record the task in state
+        {
+            let mut state = self.state.write().await;
+            state.record_task(task.clone());
+        }
+
+        // Store the task in memory if available
+        if let Some(memory) = self.agent.memory() {
+            let mut mem = memory.write().await;
+            let chat_msg = ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: task.prompt.clone(),
+            };
+            let _ = mem.remember(&chat_msg).await;
+        }
+
+        // Execute the agent's logic using the executor
+        match self
+            .agent
+            .inner()
+            .execute_stream(
+                self.agent.llm(),
+                self.agent.memory(),
+                self.agent.tools(),
+                &self.agent.agent_config(),
+                task.clone(),
+                self.state.clone(),
+                tx_event.clone(),
+            )
+            .await
+        {
+            Ok(output) => {
+                // Convert output to Value
+                let value: Value = output.into();
+
+                // Create task result
+                let task_result = TaskResult::Value(value.clone());
+
+                // Send completion event
+                let _ = tx_event
+                    .send(Event::TaskComplete {
+                        sub_id: task.submission_id,
+                        result: task_result,
+                    })
+                    .await
+                    .map_err(RunnableAgentError::event_send_error)?;
+
+                Ok(AgentRunResult::success(value))
+            }
+            Err(e) => {
+                // Send error event
+                let error_msg = e.to_string();
+                let _ = tx_event
+                    .send(Event::Error {
+                        sub_id: task.submission_id,
+                        error: error_msg.clone(),
+                    })
+                    .await;
+
+                Err(RunnableAgentError::ExecutorError(error_msg).into())
+            }
+        }
     }
 
     async fn run(
