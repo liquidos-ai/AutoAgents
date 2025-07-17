@@ -33,6 +33,16 @@ impl From<GroqModel> for String {
     }
 }
 
+impl From<String> for GroqModel {
+    fn from(model: String) -> Self {
+        match model.as_str() {
+            "moonshotai/kimi-k2-instruct" => GroqModel::KimiK2,
+            "llama-3.3-70b-versatile" => GroqModel::Llama33_70B,
+            _ => GroqModel::Llama33_70B, // Default to Llama if unknown
+        }
+    }
+}
+
 /// Client for interacting with Groq's API.
 pub struct Groq {
     pub api_key: String,
@@ -253,14 +263,7 @@ impl LLMBuilder<Groq> {
             .api_key
             .ok_or_else(|| LLMError::InvalidRequest("No API key provided for Groq".to_string()))?;
 
-        let model = match self.model {
-            Some(model_str) => match model_str.as_str() {
-                "moonshotai/kimi-k2-instruct" => Some(GroqModel::KimiK2),
-                "llama-3.3-70b-versatile" => Some(GroqModel::Llama33_70B),
-                _ => Some(GroqModel::Llama33_70B), // Default to Llama if unknown
-            },
-            None => None,
-        };
+        let model = self.model.map(|model_str| GroqModel::from(model_str));
 
         let groq = crate::backends::groq::Groq::new(
             api_key,
