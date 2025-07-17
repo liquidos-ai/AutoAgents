@@ -21,12 +21,16 @@ pub enum RunnableAgentError {
     InitializationError(String),
 
     /// Error when sending events
-    #[error("Failed to send event: {0}")]
+    #[error("Event send error: {0}")]
     EventSendError(String),
 
     /// Error from agent state operations
     #[error("Agent state error: {0}")]
     StateError(String),
+
+    /// Error when a feature is not supported
+    #[error("Not supported: {0}")]
+    NotSupported(String),
 
     /// Generic error wrapper for any std::error::Error
     #[error(transparent)]

@@ -1,3 +1,4 @@
+use crate::agent::result::AgentRunResult;
 use autoagents_llm::chat::ChatMessage;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -106,6 +107,29 @@ pub enum TaskResult {
 
     /// The task was aborted
     Aborted,
+}
+
+impl From<AgentRunResult> for TaskResult {
+    fn from(result: AgentRunResult) -> Self {
+        if result.success {
+            match result.output {
+                Some(value) => {
+                    if let Some(s) = value.as_str() {
+                        TaskResult::Success(s.to_string())
+                    } else {
+                        TaskResult::Value(value)
+                    }
+                }
+                None => TaskResult::Success("Completed successfully without output.".to_string()),
+            }
+        } else {
+            TaskResult::Failure(
+                result
+                    .error_message
+                    .unwrap_or_else(|| "An unknown error occurred.".to_string()),
+            )
+        }
+    }
 }
 
 /// Messages from the agent

@@ -2,6 +2,7 @@ use std::fmt;
 
 /// Error types that can occur when interacting with LLM providers.
 #[derive(Debug)]
+
 pub enum LLMError {
     /// HTTP request/response errors
     HttpError(String),
