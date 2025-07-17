@@ -16,10 +16,27 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+/// Supported models for Groq API.
+#[derive(Debug, Clone, Default)]
+pub enum GroqModel {
+    #[default]
+    Llama33_70B,
+    KimiK2,
+}
+
+impl From<GroqModel> for String {
+    fn from(model: GroqModel) -> Self {
+        match model {
+            GroqModel::Llama33_70B => "llama-3.3-70b-versatile".to_string(),
+            GroqModel::KimiK2 => "moonshotai/kimi-k2-instruct".to_string(),
+        }
+    }
+}
+
 /// Client for interacting with Groq's API.
 pub struct Groq {
     pub api_key: String,
-    pub model: String,
+    pub model: GroqModel,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
     pub system: Option<String>,
@@ -93,7 +110,7 @@ impl Groq {
     /// Creates a new Groq client with the specified configuration.
     pub fn new(
         api_key: impl Into<String>,
-        model: Option<String>,
+        model: Option<GroqModel>,
         max_tokens: Option<u32>,
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
@@ -108,7 +125,7 @@ impl Groq {
         }
         Self {
             api_key: api_key.into(),
-            model: model.unwrap_or("llama-3.3-70b-versatile".to_string()),
+            model: model.unwrap_or_default(),
             max_tokens,
             temperature,
             system,
@@ -155,8 +172,9 @@ impl ChatProvider for Groq {
             );
         }
 
+        let model_str = String::from(self.model.clone());
         let body = GroqChatRequest {
-            model: &self.model,
+            model: &model_str,
             messages: groq_msgs,
             max_tokens: self.max_tokens,
             temperature: self.temperature,
@@ -235,9 +253,18 @@ impl LLMBuilder<Groq> {
             .api_key
             .ok_or_else(|| LLMError::InvalidRequest("No API key provided for Groq".to_string()))?;
 
+        let model = match self.model {
+            Some(model_str) => match model_str.as_str() {
+                "moonshotai/kimi-k2-instruct" => Some(GroqModel::KimiK2),
+                "llama-3.3-70b-versatile" => Some(GroqModel::Llama33_70B),
+                _ => Some(GroqModel::Llama33_70B), // Default to Llama if unknown
+            },
+            None => None,
+        };
+
         let groq = crate::backends::groq::Groq::new(
             api_key,
-            self.model,
+            model,
             self.max_tokens,
             self.temperature,
             self.timeout_seconds,
