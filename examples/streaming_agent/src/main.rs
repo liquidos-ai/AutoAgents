@@ -41,7 +41,7 @@ async fn main() -> Result<(), Error> {
 
     match args.usecase {
         UseCase::Simple => simple::simple_agent(llm, args.stream).await?,
-        UseCase::Events => events::events_agent(llm).await?,
+        UseCase::Events => events::events_agent(llm, args.stream).await?,
         //UseCase::Structured => structured_output::math_agent(llm).await?,
     }
 

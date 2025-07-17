@@ -123,7 +123,7 @@ fn handle_events(event_stream: Option<ReceiverStream<Event>>) {
     }
 }
 
-pub async fn events_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
+pub async fn events_agent(llm: Arc<dyn LLMProvider>, stream: bool) -> Result<(), Error> {
     println!("Starting Weather Agent Example...\n");
 
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
@@ -156,7 +156,13 @@ pub async fn events_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         .await?;
 
     // Run all tasks
-    let _ = environment.run_all(agent_id, None).await?;
+    if stream {
+        println!("Running in streaming mode...");
+        let _ = environment.run_all_stream(agent_id, None).await?;
+    } else {
+        println!("Running in non-streaming mode...");
+        let _ = environment.run_all(agent_id, None).await?;
+    }
 
     // Shutdown
     let _ = environment.shutdown().await;
