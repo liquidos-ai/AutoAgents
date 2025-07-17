@@ -56,18 +56,20 @@ impl Task {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct State {
     current_task: Option<Task>,
     task_queue: Vec<Task>,
 }
 
-pub struct Session {
+pub #[derive(Clone)]
+struct Session {
     pub id: SessionId,
     tx_event: mpsc::Sender<Event>,
     rx_event: Option<mpsc::Receiver<Event>>,
     state: Arc<Mutex<State>>,
     agents: Arc<RwLock<HashMap<AgentID, Arc<dyn RunnableAgent + Send + Sync + 'static>>>>,
+    self_arc: Arc<Session>,
 }
 
 impl Session {
@@ -76,13 +78,15 @@ impl Session {
         let (tx_event, rx_event) = mpsc::channel(channel_buffer);
         (
             id,
-            Self {
+            let session = Self {
                 id,
                 tx_event,
                 rx_event: Some(rx_event),
                 state: Arc::new(Mutex::new(State::default())),
                 agents: Arc::new(RwLock::new(HashMap::new())),
-            },
+            };
+            session.self_arc = Arc::new(session);
+            (id, session)
         )
     }
 

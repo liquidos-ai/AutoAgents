@@ -155,7 +155,7 @@ impl Environment {
         &self,
         agent_id: AgentID,
         session_id: Option<SessionId>,
-    ) -> Result<Vec<AgentRunResult>, Error> {
+    ) -> Result<ReceiverStream<Event>, Error> {
         let session_arc = self.get_session_or_default(session_id).await?;
         let session = session_arc.lock().await;
         session.run_all_stream(agent_id).await
