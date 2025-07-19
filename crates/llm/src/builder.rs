@@ -213,6 +213,11 @@ impl<L: LLMProvider> LLMBuilder<L> {
         self
     }
 
+    pub fn tools(mut self, tools: Vec<Tool>) -> Self {
+        self.tools = Some(tools);
+        self
+    }
+
     /// Sets the system prompt/context.
     pub fn system(mut self, system: impl Into<String>) -> Self {
         self.system = Some(system.into());
