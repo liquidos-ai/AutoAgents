@@ -1,39 +1,41 @@
+// Re-export for convenience
+pub use async_trait::async_trait;
+
 pub use autoagents_core::{self as core, error as core_error};
 pub use autoagents_llm::{self as llm, error as llm_error};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::chat::ChatProvider;
-    use crate::llm::completion::CompletionProvider;
-    use crate::llm::embedding::EmbeddingProvider;
+    use autoagents_test_utils::llm::MockLLMProvider;
+    use std::sync::Arc;
 
     #[test]
     fn test_core_module_available() {
         // Test that we can access core module
-        let _config = core::environment::EnvironmentConfig::default();
-        assert_eq!(_config.channel_buffer, 100);
+        let config = core::environment::EnvironmentConfig::default();
+        assert_eq!(config.channel_buffer, 100);
     }
 
     #[test]
     fn test_llm_module_available() {
         // Test that we can access llm module
-        let _request = llm::completion::CompletionRequest::new("test prompt");
-        assert_eq!(_request.prompt, "test prompt");
+        let request = llm::completion::CompletionRequest::new("test prompt");
+        assert_eq!(request.prompt, "test prompt");
     }
 
     #[test]
     fn test_core_error_available() {
         // Test that core error types are accessible
-        let _error = core_error::Error::SessionError(core::session::SessionError::EmptyTask);
-        assert!(_error.to_string().contains("Task is None"));
+        let error = core_error::Error::SessionError(core::session::SessionError::EmptyTask);
+        assert!(error.to_string().contains("Task is None"));
     }
 
     #[test]
     fn test_llm_error_available() {
         // Test that llm error types are accessible
-        let _error = llm_error::LLMError::AuthError("test error".to_string());
-        assert_eq!(_error.to_string(), "Auth Error: test error");
+        let error = llm_error::LLMError::AuthError("test error".to_string());
+        assert_eq!(error.to_string(), "Auth Error: test error");
     }
 
     #[test]
@@ -50,14 +52,14 @@ mod tests {
     #[test]
     fn test_agent_builder_available() {
         // Test that agent builder types are accessible
-        use crate::core::agent::base::AgentBuilder;
         use crate::core::agent::prebuilt::react::ReActExecutor;
+        use crate::core::agent::AgentBuilder;
 
         // Mock agent for testing
         #[derive(Debug)]
         struct MockAgent;
 
-        impl core::agent::base::AgentDeriveT for MockAgent {
+        impl core::agent::AgentDeriveT for MockAgent {
             type Output = String;
 
             fn name(&self) -> &'static str {
@@ -79,15 +81,16 @@ mod tests {
 
         impl ReActExecutor for MockAgent {}
 
-        let _builder = AgentBuilder::new(MockAgent);
-        // Just test that we can create the builder
+        let llm: Arc<MockLLMProvider> = Arc::new(MockLLMProvider {});
+        let builder = AgentBuilder::new(MockAgent).with_llm(llm).build().unwrap();
+        assert_eq!(builder.description(), "A mock agent for testing");
     }
 
     #[test]
     fn test_memory_types_available() {
         // Test that memory types are accessible
-        let _memory = crate::core::memory::SlidingWindowMemory::new(5);
-        assert_eq!(_memory.window_size(), 5);
+        let memory = crate::core::memory::SlidingWindowMemory::new(5);
+        assert_eq!(memory.window_size(), 5);
     }
 
     #[test]
@@ -97,25 +100,25 @@ mod tests {
             message: "Test warning".to_string(),
         };
 
-        let _task_result = crate::core::protocol::TaskResult::Success("Success".to_string());
+        let task_result = crate::core::protocol::TaskResult::Success("Success".to_string());
 
         // Test serialization
-        let serialized = serde_json::to_string(&_task_result).unwrap();
+        let serialized = serde_json::to_string(&task_result).unwrap();
         assert!(serialized.contains("Success"));
     }
 
     #[test]
     fn test_tool_types_available() {
         // Test that tool types are accessible
-        let _tool_result = crate::core::tool::ToolCallResult {
+        let tool_result = crate::core::tool::ToolCallResult {
             tool_name: "test_tool".to_string(),
             success: true,
             arguments: serde_json::json!({"param": "value"}),
             result: serde_json::json!({"output": "result"}),
         };
 
-        assert_eq!(_tool_result.tool_name, "test_tool");
-        assert!(_tool_result.success);
+        assert_eq!(tool_result.tool_name, "test_tool");
+        assert!(tool_result.success);
     }
 
     #[test]

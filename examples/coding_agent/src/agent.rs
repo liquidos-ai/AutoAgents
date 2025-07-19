@@ -1,4 +1,5 @@
-use autoagents::core::agent::{AgentDeriveT, ReActExecutor};
+use autoagents::core::agent::prebuilt::react::ReActExecutor;
+use autoagents::core::agent::AgentDeriveT;
 use autoagents::llm::ToolT;
 use autoagents_derive::agent;
 use serde_json::Value;

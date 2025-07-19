@@ -1,6 +1,4 @@
-use crate::agent::error::RunnableAgentError;
-use crate::agent::result::AgentRunResult;
-use crate::agent::runnable::RunnableAgent;
+use crate::agent::{AgentRunResult, RunnableAgent, RunnableAgentError};
 use crate::error::Error;
 use crate::protocol::{AgentID, Event, SessionId, SubmissionId};
 use serde::{Deserialize, Serialize};
@@ -217,8 +215,7 @@ impl SessionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::result::AgentRunResult;
-    use crate::agent::runnable::RunnableAgent;
+    use crate::agent::{AgentRunResult, RunnableAgent};
     use crate::protocol::Event;
     use async_trait::async_trait;
     use std::sync::Arc;

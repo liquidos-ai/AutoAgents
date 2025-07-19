@@ -1,8 +1,7 @@
 use autoagents_llm::error::LLMError;
 
 use crate::{
-    agent::error::{AgentBuildError, RunnableAgentError},
-    agent::result::AgentResultError,
+    agent::{AgentBuildError, AgentResultError, RunnableAgentError},
     environment::EnvironmentError,
     session::SessionError,
 };

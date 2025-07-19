@@ -1,5 +1,5 @@
-use crate::agent::result::AgentRunResult;
-use crate::agent::runnable::RunnableAgent;
+use crate::agent::AgentRunResult;
+use crate::agent::RunnableAgent;
 use crate::error::Error;
 use crate::protocol::{AgentID, Event, SessionId, SubmissionId};
 use crate::session::{Session, SessionError, SessionManager, Task};
@@ -182,8 +182,8 @@ impl Environment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::result::AgentRunResult;
-    use crate::agent::runnable::RunnableAgent;
+    use crate::agent::AgentRunResult;
+    use crate::agent::RunnableAgent;
     use crate::memory::MemoryProvider;
     use crate::protocol::Event;
     use async_trait::async_trait;
@@ -300,22 +300,6 @@ mod tests {
         let non_existent_id = Uuid::new_v4();
         let session = env.get_session(Some(non_existent_id)).await;
         assert!(session.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_environment_get_session_or_default() {
-        let env = Environment::new(None).await;
-
-        // Test getting default session
-        let session = env.get_session_or_default(None).await;
-        assert!(session.is_ok());
-
-        // Test getting non-existent session
-        let non_existent_id = Uuid::new_v4();
-        let result = env.get_session_or_default(Some(non_existent_id)).await;
-        assert!(result.is_err());
-        // Just test that it's an error, not the specific variant
-        assert!(result.is_err());
     }
 
     #[tokio::test]

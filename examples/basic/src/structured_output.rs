@@ -1,6 +1,5 @@
-use autoagents::core::agent::base::AgentBuilder;
-use autoagents::core::agent::output::AgentOutputT;
-use autoagents::core::agent::{AgentDeriveT, ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::prebuilt::react::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::memory::SlidingWindowMemory;

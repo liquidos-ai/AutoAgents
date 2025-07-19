@@ -14,7 +14,6 @@ mod tests {
     use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
     use autoagents_llm::error::LLMError;
     use std::sync::Arc;
-    use tokio::sync::broadcast;
 
     // Mock memory provider for testing
     struct MockMemoryProvider {

@@ -97,8 +97,10 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 name = "autoagents"
 version = "0.2.0-alpha.0"
 dependencies = [
+ "async-trait",
  "autoagents-core",
  "autoagents-llm",
+ "autoagents-test-utils",
  "serde_json",
  "tokio",
 ]
@@ -110,6 +112,7 @@ dependencies = [
  "async-trait",
  "autoagents-derive",
  "autoagents-llm",
+ "autoagents-test-utils",
  "dirs",
  "futures",
  "regex",
@@ -157,6 +160,19 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "ureq",
+]
+
+[[package]]
+name = "autoagents-test-utils"
+version = "0.2.0-alpha.0"
+dependencies = [
+ "async-trait",
+ "autoagents-core",
+ "autoagents-llm",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
 ]
 
 [[package]]

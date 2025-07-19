@@ -77,6 +77,7 @@ impl<T: AgentDeriveT> RunnableAgentImpl<T> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn state(&self) -> Arc<RwLock<AgentState>> {
         self.state.clone()
     }

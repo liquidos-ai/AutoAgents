@@ -321,22 +321,15 @@ mod tests {
     // Mock provider for testing the trait
     struct MockCompletionProvider {
         should_fail: bool,
-        response_text: String,
     }
 
     impl MockCompletionProvider {
-        fn new(response_text: &str) -> Self {
-            Self {
-                should_fail: false,
-                response_text: response_text.to_string(),
-            }
+        fn new() -> Self {
+            Self { should_fail: false }
         }
 
         fn new_failing() -> Self {
-            Self {
-                should_fail: true,
-                response_text: String::new(),
-            }
+            Self { should_fail: true }
         }
     }
 
@@ -359,7 +352,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_completion_provider_trait_success() {
-        let provider = MockCompletionProvider::new("Test response");
+        let provider = MockCompletionProvider::new();
         let request = CompletionRequest::new("Test prompt");
 
         let result = provider.complete(&request, None).await;
@@ -383,7 +376,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_completion_provider_with_parameters() {
-        let provider = MockCompletionProvider::new("Test response");
+        let provider = MockCompletionProvider::new();
         let request = CompletionRequest::builder("Parameterized prompt")
             .max_tokens(100)
             .temperature(0.7)

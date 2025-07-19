@@ -159,35 +159,16 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::executor::{AgentExecutor, ExecutorConfig};
-    use crate::agent::output::AgentOutputT;
-    use crate::agent::runnable::AgentState;
+    use crate::agent::{AgentDeriveT, AgentState, ExecutorConfig};
     use crate::memory::MemoryProvider;
     use crate::protocol::Event;
     use crate::session::Task;
     use async_trait::async_trait;
-    use autoagents_llm::{
-        chat::{ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat},
-        completion::{CompletionProvider, CompletionRequest, CompletionResponse},
-        embedding::EmbeddingProvider,
-        error::LLMError,
-        models::ModelsProvider,
-        LLMProvider, ToolCall, ToolT,
-    };
-    use serde::{Deserialize, Serialize};
+    use autoagents_llm::{chat::StructuredOutputFormat, LLMProvider, ToolT};
+    use autoagents_test_utils::agent::{MockAgentImpl, TestAgentOutput, TestError};
+    use autoagents_test_utils::llm::MockLLMProvider;
     use std::sync::Arc;
-    use tokio::sync::{mpsc, RwLock};
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct TestAgentOutput {
-        result: String,
-    }
-
-    impl From<TestAgentOutput> for Value {
-        fn from(output: TestAgentOutput) -> Self {
-            serde_json::to_value(output).unwrap_or(Value::Null)
-        }
-    }
+    use tokio::sync::mpsc;
 
     impl AgentOutputT for TestAgentOutput {
         fn output_schema() -> &'static str {
@@ -202,36 +183,6 @@ mod tests {
                 },
                 "required": ["result"]
             })
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    enum TestError {
-        #[error("Test error: {0}")]
-        TestError(String),
-    }
-
-    struct MockAgentImpl {
-        name: String,
-        description: String,
-        should_fail: bool,
-    }
-
-    impl MockAgentImpl {
-        fn new(name: &str, description: &str) -> Self {
-            Self {
-                name: name.to_string(),
-                description: description.to_string(),
-                should_fail: false,
-            }
-        }
-
-        fn with_failure(name: &str, description: &str) -> Self {
-            Self {
-                name: name.to_string(),
-                description: description.to_string(),
-                should_fail: true,
-            }
         }
     }
 
@@ -282,74 +233,6 @@ mod tests {
             Ok(TestAgentOutput {
                 result: format!("Processed: {}", task.prompt),
             })
-        }
-    }
-
-    // Mock LLM Provider
-    struct MockLLMProvider;
-
-    #[async_trait]
-    impl ChatProvider for MockLLMProvider {
-        async fn chat_with_tools(
-            &self,
-            _messages: &[ChatMessage],
-            _tools: Option<&[autoagents_llm::chat::Tool]>,
-            _json_schema: Option<StructuredOutputFormat>,
-        ) -> Result<Box<dyn ChatResponse>, LLMError> {
-            Ok(Box::new(MockChatResponse {
-                text: Some("Mock response".to_string()),
-            }))
-        }
-    }
-
-    #[async_trait]
-    impl CompletionProvider for MockLLMProvider {
-        async fn complete(
-            &self,
-            _req: &CompletionRequest,
-            _json_schema: Option<StructuredOutputFormat>,
-        ) -> Result<CompletionResponse, LLMError> {
-            Ok(CompletionResponse {
-                text: "Mock completion".to_string(),
-            })
-        }
-    }
-
-    #[async_trait]
-    impl EmbeddingProvider for MockLLMProvider {
-        async fn embed(&self, _text: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-            Ok(vec![vec![0.1, 0.2, 0.3]])
-        }
-    }
-
-    #[async_trait]
-    impl ModelsProvider for MockLLMProvider {}
-
-    impl LLMProvider for MockLLMProvider {}
-
-    struct MockChatResponse {
-        text: Option<String>,
-    }
-
-    impl ChatResponse for MockChatResponse {
-        fn text(&self) -> Option<String> {
-            self.text.clone()
-        }
-
-        fn tool_calls(&self) -> Option<Vec<ToolCall>> {
-            None
-        }
-    }
-
-    impl std::fmt::Debug for MockChatResponse {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "MockChatResponse")
-        }
-    }
-
-    impl std::fmt::Display for MockChatResponse {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}", self.text.as_deref().unwrap_or(""))
         }
     }
 

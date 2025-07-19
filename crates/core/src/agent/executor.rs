@@ -84,7 +84,6 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use std::sync::Arc;
     use tokio::sync::{mpsc, RwLock};
-    use uuid::Uuid;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct TestOutput {

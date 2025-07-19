@@ -25,7 +25,9 @@ logging = ["autoagents-core/logging", "autoagents-llm/logging"]
 [dependencies]
 autoagents-core.workspace = true
 autoagents-llm.workspace = true
+async-trait = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+autoagents-test-utils = {path = "../test_utils"}
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

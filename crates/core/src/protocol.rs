@@ -131,6 +131,7 @@ mod tests {
             prompt: "Test task".to_string(),
         };
 
+        //Check if serialization and deserilization works properly
         let serialized = serde_json::to_string(&event).unwrap();
         let deserialized: Event = serde_json::from_str(&serialized).unwrap();
 

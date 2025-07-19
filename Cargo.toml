@@ -11,6 +11,7 @@ members = [
     "examples/*",
     "crates/llm",
     "crates/derive",
+    "crates/test_utils",
 ]
 
 resolver = "2"

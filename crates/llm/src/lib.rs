@@ -13,9 +13,6 @@
 //! # Architecture
 //! The crate is organized into modules that handle different aspects of LLM interactions:
 
-// Re-export for convenience
-pub use async_trait::async_trait;
-
 use chat::Tool;
 use serde::{Deserialize, Serialize};
 
@@ -103,6 +100,7 @@ mod tests {
     use crate::chat::ChatProvider;
     use crate::completion::CompletionProvider;
     use crate::embedding::EmbeddingProvider;
+    use async_trait::async_trait;
     use serde_json::json;
 
     #[test]

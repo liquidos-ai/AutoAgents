@@ -36,3 +36,6 @@ futures = { workspace = true }
 dirs = { workspace = true }
 regex = { workspace = true }
 tokio-stream.workspace = true
+
+[dev-dependencies]
+autoagents-test-utils = { path = "../test_utils" }
