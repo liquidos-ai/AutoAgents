@@ -8,4 +8,4 @@ pre-commit:
       run: cargo clippy -- -D warnings
 
     - name: test
-      run: cargo test
+      run: cargo test --features full
