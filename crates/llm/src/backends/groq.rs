@@ -195,7 +195,7 @@ impl ChatProvider for Groq {
 
         if log::log_enabled!(log::Level::Trace) {
             if let Ok(json) = serde_json::to_string(&body) {
-                log::trace!("Groq request payload: {}", json);
+                log::trace!("Groq request payload: {json}");
             }
         }
 
@@ -263,7 +263,7 @@ impl LLMBuilder<Groq> {
             .api_key
             .ok_or_else(|| LLMError::InvalidRequest("No API key provided for Groq".to_string()))?;
 
-        let model = self.model.map(|model_str| GroqModel::from(model_str));
+        let model = self.model.map(GroqModel::from);
 
         let groq = crate::backends::groq::Groq::new(
             api_key,

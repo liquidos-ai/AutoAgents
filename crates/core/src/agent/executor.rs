@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn test_executor_config_debug() {
         let config = ExecutorConfig { max_turns: 20 };
-        let debug_str = format!("{:?}", config);
+        let debug_str = format!("{config:?}");
         assert!(debug_str.contains("ExecutorConfig"));
         assert!(debug_str.contains("20"));
     }
@@ -276,7 +276,7 @@ mod tests {
     #[test]
     fn test_turn_result_debug() {
         let result = TurnResult::Complete("test".to_string());
-        let debug_str = format!("{:?}", result);
+        let debug_str = format!("{result:?}");
         assert!(debug_str.contains("Complete"));
         assert!(debug_str.contains("test"));
     }
@@ -373,7 +373,7 @@ mod tests {
         let output = TestOutput {
             message: "debug test".to_string(),
         };
-        let debug_str = format!("{:?}", output);
+        let debug_str = format!("{output:?}");
         assert!(debug_str.contains("TestOutput"));
         assert!(debug_str.contains("debug test"));
     }
@@ -396,7 +396,7 @@ mod tests {
     #[test]
     fn test_test_error_debug() {
         let error = TestError::TestError("debug test".to_string());
-        let debug_str = format!("{:?}", error);
+        let debug_str = format!("{error:?}");
         assert!(debug_str.contains("TestError"));
         assert!(debug_str.contains("debug test"));
     }

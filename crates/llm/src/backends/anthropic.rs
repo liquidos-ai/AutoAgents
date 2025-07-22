@@ -476,7 +476,7 @@ impl ChatProvider for Anthropic {
 
         if log::log_enabled!(log::Level::Trace) {
             if let Ok(json) = serde_json::to_string(&req_body) {
-                log::trace!("Anthropic request payload: {}", json);
+                log::trace!("Anthropic request payload: {json}");
             }
         }
 
@@ -490,7 +490,7 @@ impl ChatProvider for Anthropic {
 
         let body = resp.text().await?;
         let json_resp: AnthropicCompleteResponse = serde_json::from_str(&body)
-            .map_err(|e| LLMError::HttpError(format!("Failed to parse JSON: {}", e)))?;
+            .map_err(|e| LLMError::HttpError(format!("Failed to parse JSON: {e}")))?;
 
         Ok(Box::new(json_resp))
     }
@@ -616,7 +616,7 @@ impl ChatProvider for Anthropic {
             let status = response.status();
             let error_text = response.text().await?;
             return Err(LLMError::ResponseFormatError {
-                message: format!("Anthropic API returned error status: {}", status),
+                message: format!("Anthropic API returned error status: {status}"),
                 raw_response: error_text,
             });
         }

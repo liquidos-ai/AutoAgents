@@ -194,7 +194,7 @@ mod tests {
         let request = ModelListRequest {
             filter: Some("debug_test".to_string()),
         };
-        let debug_str = format!("{:?}", request);
+        let debug_str = format!("{request:?}");
         assert!(debug_str.contains("ModelListRequest"));
         assert!(debug_str.contains("debug_test"));
     }
@@ -221,7 +221,7 @@ mod tests {
             extra_data: serde_json::json!({"debug": true}),
         };
 
-        let debug_str = format!("{:?}", entry);
+        let debug_str = format!("{entry:?}");
         assert!(debug_str.contains("MockModelEntry"));
         assert!(debug_str.contains("debug-model"));
     }
@@ -490,7 +490,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_models_provider_with_many_models() {
-        let models: Vec<String> = (0..100).map(|i| format!("model-{:03}", i)).collect();
+        let models: Vec<String> = (0..100).map(|i| format!("model-{i:03}")).collect();
         let provider = MockModelsProvider::new(models.clone());
 
         let result = provider.list_models(None).await;

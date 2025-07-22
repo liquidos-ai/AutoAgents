@@ -1,10 +1,10 @@
 # Basic Weather Agent Example
 
-This example demonstrates how to create a simple weather agent using AutoAgents. The agent can retrieve weather information for cities and compare weather conditions between different locations.
+This example demonstrates how to create a simple weather agent using AutoAgents. The agent can add two numbers (LOL!).
 
 ## Overview
 
-The weather agent example showcases:
+The Math agent example showcases:
 - Basic agent creation with the `#[agent]` macro
 - Tool implementation with the `#[tool]` macro
 - ReAct executor for reasoning and acting
@@ -14,122 +14,144 @@ The weather agent example showcases:
 ## Complete Example
 
 ```rust
-use autoagents::core::agent::base::AgentBuilder;
-use autoagents::core::agent::{AgentDeriveT, ReActExecutor};
+use autoagents::core::agent::prebuilt::react::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::memory::SlidingWindowMemory;
-use autoagents::llm::{LLMProvider, ToolCallError, ToolInputT, ToolT};
-use autoagents_derive::{agent, tool, ToolInput};
+use autoagents::core::protocol::{Event, TaskResult};
+use autoagents::core::runtime::{Runtime, SingleThreadedRuntime};
+use autoagents::init_logging;
+use autoagents::llm::{ToolCallError, ToolInputT, ToolT};
+use autoagents::{llm::backends::openai::OpenAI, llm::builder::LLMBuilder};
+use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
+use colored::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 
-// Define the input structure for the weather tool
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
-pub struct WeatherArgs {
-    #[input(description = "City to get weather for")]
-    city: String,
+pub struct AdditionArgs {
+    #[input(description = "Left Operand for addition")]
+    left: i64,
+    #[input(description = "Right Operand for addition")]
+    right: i64,
 }
 
-// Implement the weather tool
 #[tool(
-    name = "WeatherTool",
-    description = "Use this tool to get current weather in celsius",
-    input = WeatherArgs,
+    name = "Addition",
+    description = "Use this tool to Add two numbers",
+    input = AdditionArgs,
 )]
-fn get_weather(args: WeatherArgs) -> Result<String, ToolCallError> {
-    println!("ToolCall: GetWeather {:?}", args);
-
-    // Simulate weather data (in real implementation, call weather API)
-    match args.city.as_str() {
-        "Hyderabad" => Ok(format!(
-            "The current temperature in {} is 28 degrees celsius",
-            args.city
-        )),
-        "New York" => Ok(format!(
-            "The current temperature in {} is 15 degrees celsius",
-            args.city
-        )),
-        "London" => Ok(format!(
-            "The current temperature in {} is 12 degrees celsius",
-            args.city
-        )),
-        "Tokyo" => Ok(format!(
-            "The current temperature in {} is 22 degrees celsius",
-            args.city
-        )),
-        _ => Err(ToolCallError::RuntimeError(
-            format!("Weather for {} is not supported", args.city).into(),
-        )),
-    }
+fn add(args: AdditionArgs) -> Result<i64, ToolCallError> {
+    Ok(args.left + args.right)
 }
 
-// Define the weather agent
+/// Math agent output with Value and Explanation
+#[derive(Debug, Serialize, Deserialize, AgentOutput)]
+pub struct MathAgentOutput {
+    #[output(description = "The addition result")]
+    value: i64,
+    #[output(description = "Explanation of the logic")]
+    explanation: String,
+}
+
 #[agent(
-    name = "weather_agent",
-    description = "You are a weather assistant that helps users get weather information.",
-    tools = [WeatherTool],
+    name = "math_agent",
+    description = "You are a Math agent",
+    tools = [Addition],
     executor = ReActExecutor,
+    output = MathAgentOutput
 )]
-pub struct WeatherAgent {}
+pub struct MathAgent {}
 
-// Main function demonstrating the weather agent
-pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
-    println!("Starting Weather Agent Example...\n");
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    init_logging();
+    // Check if API key is set
+    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or("".into());
 
-    // Create memory with sliding window of 10 messages
+    // Initialize and configure the LLM client
+    let llm: Arc<OpenAI> = LLMBuilder::<OpenAI>::new()
+        .api_key(api_key) // Set the API key
+        .model("gpt-4o") // Use GPT-4o-mini model
+        .max_tokens(512) // Limit response length
+        .temperature(0.2) // Control response randomness (0.0-1.0)
+        .stream(false) // Disable streaming responses
+        .build()
+        .expect("Failed to build LLM");
+
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    // Create the weather agent instance
-    let weather_agent = WeatherAgent {};
+    let agent = MathAgent {};
 
-    // Build the agent with LLM and memory
-    let agent = AgentBuilder::new(weather_agent)
+    let runtime = SingleThreadedRuntime::new(None);
+
+    let _ = AgentBuilder::new(agent)
         .with_llm(llm)
+        .runtime(runtime.clone())
+        .subscribe_topic("test")
         .with_memory(sliding_window_memory)
-        .build()?;
-
-    // Create environment for agent execution
-    let mut environment = Environment::new(None).await;
-
-    // Register the agent with the environment
-    let agent_id = environment.register_agent(agent.clone(), None).await?;
-
-    // Add tasks for the agent to execute
-    let _ = environment
-        .add_task(agent_id, "What is the weather in Hyderabad and New York?")
+        .build()
         .await?;
 
-    let _ = environment
-        .add_task(
-            agent_id,
-            "Compare the weather between Hyderabad and New York. Which city is warmer?",
-        )
-        .await?;
+    // Create environment and set up event handling
+    let mut environment = Environment::new(None);
+    let _ = environment.register_runtime(runtime.clone()).await;
 
-    // Run all tasks
-    let results = environment.run_all(agent_id, None).await?;
-    let last_result = results.last().unwrap();
-    println!("Results: {}", last_result.output.as_ref().unwrap());
+    let receiver = environment.take_event_receiver(None).await;
+    handle_events(receiver);
 
-    // Shutdown the environment
+    environment.run();
+
+    runtime
+        .publish_message("What is 2 + 2?".into(), "test".into())
+        .await
+        .unwrap();
+    runtime
+        .publish_message("What did I ask before?".into(), "test".into())
+        .await
+        .unwrap();
+
+    // Shutdown
     let _ = environment.shutdown().await;
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize the LLM provider (requires API key)
-    let api_key = std::env::var("OPENAI_API_KEY")
-        .expect("OPENAI_API_KEY environment variable must be set");
-
-    let llm = Arc::new(autoagents::llm::OpenAIProvider::new(&api_key)?);
-
-    // Run the weather agent example
-    simple_agent(llm).await?;
-
-    Ok(())
+fn handle_events(event_stream: Option<ReceiverStream<Event>>) {
+    if let Some(mut event_stream) = event_stream {
+        tokio::spawn(async move {
+            while let Some(event) = event_stream.next().await {
+                match event {
+                    Event::TaskComplete { result, .. } => {
+                        match result {
+                            TaskResult::Value(val) => {
+                                let agent_out: ReActAgentOutput =
+                                    serde_json::from_value(val).unwrap();
+                                let math_out: MathAgentOutput =
+                                    serde_json::from_str(&agent_out.response).unwrap();
+                                println!(
+                                    "{}",
+                                    format!(
+                                        "Math Value: {}, Explanation: {}",
+                                        math_out.value, math_out.explanation
+                                    )
+                                    .green()
+                                );
+                            }
+                            _ => {
+                                //
+                            }
+                        }
+                    }
+                    _ => {
+                        //
+                    }
+                }
+            }
+        });
+    }
 }
 ```
 

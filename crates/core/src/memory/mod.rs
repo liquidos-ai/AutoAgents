@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn test_memory_type_debug() {
         let sliding_window = MemoryType::SlidingWindow;
-        let debug_str = format!("{:?}", sliding_window);
+        let debug_str = format!("{sliding_window:?}");
         assert!(debug_str.contains("SlidingWindow"));
     }
 
@@ -505,7 +505,7 @@ mod tests {
             role: "user".to_string(),
             msg: message,
         };
-        let debug_str = format!("{:?}", event);
+        let debug_str = format!("{event:?}");
         assert!(debug_str.contains("MessageEvent"));
         assert!(debug_str.contains("user"));
     }

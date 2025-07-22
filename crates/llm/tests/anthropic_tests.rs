@@ -14,7 +14,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 #[cfg(feature = "anthropic")]
-mod anthropic_tests {
+mod anthropic_test_cases {
     use super::*;
     use autoagents_llm::backends::anthropic::Anthropic;
 

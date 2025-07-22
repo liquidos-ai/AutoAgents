@@ -420,7 +420,7 @@ impl ChatProvider for XAI {
 
         if log::log_enabled!(log::Level::Trace) {
             if let Ok(json) = serde_json::to_string(&body) {
-                log::trace!("XAI request payload: {}", json);
+                log::trace!("XAI request payload: {json}");
             }
         }
 
@@ -533,7 +533,7 @@ impl ChatProvider for XAI {
             let status = response.status();
             let error_text = response.text().await?;
             return Err(LLMError::ResponseFormatError {
-                message: format!("X.AI API returned error status: {}", status),
+                message: format!("X.AI API returned error status: {status}"),
                 raw_response: error_text,
             });
         }

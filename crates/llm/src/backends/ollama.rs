@@ -95,7 +95,7 @@ impl std::fmt::Display for OllamaResponse {
             }
         }
 
-        write!(f, "{}", text)
+        write!(f, "{text}")
     }
 }
 
@@ -367,7 +367,7 @@ impl ChatProvider for Ollama {
 
         if log::log_enabled!(log::Level::Trace) {
             if let Ok(json) = serde_json::to_string(&req_body) {
-                log::trace!("Ollama request payload: {}", json);
+                log::trace!("Ollama request payload: {json}");
             }
         }
 
@@ -447,7 +447,7 @@ impl ChatProvider for Ollama {
 
         if log::log_enabled!(log::Level::Trace) {
             if let Ok(json) = serde_json::to_string(&req_body) {
-                log::trace!("Ollama request payload (tools): {}", json);
+                log::trace!("Ollama request payload (tools): {json}");
             }
         }
 

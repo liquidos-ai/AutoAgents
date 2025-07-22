@@ -248,7 +248,7 @@ mod tests {
         let provider = MockEmbeddingProvider::new(2);
         let batch_size = 100;
         let input: Vec<String> = (0..batch_size)
-            .map(|i| format!("Text number {}", i))
+            .map(|i| format!("Text number {i}"))
             .collect();
 
         let result = provider.embed(input).await;

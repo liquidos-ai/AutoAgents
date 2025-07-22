@@ -176,7 +176,7 @@ mod tests {
             message: "Debug Test".to_string(),
             count: 456,
         };
-        let debug_str = format!("{:?}", output);
+        let debug_str = format!("{output:?}");
         assert!(debug_str.contains("TestOutput"));
         assert!(debug_str.contains("Debug Test"));
         assert!(debug_str.contains("456"));

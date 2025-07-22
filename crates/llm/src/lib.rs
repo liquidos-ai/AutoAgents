@@ -191,7 +191,7 @@ mod tests {
             },
         };
 
-        let debug_str = format!("{:?}", tool_call);
+        let debug_str = format!("{tool_call:?}");
         assert!(debug_str.contains("ToolCall"));
         assert!(debug_str.contains("debug_test"));
         assert!(debug_str.contains("debug_function"));
@@ -266,7 +266,7 @@ mod tests {
             arguments: "{}".to_string(),
         };
 
-        let debug_str = format!("{:?}", function_call);
+        let debug_str = format!("{function_call:?}");
         assert!(debug_str.contains("FunctionCall"));
         assert!(debug_str.contains("debug_func"));
     }
@@ -346,7 +346,7 @@ mod tests {
             call_type: "function".to_string(),
             function: FunctionCall {
                 name: "large_function".to_string(),
-                arguments: format!("{{\"large_param\": \"{}\"}}", large_arg),
+                arguments: format!("{{\"large_param\": \"{large_arg}\"}}"),
             },
         };
 

@@ -254,7 +254,7 @@ mod tests {
                 final_turn,
             } => {
                 assert_eq!(turn_number, 1);
-                assert_eq!(final_turn, false);
+                assert!(!final_turn);
             }
             _ => panic!("Expected TurnCompleted variant"),
         }
@@ -304,7 +304,7 @@ mod tests {
             chat_messages: None,
         };
 
-        let debug_str = format!("{:?}", message);
+        let debug_str = format!("{message:?}");
         assert!(debug_str.contains("AgentMessage"));
         assert!(debug_str.contains("Debug message"));
     }

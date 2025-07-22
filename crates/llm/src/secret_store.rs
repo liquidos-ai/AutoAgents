@@ -473,7 +473,7 @@ mod tests {
     #[test]
     fn test_secret_store_debug_impl() {
         let (store, _) = create_temp_secret_store();
-        let debug_str = format!("{:?}", store);
+        let debug_str = format!("{store:?}");
         assert!(debug_str.contains("SecretStore"));
     }
 

@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn test_tool_call_error_debug() {
         let error = ToolCallError::RuntimeError("Debug test".to_string().into());
-        let debug_str = format!("{:?}", error);
+        let debug_str = format!("{error:?}");
         assert!(debug_str.contains("RuntimeError"));
     }
 
@@ -246,7 +246,7 @@ mod tests {
     #[test]
     fn test_mock_tool_debug() {
         let tool = MockTool::new("debug_tool", "Debug test");
-        let debug_str = format!("{:?}", tool);
+        let debug_str = format!("{tool:?}");
         assert!(debug_str.contains("MockTool"));
         assert!(debug_str.contains("debug_tool"));
     }
@@ -286,7 +286,7 @@ mod tests {
             name: "debug".to_string(),
             value: 123,
         };
-        let debug_str = format!("{:?}", input);
+        let debug_str = format!("{input:?}");
         assert!(debug_str.contains("TestInput"));
         assert!(debug_str.contains("debug"));
         assert!(debug_str.contains("123"));

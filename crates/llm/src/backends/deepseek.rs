@@ -54,7 +54,7 @@ struct DeepSeekChatResponse {
 
 impl std::fmt::Display for DeepSeekChatResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -162,7 +162,7 @@ impl ChatProvider for DeepSeek {
 
         if log::log_enabled!(log::Level::Trace) {
             if let Ok(json) = serde_json::to_string(&body) {
-                log::trace!("DeepSeek request payload: {}", json);
+                log::trace!("DeepSeek request payload: {json}");
             }
         }
 

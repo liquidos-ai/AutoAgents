@@ -14,7 +14,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 #[cfg(feature = "google")]
-mod google_tests {
+mod google_test_cases {
     use super::*;
     use autoagents_llm::backends::google::Google;
 

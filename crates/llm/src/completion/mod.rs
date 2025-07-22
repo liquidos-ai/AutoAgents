@@ -182,7 +182,7 @@ mod tests {
     #[test]
     fn test_completion_request_debug() {
         let request = CompletionRequest::new("Debug test");
-        let debug_str = format!("{:?}", request);
+        let debug_str = format!("{request:?}");
         assert!(debug_str.contains("CompletionRequest"));
         assert!(debug_str.contains("Debug test"));
     }
@@ -209,7 +209,7 @@ mod tests {
         let response = CompletionResponse {
             text: "Debug response".to_string(),
         };
-        let debug_str = format!("{:?}", response);
+        let debug_str = format!("{response:?}");
         assert!(debug_str.contains("CompletionResponse"));
         assert!(debug_str.contains("Debug response"));
     }
@@ -239,7 +239,7 @@ mod tests {
             .max_tokens(300)
             .temperature(0.9);
 
-        let debug_str = format!("{:?}", builder);
+        let debug_str = format!("{builder:?}");
         assert!(debug_str.contains("CompletionRequestBuilder"));
         assert!(debug_str.contains("Builder debug"));
     }

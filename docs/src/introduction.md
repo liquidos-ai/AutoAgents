@@ -109,31 +109,144 @@ AutoAgents is perfect for building:
 Ready to build your first agent? Here's a simple example:
 
 ```rust
-use autoagents::prelude::*;
+use autoagents::core::agent::prebuilt::react::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
+use autoagents::core::environment::Environment;
+use autoagents::core::error::Error;
+use autoagents::core::memory::SlidingWindowMemory;
+use autoagents::core::protocol::{Event, TaskResult};
+use autoagents::core::runtime::{Runtime, SingleThreadedRuntime};
+use autoagents::init_logging;
+use autoagents::llm::{ToolCallError, ToolInputT, ToolT};
+use autoagents::{llm::backends::openai::OpenAI, llm::builder::LLMBuilder};
+use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
+use colored::*;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::sync::Arc;
+use tokio_stream::{wrappers::ReceiverStream, StreamExt};
+
+#[derive(Serialize, Deserialize, ToolInput, Debug)]
+pub struct AdditionArgs {
+    #[input(description = "Left Operand for addition")]
+    left: i64,
+    #[input(description = "Right Operand for addition")]
+    right: i64,
+}
+
+#[tool(
+    name = "Addition",
+    description = "Use this tool to Add two numbers",
+    input = AdditionArgs,
+)]
+fn add(args: AdditionArgs) -> Result<i64, ToolCallError> {
+    Ok(args.left + args.right)
+}
+
+/// Math agent output with Value and Explanation
+#[derive(Debug, Serialize, Deserialize, AgentOutput)]
+pub struct MathAgentOutput {
+    #[output(description = "The addition result")]
+    value: i64,
+    #[output(description = "Explanation of the logic")]
+    explanation: String,
+}
 
 #[agent(
-    name = "hello_agent",
-    description = "A friendly greeting agent",
+    name = "math_agent",
+    description = "You are a Math agent",
+    tools = [Addition],
     executor = ReActExecutor,
+    output = MathAgentOutput
 )]
-pub struct HelloAgent {}
+pub struct MathAgent {}
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let llm = OpenAIProvider::new("your-api-key")?;
-    
-    let agent = AgentBuilder::new(HelloAgent {})
-        .with_llm(Arc::new(llm))
-        .build()?;
-    
-    let mut environment = Environment::new(None).await;
-    let agent_id = environment.register_agent(agent, None).await?;
-    
-    environment.add_task(agent_id, "Say hello to the world!").await?;
-    let results = environment.run_all(agent_id, None).await?;
-    
-    println!("Agent response: {}", results[0].output.as_ref().unwrap());
+async fn main() -> Result<(), Error> {
+    init_logging();
+    // Check if API key is set
+    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or("".into());
+
+    // Initialize and configure the LLM client
+    let llm: Arc<OpenAI> = LLMBuilder::<OpenAI>::new()
+        .api_key(api_key) // Set the API key
+        .model("gpt-4o") // Use GPT-4o-mini model
+        .max_tokens(512) // Limit response length
+        .temperature(0.2) // Control response randomness (0.0-1.0)
+        .stream(false) // Disable streaming responses
+        .build()
+        .expect("Failed to build LLM");
+
+    let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
+
+    let agent = MathAgent {};
+
+    let runtime = SingleThreadedRuntime::new(None);
+
+    let _ = AgentBuilder::new(agent)
+        .with_llm(llm)
+        .runtime(runtime.clone())
+        .subscribe_topic("test")
+        .with_memory(sliding_window_memory)
+        .build()
+        .await?;
+
+    // Create environment and set up event handling
+    let mut environment = Environment::new(None);
+    let _ = environment.register_runtime(runtime.clone()).await;
+
+    let receiver = environment.take_event_receiver(None).await;
+    handle_events(receiver);
+
+    environment.run();
+
+    runtime
+        .publish_message("What is 2 + 2?".into(), "test".into())
+        .await
+        .unwrap();
+    runtime
+        .publish_message("What did I ask before?".into(), "test".into())
+        .await
+        .unwrap();
+
+    // Shutdown
+    let _ = environment.shutdown().await;
     Ok(())
+}
+
+fn handle_events(event_stream: Option<ReceiverStream<Event>>) {
+    if let Some(mut event_stream) = event_stream {
+        tokio::spawn(async move {
+            while let Some(event) = event_stream.next().await {
+                match event {
+                    Event::TaskComplete { result, .. } => {
+                        match result {
+                            TaskResult::Value(val) => {
+                                let agent_out: ReActAgentOutput =
+                                    serde_json::from_value(val).unwrap();
+                                let math_out: MathAgentOutput =
+                                    serde_json::from_str(&agent_out.response).unwrap();
+                                println!(
+                                    "{}",
+                                    format!(
+                                        "Math Value: {}, Explanation: {}",
+                                        math_out.value, math_out.explanation
+                                    )
+                                    .green()
+                                );
+                            }
+                            _ => {
+                                //
+                            }
+                        }
+                    }
+                    _ => {
+                        //
+                    }
+                }
+            }
+        });
+    }
 }
 ```
 
