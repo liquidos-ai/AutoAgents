@@ -52,37 +52,37 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let weather_agent = WeatherAgent {};
+    // let weather_agent = WeatherAgent {};
 
-    let agent = AgentBuilder::new(weather_agent)
-        .with_llm(llm)
-        .with_memory(sliding_window_memory)
-        .build()?;
+    // let agent = AgentBuilder::new(weather_agent)
+    //     .with_llm(llm)
+    //     .with_memory(sliding_window_memory)
+    //     .build()?;
 
-    // Create environment and set up event handling
-    let mut environment = Environment::new(None).await;
+    // // Create environment and set up event handling
+    // let mut environment = Environment::new(None).await;
 
-    // Register the agent
-    let agent_id = environment.register_agent(agent.clone(), None).await?;
+    // // Register the agent
+    // let agent_id = environment.register_agent(agent.clone(), None).await?;
 
-    // Add tasks
-    let _ = environment
-        .add_task(agent_id, "What is the weather in Hyderabad and New York?")
-        .await?;
+    // // Add tasks
+    // let _ = environment
+    //     .add_task(agent_id, "What is the weather in Hyderabad and New York?")
+    //     .await?;
 
-    let _ = environment
-        .add_task(
-            agent_id,
-            "Compare the weather between Hyderabad and New York. Which city is warmer?",
-        )
-        .await?;
+    // let _ = environment
+    //     .add_task(
+    //         agent_id,
+    //         "Compare the weather between Hyderabad and New York. Which city is warmer?",
+    //     )
+    //     .await?;
 
-    // Run all tasks
-    let results = environment.run_all(agent_id, None).await?;
-    let last_result = results.last().unwrap();
-    println!("Results: {}", last_result.output.as_ref().unwrap());
+    // // Run all tasks
+    // let results = environment.run_all(agent_id, None).await?;
+    // let last_result = results.last().unwrap();
+    // println!("Results: {}", last_result.output.as_ref().unwrap());
 
-    // Shutdown
-    let _ = environment.shutdown().await;
+    // // Shutdown
+    // let _ = environment.shutdown().await;
     Ok(())
 }

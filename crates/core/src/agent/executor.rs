@@ -2,7 +2,7 @@ use crate::agent::base::AgentConfig;
 use crate::agent::runnable::AgentState;
 use crate::memory::MemoryProvider;
 use crate::protocol::Event;
-use crate::session::Task;
+use crate::runtime::Task;
 use async_trait::async_trait;
 use autoagents_llm::{LLMProvider, ToolT};
 use serde::de::DeserializeOwned;
@@ -71,7 +71,7 @@ mod tests {
     use crate::agent::runnable::AgentState;
     use crate::memory::MemoryProvider;
     use crate::protocol::Event;
-    use crate::session::Task;
+    use crate::runtime::Task;
     use async_trait::async_trait;
     use autoagents_llm::{
         chat::{ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat},

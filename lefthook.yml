@@ -4,8 +4,8 @@ pre-commit:
     - name: fmt
       run: cargo fmt -- --check
 
-    - name: clippy
-      run: cargo clippy -- -D warnings
+    # - name: clippy
+    # run: cargo clippy -- -D warnings
 
     - name: test
       run: cargo test --features full

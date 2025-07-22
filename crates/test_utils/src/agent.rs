@@ -18,6 +18,7 @@ impl From<TestAgentOutput> for Value {
     }
 }
 
+#[derive(Debug)]
 pub struct MockAgentImpl {
     pub name: String,
     pub description: String,

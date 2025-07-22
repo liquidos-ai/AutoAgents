@@ -2,6 +2,8 @@ use autoagents_llm::chat::ChatMessage;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::runtime::Task;
+
 /// Submission IDs are used to track agent tasks
 pub type SubmissionId = Uuid;
 
@@ -9,7 +11,7 @@ pub type SubmissionId = Uuid;
 pub type AgentID = Uuid;
 
 /// Session IDs are used to identify sessions
-pub type SessionId = Uuid;
+pub type RuntimeID = Uuid;
 
 /// Event IDs are used to correlate events with their responses
 pub type EventId = Uuid;
@@ -22,6 +24,11 @@ pub enum Event {
         sub_id: SubmissionId,
         agent_id: Option<AgentID>,
         prompt: String,
+    },
+
+    RuntimeTask {
+        agent_id: AgentID,
+        task: Task,
     },
 
     /// A task has started execution
@@ -38,7 +45,10 @@ pub enum Event {
     },
 
     /// A task encountered an error
-    TaskError { sub_id: SubmissionId, error: String },
+    TaskError {
+        sub_id: SubmissionId,
+        error: String,
+    },
 
     /// An agent message to the user
     AgentMessage {
@@ -47,10 +57,16 @@ pub enum Event {
     },
 
     /// Tool call has started
-    ToolCallStarted { tool_name: String, args: String },
+    ToolCallStarted {
+        tool_name: String,
+        args: String,
+    },
 
     /// Tool call has completed (simple)
-    ToolCallCompletedSimple { tool_name: String, success: bool },
+    ToolCallCompletedSimple {
+        tool_name: String,
+        success: bool,
+    },
 
     /// Tool call requested (with ID)
     ToolCallRequested {
@@ -86,10 +102,15 @@ pub enum Event {
     },
 
     /// A warning message
-    Warning { message: String },
+    Warning {
+        message: String,
+    },
 
     /// An error occurred during task execution
-    Error { sub_id: SubmissionId, error: String },
+    Error {
+        sub_id: SubmissionId,
+        error: String,
+    },
 }
 
 /// Results from a completed task
@@ -535,12 +556,12 @@ mod tests {
     fn test_uuid_types() {
         let submission_id: SubmissionId = Uuid::new_v4();
         let agent_id: AgentID = Uuid::new_v4();
-        let session_id: SessionId = Uuid::new_v4();
+        let runtime_id: RuntimeID = Uuid::new_v4();
         let event_id: EventId = Uuid::new_v4();
 
         // Test that all UUID types can be used interchangeably
         assert_ne!(submission_id, agent_id);
-        assert_ne!(session_id, event_id);
+        assert_ne!(runtime_id, event_id);
     }
 
     #[test]

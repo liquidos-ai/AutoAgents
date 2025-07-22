@@ -130,35 +130,35 @@ pub async fn events_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     let weather_agent = WeatherAgent {};
 
-    let agent = AgentBuilder::new(weather_agent)
-        .with_llm(llm)
-        .with_memory(sliding_window_memory)
-        .build()?;
+    // let agent = AgentBuilder::new(weather_agent)
+    //     .with_llm(llm)
+    //     .with_memory(sliding_window_memory)
+    //     .build()?;
 
-    // Create environment and set up event handling
-    let mut environment = Environment::new(None).await;
-    let receiver = environment.take_event_receiver(None).await;
-    handle_events(receiver);
+    // // Create environment and set up event handling
+    // let mut environment = Environment::new(None).await;
+    // let receiver = environment.take_event_receiver(None).await;
+    // handle_events(receiver);
 
-    // Register the agent
-    let agent_id = environment.register_agent(agent, None).await?;
+    // // Register the agent
+    // let agent_id = environment.register_agent(agent, None).await?;
 
-    // Add tasks
-    let _ = environment
-        .add_task(agent_id, "What is the weather in Hyderabad and New York?")
-        .await?;
+    // // Add tasks
+    // let _ = environment
+    //     .add_task(agent_id, "What is the weather in Hyderabad and New York?")
+    //     .await?;
 
-    let _ = environment
-        .add_task(
-            agent_id,
-            "Compare the weather between Hyderabad and New York. Which city is warmer?",
-        )
-        .await?;
+    // let _ = environment
+    //     .add_task(
+    //         agent_id,
+    //         "Compare the weather between Hyderabad and New York. Which city is warmer?",
+    //     )
+    //     .await?;
 
-    // Run all tasks
-    let _ = environment.run_all(agent_id, None).await?;
+    // // Run all tasks
+    // let _ = environment.run_all(agent_id, None).await?;
 
-    // Shutdown
-    let _ = environment.shutdown().await;
+    // // Shutdown
+    // let _ = environment.shutdown().await;
     Ok(())
 }

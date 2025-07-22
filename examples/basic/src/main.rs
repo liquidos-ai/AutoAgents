@@ -1,5 +1,6 @@
 use clap::{Parser, ValueEnum};
 use std::sync::Arc;
+mod distributed;
 mod events;
 mod simple;
 mod structured_output;
@@ -10,6 +11,7 @@ enum UseCase {
     Simple,
     Events,
     Structured,
+    Distributed,
 }
 
 /// Simple program to demonstrate AutoAgents functionality
@@ -40,6 +42,7 @@ async fn main() -> Result<(), Error> {
         UseCase::Simple => simple::simple_agent(llm).await?,
         UseCase::Events => events::events_agent(llm).await?,
         UseCase::Structured => structured_output::math_agent(llm).await?,
+        UseCase::Distributed => distributed::distributed_agent(llm).await?,
     }
 
     Ok(())

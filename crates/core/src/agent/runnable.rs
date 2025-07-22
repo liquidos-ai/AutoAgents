@@ -4,13 +4,14 @@ use super::result::AgentRunResult;
 use crate::error::Error;
 use crate::memory::MemoryProvider;
 use crate::protocol::{Event, TaskResult};
-use crate::session::Task;
+use crate::runtime::{Runtime, Task};
 use crate::tool::ToolCallResult;
 use async_trait::async_trait;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
 use serde_json::Value;
+use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -39,7 +40,7 @@ impl AgentState {
 
 /// Trait for agents that can be executed within the system
 #[async_trait]
-pub trait RunnableAgent: Send + Sync + 'static {
+pub trait RunnableAgent: Send + Sync + 'static + Debug {
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn id(&self) -> Uuid;
@@ -62,6 +63,7 @@ pub trait RunnableAgent: Send + Sync + 'static {
 }
 
 /// Wrapper that makes BaseAgent<T> implement RunnableAgent
+#[derive(Debug)]
 pub struct RunnableAgentImpl<T: AgentDeriveT> {
     agent: BaseAgent<T>,
     state: Arc<RwLock<AgentState>>,
@@ -109,6 +111,7 @@ where
         task: Task,
         tx_event: mpsc::Sender<Event>,
     ) -> Result<AgentRunResult, Error> {
+        println!("Running");
         // Record the task in state
         {
             let mut state = self.state.write().await;

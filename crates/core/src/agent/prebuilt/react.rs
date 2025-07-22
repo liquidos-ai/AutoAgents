@@ -3,7 +3,7 @@ use crate::agent::executor::{AgentExecutor, ExecutorConfig, TurnResult};
 use crate::agent::runnable::AgentState;
 use crate::memory::MemoryProvider;
 use crate::protocol::Event;
-use crate::session::Task;
+use crate::runtime::Task;
 use crate::tool::ToolCallResult;
 use async_trait::async_trait;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, Tool};
@@ -142,6 +142,7 @@ pub trait ReActExecutor: Send + Sync + 'static {
         tx_event: mpsc::Sender<Event>,
     ) -> Result<TurnResult<ReActAgentOutput>, ReActExecutorError> {
         let mut messages = vec![];
+        println!("ASADSD");
 
         if let Some(memory) = &memory {
             messages = memory
@@ -180,7 +181,7 @@ pub trait ReActExecutor: Send + Sync + 'static {
         };
 
         let response_text = response.text().unwrap_or_default();
-
+        println!("TESS: {:?}", response_text);
         if let Some(tool_calls) = response.tool_calls() {
             let tool_results = self
                 .process_tool_calls(tools, tool_calls.clone(), tx_event.clone(), memory.clone())
@@ -286,6 +287,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
         state: Arc<RwLock<AgentState>>,
         tx_event: mpsc::Sender<Event>,
     ) -> Result<Self::Output, Self::Error> {
+        println!("TESSS");
         let max_turns = self.config().max_turns;
         let mut accumulated_tool_calls = Vec::new();
         let mut final_response = String::new();

@@ -1,8 +1,9 @@
-use autoagents::core::agent::prebuilt::react::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::prebuilt::react::ReActExecutor;
 use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::memory::SlidingWindowMemory;
+use autoagents::core::runtime::{Runtime, SingleThreadedRuntime};
 use autoagents::llm::{LLMProvider, ToolCallError, ToolInputT, ToolT};
 use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
 use serde::{Deserialize, Serialize};
@@ -39,44 +40,43 @@ pub struct MathAgentOutput {
 #[agent(
     name = "math_agent",
     description = "You are a Math agent.",
-    tools = [Addition],
+    tools = [],
     executor = ReActExecutor,
     output = MathAgentOutput
 )]
 pub struct MathAgent {}
 
-pub async fn math_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
+pub async fn distributed_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     println!("Starting Math Agent Example...\n");
 
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    // let agent = MathAgent {};
+    let agent = MathAgent {};
 
-    // let agent = AgentBuilder::new(agent)
-    //     .with_llm(llm)
-    //     .with_memory(sliding_window_memory)
-    //     .build()?;
+    let runtime = SingleThreadedRuntime::new(10);
 
-    // // Create environment and set up event handling
-    // let mut environment = Environment::new(None).await;
+    let _ = AgentBuilder::new(agent)
+        .with_llm(llm)
+        .runtime(runtime.clone())
+        .subscribe_topic("test")
+        .with_memory(sliding_window_memory)
+        .build()
+        .await?;
 
-    // // Register the agent
-    // let agent_id = environment.register_agent(agent.clone(), None).await?;
+    // Create environment and set up event handling
+    let mut environment = Environment::new(None);
 
-    // // Add tasks
-    // let _ = environment.add_task(agent_id, "What is 5 + 3?").await?;
+    let _ = environment.run().await.unwrap();
+    runtime
+        .publish_message("What is 2 + 2?".into(), "test".into())
+        .await
+        .unwrap();
+    runtime
+        .publish_message("What did I ask before?".into(), "test".into())
+        .await
+        .unwrap();
 
-    // // Run all tasks
-    // let results = environment.run_all(agent_id, None).await?;
-    // let last_result = results.last().unwrap();
-    // let agent_output: MathAgentOutput =
-    //     last_result.extract_agent_output(ReActAgentOutput::extract_agent_output)?;
-    // println!(
-    //     "Results: {}, {}",
-    //     agent_output.value, agent_output.explanation
-    // );
-
-    // // Shutdown
-    // let _ = environment.shutdown().await;
+    // Shutdown
+    let _ = environment.shutdown().await;
     Ok(())
 }
