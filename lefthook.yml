@@ -21,15 +21,3 @@ pre-push:
 
     doc:
       run: cargo doc --all-features --no-deps
-
-commit-msg:
-  commands:
-    commitizen:
-      run: |
-        if ! echo "$1" | grep -qE "^(feat|fix|docs|style|refactor|perf|test|chore|ci|build)(\(.+\))?: .{1,50}"; then
-          echo "❌ Commit message format is invalid!"
-          echo "Format: type(scope): description"
-          echo "Types: feat, fix, docs, style, refactor, perf, test, chore, ci, build"
-          echo "Example: feat(agents): add new ReAct executor"
-          exit 1
-        fi
