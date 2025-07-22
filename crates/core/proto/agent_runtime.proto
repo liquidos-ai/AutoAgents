@@ -1,0 +1,173 @@
+syntax = "proto3";
+
+package agent_runtime;
+
+// Agent identification
+message AgentId {
+    string uuid = 1;
+}
+
+// Runtime identification
+message RuntimeId {
+    string uuid = 1;
+}
+
+// Task submission
+message Task {
+    string prompt = 1;
+    string submission_id = 2;
+    bool completed = 3;
+    optional string result = 4;
+    optional AgentId agent_id = 5;
+}
+
+// Event types that can occur in the system
+message Event {
+    oneof event_type {
+        NewTaskEvent new_task = 1;
+        TaskStartedEvent task_started = 2;
+        TaskCompleteEvent task_complete = 3;
+        TurnStartedEvent turn_started = 4;
+        TurnCompletedEvent turn_completed = 5;
+        ToolCallRequestedEvent tool_call_requested = 6;
+        ToolCallCompletedEvent tool_call_completed = 7;
+        PublishMessageEvent publish_message = 8;
+        SendMessageEvent send_message = 9;
+    }
+}
+
+message NewTaskEvent {
+    AgentId agent_id = 1;
+    Task task = 2;
+}
+
+message TaskStartedEvent {
+    string submission_id = 1;
+    AgentId agent_id = 2;
+    string task_description = 3;
+}
+
+message TaskCompleteEvent {
+    string submission_id = 1;
+    TaskResult result = 2;
+}
+
+message TaskResult {
+    oneof result {
+        string value = 1;
+        string error = 2;
+    }
+}
+
+message TurnStartedEvent {
+    uint32 turn_number = 1;
+    uint32 max_turns = 2;
+}
+
+message TurnCompletedEvent {
+    uint32 turn_number = 1;
+    bool final_turn = 2;
+}
+
+message ToolCallRequestedEvent {
+    string tool_call_id = 1;
+    string tool_name = 2;
+    string arguments = 3;
+}
+
+message ToolCallCompletedEvent {
+    string tool_call_id = 1;
+    string tool_name = 2;
+    string result = 3;
+}
+
+message PublishMessageEvent {
+    string topic = 1;
+    string message = 2;
+}
+
+message SendMessageEvent {
+    AgentId agent_id = 1;
+    string message = 2;
+}
+
+// Agent registration
+message RegisterAgentRequest {
+    AgentId agent_id = 1;
+    string agent_name = 2;
+    string description = 3;
+}
+
+message RegisterAgentResponse {
+    bool success = 1;
+    optional string error = 2;
+}
+
+// Topic subscription
+message SubscribeRequest {
+    AgentId agent_id = 1;
+    string topic = 2;
+}
+
+message SubscribeResponse {
+    bool success = 1;
+    optional string error = 2;
+}
+
+// Message publishing
+message PublishMessageRequest {
+    string topic = 1;
+    string message = 2;
+}
+
+message PublishMessageResponse {
+    bool success = 1;
+    optional string error = 2;
+}
+
+// Direct message sending
+message SendMessageRequest {
+    AgentId agent_id = 1;
+    string message = 2;
+}
+
+message SendMessageResponse {
+    bool success = 1;
+    optional string error = 2;
+}
+
+// Event streaming
+message EventStreamRequest {
+    optional AgentId agent_id = 1;
+}
+
+// Heartbeat
+message HeartbeatRequest {}
+message HeartbeatResponse {}
+
+// The main runtime service
+service AgentRuntime {
+    // Register an agent with the runtime
+    rpc RegisterAgent(RegisterAgentRequest) returns (RegisterAgentResponse);
+
+    // Subscribe an agent to a topic
+    rpc Subscribe(SubscribeRequest) returns (SubscribeResponse);
+
+    // Publish a message to a topic
+    rpc PublishMessage(PublishMessageRequest) returns (PublishMessageResponse);
+
+    // Send a message directly to an agent
+    rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+
+    // Stream events from the runtime
+    rpc StreamEvents(EventStreamRequest) returns (stream Event);
+
+    // Send events to the runtime
+    rpc SendEvent(Event) returns (google.protobuf.Empty);
+
+    // Heartbeat to keep connection alive
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+// Empty message for responses that don't need data
+import "google/protobuf/empty.proto";

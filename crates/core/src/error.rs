@@ -20,4 +20,8 @@ pub enum Error {
     LLMError(#[from] LLMError),
     #[error(transparent)]
     AgentResultError(#[from] AgentResultError),
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+    #[error(transparent)]
+    SerdeJsonError(#[from] serde_json::Error),
 }
