@@ -1,0 +1,31 @@
+[package]
+name = "grpc-hello"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+autoagents-derive = { path = "../../crates/derive" }
+autoagents = { path = "../../crates/autoagents", features = [
+    "full",
+    "logging",
+    "grpc",
+] }
+tokio = { workspace = true, features = ["full"] }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true }
+tokio-stream = { workspace = true }
+colored = "3.0.0"
+log = { workspace = true }
+env_logger = "0.11"
+
+[[bin]]
+name = "grpc-server"
+path = "src/server.rs"
+
+[[bin]]
+name = "grpc-client"
+path = "src/client.rs"

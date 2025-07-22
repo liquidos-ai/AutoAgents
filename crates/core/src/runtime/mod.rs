@@ -11,8 +11,13 @@ use tokio::task::JoinError;
 use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 
+#[cfg(feature = "grpc")]
+pub mod grpc;
 pub(crate) mod manager;
 mod single_threaded;
+
+#[cfg(feature = "grpc")]
+pub use grpc::{GrpcClientConfig, GrpcRuntime, GrpcRuntimeClient, GrpcRuntimeConfig};
 pub use single_threaded::SingleThreadedRuntime;
 
 /// Error types for Session operations
