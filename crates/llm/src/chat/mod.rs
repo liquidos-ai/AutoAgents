@@ -241,45 +241,6 @@ impl Serialize for ToolChoice {
     }
 }
 
-/// Represents a chunk of a tool call in a streaming response.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ToolCallChunk {
-    /// The index of the tool call in the list of tool calls.
-    pub index: usize,
-    /// The ID of the tool call.
-    #[serde(default)]
-    pub id: String,
-    /// The type of the tool call, e.g., "function".
-    #[serde(rename = "type", default)]
-    pub call_type: String,
-    /// The function call details.
-    pub function: FunctionCallChunk,
-}
-
-/// Represents a chunk of a function call within a tool call.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct FunctionCallChunk {
-    /// The name of the function.
-    #[serde(default)]
-    pub name: String,
-    /// A chunk of the arguments for the function.
-    #[serde(default)]
-    pub arguments: String,
-}
-
-/// Represents a single chunk of a streaming chat response.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct ChatStreamResponse {
-    /// The text content of the chunk.
-    #[serde(default)]
-    pub text: String,
-    /// A chunk of a tool call.
-    #[serde(default)]
-    pub tool_calls: Vec<ToolCallChunk>,
-    /// The reason why the generation was stopped.
-    pub finish_reason: Option<String>,
-}
-
 pub trait ChatResponse: std::fmt::Debug + std::fmt::Display + Send + Sync {
     fn text(&self) -> Option<String>;
     fn tool_calls(&self) -> Option<Vec<ToolCall>>;
@@ -309,6 +270,15 @@ pub trait ChatProvider: Sync + Send {
     }
 
     /// Sends a chat request to the provider with a sequence of messages and tools.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - The conversation history as a slice of chat messages
+    /// * `tools` - Optional slice of tools to use in the chat
+    ///
+    /// # Returns
+    ///
+    /// The provider's response text or an error
     async fn chat_with_tools(
         &self,
         messages: &[ChatMessage],
@@ -316,26 +286,23 @@ pub trait ChatProvider: Sync + Send {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError>;
 
-    /// Sends a streaming chat request to the provider with a sequence of messages and tools.
-    async fn chat_stream_with_tools(
-        &self,
-        _messages: &[ChatMessage],
-        _tools: Option<&[Tool]>,
-        _json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<ChatStreamResponse, LLMError>> + Send>>, LLMError> {
-        // Default implementation returns an error
-        Err(LLMError::Generic(
-            "Streaming with tools not supported for this provider".to_string(),
-        ))
-    }
-
     /// Sends a streaming chat request to the provider with a sequence of messages.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - The conversation history as a slice of chat messages
+    ///
+    /// # Returns
+    ///
+    /// A stream of text tokens or an error
     async fn chat_stream(
         &self,
-        messages: &[ChatMessage],
-    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError> {
-        let stream = self.chat_stream_with_tools(messages, None, None).await?;
-        Ok(Box::pin(stream.map(|res| res.map(|chunk| chunk.text))))
+        _messages: &[ChatMessage],
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
+    {
+        Err(LLMError::Generic(
+            "Streaming not supported for this provider".to_string(),
+        ))
     }
 
     /// Get current memory contents if provider supports memory
