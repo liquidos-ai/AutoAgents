@@ -46,16 +46,6 @@ pub mod models;
 mod tool;
 pub use tool::{ToolCallError, ToolInputT, ToolT};
 
-#[inline]
-/// Initialize logging using env_logger if the "logging" feature is enabled.
-/// This is a no-op if the feature is not enabled.
-pub fn init_logging() {
-    #[cfg(feature = "logging")]
-    {
-        let _ = env_logger::try_init();
-    }
-}
-
 /// Core trait that all LLM providers must implement, combining chat, completion
 /// and embedding capabilities into a unified interface
 pub trait LLMProvider:
@@ -102,13 +92,6 @@ mod tests {
     use crate::embedding::EmbeddingProvider;
     use async_trait::async_trait;
     use serde_json::json;
-
-    #[test]
-    fn test_init_logging_no_panic() {
-        // Test that init_logging doesn't panic when called
-        init_logging();
-        init_logging(); // Should be safe to call multiple times
-    }
 
     #[test]
     fn test_tool_call_creation() {
@@ -208,7 +191,7 @@ mod tests {
             },
         };
 
-        let debug_str = format!("{:?}", tool_call);
+        let debug_str = format!("{tool_call:?}");
         assert!(debug_str.contains("ToolCall"));
         assert!(debug_str.contains("debug_test"));
         assert!(debug_str.contains("debug_function"));
@@ -283,7 +266,7 @@ mod tests {
             arguments: "{}".to_string(),
         };
 
-        let debug_str = format!("{:?}", function_call);
+        let debug_str = format!("{function_call:?}");
         assert!(debug_str.contains("FunctionCall"));
         assert!(debug_str.contains("debug_func"));
     }
@@ -363,7 +346,7 @@ mod tests {
             call_type: "function".to_string(),
             function: FunctionCall {
                 name: "large_function".to_string(),
-                arguments: format!("{{\"large_param\": \"{}\"}}", large_arg),
+                arguments: format!("{{\"large_param\": \"{large_arg}\"}}"),
             },
         };
 

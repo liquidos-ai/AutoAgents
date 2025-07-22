@@ -1,17 +1,18 @@
 use super::{
     error::AgentBuildError, output::AgentOutputT, AgentExecutor, IntoRunnable, RunnableAgent,
 };
-use crate::{error::Error, memory::MemoryProvider};
+use crate::{error::Error, memory::MemoryProvider, protocol::AgentID, runtime::Runtime};
 use async_trait::async_trait;
 use autoagents_llm::{chat::StructuredOutputFormat, LLMProvider, ToolT};
 use serde_json::Value;
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 use tokio::sync::RwLock;
+use uuid::Uuid;
 
 /// Core trait that defines agent metadata and behavior
 /// This trait is implemented via the #[agent] macro
 #[async_trait]
-pub trait AgentDeriveT: Send + Sync + 'static + AgentExecutor {
+pub trait AgentDeriveT: Send + Sync + 'static + AgentExecutor + Debug {
     /// The output type this agent produces
     type Output: AgentOutputT;
 
@@ -32,6 +33,8 @@ pub struct AgentConfig {
     pub name: String,
     /// The agent's description
     pub description: String,
+    /// The Agent ID
+    pub id: AgentID,
     /// The output schema for the agent
     pub output_schema: Option<StructuredOutputFormat>,
 }
@@ -43,8 +46,16 @@ pub struct BaseAgent<T: AgentDeriveT> {
     pub inner: Arc<T>,
     /// LLM provider for this agent
     pub llm: Arc<dyn LLMProvider>,
+    // Agent ID
+    pub id: AgentID,
     /// Optional memory provider
     pub memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+}
+
+impl<T: AgentDeriveT> Debug for BaseAgent<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.inner().name())
+    }
 }
 
 impl<T: AgentDeriveT> BaseAgent<T> {
@@ -57,6 +68,7 @@ impl<T: AgentDeriveT> BaseAgent<T> {
         // Convert tools to Arc for efficient sharing
         Self {
             inner: Arc::new(inner),
+            id: Uuid::new_v4(),
             llm,
             memory: memory.map(|m| Arc::new(RwLock::new(m))),
         }
@@ -87,6 +99,7 @@ impl<T: AgentDeriveT> BaseAgent<T> {
         AgentConfig {
             name: self.name().into(),
             description: self.description().into(),
+            id: self.id,
             output_schema: structured_schema,
         }
     }
@@ -107,6 +120,8 @@ pub struct AgentBuilder<T: AgentDeriveT + AgentExecutor> {
     inner: T,
     llm: Option<Arc<dyn LLMProvider>>,
     memory: Option<Box<dyn MemoryProvider>>,
+    runtime: Option<Arc<dyn Runtime>>,
+    subscribed_topics: Vec<String>,
 }
 
 impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
@@ -116,12 +131,9 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
             inner,
             llm: None,
             memory: None,
+            runtime: None,
+            subscribed_topics: vec![],
         }
-    }
-
-    /// Create a builder from an existing agent (for compatibility)
-    pub fn from_agent(inner: T) -> Self {
-        Self::new(inner)
     }
 
     /// Set the LLM provider
@@ -136,23 +148,31 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
         self
     }
 
-    /// Build the BaseAgent
-    pub fn build(self) -> Result<Arc<dyn RunnableAgent>, Error> {
-        let llm = self.llm.ok_or(AgentBuildError::BuildFailure(
-            "LLM provider is required".to_string(),
-        ))?;
-        Ok(BaseAgent::new(self.inner, llm, self.memory).into_runnable())
+    pub fn subscribe_topic<S: Into<String>>(mut self, topic: S) -> Self {
+        self.subscribed_topics.push(topic.into());
+        self
     }
 
-    /// Build the BaseAgent with memory (for compatibility)
-    pub fn build_with_memory(
-        self,
-        memory: Box<dyn MemoryProvider>,
-    ) -> Result<Arc<dyn RunnableAgent>, Error> {
+    /// Build the BaseAgent
+    pub async fn build(self) -> Result<Arc<dyn RunnableAgent>, Error> {
         let llm = self.llm.ok_or(AgentBuildError::BuildFailure(
             "LLM provider is required".to_string(),
         ))?;
-        Ok(BaseAgent::new(self.inner, llm, Some(memory)).into_runnable())
+        let runnable = BaseAgent::new(self.inner, llm, self.memory).into_runnable();
+        if let Some(runtime) = self.runtime {
+            runtime.register_agent(runnable.clone()).await?;
+            for topic in self.subscribed_topics {
+                runtime.subscribe(runnable.id(), topic).await?;
+            }
+        } else {
+            return Err(AgentBuildError::BuildFailure("Runtime should be defined".into()).into());
+        }
+        Ok(runnable)
+    }
+
+    pub fn runtime(mut self, runtime: Arc<dyn Runtime>) -> Self {
+        self.runtime = Some(runtime);
+        self
     }
 }
 
@@ -162,7 +182,7 @@ mod tests {
     use crate::agent::{AgentDeriveT, AgentState, ExecutorConfig};
     use crate::memory::MemoryProvider;
     use crate::protocol::Event;
-    use crate::session::Task;
+    use crate::runtime::Task;
     use async_trait::async_trait;
     use autoagents_llm::{chat::StructuredOutputFormat, LLMProvider, ToolT};
     use autoagents_test_utils::agent::{MockAgentImpl, TestAgentOutput, TestError};
@@ -240,6 +260,7 @@ mod tests {
     fn test_agent_config_creation() {
         let config = AgentConfig {
             name: "test_agent".to_string(),
+            id: Uuid::new_v4(),
             description: "A test agent".to_string(),
             output_schema: None,
         };
@@ -260,6 +281,7 @@ mod tests {
 
         let config = AgentConfig {
             name: "test_agent".to_string(),
+            id: Uuid::new_v4(),
             description: "A test agent".to_string(),
             output_schema: Some(schema.clone()),
         };

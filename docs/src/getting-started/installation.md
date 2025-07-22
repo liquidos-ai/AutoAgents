@@ -1,18 +1,15 @@
 # Installation
 
-This guide will help you install AutoAgents and set up your development environment.
+This comprehensive guide will help you install AutoAgents and set up your development environment for both using the library and contributing to the project.
 
-## Prerequisites
+## Using AutoAgents in Your Project
 
-Before installing AutoAgents, ensure you have the following prerequisites:
+### Prerequisites
 
-### Rust Toolchain
-AutoAgents requires Rust 1.70 or later. Install Rust using [rustup](https://rustup.rs/):
+Before using AutoAgents, ensure you have:
 
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
-```
+- **Rust 1.70 or later** - Install using [rustup](https://rustup.rs/)
+- **Cargo** package manager (comes with Rust)
 
 Verify your installation:
 ```bash
@@ -20,222 +17,170 @@ rustc --version
 cargo --version
 ```
 
-### System Dependencies
-Depending on your operating system, you may need additional dependencies:
-
-#### Ubuntu/Debian
-```bash
-sudo apt update
-sudo apt install build-essential pkg-config libssl-dev
-```
-
-#### macOS
-```bash
-# Install Xcode command line tools
-xcode-select --install
-
-# Or install via Homebrew
-brew install pkg-config openssl
-```
-
-#### Windows
-- Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)
-- Or use [chocolatey](https://chocolatey.org/): `choco install visualstudio2022buildtools`
-
-## Installation Methods
-
-### Method 1: Using Cargo (Recommended)
+### Adding AutoAgents to Your Project
 
 Add AutoAgents to your `Cargo.toml`:
 
-```toml
-[dependencies]
-autoagents = "0.2.0-alpha.0"
-tokio = { version = "1.0", features = ["full"] }
-```
+### Environment Variables
 
-For specific LLM provider support, use feature flags:
-
-```toml
-[dependencies]
-autoagents = { version = "0.2.0-alpha.0", features = ["openai", "anthropic"] }
-```
-
-### Method 2: From Source
-
-Clone the repository and build from source:
+Set up your API keys:
 
 ```bash
+# For OpenAI
+export OPENAI_API_KEY="your-openai-api-key"
+
+# For Anthropic
+export ANTHROPIC_API_KEY="your-anthropic-api-key"
+
+# For other providers, see the provider-specific documentation
+```
+
+## Development Setup
+
+If you want to contribute to AutoAgents or build from source, follow these additional steps:
+
+### Additional Prerequisites
+
+- **LeftHook** - Git hooks manager for code quality
+- **Cargo Tarpaulin** - Test coverage tool (optional)
+
+### Installing LeftHook
+
+LeftHook is essential for maintaining code quality and is required for development.
+
+**macOS (using Homebrew):**
+```bash
+brew install lefthook
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+# using npm
+npm install -g lefthook
+```
+
+### Clone and Setup Repository
+
+```bash
+# Clone the repository
 git clone https://github.com/liquidos-ai/AutoAgents.git
 cd AutoAgents
+
+# Install Git hooks using lefthook
+lefthook install
+
+# Build the project
 cargo build --release
+
+# Run tests to verify setup
+cargo test --all-features
 ```
 
-### Method 3: Using Cargo Install
-
-Install the latest version directly:
+### Installing Additional Development Tools
 
 ```bash
-cargo install autoagents
+# For test coverage (optional)
+cargo install cargo-tarpaulin
+
+# For documentation generation
+cargo install cargo-doc
+
+# For security auditing (recommended)
+cargo install cargo-audit
 ```
 
-## Feature Flags
+## System Dependencies
 
-AutoAgents uses feature flags to enable specific LLM providers and functionality:
-
-### LLM Provider Features
-- `openai` - OpenAI GPT models
-- `anthropic` - Anthropic Claude models
-- `ollama` - Local Ollama models
-- `google` - Google Gemini models
-- `groq` - Groq inference API
-- `deepseek` - DeepSeek models
-- `xai` - xAI Grok models
-- `phind` - Phind developer models
-- `azure_openai` - Azure OpenAI service
-
-### Utility Features
-- `full` - All available features
-- `logging` - Enhanced logging support
-
-### Example Configuration
-
-```toml
-[dependencies]
-autoagents = { 
-    version = "0.2.0-alpha.0", 
-    features = ["openai", "anthropic", "logging"] 
-}
-```
-
-## Environment Setup
-
-### API Keys
-Most LLM providers require API keys. Set them as environment variables:
+### macOS
 
 ```bash
-# OpenAI
-export OPENAI_API_KEY="your-openai-key"
+# Install Xcode command line tools (if not already installed)
+xcode-select --install
 
-# Anthropic
-export ANTHROPIC_API_KEY="your-anthropic-key"
-
-# Google
-export GOOGLE_API_KEY="your-google-key"
-
-# Groq
-export GROQ_API_KEY="your-groq-key"
+# Install additional dependencies via Homebrew
+brew install pkg-config openssl
 ```
 
-### Configuration File
-Create a `.env` file in your project root:
+### Linux (Ubuntu/Debian)
 
-```env
-OPENAI_API_KEY=your-openai-key
-ANTHROPIC_API_KEY=your-anthropic-key
-RUST_LOG=info
+```bash
+sudo apt update
+sudo apt install -y \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    curl \
+    git
 ```
+
+### Windows
+
+Install the following:
+
+1. **Visual Studio Build Tools** or **Visual Studio Community** with C++ build tools
+2. **Git for Windows**
+3. **Windows Subsystem for Linux (WSL)** - recommended for better compatibility
 
 ## Verification
 
-Create a simple test file to verify your installation:
-
-```rust
-// test_installation.rs
-use autoagents::prelude::*;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("AutoAgents installed successfully!");
-    
-    // Test with a simple agent (requires OpenAI API key)
-    #[cfg(feature = "openai")]
-    {
-        use autoagents::llm::OpenAIProvider;
-        
-        if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
-            let llm = OpenAIProvider::new(&api_key)?;
-            println!("OpenAI provider initialized successfully!");
-        }
-    }
-    
-    Ok(())
-}
-```
-
-Run the test:
-```bash
-cargo run --bin test_installation
-```
-
-## Development Environment
-
-### Recommended Tools
-- **IDE**: VS Code with rust-analyzer extension
-- **Debugging**: LLDB or GDB for debugging
-- **Testing**: Built-in `cargo test`
-- **Documentation**: `cargo doc --open`
-
-### VS Code Extensions
-- `rust-lang.rust-analyzer` - Rust language support
-- `vadimcn.vscode-lldb` - Debugging support
-- `serayuzgur.crates` - Cargo.toml management
-
-## Common Issues
-
-### SSL Certificate Issues
-If you encounter SSL certificate errors:
+After installation, verify everything is working:
 
 ```bash
-# Update certificates (Ubuntu/Debian)
-sudo apt-get update && sudo apt-get install ca-certificates
+# Check Rust installation
+cargo --version
+rustc --version
 
-# macOS
-brew install ca-certificates
+# Check lefthook installation (for development)
+lefthook --version
+
+# Build AutoAgents
+cd AutoAgents
+cargo build --all-features
+
+# Run tests
+cargo test --all-features
+
+# Check git hooks are installed (for development)
+lefthook run pre-commit
 ```
 
-### Compilation Errors
-If you see compilation errors:
+## Git Hooks (Development)
 
-1. Update Rust: `rustup update`
-2. Clear cargo cache: `cargo clean`
-3. Check feature flags are correctly specified
+The project uses LeftHook to manage Git hooks that ensure code quality:
 
-### API Key Issues
-- Ensure API keys are properly set in environment variables
-- Check API key permissions and quotas
-- Verify the correct provider feature is enabled
+### Pre-commit Hooks
+- **Formatting**: `cargo fmt --check` - Ensures consistent code formatting
+- **Linting**: `cargo clippy --all-features --all-targets -- -D warnings` - Catches common mistakes
+- **Testing**: `cargo test --all-features` - Runs the test suite
+- **Type Checking**: `cargo check --all-features --all-targets` - Validates compilation
 
-## Docker Setup
+### Pre-push Hooks
+- **Full Testing**: `cargo test --all-features --release` - Comprehensive test suite
+- **Documentation**: `cargo doc --all-features --no-deps` - Ensures docs build correctly
 
-For containerized development:
+## Running Tests with Coverage
 
-```dockerfile
-FROM rust:1.70
+```bash
+# Install tarpaulin if not already installed
+cargo install cargo-tarpaulin
 
-WORKDIR /app
-COPY . .
-
-RUN cargo build --release
-
-ENV OPENAI_API_KEY=""
-ENV ANTHROPIC_API_KEY=""
-
-CMD ["./target/release/your-app"]
+# Run tests with coverage
+cargo tarpaulin --all-features --out html
 ```
+
+### Getting Help
+
+If you encounter issues:
+
+1. Check our [GitHub Issues](https://github.com/liquidos-ai/AutoAgents/issues)
+2. Join our [Discord Community](https://discord.gg/Ghau8xYn)
 
 ## Next Steps
 
-Now that you have AutoAgents installed, you can:
+After successful installation:
 
-1. Follow the [Quick Start](./quick-start.md) guide
-2. Create [Your First Agent](./first-agent.md)
-3. Explore the [Examples](../examples/basic-weather.md)
+1. **Explore Examples**: Check out the [examples directory](https://github.com/liquidos-ai/AutoAgents/tree/main/examples)
+3. **API Documentation**: Browse the [API Documentation](https://liquidos-ai.github.io/AutoAgents)
+4. **Contributing**: See the [Contributing Guidelines](https://github.com/liquidos-ai/AutoAgents/blob/main/CONTRIBUTING.md)
 
-## Getting Help
-
-If you encounter issues during installation:
-
-- Check the [FAQ](../appendices/faq.md)
-- Visit our [Discord community](https://discord.gg/Ghau8xYn)
-- Create an issue on [GitHub](https://github.com/liquidos-ai/AutoAgents/issues)
+For the latest version information, check [GitHub](https://github.com/liquidos-ai/AutoAgents).

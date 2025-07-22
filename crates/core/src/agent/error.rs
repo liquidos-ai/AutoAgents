@@ -65,3 +65,15 @@ pub enum AgentBuildError {
     #[error("Build Failure")]
     BuildFailure(String),
 }
+
+#[derive(Error, Debug)]
+pub enum AgentResultError {
+    #[error("No output available in result")]
+    NoOutput,
+
+    #[error("Failed to deserialize executor output: {0}")]
+    DeserializationError(#[from] serde_json::Error),
+
+    #[error("Agent output extraction error: {0}")]
+    AgentOutputError(String),
+}

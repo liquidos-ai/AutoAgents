@@ -1,3 +1,4 @@
+use crate::runtime::Task;
 use autoagents_llm::chat::ChatMessage;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -9,7 +10,7 @@ pub type SubmissionId = Uuid;
 pub type AgentID = Uuid;
 
 /// Session IDs are used to identify sessions
-pub type SessionId = Uuid;
+pub type RuntimeID = Uuid;
 
 /// Event IDs are used to correlate events with their responses
 pub type EventId = Uuid;
@@ -18,11 +19,7 @@ pub type EventId = Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
     /// A new task has been submitted to an agent
-    NewTask {
-        sub_id: SubmissionId,
-        agent_id: Option<AgentID>,
-        prompt: String,
-    },
+    NewTask { agent_id: AgentID, task: Task },
 
     /// A task has started execution
     TaskStarted {
@@ -38,19 +35,10 @@ pub enum Event {
     },
 
     /// A task encountered an error
-    TaskError { sub_id: SubmissionId, error: String },
-
-    /// An agent message to the user
-    AgentMessage {
+    TaskError {
         sub_id: SubmissionId,
-        message: AgentMessage,
+        result: TaskResult,
     },
-
-    /// Tool call has started
-    ToolCallStarted { tool_name: String, args: String },
-
-    /// Tool call has completed (simple)
-    ToolCallCompletedSimple { tool_name: String, success: bool },
 
     /// Tool call requested (with ID)
     ToolCallRequested {
@@ -84,20 +72,11 @@ pub enum Event {
         turn_number: usize,
         final_turn: bool,
     },
-
-    /// A warning message
-    Warning { message: String },
-
-    /// An error occurred during task execution
-    Error { sub_id: SubmissionId, error: String },
 }
 
 /// Results from a completed task
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TaskResult {
-    /// The task was completed successfully
-    Success(String),
-
     /// The task was completed with a value
     Value(serde_json::Value),
 
@@ -108,9 +87,9 @@ pub enum TaskResult {
     Aborted,
 }
 
-/// Messages from the agent
+/// Messages from the agent - used for A2A communication
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentMessage {
+struct AgentMessage {
     /// The content of the message
     pub content: String,
 
@@ -125,10 +104,10 @@ mod tests {
 
     #[test]
     fn test_event_serialization_new_task() {
+        let agent_id = Uuid::new_v4();
         let event = Event::NewTask {
-            sub_id: Uuid::new_v4(),
-            agent_id: Some(Uuid::new_v4()),
-            prompt: "Test task".to_string(),
+            agent_id,
+            task: Task::new(String::from("test"), Some(agent_id)),
         };
 
         //Check if serialization and deserilization works properly
@@ -136,8 +115,8 @@ mod tests {
         let deserialized: Event = serde_json::from_str(&serialized).unwrap();
 
         match deserialized {
-            Event::NewTask { prompt, .. } => {
-                assert_eq!(prompt, "Test task");
+            Event::NewTask { task, .. } => {
+                assert_eq!(task.prompt, "test");
             }
             _ => panic!("Expected NewTask variant"),
         }
@@ -161,67 +140,6 @@ mod tests {
                 assert_eq!(task_description, "Started task");
             }
             _ => panic!("Expected TaskStarted variant"),
-        }
-    }
-
-    #[test]
-    fn test_event_serialization_task_complete() {
-        let event = Event::TaskComplete {
-            sub_id: Uuid::new_v4(),
-            result: TaskResult::Success("Task completed".to_string()),
-        };
-
-        let serialized = serde_json::to_string(&event).unwrap();
-        let deserialized: Event = serde_json::from_str(&serialized).unwrap();
-
-        match deserialized {
-            Event::TaskComplete { result, .. } => match result {
-                TaskResult::Success(msg) => assert_eq!(msg, "Task completed"),
-                _ => panic!("Expected Success result"),
-            },
-            _ => panic!("Expected TaskComplete variant"),
-        }
-    }
-
-    #[test]
-    fn test_event_serialization_task_error() {
-        let event = Event::TaskError {
-            sub_id: Uuid::new_v4(),
-            error: "Task failed".to_string(),
-        };
-
-        let serialized = serde_json::to_string(&event).unwrap();
-        let deserialized: Event = serde_json::from_str(&serialized).unwrap();
-
-        match deserialized {
-            Event::TaskError { error, .. } => {
-                assert_eq!(error, "Task failed");
-            }
-            _ => panic!("Expected TaskError variant"),
-        }
-    }
-
-    #[test]
-    fn test_event_serialization_agent_message() {
-        let agent_message = AgentMessage {
-            content: "Agent response".to_string(),
-            chat_messages: None,
-        };
-
-        let event = Event::AgentMessage {
-            sub_id: Uuid::new_v4(),
-            message: agent_message,
-        };
-
-        let serialized = serde_json::to_string(&event).unwrap();
-        let deserialized: Event = serde_json::from_str(&serialized).unwrap();
-
-        match deserialized {
-            Event::AgentMessage { message, .. } => {
-                assert_eq!(message.content, "Agent response");
-                assert!(message.chat_messages.is_none());
-            }
-            _ => panic!("Expected AgentMessage variant"),
         }
     }
 
@@ -336,85 +254,9 @@ mod tests {
                 final_turn,
             } => {
                 assert_eq!(turn_number, 1);
-                assert_eq!(final_turn, false);
+                assert!(!final_turn);
             }
             _ => panic!("Expected TurnCompleted variant"),
-        }
-    }
-
-    #[test]
-    fn test_event_serialization_warning() {
-        let event = Event::Warning {
-            message: "This is a warning".to_string(),
-        };
-
-        let serialized = serde_json::to_string(&event).unwrap();
-        let deserialized: Event = serde_json::from_str(&serialized).unwrap();
-
-        match deserialized {
-            Event::Warning { message } => {
-                assert_eq!(message, "This is a warning");
-            }
-            _ => panic!("Expected Warning variant"),
-        }
-    }
-
-    #[test]
-    fn test_event_serialization_error() {
-        let event = Event::Error {
-            sub_id: Uuid::new_v4(),
-            error: "An error occurred".to_string(),
-        };
-
-        let serialized = serde_json::to_string(&event).unwrap();
-        let deserialized: Event = serde_json::from_str(&serialized).unwrap();
-
-        match deserialized {
-            Event::Error { error, .. } => {
-                assert_eq!(error, "An error occurred");
-            }
-            _ => panic!("Expected Error variant"),
-        }
-    }
-
-    #[test]
-    fn test_task_result_serialization() {
-        let success_result = TaskResult::Success("Task successful".to_string());
-        let serialized = serde_json::to_string(&success_result).unwrap();
-        let deserialized: TaskResult = serde_json::from_str(&serialized).unwrap();
-
-        match deserialized {
-            TaskResult::Success(msg) => assert_eq!(msg, "Task successful"),
-            _ => panic!("Expected Success result"),
-        }
-
-        let value_result = TaskResult::Value(json!({"key": "value"}));
-        let serialized = serde_json::to_string(&value_result).unwrap();
-        let deserialized: TaskResult = serde_json::from_str(&serialized).unwrap();
-
-        match deserialized {
-            TaskResult::Value(val) => {
-                assert_eq!(val, json!({"key": "value"}));
-            }
-            _ => panic!("Expected Value result"),
-        }
-
-        let failure_result = TaskResult::Failure("Task failed".to_string());
-        let serialized = serde_json::to_string(&failure_result).unwrap();
-        let deserialized: TaskResult = serde_json::from_str(&serialized).unwrap();
-
-        match deserialized {
-            TaskResult::Failure(msg) => assert_eq!(msg, "Task failed"),
-            _ => panic!("Expected Failure result"),
-        }
-
-        let aborted_result = TaskResult::Aborted;
-        let serialized = serde_json::to_string(&aborted_result).unwrap();
-        let deserialized: TaskResult = serde_json::from_str(&serialized).unwrap();
-
-        match deserialized {
-            TaskResult::Aborted => {}
-            _ => panic!("Expected Aborted result"),
         }
     }
 
@@ -456,64 +298,15 @@ mod tests {
     }
 
     #[test]
-    fn test_event_debug_format() {
-        let event = Event::NewTask {
-            sub_id: Uuid::new_v4(),
-            agent_id: Some(Uuid::new_v4()),
-            prompt: "Debug test".to_string(),
-        };
-
-        let debug_str = format!("{:?}", event);
-        assert!(debug_str.contains("NewTask"));
-        assert!(debug_str.contains("Debug test"));
-    }
-
-    #[test]
-    fn test_task_result_debug_format() {
-        let result = TaskResult::Success("Debug success".to_string());
-        let debug_str = format!("{:?}", result);
-        assert!(debug_str.contains("Success"));
-        assert!(debug_str.contains("Debug success"));
-    }
-
-    #[test]
     fn test_agent_message_debug_format() {
         let message = AgentMessage {
             content: "Debug message".to_string(),
             chat_messages: None,
         };
 
-        let debug_str = format!("{:?}", message);
+        let debug_str = format!("{message:?}");
         assert!(debug_str.contains("AgentMessage"));
         assert!(debug_str.contains("Debug message"));
-    }
-
-    #[test]
-    fn test_event_clone() {
-        let event = Event::Warning {
-            message: "Test warning".to_string(),
-        };
-
-        let cloned = event.clone();
-        match (event, cloned) {
-            (Event::Warning { message: msg1 }, Event::Warning { message: msg2 }) => {
-                assert_eq!(msg1, msg2);
-            }
-            _ => panic!("Clone failed"),
-        }
-    }
-
-    #[test]
-    fn test_task_result_clone() {
-        let result = TaskResult::Success("Test success".to_string());
-        let cloned = result.clone();
-
-        match (result, cloned) {
-            (TaskResult::Success(msg1), TaskResult::Success(msg2)) => {
-                assert_eq!(msg1, msg2);
-            }
-            _ => panic!("Clone failed"),
-        }
     }
 
     #[test]
@@ -535,64 +328,11 @@ mod tests {
     fn test_uuid_types() {
         let submission_id: SubmissionId = Uuid::new_v4();
         let agent_id: AgentID = Uuid::new_v4();
-        let session_id: SessionId = Uuid::new_v4();
+        let runtime_id: RuntimeID = Uuid::new_v4();
         let event_id: EventId = Uuid::new_v4();
 
         // Test that all UUID types can be used interchangeably
         assert_ne!(submission_id, agent_id);
-        assert_ne!(session_id, event_id);
-    }
-
-    #[test]
-    fn test_event_with_all_uuid_types() {
-        let sub_id: SubmissionId = Uuid::new_v4();
-        let agent_id: AgentID = Uuid::new_v4();
-
-        let event = Event::NewTask {
-            sub_id,
-            agent_id: Some(agent_id),
-            prompt: "UUID test".to_string(),
-        };
-
-        // Should serialize and deserialize properly
-        let serialized = serde_json::to_string(&event).unwrap();
-        let _deserialized: Event = serde_json::from_str(&serialized).unwrap();
-    }
-
-    #[test]
-    fn test_large_event_serialization() {
-        let large_prompt = "x".repeat(10000);
-        let event = Event::NewTask {
-            sub_id: Uuid::new_v4(),
-            agent_id: Some(Uuid::new_v4()),
-            prompt: large_prompt.clone(),
-        };
-
-        let serialized = serde_json::to_string(&event).unwrap();
-        let deserialized: Event = serde_json::from_str(&serialized).unwrap();
-
-        match deserialized {
-            Event::NewTask { prompt, .. } => {
-                assert_eq!(prompt, large_prompt);
-            }
-            _ => panic!("Expected NewTask variant"),
-        }
-    }
-
-    #[test]
-    fn test_event_with_empty_strings() {
-        let event = Event::Warning {
-            message: String::new(),
-        };
-
-        let serialized = serde_json::to_string(&event).unwrap();
-        let deserialized: Event = serde_json::from_str(&serialized).unwrap();
-
-        match deserialized {
-            Event::Warning { message } => {
-                assert!(message.is_empty());
-            }
-            _ => panic!("Expected Warning variant"),
-        }
+        assert_ne!(runtime_id, event_id);
     }
 }

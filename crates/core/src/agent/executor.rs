@@ -2,7 +2,7 @@ use crate::agent::base::AgentConfig;
 use crate::agent::runnable::AgentState;
 use crate::memory::MemoryProvider;
 use crate::protocol::Event;
-use crate::session::Task;
+use crate::runtime::Task;
 use async_trait::async_trait;
 use autoagents_llm::{LLMProvider, ToolT};
 use serde::de::DeserializeOwned;
@@ -20,10 +20,6 @@ pub enum TurnResult<T> {
     Continue(Option<T>),
     /// Final result obtained
     Complete(T),
-    /// Error occurred but can continue
-    Error(String),
-    /// Fatal error, must stop
-    Fatal(Box<dyn Error + Send + Sync>),
 }
 
 /// Configuration for executors
@@ -71,7 +67,7 @@ mod tests {
     use crate::agent::runnable::AgentState;
     use crate::memory::MemoryProvider;
     use crate::protocol::Event;
-    use crate::session::Task;
+    use crate::runtime::Task;
     use async_trait::async_trait;
     use autoagents_llm::{
         chat::{ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat},
@@ -84,6 +80,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use std::sync::Arc;
     use tokio::sync::{mpsc, RwLock};
+    use uuid::Uuid;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct TestOutput {
@@ -244,7 +241,7 @@ mod tests {
     #[test]
     fn test_executor_config_debug() {
         let config = ExecutorConfig { max_turns: 20 };
-        let debug_str = format!("{:?}", config);
+        let debug_str = format!("{config:?}");
         assert!(debug_str.contains("ExecutorConfig"));
         assert!(debug_str.contains("20"));
     }
@@ -277,31 +274,9 @@ mod tests {
     }
 
     #[test]
-    fn test_turn_result_error() {
-        let result = TurnResult::<String>::Error("error message".to_string());
-        match result {
-            TurnResult::Error(msg) => assert_eq!(msg, "error message"),
-            _ => panic!("Expected Error variant"),
-        }
-    }
-
-    #[test]
-    fn test_turn_result_fatal() {
-        let error = Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Fatal error",
-        ));
-        let result = TurnResult::<String>::Fatal(error);
-        match result {
-            TurnResult::Fatal(err) => assert_eq!(err.to_string(), "Fatal error"),
-            _ => panic!("Expected Fatal variant"),
-        }
-    }
-
-    #[test]
     fn test_turn_result_debug() {
         let result = TurnResult::Complete("test".to_string());
-        let debug_str = format!("{:?}", result);
+        let debug_str = format!("{result:?}");
         assert!(debug_str.contains("Complete"));
         assert!(debug_str.contains("test"));
     }
@@ -313,6 +288,7 @@ mod tests {
         let tools = vec![];
         let agent_config = AgentConfig {
             name: "test".to_string(),
+            id: Uuid::new_v4(),
             description: "test agent".to_string(),
             output_schema: None,
         };
@@ -336,6 +312,7 @@ mod tests {
         let tools = vec![];
         let agent_config = AgentConfig {
             name: "test".to_string(),
+            id: Uuid::new_v4(),
             description: "test agent".to_string(),
             output_schema: None,
         };
@@ -396,7 +373,7 @@ mod tests {
         let output = TestOutput {
             message: "debug test".to_string(),
         };
-        let debug_str = format!("{:?}", output);
+        let debug_str = format!("{output:?}");
         assert!(debug_str.contains("TestOutput"));
         assert!(debug_str.contains("debug test"));
     }
@@ -419,7 +396,7 @@ mod tests {
     #[test]
     fn test_test_error_debug() {
         let error = TestError::TestError("debug test".to_string());
-        let debug_str = format!("{:?}", error);
+        let debug_str = format!("{error:?}");
         assert!(debug_str.contains("TestError"));
         assert!(debug_str.contains("debug test"));
     }

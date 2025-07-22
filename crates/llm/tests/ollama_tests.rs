@@ -15,7 +15,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 #[cfg(feature = "ollama")]
-mod ollama_tests {
+mod ollama_test_cases {
     use super::*;
     use autoagents_llm::backends::ollama::Ollama;
 

@@ -232,7 +232,7 @@ mod tests {
             let message = ChatMessage {
                 role: ChatRole::User,
                 message_type: MessageType::Text,
-                content: format!("Message {}", i),
+                content: format!("Message {i}"),
             };
             memory.remember(&message).await.unwrap();
         }
@@ -253,7 +253,7 @@ mod tests {
             let message = ChatMessage {
                 role: ChatRole::User,
                 message_type: MessageType::Text,
-                content: format!("Message {}", i),
+                content: format!("Message {i}"),
             };
             memory.remember(&message).await.unwrap();
         }
@@ -305,7 +305,7 @@ mod tests {
             let message = ChatMessage {
                 role: ChatRole::User,
                 message_type: MessageType::Text,
-                content: format!("Message {}", i),
+                content: format!("Message {i}"),
             };
             memory.remember(&message).await.unwrap();
         }
@@ -324,7 +324,7 @@ mod tests {
             let message = ChatMessage {
                 role: ChatRole::User,
                 message_type: MessageType::Text,
-                content: format!("Message {}", i),
+                content: format!("Message {i}"),
             };
             memory.remember(&message).await.unwrap();
         }
@@ -361,7 +361,7 @@ mod tests {
             let message = ChatMessage {
                 role: ChatRole::User,
                 message_type: MessageType::Text,
-                content: format!("Message {}", i),
+                content: format!("Message {i}"),
             };
             memory.messages.push_back(message);
         }
@@ -381,7 +381,7 @@ mod tests {
             let message = ChatMessage {
                 role: ChatRole::User,
                 message_type: MessageType::Text,
-                content: format!("Message {}", i),
+                content: format!("Message {i}"),
             };
             memory.messages.push_back(message);
         }
@@ -410,7 +410,7 @@ mod tests {
             let message = ChatMessage {
                 role: ChatRole::User,
                 message_type: MessageType::Text,
-                content: format!("Message {}", i),
+                content: format!("Message {i}"),
             };
             memory.messages.push_back(message);
         }

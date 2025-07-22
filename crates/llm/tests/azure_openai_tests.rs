@@ -14,7 +14,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 #[cfg(feature = "azure_openai")]
-mod azure_openai_tests {
+mod azure_openai_test_cases {
     use super::*;
     use autoagents_llm::{backends::azure_openai::AzureOpenAI, chat::ReasoningEffort};
 

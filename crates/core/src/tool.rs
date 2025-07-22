@@ -72,7 +72,7 @@ mod tests {
             result: json!(null),
         };
 
-        let debug_str = format!("{:?}", result);
+        let debug_str = format!("{result:?}");
         assert!(debug_str.contains("ToolCallResult"));
         assert!(debug_str.contains("debug_tool"));
     }

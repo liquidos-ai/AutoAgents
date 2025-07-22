@@ -310,14 +310,14 @@ impl std::fmt::Display for OpenAIChatResponse {
         ) {
             (Some(content), Some(tool_calls)) => {
                 for tool_call in tool_calls {
-                    write!(f, "{}", tool_call)?;
+                    write!(f, "{tool_call}")?;
                 }
-                write!(f, "{}", content)
+                write!(f, "{content}")
             }
-            (Some(content), None) => write!(f, "{}", content),
+            (Some(content), None) => write!(f, "{content}"),
             (None, Some(tool_calls)) => {
                 for tool_call in tool_calls {
-                    write!(f, "{}", tool_call)?;
+                    write!(f, "{tool_call}")?;
                 }
                 Ok(())
             }
@@ -582,7 +582,7 @@ impl ChatProvider for OpenAI {
 
         if log::log_enabled!(log::Level::Trace) {
             if let Ok(json) = serde_json::to_string(&body) {
-                log::trace!("OpenAI request payload: {}", json);
+                log::trace!("OpenAI request payload: {json}");
             }
         }
 
@@ -598,7 +598,7 @@ impl ChatProvider for OpenAI {
             let status = response.status();
             let error_text = response.text().await?;
             return Err(LLMError::ResponseFormatError {
-                message: format!("OpenAI API returned error status: {}", status),
+                message: format!("OpenAI API returned error status: {status}"),
                 raw_response: error_text,
             });
         }
@@ -611,7 +611,7 @@ impl ChatProvider for OpenAI {
         match json_resp {
             Ok(response) => Ok(Box::new(response)),
             Err(e) => Err(LLMError::ResponseFormatError {
-                message: format!("Failed to decode OpenAI API response: {}", e),
+                message: format!("Failed to decode OpenAI API response: {e}"),
                 raw_response: resp_text,
             }),
         }
@@ -711,7 +711,7 @@ impl ChatProvider for OpenAI {
             let status = response.status();
             let error_text = response.text().await?;
             return Err(LLMError::ResponseFormatError {
-                message: format!("OpenAI API returned error status: {}", status),
+                message: format!("OpenAI API returned error status: {status}"),
                 raw_response: error_text,
             });
         }

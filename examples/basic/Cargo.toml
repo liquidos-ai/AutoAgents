@@ -6,7 +6,10 @@ publish = false
 
 [dependencies]
 autoagents-derive = { path = "../../crates/derive" }
-autoagents = { path = "../../crates/autoagents", features = ["full"] }
+autoagents = { path = "../../crates/autoagents", features = [
+    "full",
+    "logging",
+] }
 tokio = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
@@ -18,3 +21,4 @@ reqwest.workspace = true
 ureq = { version = "3.0.8", features = ["json"] }
 uuid = { workspace = true }
 tokio-stream.workspace = true
+colored = "3.0.0"

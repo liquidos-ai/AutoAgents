@@ -829,7 +829,7 @@ mod tests {
                 // Mock implementation that returns the prompt as summary
                 let prompt = messages.first().unwrap().content.clone();
                 Ok(Box::new(MockChatResponse {
-                    text: Some(format!("Summary: {}", prompt)),
+                    text: Some(format!("Summary: {prompt}")),
                 }))
             }
         }

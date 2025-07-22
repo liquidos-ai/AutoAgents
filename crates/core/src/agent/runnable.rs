@@ -1,14 +1,13 @@
 use super::base::{AgentDeriveT, BaseAgent};
 use super::error::RunnableAgentError;
-use super::result::AgentRunResult;
 use crate::error::Error;
 use crate::memory::MemoryProvider;
 use crate::protocol::{Event, TaskResult};
-use crate::session::Task;
+use crate::runtime::Task;
 use crate::tool::ToolCallResult;
 use async_trait::async_trait;
-use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
 use serde_json::Value;
+use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
@@ -39,16 +38,12 @@ impl AgentState {
 
 /// Trait for agents that can be executed within the system
 #[async_trait]
-pub trait RunnableAgent: Send + Sync + 'static {
+pub trait RunnableAgent: Send + Sync + 'static + Debug {
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn id(&self) -> Uuid;
 
-    async fn run(
-        self: Arc<Self>,
-        task: Task,
-        tx_event: mpsc::Sender<Event>,
-    ) -> Result<AgentRunResult, Error>;
+    async fn run(self: Arc<Self>, task: Task, tx_event: mpsc::Sender<Event>) -> Result<(), Error>;
 
     fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>>;
 
@@ -56,16 +51,16 @@ pub trait RunnableAgent: Send + Sync + 'static {
         self: Arc<Self>,
         task: Task,
         tx_event: mpsc::Sender<Event>,
-    ) -> JoinHandle<Result<AgentRunResult, Error>> {
+    ) -> JoinHandle<Result<(), Error>> {
         tokio::spawn(async move { self.run(task, tx_event).await })
     }
 }
 
 /// Wrapper that makes BaseAgent<T> implement RunnableAgent
+#[derive(Debug)]
 pub struct RunnableAgentImpl<T: AgentDeriveT> {
     agent: BaseAgent<T>,
     state: Arc<RwLock<AgentState>>,
-    id: Uuid,
 }
 
 impl<T: AgentDeriveT> RunnableAgentImpl<T> {
@@ -73,7 +68,6 @@ impl<T: AgentDeriveT> RunnableAgentImpl<T> {
         Self {
             agent,
             state: Arc::new(RwLock::new(AgentState::new())),
-            id: Uuid::new_v4(),
         }
     }
 
@@ -97,35 +91,14 @@ where
     }
 
     fn id(&self) -> Uuid {
-        self.id
+        self.agent.id
     }
 
     fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>> {
         self.agent.memory()
     }
 
-    async fn run(
-        self: Arc<Self>,
-        task: Task,
-        tx_event: mpsc::Sender<Event>,
-    ) -> Result<AgentRunResult, Error> {
-        // Record the task in state
-        {
-            let mut state = self.state.write().await;
-            state.record_task(task.clone());
-        }
-
-        // Store the task in memory if available
-        if let Some(memory) = self.agent.memory() {
-            let mut mem = memory.write().await;
-            let chat_msg = ChatMessage {
-                role: ChatRole::User,
-                message_type: MessageType::Text,
-                content: task.prompt.clone(),
-            };
-            let _ = mem.remember(&chat_msg).await;
-        }
-
+    async fn run(self: Arc<Self>, task: Task, tx_event: mpsc::Sender<Event>) -> Result<(), Error> {
         // Execute the agent's logic using the executor
         match self
             .agent
@@ -145,27 +118,24 @@ where
                 // Convert output to Value
                 let value: Value = output.into();
 
-                // Create task result
-                let task_result = TaskResult::Value(value.clone());
-
                 // Send completion event
                 let _ = tx_event
                     .send(Event::TaskComplete {
                         sub_id: task.submission_id,
-                        result: task_result,
+                        result: TaskResult::Value(value),
                     })
                     .await
                     .map_err(RunnableAgentError::event_send_error)?;
 
-                Ok(AgentRunResult::success(value))
+                Ok(())
             }
             Err(e) => {
                 // Send error event
                 let error_msg = e.to_string();
                 let _ = tx_event
-                    .send(Event::Error {
+                    .send(Event::TaskComplete {
                         sub_id: task.submission_id,
-                        error: error_msg.clone(),
+                        result: TaskResult::Failure(error_msg.clone()),
                     })
                     .await;
 

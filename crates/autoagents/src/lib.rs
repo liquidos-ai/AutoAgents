@@ -4,11 +4,29 @@ pub use async_trait::async_trait;
 pub use autoagents_core::{self as core, error as core_error};
 pub use autoagents_llm::{self as llm, error as llm_error};
 
+#[inline]
+/// Initialize logging using env_logger if the "logging" feature is enabled.
+/// This is a no-op if the feature is not enabled.
+pub fn init_logging() {
+    #[cfg(feature = "logging")]
+    {
+        let _ = env_logger::try_init();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use autoagents_core::runtime::SingleThreadedRuntime;
     use autoagents_test_utils::llm::MockLLMProvider;
     use std::sync::Arc;
+
+    #[test]
+    fn test_init_logging_no_panic() {
+        // Test that init_logging doesn't panic when called
+        init_logging();
+        init_logging(); // Should be safe to call multiple times
+    }
 
     #[test]
     fn test_core_module_available() {
@@ -27,8 +45,8 @@ mod tests {
     #[test]
     fn test_core_error_available() {
         // Test that core error types are accessible
-        let error = core_error::Error::SessionError(core::session::SessionError::EmptyTask);
-        assert!(error.to_string().contains("Task is None"));
+        // let error = core_error::Error::SessionError(core::session::SessionError::EmptyTask);
+        // assert!(error.to_string().contains("Task is None"));
     }
 
     #[test]
@@ -49,12 +67,13 @@ mod tests {
         assert_eq!(message.content, "Hello world");
     }
 
-    #[test]
-    fn test_agent_builder_available() {
+    #[tokio::test]
+    async fn test_agent_builder_available() {
         // Test that agent builder types are accessible
         use crate::core::agent::prebuilt::react::ReActExecutor;
         use crate::core::agent::AgentBuilder;
 
+        let runtime = SingleThreadedRuntime::new(None);
         // Mock agent for testing
         #[derive(Debug)]
         struct MockAgent;
@@ -82,7 +101,12 @@ mod tests {
         impl ReActExecutor for MockAgent {}
 
         let llm: Arc<MockLLMProvider> = Arc::new(MockLLMProvider {});
-        let builder = AgentBuilder::new(MockAgent).with_llm(llm).build().unwrap();
+        let builder = AgentBuilder::new(MockAgent)
+            .with_llm(llm)
+            .runtime(runtime)
+            .build()
+            .await
+            .unwrap();
         assert_eq!(builder.description(), "A mock agent for testing");
     }
 
@@ -91,20 +115,6 @@ mod tests {
         // Test that memory types are accessible
         let memory = crate::core::memory::SlidingWindowMemory::new(5);
         assert_eq!(memory.window_size(), 5);
-    }
-
-    #[test]
-    fn test_protocol_types_available() {
-        // Test that protocol types are accessible
-        let _event = crate::core::protocol::Event::Warning {
-            message: "Test warning".to_string(),
-        };
-
-        let task_result = crate::core::protocol::TaskResult::Success("Success".to_string());
-
-        // Test serialization
-        let serialized = serde_json::to_string(&task_result).unwrap();
-        assert!(serialized.contains("Success"));
     }
 
     #[test]

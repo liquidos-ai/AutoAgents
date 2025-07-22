@@ -27,3 +27,4 @@ ignore = { workspace = true }
 glob = { workspace = true }
 syntect = "5.1"
 termimad = "0.33.0"
+colored = "3.0.0"

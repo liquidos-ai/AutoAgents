@@ -45,9 +45,9 @@ AutoAgents is a cutting-edge multi-agent framework built in Rust that enables th
 - **Observation**: Environmental feedback and adaptation
 
 ### 🤖 **Multi-Agent Orchestration**
-- **Agent Coordination**: Seamless communication and collaboration between multiple agents (In Roadmap)
-- **Task Distribution**: Intelligent workload distribution across agent networks (In Roadmap)
-- **Knowledge Sharing**: Shared memory and context between agents (In Roadmap)
+- **Agent Coordination**: Seamless communication and collaboration between multiple agents
+- **Task Distribution**: Intelligent workload distribution across agent networks
+- **Knowledge Sharing**: Shared memory and context between agents (In Roadmap
 
 ---
 
@@ -71,98 +71,215 @@ AutoAgents supports a wide range of LLM providers, allowing you to choose the be
 
 ---
 
+## 📦 Installation
+
+### Adding AutoAgents to Your Project
+
+Add AutoAgents to your `Cargo.toml`:
+
+```toml
+[dependencies]
+autoagents = "0.2.0-alpha.0"
+autoagents-derive = "0.2.0-alpha.0"
+tokio = { version = "1.43.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+```
+
+### Development Setup
+
+For contributing to AutoAgents or building from source:
+
+#### Prerequisites
+
+- **Rust** (latest stable recommended)
+- **Cargo** package manager
+- **LeftHook** for Git hooks management
+
+#### Install LeftHook
+
+**macOS (using Homebrew):**
+```bash
+brew install lefthook
+```
+
+**Linux/Windows:**
+```bash
+# Using npm
+npm install -g lefthook
+
+# Or download binary from releases
+curl -1sLf 'https://dl.cloudsmith.io/public/evilmartians/lefthook/setup.deb.sh' | sudo -E bash
+sudo apt install lefthook
+```
+
+#### Clone and Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/liquidos-ai/AutoAgents.git
+cd AutoAgents
+
+# Install Git hooks using lefthook
+lefthook install
+
+# Build the project
+cargo build --release
+
+# Run tests to verify setup
+cargo test --all-features
+```
+
+The lefthook configuration will automatically:
+- Format code with `cargo fmt`
+- Run linting with `cargo clippy`
+- Execute tests before commits
+
+---
+
 ## 🚀 Quick Start
 
 ### Basic Usage
 
 ```rust
-use autoagents::core::agent::base::AgentBuilder;
-use autoagents::core::agent::{AgentDeriveT, ReActExecutor};
+use autoagents::core::agent::prebuilt::react::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::memory::SlidingWindowMemory;
-use autoagents::llm::{LLMProvider, ToolCallError, ToolInputT, ToolT};
-use autoagents_derive::{agent, tool, ToolInput};
+use autoagents::core::protocol::{Event, TaskResult};
+use autoagents::core::runtime::{Runtime, SingleThreadedRuntime};
+use autoagents::init_logging;
+use autoagents::llm::{ToolCallError, ToolInputT, ToolT};
+use autoagents::{llm::backends::openai::OpenAI, llm::builder::LLMBuilder};
+use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
+use colored::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
-pub struct WeatherArgs {
-    #[input(description = "City to get weather for")]
-    city: String,
+pub struct AdditionArgs {
+    #[input(description = "Left Operand for addition")]
+    left: i64,
+    #[input(description = "Right Operand for addition")]
+    right: i64,
 }
 
 #[tool(
-    name = "WeatherTool",
-    description = "Use this tool to get current weather in celsius",
-    input = WeatherArgs,
+    name = "Addition",
+    description = "Use this tool to Add two numbers",
+    input = AdditionArgs,
 )]
-fn get_weather(args: WeatherArgs) -> Result<String, ToolCallError> {
-    println!("ToolCall: GetWeather {:?}", args);
-    if args.city == "Hyderabad" {
-        Ok(format!(
-            "The current temperature in {} is 28 degrees celsius",
-            args.city
-        ))
-    } else if args.city == "New York" {
-        Ok(format!(
-            "The current temperature in {} is 15 degrees celsius",
-            args.city
-        ))
-    } else {
-        Err(ToolCallError::RuntimeError(
-            format!("Weather for {} is not supported", args.city).into(),
-        ))
-    }
+fn add(args: AdditionArgs) -> Result<i64, ToolCallError> {
+    Ok(args.left + args.right)
+}
+
+/// Math agent output with Value and Explanation
+#[derive(Debug, Serialize, Deserialize, AgentOutput)]
+pub struct MathAgentOutput {
+    #[output(description = "The addition result")]
+    value: i64,
+    #[output(description = "Explanation of the logic")]
+    explanation: String,
 }
 
 #[agent(
-    name = "weather_agent",
-    description = "You are a weather assistant that helps users get weather information.",
-    tools = [WeatherTool],
+    name = "math_agent",
+    description = "You are a Math agent",
+    tools = [Addition],
     executor = ReActExecutor,
+    output = MathAgentOutput
 )]
-pub struct WeatherAgent {}
+pub struct MathAgent {}
 
-pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
-    println!("Starting Weather Agent Example...\n");
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    init_logging();
+    // Check if API key is set
+    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or("".into());
+
+    // Initialize and configure the LLM client
+    let llm: Arc<OpenAI> = LLMBuilder::<OpenAI>::new()
+        .api_key(api_key) // Set the API key
+        .model("gpt-4o") // Use GPT-4o-mini model
+        .max_tokens(512) // Limit response length
+        .temperature(0.2) // Control response randomness (0.0-1.0)
+        .stream(false) // Disable streaming responses
+        .build()
+        .expect("Failed to build LLM");
 
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let weather_agent = WeatherAgent {};
+    let agent = MathAgent {};
 
-    let agent = AgentBuilder::new(weather_agent)
+    let runtime = SingleThreadedRuntime::new(None);
+
+    let _ = AgentBuilder::new(agent)
         .with_llm(llm)
+        .runtime(runtime.clone())
+        .subscribe_topic("test")
         .with_memory(sliding_window_memory)
-        .build()?;
+        .build()
+        .await?;
 
     // Create environment and set up event handling
-    let mut environment = Environment::new(None).await;
+    let mut environment = Environment::new(None);
+    let _ = environment.register_runtime(runtime.clone()).await;
 
-    // Register the agent
-    let agent_id = environment.register_agent(agent.clone(), None).await?;
+    let receiver = environment.take_event_receiver(None).await;
+    handle_events(receiver);
 
-    // Add tasks
-    let _ = environment
-        .add_task(agent_id, "What is the weather in Hyderabad and New York?")
-        .await?;
+    environment.run();
 
-    let _ = environment
-        .add_task(
-            agent_id,
-            "Compare the weather between Hyderabad and New York. Which city is warmer?",
-        )
-        .await?;
-
-    // Run all tasks
-    let results = environment.run_all(agent_id, None).await?;
-    let last_result = results.last().unwrap();
-    println!("Results: {}", last_result.output.as_ref().unwrap());
+    runtime
+        .publish_message("What is 2 + 2?".into(), "test".into())
+        .await
+        .unwrap();
+    runtime
+        .publish_message("What did I ask before?".into(), "test".into())
+        .await
+        .unwrap();
 
     // Shutdown
     let _ = environment.shutdown().await;
     Ok(())
+}
+
+fn handle_events(event_stream: Option<ReceiverStream<Event>>) {
+    if let Some(mut event_stream) = event_stream {
+        tokio::spawn(async move {
+            while let Some(event) = event_stream.next().await {
+                match event {
+                    Event::TaskComplete { result, .. } => {
+                        match result {
+                            TaskResult::Value(val) => {
+                                let agent_out: ReActAgentOutput =
+                                    serde_json::from_value(val).unwrap();
+                                let math_out: MathAgentOutput =
+                                    serde_json::from_str(&agent_out.response).unwrap();
+                                println!(
+                                    "{}",
+                                    format!(
+                                        "Math Value: {}, Explanation: {}",
+                                        math_out.value, math_out.explanation
+                                    )
+                                    .green()
+                                );
+                            }
+                            _ => {
+                                //
+                            }
+                        }
+                    }
+                    _ => {
+                        //
+                    }
+                }
+            }
+        });
+    }
 }
 ```
 
@@ -216,30 +333,31 @@ AutoAgents/
 
 ## 🛠️ Development
 
-### Prerequisites
+### Setup
 
-- Rust (latest stable recommended)
-- Cargo package manager
-- LeftHook (Git Hooks)
-- Cargo Tarpaulin (Coverage)
-
-### Building from Source
-
-```bash
-git clone https://github.com/liquidos-ai/AutoAgents.git
-cd AutoAgents
-cargo build --release
-```
+For development setup instructions, see the [Installation](#-installation) section above.
 
 ### Running Tests
 
 ```bash
+# Run all tests
 cargo test --all-features
+
+# Run tests with coverage (requires cargo-tarpaulin)
+cargo install cargo-tarpaulin
+cargo tarpaulin --all-features --out html
 ```
+
+### Git Hooks
+
+This project uses LeftHook for Git hooks management. The hooks will automatically:
+- Format code with `cargo fmt --check`
+- Run linting with `cargo clippy -- -D warnings`  
+- Execute tests with `cargo test --features full`
 
 ### Contributing
 
-We welcome contributions! Please see our [Code of Conduct](CODE_OF_CONDUCT.md) for details.
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) for details.
 
 ---
 

@@ -1,11 +1,23 @@
 pre-commit:
   parallel: true
-  jobs:
-    - name: fmt
+  commands:
+    fmt:
       run: cargo fmt -- --check
+      stage_fixed: true
 
-    - name: clippy
-      run: cargo clippy -- -D warnings
+    clippy:
+      run: cargo clippy --all-features --all-targets -- -D warnings
 
-    - name: test
-      run: cargo test --features full
+    test:
+      run: cargo test --all-features
+
+    check:
+      run: cargo check --all-features --all-targets
+
+pre-push:
+  commands:
+    test-full:
+      run: cargo test --all-features --release
+
+    doc:
+      run: cargo doc --all-features --no-deps

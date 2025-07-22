@@ -3,7 +3,7 @@ use autoagents_llm::error::LLMError;
 use crate::{
     agent::{AgentBuildError, AgentResultError, RunnableAgentError},
     environment::EnvironmentError,
-    session::SessionError,
+    runtime::RuntimeError,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -11,7 +11,7 @@ pub enum Error {
     #[error(transparent)]
     EnvironmentError(#[from] EnvironmentError),
     #[error(transparent)]
-    SessionError(#[from] SessionError),
+    RuntimeError(#[from] RuntimeError),
     #[error(transparent)]
     AgentBuildError(#[from] AgentBuildError),
     #[error(transparent)]
