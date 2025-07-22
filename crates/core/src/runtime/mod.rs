@@ -1,12 +1,11 @@
-use std::sync::Arc;
-
 use crate::agent::{RunnableAgent, RunnableAgentError};
 use crate::error::Error;
 use crate::protocol::{AgentID, Event, RuntimeID, SubmissionId};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::mpsc;
+use std::fmt::Debug;
+use std::sync::Arc;
 use tokio::sync::mpsc::error::SendError;
 use tokio::task::JoinError;
 use tokio_stream::wrappers::ReceiverStream;
@@ -59,20 +58,13 @@ impl Task {
     }
 }
 
-#[derive(Debug, Default)]
-struct State {
-    current_task: Option<Task>,
-    task_queue: Vec<Task>,
-}
-
 #[async_trait]
-pub trait Runtime: Send + Sync + 'static {
+pub trait Runtime: Send + Sync + 'static + Debug {
     fn id(&self) -> RuntimeID;
     async fn send_message(&self, message: String, agent_id: AgentID) -> Result<(), Error>;
     async fn publish_message(&self, message: String, topic: String) -> Result<(), Error>;
     async fn subscribe(&self, agent_id: AgentID, topic: String) -> Result<(), Error>;
     async fn register_agent(&self, agent: Arc<dyn RunnableAgent>) -> Result<(), Error>;
-    async fn event_sender(&self) -> mpsc::Sender<Event>;
     async fn take_event_receiver(&self) -> Option<ReceiverStream<Event>>;
     async fn run(&self) -> Result<(), Error>;
     async fn stop(&self) -> Result<(), Error>;

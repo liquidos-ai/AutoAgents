@@ -30,8 +30,6 @@ phind = []
 google = []
 groq = []
 azure_openai = []
-logging = ["dep:env_logger"]
-
 
 [dependencies]
 tokio = { workspace = true }
@@ -46,7 +44,6 @@ thiserror = { workspace = true }
 futures = { workspace = true }
 ureq = { workspace = true }
 log = { workspace = true }
-env_logger = { workspace = true, optional = true }
 chrono = { workspace = true }
 dirs = { workspace = true }
 regex = { workspace = true }

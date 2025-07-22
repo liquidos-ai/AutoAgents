@@ -4,10 +4,16 @@ use autoagents::core::agent::AgentBuilder;
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::memory::SlidingWindowMemory;
+use autoagents::core::protocol::{Event, TaskResult};
+use autoagents::core::runtime::{Runtime, SingleThreadedRuntime};
 use autoagents::llm::LLMProvider;
+use colored::*;
 use std::io::{self, Write};
 use std::sync::Arc;
 use termimad::MadSkin;
+use tokio_stream::{wrappers::ReceiverStream, StreamExt};
+
+const CODING_TASK_TOPIC: &str = "coding_task";
 
 pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     println!("🚀 Starting Interactive Coding Agent Session");
@@ -16,20 +22,28 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
     // Create memory with larger window for complex tasks
     let memory = Box::new(SlidingWindowMemory::new(30));
 
+    let runtime = SingleThreadedRuntime::new(None);
+
     // Create the coding agent
     let coding_agent = CodingAgent {};
 
     // Build the agent
-    let agent = AgentBuilder::new(coding_agent)
+    let _ = AgentBuilder::new(coding_agent)
         .with_llm(llm)
+        .runtime(runtime.clone())
+        .subscribe_topic(CODING_TASK_TOPIC)
         .with_memory(memory)
-        .build()?;
+        .build()
+        .await?;
 
     // Create environment
-    let mut environment = Environment::new(None).await;
+    let mut environment = Environment::new(None);
 
     // Register the agent
-    let agent_id = environment.register_agent(agent, None).await?;
+    let _ = environment.register_runtime(runtime.clone()).await?;
+
+    let receiver = environment.take_event_receiver(None).await;
+    handle_events(receiver);
 
     let stdin = io::stdin();
     let mut stdout = io::stdout();
@@ -48,6 +62,8 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
         if input.is_empty() {
             continue;
         }
+
+        environment.run();
 
         match input.to_lowercase().as_str() {
             "quit" | "exit" | "q" => {
@@ -68,29 +84,10 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
                 println!("\n🔄 Processing your request...\n");
 
                 // Add the task
-                let task_id = environment.add_task(agent_id, input).await?;
-
-                // Run the specific task
-                match environment.run_task(agent_id, task_id, None).await {
-                    Ok(result) => match result.output {
-                        Some(output_value) => {
-                            match serde_json::from_value::<ReActAgentOutput>(output_value) {
-                                Ok(output) => {
-                                    let skin = MadSkin::default();
-                                    println!("📝 Agent Response:\n");
-                                    skin.print_text(&output.response);
-                                }
-                                Err(err) => println!("❌ Failed to deserialize output: {}", err),
-                            }
-                        }
-                        None => {
-                            println!("❌ Task completed but returned no output.");
-                        }
-                    },
-                    Err(e) => {
-                        println!("\n❌ Task failed: {}", e);
-                    }
-                }
+                let _ = runtime
+                    .clone()
+                    .publish_message(input.into(), CODING_TASK_TOPIC.into())
+                    .await?;
             }
         }
     }
@@ -99,6 +96,92 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
     environment.shutdown().await;
 
     Ok(())
+}
+
+fn handle_events(event_stream: Option<ReceiverStream<Event>>) {
+    if let Some(mut event_stream) = event_stream {
+        tokio::spawn(async move {
+            while let Some(event) = event_stream.next().await {
+                match event {
+                    Event::TaskStarted {
+                        agent_id,
+                        task_description,
+                        ..
+                    } => {
+                        println!(
+                            "{}",
+                            format!(
+                                "📋 Task Started - Agent: {:?}, Task: {}",
+                                agent_id, task_description
+                            )
+                            .green()
+                        );
+                    }
+                    Event::ToolCallRequested {
+                        tool_name,
+                        arguments,
+                        ..
+                    } => {
+                        println!(
+                            "{}",
+                            format!("Tool Call Started: {} with args: {}", tool_name, arguments)
+                                .green()
+                        );
+                    }
+                    Event::ToolCallCompleted {
+                        tool_name, result, ..
+                    } => {
+                        println!(
+                            "{}",
+                            format!("Tool Call Completed: {} - Result: {:?}", tool_name, result)
+                                .green()
+                        );
+                    }
+                    Event::TaskComplete { result, .. } => {
+                        match result {
+                            TaskResult::Value(val) => {
+                                let agent_out: ReActAgentOutput =
+                                    serde_json::from_value(val).unwrap();
+                                // Run the specific task
+                                let skin = MadSkin::default();
+                                println!("📝 Agent Response:\n");
+                                skin.print_text(&agent_out.response);
+                            }
+                            _ => {
+                                //
+                            }
+                        }
+                    }
+                    Event::TurnStarted {
+                        turn_number,
+                        max_turns,
+                    } => {
+                        println!(
+                            "{}",
+                            format!("Turn {}/{} started", turn_number + 1, max_turns).green()
+                        );
+                    }
+                    Event::TurnCompleted {
+                        turn_number,
+                        final_turn,
+                    } => {
+                        println!(
+                            "{}",
+                            format!(
+                                "Turn {} completed{}",
+                                turn_number + 1,
+                                if final_turn { " (final)" } else { "" }
+                            )
+                            .green()
+                        );
+                    }
+                    _ => {
+                        println!("📡 Event: {:?}", event);
+                    }
+                }
+            }
+        });
+    }
 }
 
 fn print_help() {

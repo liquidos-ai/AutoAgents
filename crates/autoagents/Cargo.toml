@@ -20,14 +20,15 @@ phind = ["autoagents-core/phind", "autoagents-llm/phind"]
 google = ["autoagents-core/google", "autoagents-llm/google"]
 groq = ["autoagents-core/groq", "autoagents-llm/groq"]
 azure_openai = ["autoagents-core/azure_openai", "autoagents-llm/azure_openai"]
-logging = ["autoagents-core/logging", "autoagents-llm/logging"]
+logging = ["dep:env_logger"]
 
 [dependencies]
 autoagents-core.workspace = true
 autoagents-llm.workspace = true
 async-trait = { workspace = true }
+env_logger = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
-autoagents-test-utils = {path = "../test_utils"}
+autoagents-test-utils = { path = "../test_utils" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

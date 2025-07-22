@@ -1,12 +1,9 @@
-use crate::agent::AgentRunResult;
 use crate::error::Error;
 use crate::protocol::{Event, RuntimeID};
 use crate::runtime::manager::RuntimeManager;
 use crate::runtime::{Runtime, RuntimeError};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
-use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 
 #[derive(Debug, thiserror::Error)]
@@ -82,22 +79,11 @@ impl Environment {
             .ok_or_else(|| EnvironmentError::RuntimeNotFound(rid).into())
     }
 
-    pub async fn run(&mut self) -> Result<(), Error> {
-        println!("Evn running");
+    pub fn run(&mut self) {
         let manager = self.runtime_manager.clone();
-
         // Spawn background task to run the runtimes.
         let handle = tokio::spawn(async move { manager.run().await });
         self.handle = Some(handle);
-        Ok(())
-    }
-
-    pub async fn event_sender(
-        &self,
-        runtime_id: Option<RuntimeID>,
-    ) -> Result<mpsc::Sender<Event>, Error> {
-        let runtime = self.get_runtime_or_default(runtime_id).await?;
-        Ok(runtime.event_sender().await)
     }
 
     pub async fn take_event_receiver(

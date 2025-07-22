@@ -1,12 +1,13 @@
 use super::{
     error::AgentBuildError, output::AgentOutputT, AgentExecutor, IntoRunnable, RunnableAgent,
 };
-use crate::{error::Error, memory::MemoryProvider, runtime::Runtime};
+use crate::{error::Error, memory::MemoryProvider, protocol::AgentID, runtime::Runtime};
 use async_trait::async_trait;
 use autoagents_llm::{chat::StructuredOutputFormat, LLMProvider, ToolT};
 use serde_json::Value;
 use std::{fmt::Debug, sync::Arc};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
+use uuid::Uuid;
 
 /// Core trait that defines agent metadata and behavior
 /// This trait is implemented via the #[agent] macro
@@ -32,6 +33,8 @@ pub struct AgentConfig {
     pub name: String,
     /// The agent's description
     pub description: String,
+    /// The Agent ID
+    pub id: AgentID,
     /// The output schema for the agent
     pub output_schema: Option<StructuredOutputFormat>,
 }
@@ -43,13 +46,15 @@ pub struct BaseAgent<T: AgentDeriveT> {
     pub inner: Arc<T>,
     /// LLM provider for this agent
     pub llm: Arc<dyn LLMProvider>,
+    // Agent ID
+    pub id: AgentID,
     /// Optional memory provider
     pub memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
 }
 
 impl<T: AgentDeriveT> Debug for BaseAgent<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("{}", self.inner().name()))
+        f.write_str(self.inner().name())
     }
 }
 
@@ -63,6 +68,7 @@ impl<T: AgentDeriveT> BaseAgent<T> {
         // Convert tools to Arc for efficient sharing
         Self {
             inner: Arc::new(inner),
+            id: Uuid::new_v4(),
             llm,
             memory: memory.map(|m| Arc::new(RwLock::new(m))),
         }
@@ -93,6 +99,7 @@ impl<T: AgentDeriveT> BaseAgent<T> {
         AgentConfig {
             name: self.name().into(),
             description: self.description().into(),
+            id: self.id,
             output_schema: structured_schema,
         }
     }
@@ -127,11 +134,6 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
             runtime: None,
             subscribed_topics: vec![],
         }
-    }
-
-    /// Create a builder from an existing agent (for compatibility)
-    pub fn from_agent(inner: T) -> Self {
-        Self::new(inner)
     }
 
     /// Set the LLM provider
@@ -258,6 +260,7 @@ mod tests {
     fn test_agent_config_creation() {
         let config = AgentConfig {
             name: "test_agent".to_string(),
+            id: Uuid::new_v4(),
             description: "A test agent".to_string(),
             output_schema: None,
         };
@@ -278,6 +281,7 @@ mod tests {
 
         let config = AgentConfig {
             name: "test_agent".to_string(),
+            id: Uuid::new_v4(),
             description: "A test agent".to_string(),
             output_schema: Some(schema.clone()),
         };

@@ -20,10 +20,6 @@ pub enum TurnResult<T> {
     Continue(Option<T>),
     /// Final result obtained
     Complete(T),
-    /// Error occurred but can continue
-    Error(String),
-    /// Fatal error, must stop
-    Fatal(Box<dyn Error + Send + Sync>),
 }
 
 /// Configuration for executors
@@ -84,6 +80,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use std::sync::Arc;
     use tokio::sync::{mpsc, RwLock};
+    use uuid::Uuid;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct TestOutput {
@@ -277,28 +274,6 @@ mod tests {
     }
 
     #[test]
-    fn test_turn_result_error() {
-        let result = TurnResult::<String>::Error("error message".to_string());
-        match result {
-            TurnResult::Error(msg) => assert_eq!(msg, "error message"),
-            _ => panic!("Expected Error variant"),
-        }
-    }
-
-    #[test]
-    fn test_turn_result_fatal() {
-        let error = Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Fatal error",
-        ));
-        let result = TurnResult::<String>::Fatal(error);
-        match result {
-            TurnResult::Fatal(err) => assert_eq!(err.to_string(), "Fatal error"),
-            _ => panic!("Expected Fatal variant"),
-        }
-    }
-
-    #[test]
     fn test_turn_result_debug() {
         let result = TurnResult::Complete("test".to_string());
         let debug_str = format!("{:?}", result);
@@ -313,6 +288,7 @@ mod tests {
         let tools = vec![];
         let agent_config = AgentConfig {
             name: "test".to_string(),
+            id: Uuid::new_v4(),
             description: "test agent".to_string(),
             output_schema: None,
         };
@@ -336,6 +312,7 @@ mod tests {
         let tools = vec![];
         let agent_config = AgentConfig {
             name: "test".to_string(),
+            id: Uuid::new_v4(),
             description: "test agent".to_string(),
             output_schema: None,
         };

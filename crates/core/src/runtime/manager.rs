@@ -2,7 +2,7 @@ use super::{Runtime, RuntimeError};
 use crate::protocol::RuntimeID;
 use futures::future::try_join_all;
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 
 #[derive(Default)]
 pub struct RuntimeManager {
@@ -39,7 +39,6 @@ impl RuntimeManager {
 
     pub async fn stop(&self) -> Result<(), RuntimeError> {
         let runtimes = self.runtimes.read().await;
-
         // Call `stop()` on all runtimes
         let tasks = runtimes
             .values()
@@ -49,7 +48,6 @@ impl RuntimeManager {
 
         // Wait for all to finish and propagate first error if any
         let _ = try_join_all(tasks).await.map_err(RuntimeError::from)?;
-
         Ok(())
     }
 }
