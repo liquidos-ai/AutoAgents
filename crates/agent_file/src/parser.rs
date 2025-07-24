@@ -18,6 +18,20 @@ pub fn from_str(s: &str) -> Result<AgentFile, AgentFileError> {
     Ok(agent_file)
 }
 
+/// Serializes an `AgentFile` struct into a JSON string.
+///
+/// # Arguments
+///
+/// * `agent_file` - A reference to the `AgentFile` to serialize.
+///
+/// # Returns
+///
+/// A `Result` containing the pretty-printed JSON string or a serialization error.
+pub fn to_string(agent_file: &AgentFile) -> Result<String, AgentFileError> {
+    let json_string = serde_json::to_string_pretty(agent_file)?;
+    Ok(json_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

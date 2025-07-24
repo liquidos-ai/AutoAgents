@@ -1,13 +1,17 @@
 //! An example of parsing an .af file using the agent_file crate.
 
 use agent_file::parser::from_str;
+use std::env;
 use std::fs;
 use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Define the path to the example agent file, relative to the crate's root.
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let agent_file_path = manifest_dir.join("examples").join("deep_research_agent.af");
+    // Get the file path from the command-line arguments.
+    let file_path_arg = env::args().nth(1).ok_or("Please provide a path to an agent file.")?;
+
+    // The path might be relative, so we resolve it against the manifest directory
+    // to handle calls like `cargo run --example parse_agent -- examples/my_agent.af`
+    let agent_file_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(file_path_arg);
 
     println!("Attempting to parse file: {:?}", agent_file_path);
 

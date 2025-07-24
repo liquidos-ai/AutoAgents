@@ -1,12 +1,12 @@
 //! Defines the Rust data structures that correspond to the .af (Agent File) format schema.
 //! These structs are designed for deserialization from JSON using the `serde` framework.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
 /// The main struct representing a deserialized .af file.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct AgentFile {
     pub agent_type: String,
@@ -32,7 +32,7 @@ pub struct AgentFile {
 }
 
 /// Represents a block of core memory for the agent, such as persona or user info.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct CoreMemoryBlock {
     pub created_at: String,
@@ -48,7 +48,7 @@ pub struct CoreMemoryBlock {
 }
 
 /// Represents a single message in the agent's conversation history.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Message {
     pub created_at: String,
@@ -64,7 +64,7 @@ pub struct Message {
 }
 
 /// Represents the content of a message, which can be text or other types.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MessageContent {
     Text { text: String },
@@ -72,14 +72,14 @@ pub enum MessageContent {
 }
 
 /// Represents a tag associated with the agent.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Tag {
     pub tag: String,
 }
 
 /// Represents an environment variable for tool execution.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ToolEnvVar {
     pub created_at: String,
@@ -90,7 +90,7 @@ pub struct ToolEnvVar {
 }
 
 /// Represents a rule governing tool execution behavior.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ToolRule {
     ContinueLoop,
@@ -127,7 +127,7 @@ pub enum ToolRule {
 }
 
 /// Represents a tool that the agent can use.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Tool {
     pub args_json_schema: Option<Value>,
@@ -146,7 +146,7 @@ pub struct Tool {
 }
 
 /// The JSON schema definition for a tool's parameters.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ToolJsonSchema {
     pub name: String,
@@ -158,7 +158,7 @@ pub struct ToolJsonSchema {
 }
 
 /// The parameters of a tool's JSON schema.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Parameters {
     #[serde(rename = "type")]
@@ -169,7 +169,7 @@ pub struct Parameters {
 }
 
 /// The properties of a single parameter in a tool's schema.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ParameterProperties {
     #[serde(rename = "type")]
@@ -178,7 +178,7 @@ pub struct ParameterProperties {
 }
 
 /// Configuration for the embedding model.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct EmbeddingConfig {
     pub embedding_endpoint_type: String,
@@ -193,7 +193,7 @@ pub struct EmbeddingConfig {
 }
 
 /// Configuration for the language model.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct LlmConfig {
     pub model: String,
