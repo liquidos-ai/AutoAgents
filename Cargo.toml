@@ -12,6 +12,7 @@ members = [
     "crates/llm",
     "crates/derive",
     "crates/test_utils",
+    "crates/agent_file",
 ]
 
 resolver = "2"
