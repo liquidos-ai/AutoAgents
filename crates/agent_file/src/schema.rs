@@ -127,7 +127,7 @@ pub enum ToolRule {
 }
 
 /// Represents a tool that the agent can use.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct Tool {
     pub args_json_schema: Option<Value>,
@@ -146,19 +146,16 @@ pub struct Tool {
 }
 
 /// The JSON schema definition for a tool's parameters.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct ToolJsonSchema {
     pub name: String,
     pub description: String,
     pub parameters: Parameters,
-    #[serde(rename = "type")]
-    pub schema_type: Option<String>,
-    pub required: Option<Vec<String>>,
 }
 
 /// The parameters of a tool's JSON schema.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct Parameters {
     #[serde(rename = "type")]
@@ -169,7 +166,7 @@ pub struct Parameters {
 }
 
 /// The properties of a single parameter in a tool's schema.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct ParameterProperties {
     #[serde(rename = "type")]
@@ -178,7 +175,7 @@ pub struct ParameterProperties {
 }
 
 /// Configuration for the embedding model.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct EmbeddingConfig {
     pub embedding_endpoint_type: String,
@@ -193,7 +190,7 @@ pub struct EmbeddingConfig {
 }
 
 /// Configuration for the language model.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct LlmConfig {
     pub model: String,
