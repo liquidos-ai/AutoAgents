@@ -63,8 +63,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_tool(Tool {
             name: "add_numbers".to_string(),
             description: "Add two numbers together".to_string(),
-            source_type: "python".to_string(),
-            source_code: Some("def add_numbers(left: int, right: int) -> int:\n    return left + right".to_string()),
+            source_type: "rust".to_string(),
+            source_code: Some("pub fn add_numbers(left: i32, right: i32) -> i32 {\n    left + right\n}".to_string()),
             tool_type: "function".to_string(),
             json_schema: ToolJsonSchema {
                 name: "add_numbers".to_string(),

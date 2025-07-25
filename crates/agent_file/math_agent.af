@@ -2,29 +2,29 @@
   "agent_type": "math_agent",
   "core_memory": [
     {
-      "created_at": "2025-07-25T15:30:07.892698034+00:00",
+      "created_at": "2025-07-25T16:21:40.967185155+00:00",
       "description": null,
       "is_template": false,
       "label": "persona",
       "limit": 5000,
       "metadata_": null,
       "template_name": null,
-      "updated_at": "2025-07-25T15:30:07.892700922+00:00",
+      "updated_at": "2025-07-25T16:21:40.967187230+00:00",
       "value": "You are a helpful math assistant that can perform addition."
     },
     {
-      "created_at": "2025-07-25T15:30:07.892708486+00:00",
+      "created_at": "2025-07-25T16:21:40.967191518+00:00",
       "description": null,
       "is_template": false,
       "label": "human",
       "limit": 5000,
       "metadata_": null,
       "template_name": null,
-      "updated_at": "2025-07-25T15:30:07.892709516+00:00",
+      "updated_at": "2025-07-25T16:21:40.967192381+00:00",
       "value": "User information will be stored here."
     }
   ],
-  "created_at": "2025-07-25T15:30:07.892567876+00:00",
+  "created_at": "2025-07-25T16:21:40.967115841+00:00",
   "description": "A simple math agent that can perform addition",
   "embedding_config": {
     "azure_deployment": null,
@@ -65,7 +65,7 @@
   "tools": [
     {
       "args_json_schema": null,
-      "created_at": "2025-07-25T15:30:07.892725922+00:00",
+      "created_at": "2025-07-25T16:21:40.967209210+00:00",
       "description": "Add two numbers together",
       "json_schema": {
         "name": "add_numbers",
@@ -73,13 +73,13 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "right": {
-              "type": "integer",
-              "description": "Right operand"
-            },
             "left": {
               "type": "integer",
               "description": "Left operand"
+            },
+            "right": {
+              "type": "integer",
+              "description": "Right operand"
             }
           },
           "required": [
@@ -94,16 +94,16 @@
       },
       "name": "add_numbers",
       "return_char_limit": 1000,
-      "source_code": "def add_numbers(left: int, right: int) -> int:\n    return left + right",
-      "source_type": "python",
+      "source_code": "pub fn add_numbers(left: i32, right: i32) -> i32 {\n    left + right\n}",
+      "source_type": "rust",
       "tags": [
         "math"
       ],
       "tool_type": "function",
-      "updated_at": "2025-07-25T15:30:07.892726846+00:00",
+      "updated_at": "2025-07-25T16:21:40.967210039+00:00",
       "metadata_": null
     }
   ],
-  "updated_at": "2025-07-25T15:30:07.892760433+00:00",
+  "updated_at": "2025-07-25T16:21:40.967240161+00:00",
   "version": "0.1.0"
 }
