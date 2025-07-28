@@ -4,6 +4,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_build::configure()
         .build_server(true)
         .build_client(true)
-        .compile_protos(&["proto/agent_runtime.proto"], &["proto/"])?;
+        .compile_protos(
+            &["./src/runtime/grpc/proto/agent_runtime.proto"],
+            &["proto/"],
+        )?;
     Ok(())
 }

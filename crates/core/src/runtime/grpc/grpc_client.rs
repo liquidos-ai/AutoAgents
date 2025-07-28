@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::{
     error::Error,
     protocol::{AgentID, Event, TaskResult},

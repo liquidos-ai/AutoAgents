@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::{
     agent::RunnableAgent,
     error::Error,

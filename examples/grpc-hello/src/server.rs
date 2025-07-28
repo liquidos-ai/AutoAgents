@@ -8,7 +8,7 @@ use autoagents::{
         error::Error,
         memory::{MemoryProvider, SlidingWindowMemory},
         protocol::{Event, TaskResult},
-        runtime::{GrpcRuntime, GrpcRuntimeConfig, Runtime, Task},
+        runtime::{GrpcRuntime, GrpcRuntimeConfig, Task},
     },
     init_logging,
     llm::{
@@ -53,7 +53,7 @@ impl AgentExecutor for GreeterAgent {
         _tx_event: mpsc::Sender<Event>,
     ) -> Result<Self::Output, Self::Error> {
         // Prepare messages for the LLM
-        let mut messages = vec![
+        let messages = vec![
             ChatMessage {
                 role: ChatRole::System,
                 message_type: MessageType::Text,
@@ -170,7 +170,7 @@ fn handle_events(event_stream: Option<ReceiverStream<Event>>) {
                     }
                     Event::TaskStarted {
                         agent_id,
-                        task_description,
+                        task_description: _,
                         ..
                     } => {
                         println!(
