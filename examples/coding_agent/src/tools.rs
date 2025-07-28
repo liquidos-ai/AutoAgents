@@ -1,8 +1,7 @@
-use autoagents::core::tool::{ToolCallError, ToolInputT, ToolT};
+use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents_derive::{tool, ToolInput};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::fs;
 use std::path::Path;
 use walkdir::WalkDir;
@@ -20,42 +19,43 @@ pub struct FileSearchArgs {
     description = "Search for files matching a glob pattern in the project",
     input = FileSearchArgs,
 )]
-pub fn search_files(args: FileSearchArgs) -> Result<String, ToolCallError> {
-    println!("🔍 Searching for files matching: {}", args.pattern);
+pub struct FileSearchTool {}
 
-    let base_path = Path::new(&args.base_dir);
-    if !base_path.exists() {
-        return Err(ToolCallError::RuntimeError(
-            format!("Directory {} does not exist", args.base_dir).into(),
-        ));
-    }
+impl ToolRuntime for FileSearchTool {
+    fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+        let args: FileSearchArgs = serde_json::from_value(args)?;
+        println!("🔍 Searching for files matching: {}", args.pattern);
 
-    let mut matches = Vec::new();
-    let pattern = glob::Pattern::new(&args.pattern)
-        .map_err(|e| ToolCallError::RuntimeError(format!("Invalid pattern: {}", e).into()))?;
+        let base_path = Path::new(&args.base_dir);
+        if !base_path.exists() {
+            return Err(ToolCallError::RuntimeError(
+                format!("Directory {} does not exist", args.base_dir).into(),
+            ));
+        }
 
-    for entry in WalkDir::new(&args.base_dir)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        if path.is_file() {
-            let relative_path = path.strip_prefix(&args.base_dir).unwrap_or(path);
-            if pattern.matches_path(relative_path) {
-                matches.push(relative_path.display().to_string());
+        let mut matches = Vec::new();
+        let pattern = glob::Pattern::new(&args.pattern)
+            .map_err(|e| ToolCallError::RuntimeError(format!("Invalid pattern: {}", e).into()))?;
+
+        for entry in WalkDir::new(&args.base_dir)
+            .follow_links(true)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if path.is_file() {
+                let relative_path = path.strip_prefix(&args.base_dir).unwrap_or(path);
+                if pattern.matches_path(relative_path) {
+                    matches.push(relative_path.display().to_string());
+                }
             }
         }
-    }
 
-    if matches.is_empty() {
-        Ok("No files found matching the pattern.".to_string())
-    } else {
-        Ok(format!(
-            "Found {} files:\n{}",
-            matches.len(),
-            matches.join("\n")
-        ))
+        if matches.is_empty() {
+            Ok("No files found matching the pattern.".to_string().into())
+        } else {
+            Ok(format!("Found {} files:\n{}", matches.len(), matches.join("\n")).into())
+        }
     }
 }
 
@@ -74,66 +74,73 @@ pub struct GrepArgs {
     description = "Search for content in files using regex patterns",
     input = GrepArgs,
 )]
-pub fn grep_files(args: GrepArgs) -> Result<String, ToolCallError> {
-    println!("🔎 Grepping for: {} in {}", args.pattern, args.file_pattern);
+pub struct GrepTool {}
 
-    let regex = Regex::new(&args.pattern)
-        .map_err(|e| ToolCallError::RuntimeError(format!("Invalid regex: {}", e).into()))?;
+impl ToolRuntime for GrepTool {
+    fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+        let args: GrepArgs = serde_json::from_value(args)?;
+        println!("🔎 Grepping for: {} in {}", args.pattern, args.file_pattern);
 
-    let base_path = Path::new(&args.base_dir);
-    if !base_path.exists() {
-        return Err(ToolCallError::RuntimeError(
-            format!("Directory {} does not exist", args.base_dir).into(),
-        ));
-    }
+        let regex = Regex::new(&args.pattern)
+            .map_err(|e| ToolCallError::RuntimeError(format!("Invalid regex: {}", e).into()))?;
 
-    let file_pattern = glob::Pattern::new(&args.file_pattern)
-        .map_err(|e| ToolCallError::RuntimeError(format!("Invalid file pattern: {}", e).into()))?;
-
-    let mut results = Vec::new();
-    let max_results = 50;
-
-    for entry in WalkDir::new(&args.base_dir)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        if results.len() >= max_results {
-            break;
+        let base_path = Path::new(&args.base_dir);
+        if !base_path.exists() {
+            return Err(ToolCallError::RuntimeError(
+                format!("Directory {} does not exist", args.base_dir).into(),
+            ));
         }
 
-        let path = entry.path();
-        if path.is_file() {
-            let relative_path = path.strip_prefix(&args.base_dir).unwrap_or(path);
-            if file_pattern.matches_path(relative_path) {
-                if let Ok(content) = fs::read_to_string(path) {
-                    for (line_num, line) in content.lines().enumerate() {
-                        if regex.is_match(line) {
-                            results.push(format!(
-                                "{}:{}: {}",
-                                relative_path.display(),
-                                line_num + 1,
-                                line.trim()
-                            ));
-                            if results.len() >= max_results {
-                                break;
+        let file_pattern = glob::Pattern::new(&args.file_pattern).map_err(|e| {
+            ToolCallError::RuntimeError(format!("Invalid file pattern: {}", e).into())
+        })?;
+
+        let mut results = Vec::new();
+        let max_results = 50;
+
+        for entry in WalkDir::new(&args.base_dir)
+            .follow_links(true)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            if results.len() >= max_results {
+                break;
+            }
+
+            let path = entry.path();
+            if path.is_file() {
+                let relative_path = path.strip_prefix(&args.base_dir).unwrap_or(path);
+                if file_pattern.matches_path(relative_path) {
+                    if let Ok(content) = fs::read_to_string(path) {
+                        for (line_num, line) in content.lines().enumerate() {
+                            if regex.is_match(line) {
+                                results.push(format!(
+                                    "{}:{}: {}",
+                                    relative_path.display(),
+                                    line_num + 1,
+                                    line.trim()
+                                ));
+                                if results.len() >= max_results {
+                                    break;
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
 
-    if results.is_empty() {
-        Ok("No matches found.".to_string())
-    } else {
-        Ok(format!(
-            "Found {} matches (showing up to {}):\n{}",
-            results.len(),
-            max_results,
-            results.join("\n")
-        ))
+        if results.is_empty() {
+            Ok("No matches found.".to_string().into())
+        } else {
+            Ok(format!(
+                "Found {} matches (showing up to {}):\n{}",
+                results.len(),
+                max_results,
+                results.join("\n")
+            )
+            .into())
+        }
     }
 }
 
@@ -148,20 +155,25 @@ pub struct ReadFileArgs {
     description = "Read contents of a file, optionally specifying line range",
     input = ReadFileArgs,
 )]
-pub fn read_file(args: ReadFileArgs) -> Result<String, ToolCallError> {
-    println!("📖 Reading file: {}", args.file_path);
+pub struct ReadFileTool {}
 
-    let path = Path::new(&args.file_path);
-    if !path.exists() {
-        return Err(ToolCallError::RuntimeError(
-            format!("File {} does not exist", args.file_path).into(),
-        ));
+impl ToolRuntime for ReadFileTool {
+    fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+        let args: ReadFileArgs = serde_json::from_value(args)?;
+        println!("📖 Reading file: {}", args.file_path);
+        let path = Path::new(&args.file_path);
+        if !path.exists() {
+            return Err(ToolCallError::RuntimeError(
+                format!("File {} does not exist", args.file_path).into(),
+            ));
+        }
+
+        let content = fs::read_to_string(path).map_err(|e| {
+            ToolCallError::RuntimeError(format!("Failed to read file: {}", e).into())
+        })?;
+
+        Ok(format!("File: {}\n{}", args.file_path, content).into())
     }
-
-    let content = fs::read_to_string(path)
-        .map_err(|e| ToolCallError::RuntimeError(format!("Failed to read file: {}", e).into()))?;
-
-    Ok(format!("File: {}\n{}", args.file_path, content))
 }
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
@@ -177,26 +189,33 @@ pub struct WriteFileArgs {
     description = "Write content to a file (create or overwrite)",
     input = WriteFileArgs,
 )]
-pub fn write_file(args: WriteFileArgs) -> Result<String, ToolCallError> {
-    println!("✍️  Writing to file: {}", args.file_path);
+pub struct WriteFileTool {}
 
-    let path = Path::new(&args.file_path);
+impl ToolRuntime for WriteFileTool {
+    fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+        let args: WriteFileArgs = serde_json::from_value(args)?;
+        println!("✍️  Writing to file: {}", args.file_path);
 
-    // Create parent directories if they don't exist
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| {
-            ToolCallError::RuntimeError(format!("Failed to create directories: {}", e).into())
+        let path = Path::new(&args.file_path);
+
+        // Create parent directories if they don't exist
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| {
+                ToolCallError::RuntimeError(format!("Failed to create directories: {}", e).into())
+            })?;
+        }
+
+        fs::write(path, &args.content).map_err(|e| {
+            ToolCallError::RuntimeError(format!("Failed to write file: {}", e).into())
         })?;
+
+        Ok(format!(
+            "Successfully wrote file: {} ({} bytes)",
+            args.file_path,
+            args.content.len()
+        )
+        .into())
     }
-
-    fs::write(path, &args.content)
-        .map_err(|e| ToolCallError::RuntimeError(format!("Failed to write file: {}", e).into()))?;
-
-    Ok(format!(
-        "Successfully wrote file: {} ({} bytes)",
-        args.file_path,
-        args.content.len()
-    ))
 }
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
@@ -210,20 +229,26 @@ pub struct DeleteFileArgs {
     description = "Delete a file from the filesystem",
     input = DeleteFileArgs,
 )]
-pub fn delete_file(args: DeleteFileArgs) -> Result<String, ToolCallError> {
-    println!("🗑️  Deleting file: {}", args.file_path);
+pub struct DeleteFileTool {}
 
-    let path = Path::new(&args.file_path);
-    if !path.exists() {
-        return Err(ToolCallError::RuntimeError(
-            format!("File {} does not exist", args.file_path).into(),
-        ));
+impl ToolRuntime for DeleteFileTool {
+    fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+        let args: DeleteFileArgs = serde_json::from_value(args)?;
+        println!("🗑️  Deleting file: {}", args.file_path);
+
+        let path = Path::new(&args.file_path);
+        if !path.exists() {
+            return Err(ToolCallError::RuntimeError(
+                format!("File {} does not exist", args.file_path).into(),
+            ));
+        }
+
+        fs::remove_file(path).map_err(|e| {
+            ToolCallError::RuntimeError(format!("Failed to delete file: {}", e).into())
+        })?;
+
+        Ok(format!("Successfully deleted file: {}", args.file_path).into())
     }
-
-    fs::remove_file(path)
-        .map_err(|e| ToolCallError::RuntimeError(format!("Failed to delete file: {}", e).into()))?;
-
-    Ok(format!("Successfully deleted file: {}", args.file_path))
 }
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
@@ -237,56 +262,62 @@ pub struct ListDirectoryArgs {
     description = "List contents of a directory",
     input = ListDirectoryArgs,
 )]
-pub fn list_directory(args: ListDirectoryArgs) -> Result<String, ToolCallError> {
-    println!("📁 Listing directory: {}", args.dir_path);
+pub struct ListDirectoryTool {}
 
-    let path = Path::new(&args.dir_path);
-    if !path.exists() {
-        return Err(ToolCallError::RuntimeError(
-            format!("Directory {} does not exist", args.dir_path).into(),
-        ));
-    }
+impl ToolRuntime for ListDirectoryTool {
+    fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+        let args: ListDirectoryArgs = serde_json::from_value(args)?;
+        println!("📁 Listing directory: {}", args.dir_path);
 
-    if !path.is_dir() {
-        return Err(ToolCallError::RuntimeError(
-            format!("{} is not a directory", args.dir_path).into(),
-        ));
-    }
-
-    let mut entries = Vec::new();
-
-    for entry in fs::read_dir(path).map_err(|e| {
-        ToolCallError::RuntimeError(format!("Failed to read directory: {}", e).into())
-    })? {
-        if let Ok(entry) = entry {
-            let file_name = entry.file_name().to_string_lossy().to_string();
-
-            if file_name.starts_with('.') {
-                continue;
-            }
-
-            let metadata = entry.metadata().ok();
-            let file_type = if metadata.as_ref().map_or(false, |m| m.is_dir()) {
-                "[DIR]"
-            } else {
-                "[FILE]"
-            };
-
-            entries.push(format!("{} {}", file_type, file_name));
+        let path = Path::new(&args.dir_path);
+        if !path.exists() {
+            return Err(ToolCallError::RuntimeError(
+                format!("Directory {} does not exist", args.dir_path).into(),
+            ));
         }
-    }
 
-    entries.sort();
+        if !path.is_dir() {
+            return Err(ToolCallError::RuntimeError(
+                format!("{} is not a directory", args.dir_path).into(),
+            ));
+        }
 
-    if entries.is_empty() {
-        Ok("Directory is empty.".to_string())
-    } else {
-        Ok(format!(
-            "Directory {} contains {} items:\n{}",
-            args.dir_path,
-            entries.len(),
-            entries.join("\n")
-        ))
+        let mut entries = Vec::new();
+
+        for entry in fs::read_dir(path).map_err(|e| {
+            ToolCallError::RuntimeError(format!("Failed to read directory: {}", e).into())
+        })? {
+            if let Ok(entry) = entry {
+                let file_name = entry.file_name().to_string_lossy().to_string();
+
+                if file_name.starts_with('.') {
+                    continue;
+                }
+
+                let metadata = entry.metadata().ok();
+                let file_type = if metadata.as_ref().map_or(false, |m| m.is_dir()) {
+                    "[DIR]"
+                } else {
+                    "[FILE]"
+                };
+
+                entries.push(format!("{} {}", file_type, file_name));
+            }
+        }
+
+        entries.sort();
+
+        if entries.is_empty() {
+            Ok("Directory is empty.".to_string().into())
+        } else {
+            Ok(format!(
+                "Directory {} contains {} items:\n{}",
+                args.dir_path,
+                entries.len(),
+                entries.join("\n")
+            )
+            .into())
+        }
     }
 }
 
@@ -303,23 +334,28 @@ pub struct AnalyzeCodeArgs {
     description = "Analyze code structure, complexity, or dependencies",
     input = AnalyzeCodeArgs,
 )]
-pub fn analyze_code(args: AnalyzeCodeArgs) -> Result<String, ToolCallError> {
-    println!("🔬 Analyzing code: {} ({})", args.path, args.analysis_type);
+pub struct AnalyzeCodeTool {}
 
-    let path = Path::new(&args.path);
-    if !path.exists() {
-        return Err(ToolCallError::RuntimeError(
-            format!("Path {} does not exist", args.path).into(),
-        ));
-    }
+impl ToolRuntime for AnalyzeCodeTool {
+    fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+        let args: AnalyzeCodeArgs = serde_json::from_value(args)?;
+        println!("🔬 Analyzing code: {} ({})", args.path, args.analysis_type);
 
-    match args.analysis_type.as_str() {
-        "structure" => analyze_structure(path),
-        "complexity" => analyze_complexity(path),
-        "dependencies" => analyze_dependencies(path),
-        _ => Err(ToolCallError::RuntimeError(
-            "Invalid analysis type. Choose 'structure', 'complexity', or 'dependencies'".into(),
-        )),
+        let path = Path::new(&args.path);
+        if !path.exists() {
+            return Err(ToolCallError::RuntimeError(
+                format!("Path {} does not exist", args.path).into(),
+            ));
+        }
+
+        match args.analysis_type.as_str() {
+            "structure" => Ok(analyze_structure(path)?.into()),
+            "complexity" => Ok(analyze_complexity(path)?.into()),
+            "dependencies" => Ok(analyze_dependencies(path)?.into()),
+            _ => Err(ToolCallError::RuntimeError(
+                "Invalid analysis type. Choose 'structure', 'complexity', or 'dependencies'".into(),
+            )),
+        }
     }
 }
 

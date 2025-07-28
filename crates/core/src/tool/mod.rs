@@ -2,6 +2,11 @@ use autoagents_llm::chat::{FunctionTool, Tool};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Debug;
+mod runtime;
+pub use runtime::ToolRuntime;
+
+#[cfg(feature = "wasm")]
+pub use runtime::{WasmRuntime, WasmRuntimeError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCallResult {
@@ -20,7 +25,7 @@ pub enum ToolCallError {
     SerdeError(#[from] serde_json::Error),
 }
 
-pub trait ToolT: Send + Sync + Debug {
+pub trait ToolT: Send + Sync + Debug + ToolRuntime {
     /// The name of the tool.
     fn name(&self) -> &'static str;
     /// A description explaining the tool’s purpose.
@@ -28,7 +33,9 @@ pub trait ToolT: Send + Sync + Debug {
     /// Return a description of the expected arguments.
     fn args_schema(&self) -> Value;
     /// Run the tool with the given arguments (in JSON) and return the result (in JSON).
-    fn run(&self, args: Value) -> Result<Value, ToolCallError>;
+    fn run(&self, args: Value) -> Result<Value, ToolCallError> {
+        self.execute(args)
+    }
 }
 
 pub trait ToolInputT {
@@ -111,8 +118,10 @@ mod tests {
                 "required": ["name", "value"]
             })
         }
+    }
 
-        fn run(&self, args: Value) -> Result<Value, ToolCallError> {
+    impl ToolRuntime for MockTool {
+        fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
             if self.should_fail {
                 return Err(ToolCallError::RuntimeError(
                     "Mock tool failure".to_string().into(),

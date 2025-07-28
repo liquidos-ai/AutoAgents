@@ -5,7 +5,7 @@ use autoagents::core::error::Error;
 use autoagents::core::memory::SlidingWindowMemory;
 use autoagents::core::protocol::{Event, TaskResult};
 use autoagents::core::runtime::{Runtime, SingleThreadedRuntime};
-use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
+use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT, WasmRuntime};
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
 use colored::*;
@@ -31,9 +31,24 @@ struct Addition {}
 
 impl ToolRuntime for Addition {
     fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        let typed_args: AdditionArgs = serde_json::from_value(args)?;
-        let result = typed_args.left + typed_args.right;
-        Ok(result.into())
+        let runtime = WasmRuntime::builder()
+            .source_file("./examples/wasm_tool/wasm/wasm_tool.wasm")
+            .alloc_fn("alloc")
+            .execute_fn("execute")
+            .free_fn(Some("free".to_string()))
+            .build()
+            .unwrap();
+        // Execute and get result
+        match runtime.run(args) {
+            Ok(result) => {
+                println!("✅ Output from WASM: {}", result);
+                return Ok(result.into());
+            }
+            Err(e) => {
+                println!("Error running WASM: {}", e);
+                Err(ToolCallError::RuntimeError(e.into()))
+            }
+        }
     }
 }
 
@@ -56,7 +71,7 @@ pub struct MathAgent {}
 
 impl ReActExecutor for MathAgent {}
 
-pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
+pub async fn wasm_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
     let agent = MathAgent {};

@@ -5,7 +5,7 @@ pub(crate) mod json;
 use attr::ToolAttributes;
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Ident, ItemFn};
+use syn::parse_macro_input;
 
 #[derive(Debug, Default)]
 pub(crate) struct ToolParser {}
@@ -13,46 +13,42 @@ pub(crate) struct ToolParser {}
 impl ToolParser {
     pub fn parse(&self, attr: TokenStream, item: TokenStream) -> TokenStream {
         let tool_attrs = parse_macro_input!(attr as ToolAttributes);
-        let input_fn = parse_macro_input!(item as ItemFn);
-        let fn_name = &input_fn.sig.ident;
+        // Parse the struct, not a function
+        let input_struct = parse_macro_input!(item as syn::ItemStruct);
+
+        let struct_name = &input_struct.ident;
         let tool_name_literal = tool_attrs.name.clone();
         let tool_description = tool_attrs.description;
         let args_type = tool_attrs.input;
-        let tool_struct_ident = Ident::new(&tool_attrs.name.value(), fn_name.span());
 
         let expanded = quote! {
-            #input_fn
+            #input_struct
 
-            pub struct #tool_struct_ident;
-
-            impl ToolT for #tool_struct_ident {
+            impl ToolT for #struct_name {
                 fn name(&self) -> &'static str {
                     #tool_name_literal
                 }
                 fn description(&self) -> &'static str {
                     #tool_description
                 }
-                fn run(&self, args: Value) -> Result<serde_json::Value, ToolCallError> {
-                    let typed_args: #args_type = serde_json::from_value(args)?;
-                    let result = #fn_name(typed_args)?;
-                    Ok(serde_json::to_value(result)?)
+                fn run(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+                    Ok(self.execute(args)?)
                 }
-                fn args_schema(&self) -> Value {
-                    // Retrieve the JSON schema string from the input type.
+                fn args_schema(&self) -> serde_json::Value {
+                    // Get the JSON schema string from the input type
                     let params_str = <#args_type as ToolInputT>::io_schema();
-                    // Parse it into a serde_json::Value.
-                    let params_value: serde_json::Value = serde_json::from_str(params_str)
-                        .expect("Failed to parse parameters schema");
-                    params_value
+                    serde_json::from_str(params_str)
+                        .expect("Failed to parse parameters schema")
                 }
             }
 
-            impl std::fmt::Debug for #tool_struct_ident {
+            impl std::fmt::Debug for #struct_name {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                     write!(f, "{}", self.name())
                 }
             }
         };
+
         expanded.into()
     }
 }

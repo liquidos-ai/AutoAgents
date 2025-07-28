@@ -275,7 +275,7 @@ A simple agent demonstrating core functionality and event-driven architecture.
 
 ```bash
 export OPENAI_API_KEY="your-api-key"
-cargo run --package basic -- --usecase simple
+cargo run --package basic-example -- --usecase simple
 ```
 
 ### [Coding Agent](examples/coding_agent/)
