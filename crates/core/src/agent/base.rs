@@ -1,5 +1,5 @@
 use super::{
-    error::AgentBuildError, output::AgentOutputT, AgentExecutor, IntoRunnable, RunnableAgent,
+    error::AgentBuildError, output::AgentOutputT, AgentExecutor, IntoRunnable, RunnableAgent, StreamingAgentExecutor,
 };
 use crate::{
     error::Error, memory::MemoryProvider, protocol::AgentID, runtime::Runtime, tool::ToolT,
@@ -14,7 +14,7 @@ use uuid::Uuid;
 /// Core trait that defines agent metadata and behavior
 /// This trait is implemented via the #[agent] macro
 #[async_trait]
-pub trait AgentDeriveT: Send + Sync + 'static + AgentExecutor + Debug {
+pub trait AgentDeriveT: Send + Sync + 'static + AgentExecutor + StreamingAgentExecutor + Debug {
     /// The output type this agent produces
     type Output: AgentOutputT;
 
@@ -255,6 +255,13 @@ mod tests {
             Ok(TestAgentOutput {
                 result: format!("Processed: {}", task.prompt),
             })
+        }
+    }
+
+    #[async_trait]
+    impl StreamingAgentExecutor for MockAgentImpl {
+        fn supports_streaming(&self) -> bool {
+            true
         }
     }
 
