@@ -1,0 +1,10 @@
+[package]
+name = "basic_to_af"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+autoagents = { path = "../../crates/autoagents", features = ["agent_file"] }
+autoagents-core = { path = "../../crates/core", features = ["agent_file"] }
+serde_json = "1.0"
+chrono = "0.4" 

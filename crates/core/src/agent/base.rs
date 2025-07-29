@@ -1,9 +1,12 @@
 use super::{
     error::AgentBuildError, output::AgentOutputT, AgentExecutor, IntoRunnable, RunnableAgent,
 };
-use crate::{error::Error, memory::MemoryProvider, protocol::AgentID, runtime::Runtime};
+use crate::{
+    error::Error, memory::MemoryProvider, protocol::AgentID, runtime::Runtime,
+};
+use autoagents_llm::ToolT;
 use async_trait::async_trait;
-use autoagents_llm::{chat::StructuredOutputFormat, LLMProvider, ToolT};
+use autoagents_llm::{chat::StructuredOutputFormat, LLMProvider};
 use serde_json::Value;
 use std::{fmt::Debug, sync::Arc};
 use tokio::sync::RwLock;
@@ -184,7 +187,7 @@ mod tests {
     use crate::protocol::Event;
     use crate::runtime::Task;
     use async_trait::async_trait;
-    use autoagents_llm::{chat::StructuredOutputFormat, LLMProvider, ToolT};
+    use autoagents_llm::{chat::StructuredOutputFormat, LLMProvider};
     use autoagents_test_utils::agent::{MockAgentImpl, TestAgentOutput, TestError};
     use autoagents_test_utils::llm::MockLLMProvider;
     use std::sync::Arc;

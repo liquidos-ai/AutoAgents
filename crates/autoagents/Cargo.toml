@@ -21,6 +21,7 @@ google = ["autoagents-core/google", "autoagents-llm/google"]
 groq = ["autoagents-core/groq", "autoagents-llm/groq"]
 azure_openai = ["autoagents-core/azure_openai", "autoagents-llm/azure_openai"]
 logging = ["dep:env_logger"]
+agent_file = ["autoagents-core/agent_file"]
 
 [dependencies]
 autoagents-core.workspace = true

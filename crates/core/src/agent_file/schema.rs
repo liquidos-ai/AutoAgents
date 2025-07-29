@@ -32,7 +32,7 @@ pub struct AgentFile {
     pub message_buffer_autoclear: bool,
     
     /// Indices of messages to keep in context
-    pub in_context_message_indices: Vec<usize>,
+    pub in_context_message_indices: Vec<i32>,
     
     /// Conversation history
     pub messages: Vec<Message>,
@@ -69,40 +69,110 @@ pub struct AgentFile {
     pub version: String,
 }
 
-/// Represents a block of core memory for the agent, such as persona or user info.
+/// Represents a core memory block
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct CoreMemoryBlock {
     /// When the memory block was created (ISO 8601 format)
     pub created_at: String,
     
-    /// Optional description of the memory block
+    /// Description of the memory block
     pub description: Option<String>,
     
-    /// Whether this is a template memory block
+    /// Whether this is a template
     pub is_template: bool,
     
-    /// Label identifying the type of memory (e.g., "persona", "human")
+    /// Label for the memory block (e.g., "persona", "human")
     pub label: String,
     
-    /// Maximum size limit for this memory block
-    pub limit: i64,
+    /// Character limit for this memory block
+    pub limit: i32,
     
-    /// Metadata associated with this memory block
+    /// Metadata associated with the memory block
     #[serde(rename = "metadata_")]
     pub metadata: Option<HashMap<String, Value>>,
     
-    /// Name of the template this memory block is based on (if any)
+    /// Template name (if this is a template)
     pub template_name: Option<String>,
     
     /// When the memory block was last updated (ISO 8601 format)
     pub updated_at: String,
     
-    /// The actual content of the memory block
+    /// Content of the memory block
     pub value: String,
 }
 
-/// Represents a message in the agent's conversation history
+/// Represents embedding model configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct EmbeddingConfig {
+    /// Azure deployment name (if using Azure)
+    pub azure_deployment: Option<String>,
+    
+    /// Azure endpoint URL (if using Azure)
+    pub azure_endpoint: Option<String>,
+    
+    /// Azure API version (if using Azure)
+    pub azure_version: Option<String>,
+    
+    /// Size of embedding chunks
+    pub embedding_chunk_size: i32,
+    
+    /// Dimension of embeddings
+    pub embedding_dim: i32,
+    
+    /// Endpoint URL for embedding service
+    pub embedding_endpoint: String,
+    
+    /// Type of embedding endpoint (e.g., "openai")
+    pub embedding_endpoint_type: String,
+    
+    /// Model name for embeddings
+    pub embedding_model: String,
+    
+    /// Handle for the embedding model
+    pub handle: String,
+}
+
+/// Represents LLM configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct LlmConfig {
+    /// Context window size
+    pub context_window: i32,
+    
+    /// Whether to enable reasoning
+    pub enable_reasoner: bool,
+    
+    /// Handle for the LLM model
+    pub handle: String,
+    
+    /// Maximum reasoning tokens
+    pub max_reasoning_tokens: i32,
+    
+    /// Maximum tokens for responses
+    pub max_tokens: i32,
+    
+    /// Model name
+    pub model: String,
+    
+    /// Endpoint URL for the model
+    pub model_endpoint: String,
+    
+    /// Type of model endpoint (e.g., "openai", "anthropic")
+    pub model_endpoint_type: String,
+    
+    /// Model wrapper (if any)
+    pub model_wrapper: Option<String>,
+    
+    /// Whether to put inner thoughts in kwargs
+    pub put_inner_thoughts_in_kwargs: bool,
+    
+    /// Temperature for generation
+    pub temperature: f64,
+}
+
+/// Represents a message in the conversation
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct Message {
@@ -142,7 +212,7 @@ pub struct Message {
 #[serde(untagged)]
 pub enum MessageContent {
     /// Text content
-    Text(String),
+    Text { #[serde(rename = "type")] content_type: String, text: String },
     
     /// Structured content
     Structured(Value),
@@ -177,44 +247,38 @@ pub struct ToolEnvVar {
 
 /// Represents a rule for tool execution
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(untagged)]
 pub enum ToolRule {
     /// Base tool rule with just a tool name
     Base {
-        /// Name of the tool this rule applies to
         tool_name: String,
+        #[serde(rename = "type")]
+        rule_type: String,
     },
     
     /// Rule with child rules
     Child {
-        /// Name of the tool this rule applies to
         tool_name: String,
-        
-        /// Child rule names
+        #[serde(rename = "type")]
+        rule_type: String,
         children: Vec<String>,
     },
     
     /// Rule with a maximum count per step
     MaxCountPerStep {
-        /// Name of the tool this rule applies to
         tool_name: String,
-        
-        /// Maximum number of times the tool can be called per step
+        #[serde(rename = "type")]
+        rule_type: String,
         max_count_limit: i32,
     },
     
     /// Conditional rule
     Conditional {
-        /// Name of the tool this rule applies to
         tool_name: String,
-        
-        /// Default child rule to use
+        #[serde(rename = "type")]
+        rule_type: String,
         default_child: Option<String>,
-        
-        /// Mapping of output values to child rules
         child_output_mapping: HashMap<String, String>,
-        
-        /// Whether output mapping is required
         require_output_mapping: bool,
     },
 }
@@ -244,13 +308,13 @@ pub struct Tool {
     /// Source code of the tool (if any)
     pub source_code: Option<String>,
     
-    /// Type of the tool source (e.g., "code")
+    /// Type of the tool source (e.g., "python", "letta_core")
     pub source_type: String,
     
     /// Tags for the tool
     pub tags: Vec<String>,
     
-    /// Type of the tool (e.g., "function")
+    /// Type of the tool (e.g., "custom", "letta_core")
     pub tool_type: String,
     
     /// When the tool was last updated (ISO 8601 format)
@@ -301,7 +365,7 @@ pub struct Parameters {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct ParameterProperties {
-    /// Type of the parameter (e.g., "string", "integer")
+    /// Type of the parameter
     #[serde(rename = "type")]
     pub param_type: String,
     
@@ -309,74 +373,36 @@ pub struct ParameterProperties {
     pub description: Option<String>,
 }
 
-/// Configuration for the embedding model
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "snake_case")]
-pub struct EmbeddingConfig {
-    /// Azure deployment name (if using Azure)
-    pub azure_deployment: Option<String>,
-    
-    /// Azure endpoint (if using Azure)
-    pub azure_endpoint: Option<String>,
-    
-    /// Azure API version (if using Azure)
-    pub azure_version: Option<String>,
-    
-    /// Chunk size for embeddings
-    pub embedding_chunk_size: i32,
-    
-    /// Dimensionality of the embeddings
-    pub embedding_dim: i32,
-    
-    /// Endpoint for the embedding service
-    pub embedding_endpoint: String,
-    
-    /// Type of the embedding endpoint (e.g., "openai", "azure")
-    pub embedding_endpoint_type: String,
-    
-    /// Name of the embedding model
-    pub embedding_model: String,
-    
-    /// Handle for the embedding configuration
-    pub handle: String,
+impl Default for EmbeddingConfig {
+    fn default() -> Self {
+        Self {
+            azure_deployment: None,
+            azure_endpoint: None,
+            azure_version: None,
+            embedding_chunk_size: 300,
+            embedding_dim: 1536,
+            embedding_endpoint: "https://api.openai.com/v1".to_string(),
+            embedding_endpoint_type: "openai".to_string(),
+            embedding_model: "text-embedding-ada-002".to_string(),
+            handle: "openai/text-embedding-ada-002".to_string(),
+        }
+    }
 }
 
-/// Configuration for the language model
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "snake_case")]
-pub struct LlmConfig {
-    /// Context window size in tokens
-    pub context_window: i32,
-    
-    /// Whether to enable the reasoner
-    pub enable_reasoner: bool,
-    
-    /// Handle for the LLM configuration
-    pub handle: String,
-    
-    /// Maximum number of tokens for reasoning
-    pub max_reasoning_tokens: i32,
-    
-    /// Maximum number of tokens to generate
-    pub max_tokens: i32,
-    
-    /// Name of the model
-    pub model: String,
-    
-    /// Endpoint for the model
-    pub model_endpoint: String,
-    
-    /// Type of the model endpoint (e.g., "openai", "azure")
-    pub model_endpoint_type: String,
-    
-    /// Model wrapper (if any)
-    pub model_wrapper: Option<String>,
-    
-    /// Whether to put inner thoughts in kwargs
-    pub put_inner_thoughts_in_kwargs: bool,
-    
-    /// Sampling temperature
-    pub temperature: f64,
-}
-
-
+impl Default for LlmConfig {
+    fn default() -> Self {
+        Self {
+            context_window: 32000,
+            enable_reasoner: false,
+            handle: "openai/gpt-4o-mini".to_string(),
+            max_reasoning_tokens: 0,
+            max_tokens: 4096,
+            model: "gpt-4o-mini".to_string(),
+            model_endpoint: "https://api.openai.com/v1".to_string(),
+            model_endpoint_type: "openai".to_string(),
+            model_wrapper: None,
+            put_inner_thoughts_in_kwargs: true,
+            temperature: 0.7,
+        }
+    }
+} 

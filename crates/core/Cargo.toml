@@ -20,6 +20,7 @@ phind = ["autoagents-llm/phind"]
 google = ["autoagents-llm/google"]
 groq = ["autoagents-llm/groq"]
 azure_openai = ["autoagents-llm/azure_openai"]
+agent_file = ["dep:tempfile", "dep:chrono"]
 
 [dependencies]
 autoagents-derive.workspace = true
@@ -37,6 +38,8 @@ dirs = { workspace = true }
 regex = { workspace = true }
 tokio-stream.workspace = true
 log = { workspace = true, features = ["std"] }
+tempfile = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
 
 [dev-dependencies]
 autoagents-test-utils = { path = "../test_utils" }

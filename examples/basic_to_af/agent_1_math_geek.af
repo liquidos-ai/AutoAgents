@@ -1,0 +1,106 @@
+{
+  "agent_type": "memgpt_agent",
+  "core_memory": [
+    {
+      "created_at": "2025-07-29T15:55:14.406819825+00:00",
+      "description": null,
+      "is_template": false,
+      "label": "persona",
+      "limit": 5000,
+      "metadata_": {},
+      "template_name": null,
+      "updated_at": "2025-07-29T15:55:14.406819825+00:00",
+      "value": "You are a math geek and expert in linear algebra."
+    },
+    {
+      "created_at": "2025-07-29T15:55:14.406823246+00:00",
+      "description": null,
+      "is_template": false,
+      "label": "human",
+      "limit": 5000,
+      "metadata_": {},
+      "template_name": null,
+      "updated_at": "2025-07-29T15:55:14.406823246+00:00",
+      "value": "User information will be stored here."
+    }
+  ],
+  "created_at": "2025-07-29T15:55:14.406796777+00:00",
+  "description": "You are a math geek and expert in linear algebra",
+  "embedding_config": {
+    "azure_deployment": null,
+    "azure_endpoint": null,
+    "azure_version": null,
+    "embedding_chunk_size": 300,
+    "embedding_dim": 1536,
+    "embedding_endpoint": "https://api.openai.com/v1",
+    "embedding_endpoint_type": "openai",
+    "embedding_model": "text-embedding-ada-002",
+    "handle": "openai/text-embedding-ada-002"
+  },
+  "llm_config": {
+    "context_window": 32000,
+    "enable_reasoner": false,
+    "handle": "openai/gpt-4o-mini",
+    "max_reasoning_tokens": 0,
+    "max_tokens": 4096,
+    "model": "gpt-4o-mini",
+    "model_endpoint": "https://api.openai.com/v1",
+    "model_endpoint_type": "openai",
+    "model_wrapper": null,
+    "put_inner_thoughts_in_kwargs": true,
+    "temperature": 0.7
+  },
+  "message_buffer_autoclear": false,
+  "in_context_message_indices": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "messages": [
+    {
+      "created_at": "2025-07-29T15:55:14.406824734+00:00",
+      "group_id": null,
+      "model": "gpt-4o-mini",
+      "name": null,
+      "role": "system",
+      "content": [
+        {
+          "type": "text",
+          "text": "You are a math geek and expert in linear algebra. You help with mathematical problems and linear algebra concepts."
+        }
+      ],
+      "tool_call_id": null,
+      "tool_calls": [],
+      "tool_returns": [],
+      "updated_at": "2025-07-29T15:55:14.406824734+00:00"
+    },
+    {
+      "created_at": "2025-07-29T15:55:14.406827878+00:00",
+      "group_id": null,
+      "model": null,
+      "name": null,
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Explain the concept of eigenvalues in linear algebra"
+        }
+      ],
+      "tool_call_id": null,
+      "tool_calls": [],
+      "tool_returns": [],
+      "updated_at": "2025-07-29T15:55:14.406827878+00:00"
+    }
+  ],
+  "metadata_": null,
+  "multi_agent_group": null,
+  "name": "agent_1",
+  "system": "You are a math geek and expert in linear algebra. You help with mathematical problems and linear algebra concepts.",
+  "tags": [],
+  "tool_exec_environment_variables": [],
+  "tool_rules": [],
+  "tools": [],
+  "updated_at": "2025-07-29T15:55:14.406830067+00:00",
+  "version": "0.6.47"
+}

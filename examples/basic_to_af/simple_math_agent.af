@@ -1,0 +1,169 @@
+{
+  "agent_type": "memgpt_agent",
+  "core_memory": [
+    {
+      "created_at": "2025-07-29T15:55:14.405032142+00:00",
+      "description": null,
+      "is_template": false,
+      "label": "persona",
+      "limit": 5000,
+      "metadata_": {},
+      "template_name": null,
+      "updated_at": "2025-07-29T15:55:14.405032142+00:00",
+      "value": "You are a helpful math assistant."
+    },
+    {
+      "created_at": "2025-07-29T15:55:14.405037634+00:00",
+      "description": null,
+      "is_template": false,
+      "label": "human",
+      "limit": 5000,
+      "metadata_": {},
+      "template_name": null,
+      "updated_at": "2025-07-29T15:55:14.405037634+00:00",
+      "value": "User information will be stored here."
+    }
+  ],
+  "created_at": "2025-07-29T15:55:14.405009577+00:00",
+  "description": "You are a Math agent",
+  "embedding_config": {
+    "azure_deployment": null,
+    "azure_endpoint": null,
+    "azure_version": null,
+    "embedding_chunk_size": 300,
+    "embedding_dim": 1536,
+    "embedding_endpoint": "https://api.openai.com/v1",
+    "embedding_endpoint_type": "openai",
+    "embedding_model": "text-embedding-ada-002",
+    "handle": "openai/text-embedding-ada-002"
+  },
+  "llm_config": {
+    "context_window": 32000,
+    "enable_reasoner": false,
+    "handle": "openai/gpt-4o-mini",
+    "max_reasoning_tokens": 0,
+    "max_tokens": 4096,
+    "model": "gpt-4o-mini",
+    "model_endpoint": "https://api.openai.com/v1",
+    "model_endpoint_type": "openai",
+    "model_wrapper": null,
+    "put_inner_thoughts_in_kwargs": true,
+    "temperature": 0.7
+  },
+  "message_buffer_autoclear": false,
+  "in_context_message_indices": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "messages": [
+    {
+      "created_at": "2025-07-29T15:55:14.405046795+00:00",
+      "group_id": null,
+      "model": "gpt-4o-mini",
+      "name": null,
+      "role": "system",
+      "content": [
+        {
+          "type": "text",
+          "text": "You are a Math agent that can perform addition operations. When asked to add numbers, use the Addition tool."
+        }
+      ],
+      "tool_call_id": null,
+      "tool_calls": [],
+      "tool_returns": [],
+      "updated_at": "2025-07-29T15:55:14.405046795+00:00"
+    },
+    {
+      "created_at": "2025-07-29T15:55:14.405049073+00:00",
+      "group_id": null,
+      "model": null,
+      "name": null,
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "What is 2 + 2?"
+        }
+      ],
+      "tool_call_id": null,
+      "tool_calls": [],
+      "tool_returns": [],
+      "updated_at": "2025-07-29T15:55:14.405049073+00:00"
+    },
+    {
+      "created_at": "2025-07-29T15:55:14.405050862+00:00",
+      "group_id": null,
+      "model": null,
+      "name": null,
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "What did I ask before?"
+        }
+      ],
+      "tool_call_id": null,
+      "tool_calls": [],
+      "tool_returns": [],
+      "updated_at": "2025-07-29T15:55:14.405050862+00:00"
+    }
+  ],
+  "metadata_": null,
+  "multi_agent_group": null,
+  "name": "math_agent",
+  "system": "You are a Math agent that can perform addition operations. When asked to add numbers, use the Addition tool.",
+  "tags": [],
+  "tool_exec_environment_variables": [],
+  "tool_rules": [
+    {
+      "tool_name": "Addition",
+      "type": "run_first"
+    },
+    {
+      "tool_name": "Addition",
+      "type": "exit_loop"
+    }
+  ],
+  "tools": [
+    {
+      "args_json_schema": null,
+      "created_at": "2025-07-29T15:55:14.405040526+00:00",
+      "description": "Use this tool to Add two numbers",
+      "json_schema": {
+        "name": "Addition",
+        "description": "Use this tool to Add two numbers",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "left": {
+              "type": "integer",
+              "description": "Left Operand for addition"
+            },
+            "right": {
+              "type": "integer",
+              "description": "Right Operand for addition"
+            }
+          },
+          "required": [
+            "left",
+            "right"
+          ]
+        },
+        "type": null,
+        "required": null
+      },
+      "name": "Addition",
+      "return_char_limit": 6000,
+      "source_code": "#[derive(Serialize, Deserialize, ToolInput, Debug)]\npub struct AdditionArgs {\n    #[input(description = \"Left Operand for addition\")]\n    left: i64,\n    #[input(description = \"Right Operand for addition\")]\n    right: i64,\n}\n\n#[tool(\n    name = \"Addition\",\n    description = \"Use this tool to Add two numbers\",\n    input = AdditionArgs,\n)]\nfn add(args: AdditionArgs) -> Result<i64, ToolCallError> {\n    Ok(args.left + args.right)\n}",
+      "source_type": "rust",
+      "tags": [],
+      "tool_type": "custom",
+      "updated_at": "2025-07-29T15:55:14.405040526+00:00",
+      "metadata_": null
+    }
+  ],
+  "updated_at": "2025-07-29T15:55:14.405052322+00:00",
+  "version": "0.6.47"
+}
