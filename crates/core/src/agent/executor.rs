@@ -60,6 +60,37 @@ pub trait AgentExecutor: Send + Sync + 'static {
     ) -> Result<Self::Output, Self::Error>;
 }
 
+/// Trait for executors that support streaming execution with tool calling
+///
+/// This trait extends AgentExecutor to provide streaming capabilities,
+/// allowing executors to emit events as they process the task in real-time.
+#[async_trait]
+pub trait StreamingAgentExecutor: AgentExecutor {
+    /// Execute the agent with streaming support
+    ///
+    /// This method allows the executor to emit streaming events during execution,
+    /// including text chunks, tool call starts/completions, and thinking chunks.
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_streaming(
+        &self,
+        llm: Arc<dyn LLMProvider>,
+        memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+        tools: Vec<Box<dyn ToolT>>,
+        agent_config: &AgentConfig,
+        task: Task,
+        state: Arc<RwLock<AgentState>>,
+        tx_event: mpsc::Sender<Event>,
+    ) -> Result<Self::Output, Self::Error> {
+        // Default implementation falls back to non-streaming execution
+        self.execute(llm, memory, tools, agent_config, task, state, tx_event).await
+    }
+
+    /// Check if this executor supports streaming
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,4 +437,5 @@ mod tests {
         let error = TestError::TestError("source test".to_string());
         assert!(error.source().is_none());
     }
+    
 }
