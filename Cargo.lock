@@ -2472,6 +2472,7 @@ dependencies = [
  "autoagents",
  "autoagents-derive",
  "autoagents-llm",
+ "clap",
  "colored 2.2.0",
  "serde",
  "serde_json",
