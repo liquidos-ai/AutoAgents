@@ -1038,4 +1038,5 @@ impl LLMBuilder<OpenAI> {
 
         Ok(Arc::new(openai))
     }
+    
 }

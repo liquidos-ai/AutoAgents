@@ -363,4 +363,5 @@ fn handle_streaming_events(mut event_stream: ReceiverStream<Event>) {
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     streaming_agent_with_real_llm().await
+    
 } 

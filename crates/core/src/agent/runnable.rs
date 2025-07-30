@@ -1,5 +1,6 @@
 use super::base::{AgentDeriveT, BaseAgent};
 use super::error::RunnableAgentError;
+use super::executor::StreamingAgentExecutor;
 use crate::error::Error;
 use crate::memory::MemoryProvider;
 use crate::protocol::{Event, TaskResult};

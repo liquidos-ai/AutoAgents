@@ -1,5 +1,5 @@
 use crate::agent::base::AgentConfig;
-use crate::agent::executor::{AgentExecutor, ExecutorConfig, TurnResult, StreamingAgentExecutor};
+use crate::agent::executor::{AgentExecutor, ExecutorConfig, TurnResult};
 use crate::agent::runnable::AgentState;
 use crate::memory::MemoryProvider;
 use crate::protocol::{Event, SubmissionId};
@@ -457,12 +457,12 @@ impl<T: ReActExecutor> AgentExecutor for T {
                 }
             }
 
-            tx_event
-                .send(Event::TurnCompleted {
-                    turn_number: turn,
-                    final_turn: false,
-                })
-                .await?;
+                    tx_event
+                        .send(Event::TurnCompleted {
+                            turn_number: turn,
+                            final_turn: false,
+                        })
+                        .await?;
         }
 
         tx_event
@@ -476,126 +476,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
     }
 }
 
-/// Streaming implementation for ReAct executor
-#[async_trait]
-impl<T: ReActExecutor> StreamingAgentExecutor for T {
-    async fn execute_streaming(
-        &self,
-        llm: Arc<dyn LLMProvider>,
-        mut memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-        tools: Vec<Box<dyn ToolT>>,
-        agent_config: &AgentConfig,
-        task: Task,
-        state: Arc<RwLock<AgentState>>,
-        tx_event: mpsc::Sender<Event>,
-    ) -> Result<<T as AgentExecutor>::Output, <T as AgentExecutor>::Error> {
-        debug!("Starting Streaming ReAct Executor");
-        let max_turns = self.config().max_turns;
-        let mut accumulated_tool_calls = Vec::new();
 
-        if let Some(memory) = &mut memory {
-            let mut mem = memory.write().await;
-            let chat_msg = ChatMessage {
-                role: ChatRole::User,
-                message_type: MessageType::Text,
-                content: task.prompt.clone(),
-            };
-            let _ = mem.remember(&chat_msg).await;
-        }
-
-        // Record the task in state
-        {
-            let mut state = state.write().await;
-            state.record_task(task.clone());
-        }
-
-        tx_event
-            .send(Event::TaskStarted {
-                sub_id: task.submission_id,
-                agent_id: agent_config.id,
-                task_description: task.prompt,
-            })
-            .await?;
-
-        for turn in 0..max_turns {
-            // Prepare messages with memory
-            let mut messages = vec![ChatMessage {
-                role: ChatRole::System,
-                message_type: MessageType::Text,
-                content: agent_config.description.clone(),
-            }];
-            if let Some(memory) = &memory {
-                // Fetch All previous messages and extend
-                messages.extend(
-                    memory
-                        .read()
-                        .await
-                        .recall("", None)
-                        .await
-                        .unwrap_or_default(),
-                );
-            }
-
-            tx_event
-                .send(Event::TurnStarted {
-                    turn_number: turn,
-                    max_turns,
-                })
-                .await?;
-
-            match self
-                .process_turn_streaming(
-                    llm.clone(),
-                    &messages,
-                    memory.clone(),
-                    &tools,
-                    agent_config,
-                    state.clone(),
-                    tx_event.clone(),
-                    task.submission_id,
-                )
-                .await?
-            {
-                TurnResult::Complete(result) => {
-                    // If we have accumulated tool calls, merge them with the final result
-                    if !accumulated_tool_calls.is_empty() {
-                        let mut merged_result = result;
-                        merged_result.tool_calls.extend(accumulated_tool_calls);
-                        return Ok(merged_result);
-                    } else {
-                        return Ok(result);
-                    }
-                }
-                TurnResult::Continue(Some(result)) => {
-                    accumulated_tool_calls.extend(result.tool_calls);
-                }
-                TurnResult::Continue(None) => {
-                    // No output from this turn, continue to next
-                }
-            }
-
-            tx_event
-                .send(Event::TurnCompleted {
-                    turn_number: turn,
-                    final_turn: false,
-                })
-                .await?;
-        }
-
-        tx_event
-            .send(Event::TurnCompleted {
-                turn_number: max_turns,
-                final_turn: true,
-            })
-            .await?;
-
-        Err(ReActExecutorError::MaxTurnsExceeded { max_turns })
-    }
-
-    fn supports_streaming(&self) -> bool {
-        true
-    }
-}
 
 #[cfg(test)]
 mod tests {

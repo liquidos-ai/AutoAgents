@@ -369,6 +369,7 @@ mod tests {
             cloned.chat_messages.is_none()
         );
     }
+    
 
     #[test]
     fn test_uuid_types() {

@@ -14,7 +14,7 @@ use uuid::Uuid;
 /// Core trait that defines agent metadata and behavior
 /// This trait is implemented via the #[agent] macro
 #[async_trait]
-pub trait AgentDeriveT: Send + Sync + 'static + AgentExecutor + StreamingAgentExecutor + Debug {
+pub trait AgentDeriveT: Send + Sync + 'static + AgentExecutor + Debug {
     /// The output type this agent produces
     type Output: AgentOutputT;
 
@@ -114,6 +114,29 @@ impl<T: AgentDeriveT> BaseAgent<T> {
     /// Get the memory provider if available
     pub fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>> {
         self.memory.clone()
+    }
+}
+
+/// Default implementation of StreamingAgentExecutor for any AgentExecutor
+/// This provides backward compatibility for agents that don't need streaming
+#[async_trait]
+impl<T: AgentExecutor + Send + Sync + 'static> StreamingAgentExecutor for T {
+    fn supports_streaming(&self) -> bool {
+        false // Default to false for backward compatibility
+    }
+
+    async fn execute_streaming(
+        &self,
+        llm: Arc<dyn LLMProvider>,
+        memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+        tools: Vec<Box<dyn ToolT>>,
+        agent_config: &AgentConfig,
+        task: crate::runtime::Task,
+        state: Arc<RwLock<crate::agent::runnable::AgentState>>,
+        tx_event: tokio::sync::mpsc::Sender<crate::protocol::Event>,
+    ) -> Result<<Self as AgentExecutor>::Output, <Self as AgentExecutor>::Error> {
+        // Default implementation falls back to non-streaming execution
+        self.execute(llm, memory, tools, agent_config, task, state, tx_event).await
     }
 }
 
