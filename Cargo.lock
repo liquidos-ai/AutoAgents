@@ -231,7 +231,7 @@ dependencies = [
  "autoagents",
  "autoagents-derive",
  "clap",
- "colored",
+ "colored 3.0.0",
  "futures",
  "reqwest",
  "serde",
@@ -388,7 +388,7 @@ dependencies = [
  "autoagents",
  "autoagents-derive",
  "clap",
- "colored",
+ "colored 3.0.0",
  "futures",
  "glob",
  "ignore",
@@ -411,6 +411,16 @@ name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
+
+[[package]]
+name = "colored"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
+dependencies = [
+ "lazy_static",
+ "windows-sys 0.59.0",
+]
 
 [[package]]
 name = "colored"
@@ -1597,6 +1607,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazy_static"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
+
+[[package]]
 name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2449,6 +2465,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
+name = "streaming_real"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "autoagents",
+ "autoagents-derive",
+ "autoagents-llm",
+ "colored 2.2.0",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "strict"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3139,7 +3170,7 @@ dependencies = [
  "autoagents",
  "autoagents-derive",
  "clap",
- "colored",
+ "colored 3.0.0",
  "futures",
  "reqwest",
  "serde",

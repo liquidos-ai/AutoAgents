@@ -57,6 +57,8 @@ pub trait LLMProvider:
     fn tools(&self) -> Option<&[Tool]> {
         None
     }
+
+
 }
 
 /// Tool call represents a function call that an LLM wants to make.
@@ -80,6 +82,7 @@ pub struct FunctionCall {
     /// The arguments to pass to the function, typically serialized as a JSON string.
     pub arguments: String,
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -403,6 +406,8 @@ mod tests {
         fn tools(&self) -> Option<&[chat::Tool]> {
             None
         }
+
+
     }
 
     struct MockChatResponse {

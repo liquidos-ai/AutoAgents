@@ -1,5 +1,6 @@
 use super::base::{AgentDeriveT, BaseAgent};
 use super::error::RunnableAgentError;
+use super::executor::StreamingAgentExecutor;
 use crate::error::Error;
 use crate::memory::MemoryProvider;
 use crate::protocol::{Event, TaskResult};
@@ -45,6 +46,12 @@ pub trait RunnableAgent: Send + Sync + 'static + Debug {
 
     async fn run(self: Arc<Self>, task: Task, tx_event: mpsc::Sender<Event>) -> Result<(), Error>;
 
+    /// Run the agent with streaming support
+    async fn run_streaming(self: Arc<Self>, task: Task, tx_event: mpsc::Sender<Event>) -> Result<(), Error> {
+        // Default implementation falls back to non-streaming
+        self.run(task, tx_event).await
+    }
+
     fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>>;
 
     fn spawn_task(
@@ -53,6 +60,20 @@ pub trait RunnableAgent: Send + Sync + 'static + Debug {
         tx_event: mpsc::Sender<Event>,
     ) -> JoinHandle<Result<(), Error>> {
         tokio::spawn(async move { self.run(task, tx_event).await })
+    }
+
+    /// Spawn a streaming task
+    fn spawn_streaming_task(
+        self: Arc<Self>,
+        task: Task,
+        tx_event: mpsc::Sender<Event>,
+    ) -> JoinHandle<Result<(), Error>> {
+        tokio::spawn(async move { self.run_streaming(task, tx_event).await })
+    }
+
+    /// Check if this agent supports streaming
+    fn supports_streaming(&self) -> bool {
+        false
     }
 }
 
@@ -142,6 +163,63 @@ where
                 Err(RunnableAgentError::ExecutorError(error_msg).into())
             }
         }
+    }
+
+    async fn run_streaming(self: Arc<Self>, task: Task, tx_event: mpsc::Sender<Event>) -> Result<(), Error> {
+        // Check if the inner agent supports streaming
+        if self.supports_streaming() {
+            // Execute the agent's logic using the streaming executor
+            match self
+                .agent
+                .inner()
+                .execute_streaming(
+                    self.agent.llm(),
+                    self.agent.memory(),
+                    self.agent.tools(),
+                    &self.agent.agent_config(),
+                    task.clone(),
+                    self.state.clone(),
+                    tx_event.clone(),
+                )
+                .await
+            {
+                Ok(output) => {
+                    // Convert output to Value
+                    let value: Value = output.into();
+
+                    // Send completion event
+                    let _ = tx_event
+                        .send(Event::TaskComplete {
+                            sub_id: task.submission_id,
+                            result: TaskResult::Value(value),
+                        })
+                        .await
+                        .map_err(RunnableAgentError::event_send_error)?;
+
+                    Ok(())
+                }
+                Err(e) => {
+                    // Send error event
+                    let error_msg = e.to_string();
+                    let _ = tx_event
+                        .send(Event::TaskComplete {
+                            sub_id: task.submission_id,
+                            result: TaskResult::Failure(error_msg.clone()),
+                        })
+                        .await;
+
+                    Err(RunnableAgentError::ExecutorError(error_msg).into())
+                }
+            }
+        } else {
+            // Fall back to non-streaming execution
+            self.run(task, tx_event).await
+        }
+    }
+
+    fn supports_streaming(&self) -> bool {
+        // Check if the inner agent supports streaming
+        self.agent.inner().supports_streaming()
     }
 }
 

@@ -75,6 +75,41 @@ pub enum Event {
         turn_number: usize,
         final_turn: bool,
     },
+
+    /// Streaming text chunk from agent
+    StreamTextChunk {
+        sub_id: SubmissionId,
+        chunk: String,
+        is_final: bool,
+    },
+
+    /// Streaming tool call start
+    StreamToolCallStart {
+        sub_id: SubmissionId,
+        tool_call: autoagents_llm::ToolCall,
+    },
+
+    /// Streaming tool call chunk (for partial tool call data)
+    StreamToolCallChunk {
+        sub_id: SubmissionId,
+        tool_call_id: String,
+        chunk: String,
+        is_final: bool,
+    },
+
+    /// Streaming tool call end
+    StreamToolCallEnd {
+        sub_id: SubmissionId,
+        tool_call_id: String,
+    },
+
+    /// Streaming thinking/reasoning chunk
+    StreamThinkingChunk {
+        sub_id: SubmissionId,
+        chunk: String,
+        is_final: bool,
+    },
+
     PublishMessage {
         topic: String,
         message: String,
@@ -334,6 +369,7 @@ mod tests {
             cloned.chat_messages.is_none()
         );
     }
+    
 
     #[test]
     fn test_uuid_types() {
