@@ -57,6 +57,8 @@ pub trait LLMProvider:
     fn tools(&self) -> Option<&[Tool]> {
         None
     }
+
+
 }
 
 /// Tool call represents a function call that an LLM wants to make.
@@ -403,6 +405,8 @@ mod tests {
         fn tools(&self) -> Option<&[chat::Tool]> {
             None
         }
+
+
     }
 
     struct MockChatResponse {

@@ -13,6 +13,7 @@ use autoagents_llm::{
 use log::debug;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::{mpsc, RwLock};
@@ -272,100 +273,22 @@ pub trait ReActExecutor: Send + Sync + 'static {
         tx_event: mpsc::Sender<Event>,
         submission_id: SubmissionId,
     ) -> Result<TurnResult<ReActAgentOutput>, ReActExecutorError> {
-        // Try to use streaming if available, otherwise fall back to non-streaming
+        // For now, when tools are involved, we need to use non-streaming
+        // because the current LLM API doesn't support streaming with tools
         if !tools.is_empty() {
-            let tools_serialized: Vec<Tool> = tools.iter().map(Tool::from).collect();
-            
-            // Try streaming first
-            match llm.chat_stream(messages).await {
-                Ok(mut stream) => {
-                    let mut response_text = String::new();
+            // Send a thinking chunk to indicate processing
+            let _ = tx_event
+                .send(Event::StreamThinkingChunk {
+                    sub_id: submission_id,
+                    chunk: "Processing with tools...".to_string(),
+                    is_final: true,
+                })
+                .await;
 
-                    use tokio_stream::StreamExt;
-                    while let Some(chunk_result) = stream.next().await {
-                        match chunk_result {
-                            Ok(chunk) => {
-                                // For now, we'll accumulate text chunks
-                                // In a more sophisticated implementation, we'd parse tool calls from the stream
-                                response_text.push_str(&chunk);
-                                
-                                // Send streaming text chunk
-                                let _ = tx_event
-                                    .send(Event::StreamTextChunk {
-                                        sub_id: submission_id,
-                                        chunk,
-                                        is_final: false,
-                                    })
-                                    .await;
-                            }
-                            Err(e) => {
-                                return Err(ReActExecutorError::LLMError(e.to_string()));
-                            }
-                        }
-                    }
+            // For tool calls, we need to use non-streaming because the current LLM API
+            // doesn't support streaming with tools. We'll fall back to the non-streaming method.
+            self.process_turn(llm, messages, memory, tools, agent_config, state, tx_event).await
 
-                    // Send final text chunk
-                    if !response_text.is_empty() {
-                        let _ = tx_event
-                            .send(Event::StreamTextChunk {
-                                sub_id: submission_id,
-                                chunk: response_text.clone(),
-                                is_final: true,
-                            })
-                            .await;
-                    }
-
-                    // For now, fall back to non-streaming for tool calls
-                    // In a full implementation, we'd parse tool calls from the stream
-                    let response = llm.chat_with_tools(
-                        messages,
-                        Some(&tools_serialized),
-                        agent_config.output_schema.clone(),
-                    )
-                    .await
-                    .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?;
-
-                    if let Some(tool_calls) = response.tool_calls() {
-                        // Process tool calls with streaming events
-                        for tool_call in &tool_calls {
-                            // Send tool call start event
-                            let _ = tx_event
-                                .send(Event::StreamToolCallStart {
-                                    sub_id: submission_id,
-                                    tool_call: tool_call.clone(),
-                                })
-                                .await;
-
-                            // Process the tool call
-                            let tool_results = self
-                                .process_tool_calls(tools, vec![tool_call.clone()], tx_event.clone(), memory.clone())
-                                .await;
-
-                            // Send tool call end event
-                            let _ = tx_event
-                                .send(Event::StreamToolCallEnd {
-                                    sub_id: submission_id,
-                                    tool_call_id: tool_call.id.clone(),
-                                })
-                                .await;
-
-                            return Ok(TurnResult::Continue(Some(ReActAgentOutput {
-                                response: response_text,
-                                tool_calls: tool_results,
-                            })));
-                        }
-                    }
-
-                    Ok(TurnResult::Complete(ReActAgentOutput {
-                        response: response_text,
-                        tool_calls: vec![],
-                    }))
-                }
-                Err(_) => {
-                    // Fall back to non-streaming
-                    self.process_turn(llm, messages, memory, tools, agent_config, state, tx_event).await
-                }
-            }
         } else {
             // For non-tool calls, use streaming if available
             match llm.chat_stream(messages).await {
@@ -376,8 +299,6 @@ pub trait ReActExecutor: Send + Sync + 'static {
                     while let Some(chunk_result) = stream.next().await {
                         match chunk_result {
                             Ok(chunk) => {
-                                // For now, we'll accumulate text chunks
-                                // In a more sophisticated implementation, we'd parse tool calls from the stream
                                 response_text.push_str(&chunk);
                                 
                                 // Send streaming text chunk
