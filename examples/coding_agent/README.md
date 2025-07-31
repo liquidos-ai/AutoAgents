@@ -4,13 +4,6 @@ A ReAct (Reasoning + Acting) based coding agent that demonstrates file manipulat
 
 ## Use Cases
 
-### Basic Coding Agent
-```sh
-export OPENAI_API_KEY=your_openai_api_key_here
-cargo run --package coding_agent -- --usecase simple
-```
-Shows a basic coding agent that can help with file operations.
-
 ### Interactive Coding Agent
 ```sh
 export OPENAI_API_KEY=your_openai_api_key_here
