@@ -16,3 +16,11 @@ export OPENAI_API_KEY=your_openai_api_key_here
 cargo run --package basic-example -- --usecase chaining
 ```
 Shows a basic event-driven agent.
+
+
+###  Single Threaded Agent
+```sh
+export OPENAI_API_KEY=your_openai_api_key_here
+cargo run --package basic-example -- --usecase single-threaded
+```
+Shows a custom event-driven agent with manual execution logic and simulated delays.
