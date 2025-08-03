@@ -1,0 +1,59 @@
+[package]
+name = "liquid-edge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "High-performance edge inference runtime for LLMs with ONNX support"
+repository.workspace = true
+keywords = ["inference", "llm", "onnx", "edge", "runtime"]
+categories = ["science", "algorithms", "wasm"]
+readme = "README.md"
+
+[features]
+default = ["onnx-runtime", "chat", "jinja-templates", "serde"]
+
+# Runtime backends
+onnx-runtime = ["dep:ort", "dep:ndarray"]
+
+# Core features
+chat = ["dep:minijinja", "jinja-templates"]
+jinja-templates = ["dep:minijinja"]
+
+# Serialization features
+serde = ["dep:serde", "dep:serde_json"]
+
+[dependencies]
+# Core dependencies (always included)
+anyhow = "1.0"
+thiserror = "1.0"
+log = "0.4"
+
+# Optional dependencies based on features
+tokio = { version = "1.43", features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "fs",
+] }
+async-trait = { version = "0.1" }
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+
+# ONNX Runtime support
+ort = { version = "1.16", optional = true }
+ndarray = { version = "0.15", optional = true }
+
+# Tokenization
+tokenizers = "0.20"
+
+# Chat and templating
+minijinja = { version = "2.0", optional = true }
+
+# Utilities
+rand = "0.8"
+env_logger = "0.11"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.0"

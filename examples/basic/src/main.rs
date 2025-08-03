@@ -7,6 +7,7 @@ use autoagents::{
     init_logging,
     llm::{backends::openai::OpenAI, builder::LLMBuilder},
 };
+mod liquid_edge;
 mod single_threaded;
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -14,6 +15,7 @@ enum UseCase {
     Simple,
     Chaining,
     SingleThreaded,
+    Edge,
 }
 
 /// Simple program to demonstrate AutoAgents functionality
@@ -45,6 +47,7 @@ async fn main() -> Result<(), Error> {
         UseCase::Simple => simple::simple_agent(llm).await?,
         UseCase::Chaining => chaining::run(llm).await?,
         UseCase::SingleThreaded => single_threaded::single_threaded_agent(llm).await?,
+        UseCase::Edge => liquid_edge::edge_agent().await?,
     }
 
     Ok(())

@@ -20,6 +20,7 @@ full = [
     "google",
     "groq",
     "azure_openai",
+    "liquid_edge",
 ]
 openai = []
 anthropic = []
@@ -30,8 +31,10 @@ phind = []
 google = []
 groq = []
 azure_openai = []
+liquid_edge = ["dep:liquid-edge"]
 
 [dependencies]
+liquid-edge = { workspace = true, optional = true, features = ["default"] }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 reqwest = { workspace = true }

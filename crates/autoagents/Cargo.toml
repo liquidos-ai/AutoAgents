@@ -20,6 +20,7 @@ phind = ["autoagents-core/phind", "autoagents-llm/phind"]
 google = ["autoagents-core/google", "autoagents-llm/google"]
 groq = ["autoagents-core/groq", "autoagents-llm/groq"]
 azure_openai = ["autoagents-core/azure_openai", "autoagents-llm/azure_openai"]
+liquid_edge = ["autoagents-core/liquid_edge", "autoagents-llm/liquid_edge"]
 logging = ["dep:env_logger"]
 wasm = ["autoagents-core/wasm"]
 
