@@ -136,12 +136,12 @@ impl LiquidEdge {
         // Load tokenizer
         let tokenizer_path = model_path.join("tokenizer.json");
         let tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| LLMError::ProviderError(format!("Failed to load tokenizer: {}", e)))?;
+            .map_err(|e| LLMError::ProviderError(format!("Failed to load tokenizer: {e}")))?;
 
         // Load ONNX model
         let onnx_path = model_path.join("model.onnx");
         let runtime = OnnxRuntime::new(&onnx_path, model_name.clone())
-            .map_err(|e| LLMError::ProviderError(format!("Failed to load ONNX model: {}", e)))?;
+            .map_err(|e| LLMError::ProviderError(format!("Failed to load ONNX model: {e}")))?;
 
         // Load model configuration
         let config = Self::load_config(model_path)?;
@@ -152,7 +152,7 @@ impl LiquidEdge {
         // Create sampler with conservative settings for consistent output
         let top_p_val = top_p.unwrap_or(0.9);
         let sampler = TopPSampler::new(top_p_val)
-            .map_err(|e| LLMError::ProviderError(format!("Failed to create sampler: {}", e)))?;
+            .map_err(|e| LLMError::ProviderError(format!("Failed to create sampler: {e}")))?;
 
         Ok(Self {
             runtime: Arc::new(runtime),
@@ -175,10 +175,10 @@ impl LiquidEdge {
     pub fn load_config<P: AsRef<Path>>(model_path: P) -> Result<ModelConfig, LLMError> {
         let config_path = model_path.as_ref().join("config.json");
         let config_str = fs::read_to_string(&config_path)
-            .map_err(|e| LLMError::ProviderError(format!("Failed to read config.json: {}", e)))?;
+            .map_err(|e| LLMError::ProviderError(format!("Failed to read config.json: {e}")))?;
 
         let config: ModelConfig = serde_json::from_str(&config_str)
-            .map_err(|e| LLMError::ProviderError(format!("Failed to parse config.json: {}", e)))?;
+            .map_err(|e| LLMError::ProviderError(format!("Failed to parse config.json: {e}")))?;
 
         Ok(config)
     }
@@ -188,9 +188,8 @@ impl LiquidEdge {
         let template_path = model_path.as_ref().join("chat_template.jinja");
 
         if template_path.exists() {
-            fs::read_to_string(&template_path).map_err(|e| {
-                LLMError::ProviderError(format!("Failed to read chat template: {}", e))
-            })
+            fs::read_to_string(&template_path)
+                .map_err(|e| LLMError::ProviderError(format!("Failed to read chat template: {e}")))
         } else {
             // Default template for models without chat_template.jinja
             Ok("{% for message in messages %}{% if message.role == 'system' %}{{ message.content }}{% elif message.role == 'user' %}User: {{ message.content }}{% elif message.role == 'assistant' %}Assistant: {{ message.content }}{% endif %}{% if not loop.last %}\n{% endif %}{% endfor %}\nAssistant:".to_string())
@@ -225,7 +224,7 @@ impl LiquidEdge {
 
         // Use LiquidEdge TemplateRenderer instead of manual minijinja
         let template_renderer = liquid_edge::templates::TemplateRenderer::new().map_err(|e| {
-            LLMError::ProviderError(format!("Failed to create template renderer: {}", e))
+            LLMError::ProviderError(format!("Failed to create template renderer: {e}"))
         })?;
 
         let mut context = HashMap::new();
@@ -244,13 +243,13 @@ impl LiquidEdge {
 
         let conversation = template_renderer
             .render(&self.chat_template, &context)
-            .map_err(|e| LLMError::ProviderError(format!("Failed to render template: {}", e)))?;
+            .map_err(|e| LLMError::ProviderError(format!("Failed to render template: {e}")))?;
 
         // Tokenize the conversation
         let input_ids = self
             .tokenizer
             .encode(&conversation, true)
-            .map_err(|e| LLMError::ProviderError(format!("Tokenization failed: {}", e)))?
+            .map_err(|e| LLMError::ProviderError(format!("Tokenization failed: {e}")))?
             .into_iter()
             .map(|id| id as i64)
             .collect::<Vec<_>>();
@@ -262,7 +261,7 @@ impl LiquidEdge {
         let generated_text = self
             .tokenizer
             .decode(&generated_tokens, true)
-            .map_err(|e| LLMError::ProviderError(format!("Failed to decode tokens: {}", e)))?;
+            .map_err(|e| LLMError::ProviderError(format!("Failed to decode tokens: {e}")))?;
 
         // Clean up the response
         let cleaned_response = generated_text.trim().replace("</s>", "").trim().to_string();
@@ -300,18 +299,18 @@ impl LiquidEdge {
             let output = self
                 .runtime
                 .infer(onnx_input)
-                .map_err(|e| LLMError::ProviderError(format!("Inference failed: {}", e)))?;
+                .map_err(|e| LLMError::ProviderError(format!("Inference failed: {e}")))?;
 
             // Get logits for the last token
             let last_logits = output
                 .last_token_logits()
-                .map_err(|e| LLMError::ProviderError(format!("Failed to get logits: {}", e)))?;
+                .map_err(|e| LLMError::ProviderError(format!("Failed to get logits: {e}")))?;
 
             // Sample next token
             let next_token = self
                 .sampler
                 .sample(last_logits, &gen_options)
-                .map_err(|e| LLMError::ProviderError(format!("Sampling failed: {}", e)))?;
+                .map_err(|e| LLMError::ProviderError(format!("Sampling failed: {e}")))?;
 
             // Check for end of sequence
             if next_token == self.eos_token_id {
@@ -352,7 +351,7 @@ impl ChatProvider for LiquidEdge {
             runtime: Arc::clone(&self.runtime),
             tokenizer: Arc::clone(&self.tokenizer),
             sampler: TopPSampler::new(self.top_p)
-                .map_err(|e| LLMError::ProviderError(format!("Failed to create sampler: {}", e)))?,
+                .map_err(|e| LLMError::ProviderError(format!("Failed to create sampler: {e}")))?,
             config: self.config.clone(),
             chat_template: self.chat_template.clone(),
             model_name: self.model_name.clone(),
@@ -375,14 +374,13 @@ impl ChatProvider for LiquidEdge {
             let schema_str =
                 serde_json::to_string_pretty(schema_json).unwrap_or_else(|_| "{}".to_string());
 
-            println!("DEBUG: Schema string: {}", schema_str);
+            println!("DEBUG: Schema string: {schema_str}");
 
             let json_instruction = format!(
-                "You must respond with valid JSON that matches this exact schema: {}. Do not include any text outside the JSON response.",
-                schema_str
+                "You must respond with valid JSON that matches this exact schema: {schema_str}. Do not include any text outside the JSON response."
             );
 
-            println!("DEBUG: JSON instruction: {}", json_instruction);
+            println!("DEBUG: JSON instruction: {json_instruction}");
 
             modified_messages.insert(
                 0,
@@ -481,7 +479,7 @@ impl LLMBuilder<LiquidEdge> {
 // Convert EdgeError to LLMError
 impl From<EdgeError> for LLMError {
     fn from(err: EdgeError) -> Self {
-        LLMError::ProviderError(format!("LiquidEdge error: {}", err))
+        LLMError::ProviderError(format!("LiquidEdge error: {err}"))
     }
 }
 

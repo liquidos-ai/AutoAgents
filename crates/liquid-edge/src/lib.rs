@@ -31,22 +31,6 @@
 //! ONNX Runtime with support for CPU and GPU acceleration.
 //!
 
-#![cfg_attr(docsrs, feature(doc_cfg))]
-#![allow(missing_docs)]
-#![warn(
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
-    clippy::cargo,
-    rust_2018_idioms
-)]
-#![allow(
-    clippy::module_name_repetitions,
-    clippy::must_use_candidate,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc
-)]
-
 // Core modules (always available)
 pub mod error;
 pub mod traits;
