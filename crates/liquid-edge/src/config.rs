@@ -107,6 +107,7 @@ pub struct SpecialToken {
 /// Map of special tokens
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[derive(Default)]
 pub struct SpecialTokensMap {
     /// Beginning-of-sequence token
     #[cfg_attr(feature = "serde", serde(default))]
@@ -270,19 +271,6 @@ impl Default for TokenizerConfig {
     }
 }
 
-impl Default for SpecialTokensMap {
-    fn default() -> Self {
-        Self {
-            bos_token: None,
-            eos_token: None,
-            unk_token: None,
-            pad_token: None,
-            mask_token: None,
-            additional_special_tokens: Vec::new(),
-        }
-    }
-}
-
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
@@ -341,10 +329,10 @@ impl ModelConfig {
     #[cfg(feature = "serde")]
     pub fn from_file<P: AsRef<Path>>(path: P) -> EdgeResult<Self> {
         let content = std::fs::read_to_string(path.as_ref())
-            .map_err(|e| EdgeError::configuration(format!("Failed to read config file: {}", e)))?;
+            .map_err(|e| EdgeError::configuration(format!("Failed to read config file: {e}")))?;
 
         let mut config: ModelConfig = serde_json::from_str(&content)
-            .map_err(|e| EdgeError::configuration(format!("Failed to parse config: {}", e)))?;
+            .map_err(|e| EdgeError::configuration(format!("Failed to parse config: {e}")))?;
 
         config.validate()?;
         config.normalize();
@@ -394,11 +382,11 @@ impl TokenizerConfig {
     #[cfg(feature = "serde")]
     pub fn from_file<P: AsRef<Path>>(path: P) -> EdgeResult<Self> {
         let content = std::fs::read_to_string(path.as_ref()).map_err(|e| {
-            EdgeError::configuration(format!("Failed to read tokenizer config: {}", e))
+            EdgeError::configuration(format!("Failed to read tokenizer config: {e}"))
         })?;
 
         let config: TokenizerConfig = serde_json::from_str(&content).map_err(|e| {
-            EdgeError::configuration(format!("Failed to parse tokenizer config: {}", e))
+            EdgeError::configuration(format!("Failed to parse tokenizer config: {e}"))
         })?;
 
         config.validate()?;
@@ -421,11 +409,11 @@ impl SpecialTokensMap {
     #[cfg(feature = "serde")]
     pub fn from_file<P: AsRef<Path>>(path: P) -> EdgeResult<Self> {
         let content = std::fs::read_to_string(path.as_ref()).map_err(|e| {
-            EdgeError::configuration(format!("Failed to read special tokens map: {}", e))
+            EdgeError::configuration(format!("Failed to read special tokens map: {e}"))
         })?;
 
         let map: SpecialTokensMap = serde_json::from_str(&content).map_err(|e| {
-            EdgeError::configuration(format!("Failed to parse special tokens map: {}", e))
+            EdgeError::configuration(format!("Failed to parse special tokens map: {e}"))
         })?;
 
         Ok(map)
@@ -489,8 +477,10 @@ impl RuntimeConfig {
 impl EdgeConfig {
     /// Create a new EdgeConfig with the given model name
     pub fn new(model_name: impl Into<String>) -> Self {
-        let mut model_config = ModelConfig::default();
-        model_config.model_name = model_name.into();
+        let model_config = ModelConfig {
+            model_name: model_name.into(),
+            ..Default::default()
+        };
 
         Self {
             model: model_config,
@@ -510,11 +500,11 @@ impl EdgeConfig {
     ) -> EdgeResult<Self> {
         let dir = dir.as_ref();
 
-        let model_config = ModelConfig::from_file(dir.join("config.json")).unwrap_or_else(|_| {
-            let mut config = ModelConfig::default();
-            config.model_name = model_name.into();
-            config
-        });
+        let model_config =
+            ModelConfig::from_file(dir.join("config.json")).unwrap_or_else(|_| ModelConfig {
+                model_name: model_name.into(),
+                ..Default::default()
+            });
 
         let tokenizer_config =
             TokenizerConfig::from_file(dir.join("tokenizer_config.json")).unwrap_or_default();

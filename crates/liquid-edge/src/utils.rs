@@ -198,8 +198,7 @@ pub mod validation {
     pub fn validate_sequence_length(length: usize, max_length: usize) -> EdgeResult<()> {
         if length > max_length {
             Err(EdgeError::invalid_input(format!(
-                "Sequence length {} exceeds maximum length {}",
-                length, max_length
+                "Sequence length {length} exceeds maximum length {max_length}"
             )))
         } else {
             Ok(())
@@ -210,8 +209,7 @@ pub mod validation {
     pub fn validate_probability(prob: f32, name: &str) -> EdgeResult<()> {
         if !(0.0..=1.0).contains(&prob) {
             Err(EdgeError::invalid_input(format!(
-                "{} must be between 0.0 and 1.0, got {}",
-                name, prob
+                "{name} must be between 0.0 and 1.0, got {prob}"
             )))
         } else {
             Ok(())
@@ -222,8 +220,7 @@ pub mod validation {
     pub fn validate_temperature(temperature: f32) -> EdgeResult<()> {
         if temperature < 0.0 {
             Err(EdgeError::invalid_input(format!(
-                "Temperature must be non-negative, got {}",
-                temperature
+                "Temperature must be non-negative, got {temperature}"
             )))
         } else {
             Ok(())
@@ -342,8 +339,7 @@ pub mod convert {
             .map(|&x| {
                 if x < 0 || x > u32::MAX as i64 {
                     Err(EdgeError::invalid_input(format!(
-                        "Value {} cannot be converted to u32",
-                        x
+                        "Value {x} cannot be converted to u32"
                     )))
                 } else {
                     Ok(x as u32)
@@ -365,8 +361,7 @@ pub mod convert {
     pub fn usize_to_u32(value: usize) -> EdgeResult<u32> {
         if value > u32::MAX as usize {
             Err(EdgeError::invalid_input(format!(
-                "Value {} is too large for u32",
-                value
+                "Value {value} is too large for u32"
             )))
         } else {
             Ok(value as u32)

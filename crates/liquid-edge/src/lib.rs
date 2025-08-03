@@ -196,6 +196,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Check if a feature is enabled at runtime
 pub fn is_feature_enabled(feature: &str) -> bool {
+    #[allow(clippy::match_like_matches_macro)]
     match feature {
         "onnx-runtime" => cfg!(feature = "onnx-runtime"),
         "chat" => cfg!(feature = "chat"),
@@ -230,10 +231,10 @@ pub fn init() -> EdgeResult<()> {
     // Initialize logging if not already done
     if log::max_level() == log::LevelFilter::Off {
         env_logger::try_init()
-            .map_err(|e| EdgeError::runtime(format!("Failed to initialize logging: {}", e)))?;
+            .map_err(|e| EdgeError::runtime(format!("Failed to initialize logging: {e}")))?;
     }
 
-    log::info!("Liquid Edge v{} initialized", VERSION);
+    log::info!("Liquid Edge v{VERSION} initialized");
     log::debug!("Enabled features: {:?}", enabled_features());
 
     Ok(())
@@ -244,13 +245,9 @@ pub fn init_with_level(level: log::LevelFilter) -> EdgeResult<()> {
     env_logger::Builder::from_default_env()
         .filter_level(level)
         .try_init()
-        .map_err(|e| EdgeError::runtime(format!("Failed to initialize logging: {}", e)))?;
+        .map_err(|e| EdgeError::runtime(format!("Failed to initialize logging: {e}")))?;
 
-    log::info!(
-        "Liquid Edge v{} initialized with log level {:?}",
-        VERSION,
-        level
-    );
+    log::info!("Liquid Edge v{VERSION} initialized with log level {level:?}");
     log::debug!("Enabled features: {:?}", enabled_features());
 
     Ok(())

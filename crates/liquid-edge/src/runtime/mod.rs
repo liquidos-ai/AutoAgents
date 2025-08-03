@@ -79,18 +79,17 @@ impl RuntimeFactory {
         match extension.as_str() {
             "onnx" => Self::create_onnx_runtime(path, model_name),
             _ => Err(EdgeError::model(format!(
-                "Unsupported model format: {}",
-                extension
+                "Unsupported model format: {extension}"
             ))),
         }
     }
 
     /// Get list of supported runtime backends
     pub fn supported_backends() -> Vec<&'static str> {
-        let mut backends = Vec::new();
-
         #[cfg(feature = "onnx-runtime")]
-        backends.push("onnx");
+        let backends = vec!["onnx"];
+        #[cfg(not(feature = "onnx-runtime"))]
+        let backends = vec![];
 
         backends
     }
@@ -139,10 +138,10 @@ impl ModelLoader for GenericModelLoader {
     }
 
     fn supported_extensions(&self) -> Vec<&'static str> {
-        let mut extensions = Vec::new();
-
         #[cfg(feature = "onnx-runtime")]
-        extensions.push("onnx");
+        let extensions = vec!["onnx"];
+        #[cfg(not(feature = "onnx-runtime"))]
+        let extensions = vec![];
 
         extensions
     }

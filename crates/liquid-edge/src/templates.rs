@@ -33,7 +33,7 @@ impl TemplateRenderer {
         let mut context_map = HashMap::new();
 
         for (key, value) in context {
-            let jinja_value = self.convert_json_to_jinja(value)?;
+            let jinja_value = Self::convert_json_to_jinja(value)?;
             context_map.insert(key.clone(), jinja_value);
         }
 
@@ -42,11 +42,11 @@ impl TemplateRenderer {
 
         let template = env
             .template_from_str(template_str)
-            .map_err(|e| EdgeError::template(format!("Failed to parse template: {}", e)))?;
+            .map_err(|e| EdgeError::template(format!("Failed to parse template: {e}")))?;
 
         template
             .render(&jinja_context)
-            .map_err(|e| EdgeError::template(format!("Failed to render template: {}", e)))
+            .map_err(|e| EdgeError::template(format!("Failed to render template: {e}")))
     }
 
     /// Load template from file
@@ -56,13 +56,13 @@ impl TemplateRenderer {
         path: P,
     ) -> EdgeResult<()> {
         let _content = std::fs::read_to_string(path)
-            .map_err(|e| EdgeError::template(format!("Failed to read template file: {}", e)))?;
+            .map_err(|e| EdgeError::template(format!("Failed to read template file: {e}")))?;
         // Simplified: would store template for later use
         Ok(())
     }
 
     /// Convert serde_json::Value to minijinja::Value
-    fn convert_json_to_jinja(&self, value: &serde_json::Value) -> EdgeResult<minijinja::Value> {
+    fn convert_json_to_jinja(value: &serde_json::Value) -> EdgeResult<minijinja::Value> {
         match value {
             serde_json::Value::Null => Ok(minijinja::Value::UNDEFINED),
             serde_json::Value::Bool(b) => Ok(minijinja::Value::from(*b)),
@@ -79,14 +79,14 @@ impl TemplateRenderer {
             serde_json::Value::Array(arr) => {
                 let mut vec = Vec::new();
                 for item in arr {
-                    vec.push(self.convert_json_to_jinja(item)?);
+                    vec.push(Self::convert_json_to_jinja(item)?);
                 }
                 Ok(minijinja::Value::from(vec))
             }
             serde_json::Value::Object(obj) => {
                 let mut map = HashMap::new();
                 for (key, val) in obj {
-                    map.insert(key.clone(), self.convert_json_to_jinja(val)?);
+                    map.insert(key.clone(), Self::convert_json_to_jinja(val)?);
                 }
                 Ok(minijinja::Value::from_object(map))
             }
@@ -219,7 +219,7 @@ pub mod utils {
     pub fn validate_template(template_str: &str) -> EdgeResult<()> {
         let env = Environment::new();
         env.template_from_str(template_str)
-            .map_err(|e| EdgeError::template(format!("Invalid template syntax: {}", e)))?;
+            .map_err(|e| EdgeError::template(format!("Invalid template syntax: {e}")))?;
         Ok(())
     }
 
@@ -252,10 +252,9 @@ pub mod utils {
 
                     if !var_name.is_empty()
                         && var_name.chars().all(|c| c.is_alphanumeric() || c == '_')
+                        && !variables.contains(&var_name)
                     {
-                        if !variables.contains(&var_name) {
-                            variables.push(var_name);
-                        }
+                        variables.push(var_name);
                     }
 
                     pos = abs_end + 2;

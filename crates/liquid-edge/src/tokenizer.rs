@@ -23,7 +23,7 @@ impl Tokenizer {
     /// Create a new tokenizer from a file
     pub fn from_file<P: AsRef<Path>>(tokenizer_path: P) -> EdgeResult<Self> {
         let inner = HfTokenizer::from_file(tokenizer_path)
-            .map_err(|e| EdgeError::tokenization(format!("Failed to load tokenizer: {}", e)))?;
+            .map_err(|e| EdgeError::tokenization(format!("Failed to load tokenizer: {e}")))?;
 
         Ok(Self {
             inner,
@@ -40,7 +40,7 @@ impl Tokenizer {
         special_tokens: SpecialTokensMap,
     ) -> EdgeResult<Self> {
         let inner = HfTokenizer::from_file(tokenizer_path)
-            .map_err(|e| EdgeError::tokenization(format!("Failed to load tokenizer: {}", e)))?;
+            .map_err(|e| EdgeError::tokenization(format!("Failed to load tokenizer: {e}")))?;
 
         let special_token_ids = Self::extract_special_token_ids(&inner, &special_tokens)?;
 
@@ -62,7 +62,7 @@ impl Tokenizer {
 
         // Load tokenizer
         let inner = HfTokenizer::from_file(&tokenizer_path)
-            .map_err(|e| EdgeError::tokenization(format!("Failed to load tokenizer: {}", e)))?;
+            .map_err(|e| EdgeError::tokenization(format!("Failed to load tokenizer: {e}")))?;
 
         // Load configuration
         let config = if config_path.exists() {
@@ -158,7 +158,7 @@ impl Tokenizer {
         let encodings = self
             .inner
             .encode_batch(texts.to_vec(), add_special_tokens)
-            .map_err(|e| EdgeError::tokenization(format!("Batch encoding failed: {}", e)))?;
+            .map_err(|e| EdgeError::tokenization(format!("Batch encoding failed: {e}")))?;
 
         Ok(encodings
             .into_iter()
@@ -178,7 +178,7 @@ impl Tokenizer {
             let decoded = self
                 .inner
                 .decode(tokens, skip_special_tokens)
-                .map_err(|e| EdgeError::tokenization(format!("Batch decoding failed: {}", e)))?;
+                .map_err(|e| EdgeError::tokenization(format!("Batch decoding failed: {e}")))?;
             results.push(decoded);
         }
 
@@ -265,7 +265,7 @@ impl TokenizerTrait for Tokenizer {
         let encoding = self
             .inner
             .encode(text, add_special_tokens)
-            .map_err(|e| EdgeError::tokenization(format!("Encoding failed: {}", e)))?;
+            .map_err(|e| EdgeError::tokenization(format!("Encoding failed: {e}")))?;
 
         let mut tokens = encoding.get_ids().to_vec();
 
@@ -302,7 +302,7 @@ impl TokenizerTrait for Tokenizer {
         let decoded = self
             .inner
             .decode(token_ids, skip_special_tokens)
-            .map_err(|e| EdgeError::tokenization(format!("Decoding failed: {}", e)))?;
+            .map_err(|e| EdgeError::tokenization(format!("Decoding failed: {e}")))?;
 
         // Clean up tokenization spaces if configured
         if self.config.clean_up_tokenization_spaces {
@@ -324,7 +324,7 @@ impl TokenizerTrait for Tokenizer {
         let encoding = self
             .inner
             .encode(text, true)
-            .map_err(|e| EdgeError::tokenization(format!("Detailed tokenization failed: {}", e)))?;
+            .map_err(|e| EdgeError::tokenization(format!("Detailed tokenization failed: {e}")))?;
 
         let token_ids = encoding.get_ids().to_vec();
         let tokens = encoding.get_tokens().to_vec();

@@ -52,14 +52,14 @@ impl OnnxRuntime {
                 .with_name("liquid_edge_onnx")
                 .build()
                 .map_err(|e| {
-                    EdgeError::runtime(format!("Failed to create ONNX environment: {}", e))
+                    EdgeError::runtime(format!("Failed to create ONNX environment: {e}"))
                 })?,
         );
 
         let session = SessionBuilder::new(&environment)
-            .map_err(|e| EdgeError::runtime(format!("Failed to create session builder: {}", e)))?
+            .map_err(|e| EdgeError::runtime(format!("Failed to create session builder: {e}")))?
             .with_model_from_file(model_path.as_ref())
-            .map_err(|e| EdgeError::model(format!("Failed to load ONNX model: {}", e)))?;
+            .map_err(|e| EdgeError::model(format!("Failed to load ONNX model: {e}")))?;
 
         // Extract model information from session metadata
         let model_info = Self::extract_model_info(&session, model_name)?;
@@ -83,22 +83,22 @@ impl OnnxRuntime {
                 .with_name("liquid_edge_onnx")
                 .build()
                 .map_err(|e| {
-                    EdgeError::runtime(format!("Failed to create ONNX environment: {}", e))
+                    EdgeError::runtime(format!("Failed to create ONNX environment: {e}"))
                 })?,
         );
 
         let mut session_builder = SessionBuilder::new(&environment)
-            .map_err(|e| EdgeError::runtime(format!("Failed to create session builder: {}", e)))?;
+            .map_err(|e| EdgeError::runtime(format!("Failed to create session builder: {e}")))?;
 
         if let Some(threads) = num_threads {
             session_builder = session_builder
                 .with_intra_threads(threads as i16)
-                .map_err(|e| EdgeError::runtime(format!("Failed to set thread count: {}", e)))?;
+                .map_err(|e| EdgeError::runtime(format!("Failed to set thread count: {e}")))?;
         }
 
         let session = session_builder
             .with_model_from_file(model_path.as_ref())
-            .map_err(|e| EdgeError::model(format!("Failed to load ONNX model: {}", e)))?;
+            .map_err(|e| EdgeError::model(format!("Failed to load ONNX model: {e}")))?;
 
         let model_info = Self::extract_model_info(&session, model_name)?;
 
@@ -135,9 +135,7 @@ impl OnnxRuntime {
 
         // Create all arrays first to ensure they live long enough
         let input_ids_array = ArrayD::from_shape_vec(vec![1, seq_len], input.input_ids.clone())
-            .map_err(|e| {
-                EdgeError::inference(format!("Failed to create input_ids tensor: {}", e))
-            })?;
+            .map_err(|e| EdgeError::inference(format!("Failed to create input_ids tensor: {e}")))?;
         let input_ids_cow = CowArray::from(input_ids_array);
 
         let attention_mask = if let Some(ref mask) = input.attention_mask {
@@ -147,7 +145,7 @@ impl OnnxRuntime {
         };
         let attention_array =
             ArrayD::from_shape_vec(vec![1, seq_len], attention_mask).map_err(|e| {
-                EdgeError::inference(format!("Failed to create attention_mask tensor: {}", e))
+                EdgeError::inference(format!("Failed to create attention_mask tensor: {e}"))
             })?;
         let attention_cow = CowArray::from(attention_array);
 
@@ -160,7 +158,7 @@ impl OnnxRuntime {
             };
             let position_array =
                 ArrayD::from_shape_vec(vec![1, seq_len], position_ids).map_err(|e| {
-                    EdgeError::inference(format!("Failed to create position_ids tensor: {}", e))
+                    EdgeError::inference(format!("Failed to create position_ids tensor: {e}"))
                 })?;
             Some(CowArray::from(position_array))
         } else {
@@ -169,13 +167,11 @@ impl OnnxRuntime {
 
         // Now create tensors - all arrays are guaranteed to live until the end of this function
         let input_ids_tensor = Value::from_array(self.session.allocator(), &input_ids_cow)
-            .map_err(|e| {
-                EdgeError::inference(format!("Failed to create input_ids value: {}", e))
-            })?;
+            .map_err(|e| EdgeError::inference(format!("Failed to create input_ids value: {e}")))?;
 
         let attention_tensor = Value::from_array(self.session.allocator(), &attention_cow)
             .map_err(|e| {
-                EdgeError::inference(format!("Failed to create attention_mask value: {}", e))
+                EdgeError::inference(format!("Failed to create attention_mask value: {e}"))
             })?;
 
         let mut inputs = vec![input_ids_tensor, attention_tensor];
@@ -184,7 +180,7 @@ impl OnnxRuntime {
         if let Some(ref pos_cow) = position_cow {
             let position_tensor =
                 Value::from_array(self.session.allocator(), pos_cow).map_err(|e| {
-                    EdgeError::inference(format!("Failed to create position_ids value: {}", e))
+                    EdgeError::inference(format!("Failed to create position_ids value: {e}"))
                 })?;
             inputs.push(position_tensor);
         }
@@ -193,7 +189,7 @@ impl OnnxRuntime {
         let outputs = self
             .session
             .run(inputs)
-            .map_err(|e| EdgeError::inference(format!("ONNX inference failed: {}", e)))?;
+            .map_err(|e| EdgeError::inference(format!("ONNX inference failed: {e}")))?;
 
         // Process outputs
         if outputs.is_empty() {
@@ -203,7 +199,7 @@ impl OnnxRuntime {
         let logits_tensor = &outputs[0];
         let logits_data = logits_tensor
             .try_extract::<f32>()
-            .map_err(|e| EdgeError::inference(format!("Failed to extract logits: {}", e)))?;
+            .map_err(|e| EdgeError::inference(format!("Failed to extract logits: {e}")))?;
 
         let shape = logits_data.view().shape().to_vec();
         let logits = logits_data.view().iter().cloned().collect();
@@ -227,7 +223,7 @@ impl InferenceRuntime for OnnxRuntime {
         let result = self.run_inference(&inputs)?;
 
         let inference_time = start_time.elapsed().as_millis() as f64;
-        log::debug!("ONNX inference completed in {:.2}ms", inference_time);
+        log::debug!("ONNX inference completed in {inference_time:.2}ms");
 
         Ok(result)
     }
