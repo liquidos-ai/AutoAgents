@@ -210,6 +210,22 @@ struct OpenAIChatStreamChoice {
 #[derive(Deserialize, Debug)]
 struct OpenAIChatStreamDelta {
     content: Option<String>,
+    tool_calls: Option<Vec<OpenAIStreamToolCall>>,
+}
+
+#[derive(Deserialize, Debug)]
+struct OpenAIStreamToolCall {
+    index: Option<u32>,
+    id: Option<String>,
+    #[serde(rename = "type")]
+    call_type: Option<String>,
+    function: Option<OpenAIStreamFunction>,
+}
+
+#[derive(Deserialize, Debug)]
+struct OpenAIStreamFunction {
+    name: Option<String>,
+    arguments: Option<String>,
 }
 
 /// An object specifying the format that the model must output.
@@ -563,7 +579,7 @@ impl ChatProvider for OpenAI {
             messages: openai_msgs,
             max_tokens: self.max_tokens,
             temperature: self.temperature,
-            stream: self.stream.unwrap_or(false),
+            stream: false, // Always use non-streaming for tool calls to ensure compatibility
             top_p: self.top_p,
             top_k: self.top_k,
             tools: request_tools,
@@ -917,6 +933,8 @@ impl LLMProvider for OpenAI {
     fn tools(&self) -> Option<&[Tool]> {
         self.tools.as_deref()
     }
+
+
 }
 
 /// Parses a Server-Sent Events (SSE) chunk from OpenAI's streaming API.
@@ -948,8 +966,23 @@ fn parse_sse_chunk(chunk: &str) -> Result<Option<String>, LLMError> {
             match serde_json::from_str::<OpenAIChatStreamResponse>(data) {
                 Ok(response) => {
                     if let Some(choice) = response.choices.first() {
+                        // Handle text content
                         if let Some(content) = &choice.delta.content {
                             collected_content.push_str(content);
+                        }
+                        
+                        // Handle tool calls - convert them to a readable format
+                        if let Some(tool_calls) = &choice.delta.tool_calls {
+                            for tool_call in tool_calls {
+                                if let Some(function) = &tool_call.function {
+                                    if let Some(name) = &function.name {
+                                        collected_content.push_str(&format!("\n[Tool Call: {}]", name));
+                                    }
+                                    if let Some(arguments) = &function.arguments {
+                                        collected_content.push_str(&format!(" Arguments: {}", arguments));
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1005,4 +1038,5 @@ impl LLMBuilder<OpenAI> {
 
         Ok(Arc::new(openai))
     }
+    
 }
