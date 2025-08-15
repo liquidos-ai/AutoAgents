@@ -18,12 +18,20 @@ enum UseCase {
     Edge,
 }
 
+#[derive(Debug, Clone, ValueEnum)]
+enum EdgeDevice {
+    CPU,
+    CUDA,
+}
+
 /// Simple program to demonstrate AutoAgents functionality
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
     #[arg(short, long, help = "usecase")]
     usecase: UseCase,
+    #[arg(short, long, help = "device", default_value = "cpu")]
+    device: EdgeDevice,
 }
 
 #[tokio::main]
@@ -47,7 +55,7 @@ async fn main() -> Result<(), Error> {
         UseCase::Simple => simple::simple_agent(llm).await?,
         UseCase::Chaining => chaining::run(llm).await?,
         UseCase::SingleThreaded => single_threaded::single_threaded_agent(llm).await?,
-        UseCase::Edge => liquid_edge::edge_agent().await?,
+        UseCase::Edge => liquid_edge::edge_agent(args.device).await?,
     }
 
     Ok(())

@@ -10,11 +10,16 @@ use autoagents::llm::backends::liquid_edge::LiquidEdge;
 use autoagents::llm::builder::LLMBuilder;
 use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
 use colored::*;
+use liquid_edge::cpu;
+use liquid_edge::device::cuda_default;
+use liquid_edge::runtime::onnx::onnx_model;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
 use std::sync::Arc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
+
+use crate::EdgeDevice;
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct AdditionArgs {
@@ -58,19 +63,37 @@ pub struct MathAgent {}
 
 impl ReActExecutor for MathAgent {}
 
-pub async fn edge_agent() -> Result<(), Error> {
-    // Initialize and configure the LLM client
+pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
+    // Create ONNX model abstraction
+    let model_path = Path::new("./demo_models/tinyllama");
+    let model = match onnx_model(model_path) {
+        Ok(model) => model,
+        Err(e) => {
+            return Err(Error::LLMError(
+                autoagents::llm::error::LLMError::ProviderError(format!(
+                    "Model loading failed: {}",
+                    e
+                )),
+            ));
+        }
+    };
+
+    // Use CUDA device (will fallback to CPU if CUDA is not available)
+    let device = match device {
+        EdgeDevice::CPU => cpu(),
+        EdgeDevice::CUDA => cuda_default(),
+    };
+    println!("Using device: {}", device);
+
+    // Initialize and configure the LLM client with device
     let llm: Arc<LiquidEdge> = LLMBuilder::<LiquidEdge>::new()
-        .base_url(
-            Path::new("./models/tinyllama")
-                .to_str()
-                .unwrap()
-                .to_string(),
-        )
-        .max_tokens(1024) // Limit response length
+        .with_model(model)
+        .with_device(device)
+        .max_tokens(50) // Limit response length for faster testing
         .temperature(0.2) // Control response randomness (0.0-1.0)
         .stream(false) // Disable streaming responses
         .build()
+        .await
         .expect("Failed to build LLM");
 
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));

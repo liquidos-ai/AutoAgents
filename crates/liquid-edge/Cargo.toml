@@ -3,57 +3,40 @@ name = "liquid-edge"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "High-performance edge inference runtime for LLMs with ONNX support"
+description = "Minimal edge inference runtime for LLMs"
 repository.workspace = true
-keywords = ["inference", "llm", "onnx", "edge", "runtime"]
-categories = ["science", "algorithms", "wasm"]
+keywords = ["inference", "llm", "edge", "runtime"]
+categories = ["science", "algorithms"]
 readme = "README.md"
 
 [features]
-default = ["onnx-runtime", "chat", "jinja-templates", "serde"]
-
-# Runtime backends
-onnx-runtime = ["dep:ort", "dep:ndarray"]
-
-# Core features
-chat = ["dep:minijinja", "jinja-templates"]
-jinja-templates = ["dep:minijinja"]
-
-# Serialization features
-serde = ["dep:serde", "dep:serde_json"]
+default = ["onnx"]
+onnx = ["dep:ort", "dep:ndarray"]
+cuda = ["onnx", "ort/cuda"]
 
 [dependencies]
-# Core dependencies (always included)
-anyhow = "1.0"
-thiserror = "1.0"
-log = "0.4"
-
-# Optional dependencies based on features
-tokio = { version = "1.43", features = [
-    "rt",
-    "rt-multi-thread",
-    "macros",
-    "sync",
-    "fs",
-] }
-async-trait = { version = "0.1" }
-serde = { version = "1.0", features = ["derive"], optional = true }
-serde_json = { version = "1.0", optional = true }
+# Core dependencies
+thiserror = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "fs"] }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 # ONNX Runtime support
-ort = { version = "1.16", optional = true }
-ndarray = { version = "0.15", optional = true }
+ort = { version = "=2.0.0-rc.10", optional = true, features = [
+    "copy-dylibs",
+    "half",
+    "std",
+] }
+ndarray = { workspace = true, optional = true }
 
-# Tokenization
-tokenizers = "0.20"
-
-# Chat and templating
-minijinja = { version = "2.0", optional = true }
 
 # Utilities
-rand = "0.8"
-env_logger = "0.11"
+rand = { workspace = true }
+chrono = { workspace = true }
+num_cpus = "1.16"
 
 [dev-dependencies]
-tokio-test = "0.4"
-tempfile = "3.0"
+tokio-test = { workspace = true }
+tempfile = { workspace = true }

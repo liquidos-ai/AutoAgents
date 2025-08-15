@@ -30,12 +30,12 @@ keywords = ["agents", "llm"]
 categories = []
 
 [workspace.dependencies]
-autoagents = { path = "crates/autoagents", version = "0.2.1" }
-autoagents-llm = { path = "crates/llm", version = "0.2.1" }
-autoagents-derive = { path = "crates/derive", version = "0.2.1" }
-autoagents-core = { path = "crates/core", version = "0.2.1" }
-autoagents-test-utils = { path = "crates/test_utils", version = "0.2.1" }
-liquid-edge = { path = "crates/liquid-edge", version = "0.2.1" }
+autoagents = { path = "crates/autoagents" }
+autoagents-llm = { path = "crates/llm" }
+autoagents-derive = { path = "crates/derive" }
+autoagents-core = { path = "crates/core" }
+autoagents-test-utils = { path = "crates/test_utils" }
+liquid-edge = { path = "crates/liquid-edge" }
 syn = { version = "2.0.98", features = ["full"] }
 tokio = { version = "1.43.0", features = ["full"] }
 async-trait = "0.1.86"
@@ -54,10 +54,21 @@ ureq = { version = "3.0.8", features = ["json"] }
 uuid = { version = "1.15.1", features = ["v4"] }
 log = "0.4"
 env_logger = { version = "0.11" }
-chrono = { version = "0.4", default-features = false, features = ["serde"] }
+chrono = { version = "0.4", default-features = false, features = [
+    "serde",
+    "clock",
+] }
 dirs = "6.0.0"
 regex = "1.11.1"
 glob = "0.3"
 walkdir = "2.4"
 ignore = "0.4"
 wasmtime = "35.0.0"
+tokenizers = "0.21"
+rand = "0.8"
+minijinja = "2.3"
+base64 = "0.22.1"
+either = { version = "1.15.0", features = ["serde"] }
+tempfile = "3.10.1"
+ndarray = "0.16"
+tokio-test = "0.4"

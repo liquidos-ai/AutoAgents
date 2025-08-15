@@ -32,5 +32,5 @@ env_logger = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
-autoagents-test-utils = { path = "../test_utils" }
+autoagents-test-utils = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

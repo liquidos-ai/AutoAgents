@@ -42,4 +42,4 @@ log = { workspace = true, features = ["std"] }
 wasmtime = { workspace = true, optional = true }
 
 [dev-dependencies]
-autoagents-test-utils = { path = "../test_utils" }
+autoagents-test-utils = { workspace = true }

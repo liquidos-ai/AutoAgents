@@ -1,294 +1,157 @@
-//! Runtime backends for liquid-edge inference
+//! Generic inference runtime for edge computing
 //!
-//! This module provides different inference runtime backends that can be
-//! enabled through feature flags. Each backend implements the core
-//! `InferenceRuntime` trait to provide a consistent interface.
-//!
-//! ## Available Backends
-//!
-//! - **ONNX Runtime** (`onnx-runtime` feature): High-performance inference
-//!   using Microsoft's ONNX Runtime with CPU and GPU acceleration support.
-//!
-//! ## Example
-//!
-//! ```rust,no_run
-//! # #[cfg(feature = "onnx-runtime")]
-//! # async fn example() -> liquid_edge::EdgeResult<()> {
-//! use liquid_edge::runtime::{OnnxRuntime, OnnxInput};
-//! use liquid_edge::traits::InferenceRuntime;
-//!
-//! // Create ONNX runtime
-//! let runtime = OnnxRuntime::new("path/to/model.onnx", "my-model".to_string())?;
-//!
-//! // Prepare input
-//! let input = OnnxInput::new(vec![1, 2, 3, 4, 5]);
-//!
-//! // Run inference
-//! let output = runtime.infer(input).await?;
-//! # Ok(())
-//! # }
-//! ```
+//! This module provides a generic interface for running inference on various
+//! deep learning models using different backends.
 
 use crate::error::{EdgeError, EdgeResult};
-use crate::traits::ModelLoader;
-use std::path::Path;
+use serde_json::Value;
+use std::collections::HashMap;
 
-// Import runtime backends based on features
-#[cfg(feature = "onnx-runtime")]
+#[cfg(feature = "onnx")]
 pub mod onnx;
 
-#[cfg(feature = "onnx-runtime")]
-pub use onnx::{OnnxInput, OnnxOutput, OnnxRuntime};
+/// Generic input for inference operations
+#[derive(Debug, Clone, Default)]
+pub struct InferenceInput {
+    /// Named tensor inputs as key-value pairs
+    /// Keys are input names, values are the tensor data as JSON
+    pub inputs: HashMap<String, Value>,
+    /// Input metadata
+    pub metadata: HashMap<String, Value>,
+}
 
-// Runtime factory for creating backends
-pub struct RuntimeFactory;
+/// Generic output from inference operations
+#[derive(Debug, Clone, Default)]
+pub struct InferenceOutput {
+    /// Named tensor outputs as key-value pairs
+    /// Keys are output names, values are the tensor data as JSON
+    pub outputs: HashMap<String, Value>,
+    /// Output metadata
+    pub metadata: HashMap<String, Value>,
+}
 
-impl RuntimeFactory {
-    /// Create an ONNX runtime instance
-    #[cfg(feature = "onnx-runtime")]
-    pub fn create_onnx_runtime<P: AsRef<Path>>(
-        model_path: P,
-        model_name: impl Into<String>,
-    ) -> EdgeResult<OnnxRuntime> {
-        OnnxRuntime::new(model_path, model_name.into())
+/// Generic inference runtime trait
+pub trait RuntimeBackend: Send + Sync {
+    /// Run inference with the given inputs
+    fn infer(&mut self, input: InferenceInput) -> EdgeResult<InferenceOutput>;
+
+    /// Get model information
+    fn model_info(&self) -> HashMap<String, Value>;
+
+    /// Check if the runtime is ready for inference
+    fn is_ready(&self) -> bool;
+
+    /// Get backend-specific metadata
+    fn backend_info(&self) -> HashMap<String, Value>;
+}
+
+/// Main inference runtime that manages different backends
+pub struct InferenceRuntime {
+    backend: Box<dyn RuntimeBackend>,
+    runtime_metadata: HashMap<String, Value>,
+}
+
+impl InferenceRuntime {
+    /// Create a new inference runtime from a model with a specific device
+    pub async fn from_model_with_device(
+        model: Box<dyn crate::Model>,
+        device: crate::Device,
+    ) -> EdgeResult<Self> {
+        let backend_type = model.model_type().to_string();
+
+        let backend: Box<dyn RuntimeBackend> = match backend_type.as_str() {
+            #[cfg(feature = "onnx")]
+            "onnx" => {
+                let backend = onnx::OnnxBackend::from_model_with_device(model, device)?;
+                Box::new(backend)
+            }
+            _ => {
+                return Err(EdgeError::runtime(format!(
+                    "Unsupported model type: {backend_type}"
+                )));
+            }
+        };
+
+        let mut runtime_metadata = HashMap::new();
+        runtime_metadata.insert("backend_type".to_string(), Value::String(backend_type));
+        runtime_metadata.insert("device_type".to_string(), Value::String(device.to_string()));
+        runtime_metadata.insert(
+            "created_at".to_string(),
+            Value::String(chrono::Utc::now().to_rfc3339()),
+        );
+
+        Ok(Self {
+            backend,
+            runtime_metadata,
+        })
     }
 
-    /// Create an ONNX runtime with custom options
-    #[cfg(feature = "onnx-runtime")]
-    pub fn create_onnx_runtime_with_options<P: AsRef<Path>>(
-        model_path: P,
-        model_name: impl Into<String>,
-        num_threads: Option<usize>,
-    ) -> EdgeResult<OnnxRuntime> {
-        OnnxRuntime::with_options(model_path, model_name.into(), num_threads)
+    /// Create a new inference runtime from a model (uses CPU device by default)
+    pub async fn from_model(model: Box<dyn crate::Model>) -> EdgeResult<Self> {
+        let device = crate::device::cpu();
+        Self::from_model_with_device(model, device).await
     }
 
-    /// Auto-detect runtime based on model file extension
-    #[cfg(feature = "onnx-runtime")]
-    pub fn auto_detect_runtime<P: AsRef<Path>>(
-        model_path: P,
-        model_name: impl Into<String>,
-    ) -> EdgeResult<OnnxRuntime> {
-        let path = model_path.as_ref();
-        let extension = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        match extension.as_str() {
-            "onnx" => Self::create_onnx_runtime(path, model_name),
-            _ => Err(EdgeError::model(format!(
-                "Unsupported model format: {extension}"
-            ))),
+    /// Run inference on the loaded model
+    pub fn infer(&mut self, input: InferenceInput) -> EdgeResult<InferenceOutput> {
+        if !self.backend.is_ready() {
+            return Err(EdgeError::runtime("Backend is not ready for inference"));
         }
+
+        self.backend.infer(input)
     }
 
-    /// Get list of supported runtime backends
-    pub fn supported_backends() -> Vec<&'static str> {
-        #[cfg(feature = "onnx-runtime")]
-        let backends = vec!["onnx"];
-        #[cfg(not(feature = "onnx-runtime"))]
-        let backends = vec![];
-
-        backends
+    /// Get comprehensive model information
+    pub fn model_info(&self) -> HashMap<String, Value> {
+        let mut info = self.backend.model_info();
+        info.extend(self.runtime_metadata.clone());
+        info
     }
 
-    /// Check if a specific backend is available
-    pub fn is_backend_available(backend: &str) -> bool {
-        match backend {
-            #[cfg(feature = "onnx-runtime")]
-            "onnx" => true,
-            #[cfg(not(feature = "onnx-runtime"))]
-            "onnx" => false,
-            _ => false,
-        }
+    /// Check if the runtime is ready for inference
+    pub fn is_ready(&self) -> bool {
+        self.backend.is_ready()
+    }
+
+    /// Get backend information
+    pub fn backend_info(&self) -> HashMap<String, Value> {
+        self.backend.backend_info()
     }
 }
 
-/// Generic model loader that can handle multiple formats
-#[cfg(feature = "onnx-runtime")]
-pub struct GenericModelLoader;
-
-#[cfg(feature = "onnx-runtime")]
-impl ModelLoader for GenericModelLoader {
-    type Runtime = OnnxRuntime;
-
-    fn load_model<P: AsRef<Path>>(&self, model_path: P) -> EdgeResult<Self::Runtime> {
-        // Extract model name from path
-        let model_name = model_path
-            .as_ref()
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .unwrap_or("unknown")
-            .to_string();
-
-        RuntimeFactory::auto_detect_runtime(model_path, model_name)
-    }
-
-    fn supports_format<P: AsRef<Path>>(&self, model_path: P) -> bool {
-        let path = model_path.as_ref();
-        let extension = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        self.supported_extensions().contains(&extension.as_str())
-    }
-
-    fn supported_extensions(&self) -> Vec<&'static str> {
-        #[cfg(feature = "onnx-runtime")]
-        let extensions = vec!["onnx"];
-        #[cfg(not(feature = "onnx-runtime"))]
-        let extensions = vec![];
-
-        extensions
-    }
-}
-
-/// Runtime configuration builder
-#[derive(Debug, Clone)]
-pub struct RuntimeConfig {
-    pub num_threads: Option<usize>,
-    pub memory_pattern: bool,
-    pub enable_profiling: bool,
-    pub optimization_level: OptimizationLevel,
-}
-
-/// Optimization levels for runtime performance tuning
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OptimizationLevel {
-    /// No optimization - fastest startup
-    None,
-    /// Basic optimizations - balanced startup and performance
-    Basic,
-    /// All optimizations - best performance, slower startup
-    All,
-}
-
-impl Default for RuntimeConfig {
-    fn default() -> Self {
-        Self {
-            num_threads: None, // Auto-detect
-            memory_pattern: true,
-            enable_profiling: false,
-            optimization_level: OptimizationLevel::Basic,
-        }
-    }
-}
-
-impl RuntimeConfig {
-    /// Create a new runtime configuration
+impl InferenceInput {
+    /// Create a new empty inference input
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Set number of threads for inference
-    pub fn with_threads(mut self, num_threads: usize) -> Self {
-        self.num_threads = Some(num_threads);
+    /// Add a tensor input
+    pub fn add_input(mut self, name: String, data: Value) -> Self {
+        self.inputs.insert(name, data);
         self
     }
 
-    /// Enable or disable memory pattern optimization
-    pub fn with_memory_pattern(mut self, enable: bool) -> Self {
-        self.memory_pattern = enable;
+    /// Add metadata
+    pub fn add_metadata(mut self, key: String, value: Value) -> Self {
+        self.metadata.insert(key, value);
         self
-    }
-
-    /// Enable or disable profiling
-    pub fn with_profiling(mut self, enable: bool) -> Self {
-        self.enable_profiling = enable;
-        self
-    }
-
-    /// Set optimization level
-    pub fn with_optimization_level(mut self, level: OptimizationLevel) -> Self {
-        self.optimization_level = level;
-        self
-    }
-
-    /// Create a high-performance configuration
-    pub fn high_performance() -> Self {
-        Self {
-            num_threads: None, // Use all available threads
-            memory_pattern: true,
-            enable_profiling: false,
-            optimization_level: OptimizationLevel::All,
-        }
-    }
-
-    /// Create a low-latency configuration
-    pub fn low_latency() -> Self {
-        Self {
-            num_threads: Some(1), // Single thread for predictable latency
-            memory_pattern: false,
-            enable_profiling: false,
-            optimization_level: OptimizationLevel::Basic,
-        }
-    }
-
-    /// Create a memory-efficient configuration
-    pub fn memory_efficient() -> Self {
-        Self {
-            num_threads: Some(2), // Limited threads to save memory
-            memory_pattern: true,
-            enable_profiling: false,
-            optimization_level: OptimizationLevel::None,
-        }
     }
 }
 
-/// Runtime builder for creating configured runtime instances
-pub struct RuntimeBuilder {
-    config: RuntimeConfig,
-}
-
-impl RuntimeBuilder {
-    /// Create a new runtime builder
+impl InferenceOutput {
+    /// Create a new empty inference output
     pub fn new() -> Self {
-        Self {
-            config: RuntimeConfig::default(),
-        }
+        Self::default()
     }
 
-    /// Create a runtime builder with custom configuration
-    pub fn with_config(config: RuntimeConfig) -> Self {
-        Self { config }
+    /// Get output by name
+    pub fn get_output(&self, name: &str) -> Option<&Value> {
+        self.outputs.get(name)
     }
 
-    /// Set runtime configuration
-    pub fn config(mut self, config: RuntimeConfig) -> Self {
-        self.config = config;
-        self
-    }
-
-    /// Build an ONNX runtime
-    #[cfg(feature = "onnx-runtime")]
-    pub fn build_onnx<P: AsRef<Path>>(
-        &self,
-        model_path: P,
-        model_name: impl Into<String>,
-    ) -> EdgeResult<OnnxRuntime> {
-        OnnxRuntime::with_options(model_path, model_name.into(), self.config.num_threads)
-    }
-
-    /// Build runtime using auto-detection
-    #[cfg(feature = "onnx-runtime")]
-    pub fn build_auto<P: AsRef<Path>>(
-        &self,
-        model_path: P,
-        model_name: impl Into<String>,
-    ) -> EdgeResult<OnnxRuntime> {
-        // For now, this just delegates to RuntimeFactory
-        // In the future, it could apply the configuration to the created runtime
-        RuntimeFactory::auto_detect_runtime(model_path, model_name)
-    }
-}
-
-impl Default for RuntimeBuilder {
-    fn default() -> Self {
-        Self::new()
+    /// Get metadata by key
+    pub fn get_metadata(&self, key: &str) -> Option<&Value> {
+        self.metadata.get(key)
     }
 }
 
@@ -297,49 +160,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_runtime_factory_supported_backends() {
-        let backends = RuntimeFactory::supported_backends();
+    fn test_inference_input_creation() {
+        let input = InferenceInput::new()
+            .add_input(
+                "input_ids".to_string(),
+                Value::Array(vec![Value::Number(1.into())]),
+            )
+            .add_metadata("batch_size".to_string(), Value::Number(1.into()));
 
-        #[cfg(feature = "onnx-runtime")]
-        assert!(backends.contains(&"onnx"));
-
-        #[cfg(not(feature = "onnx-runtime"))]
-        assert!(backends.is_empty());
-    }
-
-    #[test]
-    fn test_runtime_config_builder() {
-        let config = RuntimeConfig::new()
-            .with_threads(4)
-            .with_memory_pattern(true)
-            .with_optimization_level(OptimizationLevel::All);
-
-        assert_eq!(config.num_threads, Some(4));
-        assert!(config.memory_pattern);
-        assert_eq!(config.optimization_level, OptimizationLevel::All);
-    }
-
-    #[test]
-    fn test_predefined_configs() {
-        let hp_config = RuntimeConfig::high_performance();
-        assert_eq!(hp_config.optimization_level, OptimizationLevel::All);
-
-        let ll_config = RuntimeConfig::low_latency();
-        assert_eq!(ll_config.num_threads, Some(1));
-
-        let me_config = RuntimeConfig::memory_efficient();
-        assert_eq!(me_config.optimization_level, OptimizationLevel::None);
-    }
-
-    #[cfg(feature = "onnx-runtime")]
-    #[test]
-    fn test_backend_availability() {
-        assert!(RuntimeFactory::is_backend_available("onnx"));
-    }
-
-    #[cfg(not(feature = "onnx-runtime"))]
-    #[test]
-    fn test_backend_unavailability() {
-        assert!(!RuntimeFactory::is_backend_available("onnx"));
+        assert!(input.inputs.contains_key("input_ids"));
+        assert!(input.metadata.contains_key("batch_size"));
     }
 }
