@@ -164,7 +164,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "autoagents"
-version = "0.2.1"
+version = "0.2.2-alpha.0"
 dependencies = [
  "async-trait",
  "autoagents-core",
@@ -177,7 +177,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-core"
-version = "0.2.1"
+version = "0.2.2-alpha.0"
 dependencies = [
  "async-trait",
  "autoagents-derive",
@@ -200,7 +200,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-derive"
-version = "0.2.1"
+version = "0.2.2-alpha.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -212,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-llm"
-version = "0.2.1"
+version = "0.2.2-alpha.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -240,7 +240,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-test-utils"
-version = "0.2.1"
+version = "0.2.2-alpha.0"
 dependencies = [
  "async-trait",
  "autoagents-core",
@@ -1930,7 +1930,7 @@ checksum = "cd945864f07fe9f5371a27ad7b52a172b4b499999f1d97574c9fa68373937e12"
 
 [[package]]
 name = "liquid-edge"
-version = "0.2.1"
+version = "0.2.2-alpha.0"
 dependencies = [
  "async-trait",
  "chrono",
