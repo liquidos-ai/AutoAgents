@@ -501,8 +501,8 @@ impl LiquidEdge {
         }
 
         // Sample from the top-p distribution
-        let mut rng = rand::thread_rng();
-        let random_value: f32 = rng.gen();
+        let mut rng = rand::rng();
+        let random_value: f32 = rng.random();
 
         let mut cumulative = 0.0;
         for &idx in sorted_indices.iter().take(cutoff_index) {
