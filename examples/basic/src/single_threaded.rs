@@ -1,6 +1,6 @@
 use autoagents::async_trait;
 use autoagents::core::agent::{
-    AgentBuilder, AgentConfig, AgentDeriveT, AgentExecutor, AgentOutputT, AgentState,
+    ActorTask, AgentBuilder, AgentConfig, AgentDeriveT, AgentExecutor, AgentOutputT, AgentState,
     ExecutorConfig,
 };
 use autoagents::core::environment::Environment;
@@ -12,6 +12,7 @@ use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
 use colored::*;
+use futures::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{sync::Arc, time::Instant};
@@ -74,11 +75,18 @@ impl AgentExecutor for MathAgent {
         _memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
         _tools: Vec<Box<dyn ToolT>>,
         _agent_config: &AgentConfig,
-        task: Task,
+        task: Box<dyn ActorTask>,
         _state: Arc<RwLock<AgentState>>,
         _tx_event: mpsc::Sender<Event>,
+        stream: bool,
     ) -> Result<Self::Output, Self::Error> {
         let start = Instant::now();
+        let task = task
+            .as_any()
+            .downcast_ref::<Task>()
+            .expect("Expected Task type")
+            .clone();
+
         println!(
             "[{:?}] MathAgent received: {}",
             start.elapsed(),

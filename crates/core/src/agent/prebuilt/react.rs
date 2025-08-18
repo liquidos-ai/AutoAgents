@@ -1,6 +1,7 @@
 use crate::agent::base::AgentConfig;
 use crate::agent::executor::{AgentExecutor, ExecutorConfig, TurnResult};
 use crate::agent::runnable::AgentState;
+use crate::agent::ActorTask;
 use crate::memory::MemoryProvider;
 use crate::protocol::Event;
 use crate::runtime::Task;
@@ -275,14 +276,22 @@ impl<T: ReActExecutor> AgentExecutor for T {
         mut memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
         tools: Vec<Box<dyn ToolT>>,
         agent_config: &AgentConfig,
-        task: Task,
+        task: Box<dyn ActorTask>,
         state: Arc<RwLock<AgentState>>,
         tx_event: mpsc::Sender<Event>,
+        _stream: bool,
     ) -> Result<Self::Output, Self::Error> {
         debug!("Starting ReAct Executor");
         let max_turns = self.config().max_turns;
         let mut accumulated_tool_calls = Vec::new();
         let mut final_response = String::new();
+
+        // Downcast the Box<dyn ActorTask> to Task
+        let task = task
+            .as_any()
+            .downcast_ref::<Task>()
+            .expect("Expected Task type")
+            .clone();
 
         if let Some(memory) = &mut memory {
             let mut mem = memory.write().await;

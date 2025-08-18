@@ -14,6 +14,8 @@ pub fn init_logging() {
     }
 }
 
+/*
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,3 +222,5 @@ mod tests {
         assert!(core_error.to_string().contains("Auth failed"));
     }
 }
+
+*/

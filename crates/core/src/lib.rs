@@ -5,3 +5,8 @@ pub mod memory;
 pub mod protocol;
 pub mod runtime;
 pub mod tool;
+
+//Re-export actix
+pub mod ractor {
+    pub use ractor::*;
+}

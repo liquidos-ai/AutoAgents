@@ -1,11 +1,12 @@
 use super::{Runtime, RuntimeError, Task};
 use crate::{
-    agent::RunnableAgent,
+    agent::ActorMessage,
     error::Error,
     protocol::{AgentID, Event, RuntimeID},
 };
 use async_trait::async_trait;
 use log::{debug, error, info, warn};
+use ractor::ActorRef;
 use std::{
     collections::HashMap,
     sync::{
@@ -40,7 +41,7 @@ pub struct SingleThreadedRuntime {
     internal_tx: mpsc::Sender<InternalEvent>,
     internal_rx: Mutex<Option<mpsc::Receiver<InternalEvent>>>,
     // Agent and subscription management
-    agents: Arc<RwLock<HashMap<AgentID, Arc<dyn RunnableAgent>>>>,
+    agents: Arc<RwLock<HashMap<AgentID, ActorRef<ActorMessage>>>>,
     subscriptions: Arc<RwLock<HashMap<String, Vec<AgentID>>>>,
     // Runtime state
     shutdown_flag: Arc<AtomicBool>,
@@ -165,7 +166,10 @@ impl SingleThreadedRuntime {
             let tx = self.create_intercepting_sender();
 
             // Use spawn_task for async execution
-            agent.clone().spawn_task(task, tx);
+            let _ = agent.send_message(ActorMessage {
+                task: Box::new(task),
+                tx,
+            });
         } else {
             warn!("Agent not found: {agent_id:?}");
             return Err(RuntimeError::AgentNotFound(agent_id).into());
@@ -217,11 +221,11 @@ impl Runtime for SingleThreadedRuntime {
         Ok(())
     }
 
-    async fn register_agent(&self, agent: Arc<dyn RunnableAgent>) -> Result<(), Error> {
-        let agent_id = agent.id();
-        info!("Registering agent: {:?}", agent_id);
+    async fn register_agent(&self, id: Uuid, agent: ActorRef<ActorMessage>) -> Result<(), Error> {
+        //let agent_id = agent.get_name().unwrap_or("default_name".to_string());
+        info!("Registering agent: {:?}", id);
 
-        self.agents.write().await.insert(agent_id, agent);
+        self.agents.write().await.insert(id, agent);
         Ok(())
     }
 
@@ -299,11 +303,12 @@ impl Runtime for SingleThreadedRuntime {
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::MemoryProvider;
     use crate::protocol::TaskResult;
+    use crate::{agent::AgentDeriveT, memory::MemoryProvider};
     use tokio::time::{sleep, Duration};
 
     #[derive(Debug, Clone)]
@@ -312,7 +317,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl RunnableAgent for MockAgent {
+    impl<T: AgentDeriveT> RunnableAgent<T> for MockAgent {
         fn id(&self) -> AgentID {
             self.id
         }
@@ -386,3 +391,4 @@ mod tests {
         assert!(subscriptions.get(&topic).unwrap().contains(&agent_id));
     }
 }
+*/

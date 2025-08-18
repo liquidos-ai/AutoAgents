@@ -40,6 +40,7 @@ regex = { workspace = true }
 tokio-stream.workspace = true
 log = { workspace = true, features = ["std"] }
 wasmtime = { workspace = true, optional = true }
+ractor = { version = "0.15.7", features = ["serde", "async-trait"] }
 
 [dev-dependencies]
 autoagents-test-utils = { workspace = true }

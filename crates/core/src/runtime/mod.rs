@@ -1,12 +1,12 @@
-use crate::agent::{RunnableAgent, RunnableAgentError};
+use crate::agent::{ActorMessage, ActorTask, RunnableAgentError};
 use crate::error::Error;
 use crate::protocol::{AgentID, Event, RuntimeID, SubmissionId};
 use async_trait::async_trait;
+use ractor::ActorRef;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use single_threaded::InternalEvent;
 use std::fmt::Debug;
-use std::sync::Arc;
 use tokio::sync::mpsc::error::SendError;
 use tokio::task::JoinError;
 use tokio_stream::wrappers::ReceiverStream;
@@ -15,6 +15,35 @@ use uuid::Uuid;
 pub(crate) mod manager;
 mod single_threaded;
 pub use single_threaded::SingleThreadedRuntime;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Task {
+    pub prompt: String,
+    pub submission_id: SubmissionId,
+    pub completed: bool,
+    pub result: Option<Value>,
+    agent_id: Option<AgentID>,
+}
+
+impl Task {
+    pub fn new<T: Into<String>>(task: T, agent_id: Option<AgentID>) -> Self {
+        Self {
+            prompt: task.into(),
+            submission_id: Uuid::new_v4(),
+            completed: false,
+            result: None,
+            agent_id,
+        }
+    }
+}
+
+use std::any::Any;
+
+impl ActorTask for Task {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 /// Error types for Session operations
 #[derive(Debug, thiserror::Error)]
@@ -41,34 +70,13 @@ pub enum RuntimeError {
     RunnableAgentError(#[from] RunnableAgentError),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Task {
-    pub prompt: String,
-    pub submission_id: SubmissionId,
-    pub completed: bool,
-    pub result: Option<Value>,
-    agent_id: Option<AgentID>,
-}
-
-impl Task {
-    pub fn new<T: Into<String>>(task: T, agent_id: Option<AgentID>) -> Self {
-        Self {
-            prompt: task.into(),
-            submission_id: Uuid::new_v4(),
-            completed: false,
-            result: None,
-            agent_id,
-        }
-    }
-}
-
 #[async_trait]
 pub trait Runtime: Send + Sync + 'static + Debug {
     fn id(&self) -> RuntimeID;
     async fn send_message(&self, message: String, agent_id: AgentID) -> Result<(), Error>;
     async fn publish_message(&self, message: String, topic: String) -> Result<(), Error>;
     async fn subscribe(&self, agent_id: AgentID, topic: String) -> Result<(), Error>;
-    async fn register_agent(&self, agent: Arc<dyn RunnableAgent>) -> Result<(), Error>;
+    async fn register_agent(&self, id: Uuid, agent: ActorRef<ActorMessage>) -> Result<(), Error>;
     async fn take_event_receiver(&self) -> Option<ReceiverStream<Event>>;
     async fn run(&self) -> Result<(), Error>;
     async fn stop(&self) -> Result<(), Error>;

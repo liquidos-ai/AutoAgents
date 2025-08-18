@@ -9,6 +9,7 @@ use autoagents::{
 };
 mod liquid_edge;
 mod single_threaded;
+mod streaming;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum UseCase {
@@ -16,6 +17,7 @@ enum UseCase {
     Chaining,
     SingleThreaded,
     Edge,
+    Streaming,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -56,6 +58,7 @@ async fn main() -> Result<(), Error> {
         UseCase::Chaining => chaining::run(llm).await?,
         UseCase::SingleThreaded => single_threaded::single_threaded_agent(llm).await?,
         UseCase::Edge => liquid_edge::edge_agent(args.device).await?,
+        UseCase::Streaming => streaming::run(llm).await?,
     }
 
     Ok(())
