@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 autoagents-derive.workspace = true
-autoagents = { workspace = true, default-features = false, features = ["openai", "liquid_edge","logging", "single_threaded"] }
+autoagents = { workspace = true, default-features = false, features = ["openai", "liquid_edge","logging"] }
 liquid-edge = { workspace = true, features = ["cuda"] }
 tokio = { workspace = true }
 futures = { workspace = true }

@@ -9,8 +9,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["single_threaded"]
-full = ["autoagents-llm/full", "wasm", "single_threaded"]
+default = []
+full = ["autoagents-llm/full", "wasm"]
 openai = ["autoagents-llm/openai"]
 anthropic = ["autoagents-llm/anthropic"]
 ollama = ["autoagents-llm/ollama"]
@@ -22,7 +22,6 @@ groq = ["autoagents-llm/groq"]
 azure_openai = ["autoagents-llm/azure_openai"]
 liquid_edge = ["autoagents-llm/liquid_edge"]
 wasm = ["dep:wasmtime"]
-single_threaded = []
 
 [dependencies]
 autoagents-derive.workspace = true

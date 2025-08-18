@@ -11,6 +11,5 @@ pub trait ActorTask: Send + 'static + Debug {
 #[derive(Debug)]
 pub struct ActorMessage {
     pub task: Box<dyn ActorTask>,
-    #[cfg(feature = "single_threaded")]
     pub tx: Sender<Event>,
 }

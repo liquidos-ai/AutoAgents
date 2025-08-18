@@ -12,12 +12,8 @@ use uuid::Uuid;
 use crate::actor::{ActorMessage};
 
 pub(crate) mod manager;
-
-#[cfg(feature = "single_threaded")]
 mod single_threaded;
-#[cfg(feature = "single_threaded")]
 pub use single_threaded::SingleThreadedRuntime;
-#[cfg(feature = "single_threaded")]
 use single_threaded::InternalEvent;
 
 
@@ -38,8 +34,7 @@ pub enum RuntimeError {
 
     #[error("Event error: {0}")]
     EventError(#[from] SendError<Event>),
-
-    #[cfg(feature = "single_threaded")]
+    
     #[error("Internal Event error: {0}")]
     InternalEventError(#[from] SendError<InternalEvent>),
 
