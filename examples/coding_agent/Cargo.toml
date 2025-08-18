@@ -8,6 +8,7 @@ publish = false
 autoagents-derive = { path = "../../crates/derive" }
 autoagents = { path = "../../crates/autoagents", features = [
     "openai",
+    "single_threaded",
     "anthropic",
 ] }
 tokio = { workspace = true }

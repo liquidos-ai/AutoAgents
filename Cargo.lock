@@ -302,13 +302,10 @@ dependencies = [
  "colored",
  "futures",
  "liquid-edge",
- "reqwest",
  "serde",
  "serde_json",
  "tokio",
  "tokio-stream",
- "ureq",
- "urlencoding",
  "uuid",
 ]
 

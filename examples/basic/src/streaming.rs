@@ -1,14 +1,11 @@
-use autoagents::async_trait;
 /// This Exmaple demonstrages Agent Streaming
-use autoagents::core::agent::{
-    ActorTask, AgentBuilder, AgentConfig, AgentDeriveT, AgentExecutor, AgentState, ExecutorConfig,
-};
+use autoagents::async_trait;
+use autoagents::core::agent::{AgentBuilder, AgentConfig, AgentDeriveT, AgentExecutor, AgentState, Context, ExecutorConfig};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::memory::{MemoryProvider, SlidingWindowMemory};
+use autoagents::core::agent::memory::{MemoryProvider, SlidingWindowMemory};
 use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::ractor::Actor;
-use autoagents::core::runtime::{Runtime, SingleThreadedRuntime, Task};
+use autoagents::core::runtime::{Runtime, SingleThreadedRuntime};
 use autoagents::core::tool::ToolT;
 use autoagents::llm::chat::{ChatMessage, ChatRole, MessageType};
 use autoagents::llm::LLMProvider;
@@ -18,6 +15,8 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
+use autoagents::core::actor::ActorTask;
+use autoagents::core::agent::task::Task;
 
 #[agent(
     name = "agent_1",
@@ -37,19 +36,13 @@ impl AgentExecutor for Agent1 {
 
     async fn execute(
         &self,
-        llm: Arc<dyn LLMProvider>,
-        _memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-        _tools: Vec<Box<dyn ToolT>>,
-        agent_config: &AgentConfig,
-        task: Box<dyn ActorTask>,
-        _state: Arc<RwLock<AgentState>>,
-        tx_event: mpsc::Sender<Event>,
-        stream: bool,
+        task: &Task,
+        context: Context
     ) -> Result<Self::Output, Self::Error> {
         let mut messages = vec![ChatMessage {
             role: ChatRole::System,
             message_type: MessageType::Text,
-            content: agent_config.description.clone(),
+            content: context.config().description.clone(),
         }];
         let task = task
             .as_any()
@@ -63,8 +56,8 @@ impl AgentExecutor for Agent1 {
             content: task.prompt.clone(),
         };
         messages.push(chat_msg);
-        let response = llm
-            .chat(&messages, agent_config.output_schema.clone())
+        let response = context.llm()
+            .chat(&messages, context.config().output_schema.clone())
             .await
             .unwrap();
         let response_text = response.text().unwrap_or_default();

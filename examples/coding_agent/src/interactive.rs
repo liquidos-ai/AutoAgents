@@ -1,9 +1,9 @@
 use crate::agent::CodingAgent;
-use autoagents::core::agent::prebuilt::react::ReActAgentOutput;
+use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput};
 use autoagents::core::agent::AgentBuilder;
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::memory::SlidingWindowMemory;
+use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::protocol::{Event, TaskResult};
 use autoagents::core::runtime::{Runtime, SingleThreadedRuntime};
 use autoagents::llm::LLMProvider;
@@ -103,7 +103,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
         while let Some(event) = event_stream.next().await {
             match event {
                 Event::TaskStarted {
-                    agent_id,
+                    actor_id,
                     task_description,
                     ..
                 } => {
@@ -111,7 +111,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                         "{}",
                         format!(
                             "📋 Task Started - Agent: {:?}, Task: {}",
-                            agent_id, task_description
+                            actor_id, task_description
                         )
                         .green()
                     );

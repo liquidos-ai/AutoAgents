@@ -27,6 +27,9 @@ pub enum RunnableAgentError {
     /// Error from agent state operations
     #[error("Agent state error: {0}")]
     StateError(String),
+    /// Error from agent state operations
+    #[error("Downcast task error")]
+    DowncastTaskError,
 
     /// Generic error wrapper for any std::error::Error
     #[error(transparent)]

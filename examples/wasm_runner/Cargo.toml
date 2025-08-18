@@ -10,6 +10,7 @@ autoagents = { path = "../../crates/autoagents", features = [
     "full",
     "logging",
     "wasm",
+    "single_threaded"
 ] }
 tokio = { workspace = true }
 futures = { workspace = true }

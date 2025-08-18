@@ -1,17 +1,11 @@
-use crate::agent::runnable::AgentState;
-use crate::agent::ActorTask;
-use crate::memory::MemoryProvider;
-use crate::protocol::Event;
-use crate::{agent::base::AgentConfig, tool::ToolT};
 use async_trait::async_trait;
-use autoagents_llm::LLMProvider;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use std::error::Error;
 use std::fmt::Debug;
-use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use crate::agent::context::Context;
+use crate::agent::task::Task;
 
 /// Result of processing a single turn in the agent's execution
 #[derive(Debug)]
@@ -47,17 +41,10 @@ pub trait AgentExecutor: Send + Sync + 'static {
     fn config(&self) -> ExecutorConfig;
 
     /// Execute the agent with the given task
-    #[allow(clippy::too_many_arguments)]
     async fn execute(
         &self,
-        llm: Arc<dyn LLMProvider>,
-        memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-        tools: Vec<Box<dyn ToolT>>,
-        agent_config: &AgentConfig,
-        task: Box<dyn ActorTask>,
-        state: Arc<RwLock<AgentState>>,
-        tx_event: mpsc::Sender<Event>,
-        stream: bool,
+        task: &Task,
+        context: Context,
     ) -> Result<Self::Output, Self::Error>;
 }
 /*

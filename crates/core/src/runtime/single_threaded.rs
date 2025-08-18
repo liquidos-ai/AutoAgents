@@ -1,8 +1,8 @@
-use super::{Runtime, RuntimeError, Task};
+use super::{Runtime, RuntimeError};
 use crate::{
-    agent::ActorMessage,
+    actor::ActorMessage,
     error::Error,
-    protocol::{AgentID, Event, RuntimeID},
+    protocol::{ActorID, Event, RuntimeID},
 };
 use async_trait::async_trait;
 use log::{debug, error, info, warn};
@@ -17,6 +17,7 @@ use std::{
 use tokio::sync::{mpsc, Mutex, Notify, RwLock};
 use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
+use crate::agent::task::Task;
 
 const DEFAULT_CHANNEL_BUFFER: usize = 100;
 const DEFAULT_INTERNAL_BUFFER: usize = 1000;
@@ -40,9 +41,9 @@ pub struct SingleThreadedRuntime {
     // Internal event channel for runtime processing
     internal_tx: mpsc::Sender<InternalEvent>,
     internal_rx: Mutex<Option<mpsc::Receiver<InternalEvent>>>,
-    // Agent and subscription management
-    agents: Arc<RwLock<HashMap<AgentID, ActorRef<ActorMessage>>>>,
-    subscriptions: Arc<RwLock<HashMap<String, Vec<AgentID>>>>,
+    // actor and subscription management
+    actors: Arc<RwLock<HashMap<ActorID, ActorRef<ActorMessage>>>>,
+    subscriptions: Arc<RwLock<HashMap<String, Vec<ActorID>>>>,
     // Runtime state
     shutdown_flag: Arc<AtomicBool>,
     shutdown_notify: Arc<Notify>,
@@ -63,7 +64,7 @@ impl SingleThreadedRuntime {
             external_rx: Mutex::new(Some(external_rx)),
             internal_tx,
             internal_rx: Mutex::new(Some(internal_rx)),
-            agents: Arc::new(RwLock::new(HashMap::new())),
+            actors: Arc::new(RwLock::new(HashMap::new())),
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
             shutdown_flag: Arc::new(AtomicBool::new(false)),
             shutdown_notify: Arc::new(Notify::new()),
@@ -106,9 +107,9 @@ impl SingleThreadedRuntime {
                 debug!("Processing publish message to topic: {topic}");
                 self.handle_publish_message(topic, message).await?;
             }
-            Event::SendMessage { agent_id, message } => {
-                debug!("Processing send message to agent: {agent_id:?}");
-                self.handle_send_message(agent_id, message).await?;
+            Event::SendMessage { actor_id, message } => {
+                debug!("Processing send message to agent: {actor_id:?}");
+                self.handle_send_message(actor_id, message).await?;
             }
             _ => {
                 // All other events are forwarded to external channel
@@ -142,21 +143,21 @@ impl SingleThreadedRuntime {
         Ok(())
     }
 
-    async fn handle_send_message(&self, agent_id: AgentID, message: String) -> Result<(), Error> {
-        let task = Task::new(message, Some(agent_id));
-        self.execute_task_on_agent(agent_id, task).await
+    async fn handle_send_message(&self, actor_id: ActorID, message: String) -> Result<(), Error> {
+        let task = Task::new(message, Some(actor_id));
+        self.execute_task_on_agent(actor_id, task).await
     }
 
-    async fn execute_task_on_agent(&self, agent_id: AgentID, task: Task) -> Result<(), Error> {
-        let agents = self.agents.read().await;
+    async fn execute_task_on_agent(&self, actor_id: ActorID, task: Task) -> Result<(), Error> {
+        let actors = self.actors.read().await;
 
-        if let Some(agent) = agents.get(&agent_id) {
-            debug!("Executing task on agent: {agent_id:?}");
+        if let Some(actor) = actors.get(&actor_id) {
+            debug!("Executing task on agent: {actor_id:?}");
 
             // Create a new task event and send it to external channel first
             self.external_tx
                 .send(Event::NewTask {
-                    agent_id,
+                    actor_id,
                     task: task.clone(),
                 })
                 .await
@@ -166,13 +167,13 @@ impl SingleThreadedRuntime {
             let tx = self.create_intercepting_sender();
 
             // Use spawn_task for async execution
-            let _ = agent.send_message(ActorMessage {
+            let _ = actor.send_message(ActorMessage {
                 task: Box::new(task),
                 tx,
             });
         } else {
-            warn!("Agent not found: {agent_id:?}");
-            return Err(RuntimeError::AgentNotFound(agent_id).into());
+            warn!("Agent not found: {actor_id:?}");
+            return Err(RuntimeError::AgentNotFound(actor_id).into());
         }
 
         Ok(())
@@ -203,16 +204,16 @@ impl Runtime for SingleThreadedRuntime {
         Ok(())
     }
 
-    async fn send_message(&self, message: String, agent_id: AgentID) -> Result<(), Error> {
+    async fn send_message(&self, message: String, actor_id: ActorID) -> Result<(), Error> {
         debug!(
             "Runtime received send_message request to agent: {:?}",
-            agent_id
+            actor_id
         );
 
         // Send the event through internal channel
         self.internal_tx
             .send(InternalEvent::AgentEvent(Event::SendMessage {
-                agent_id,
+                actor_id,
                 message,
             }))
             .await
@@ -221,22 +222,20 @@ impl Runtime for SingleThreadedRuntime {
         Ok(())
     }
 
-    async fn register_agent(&self, id: Uuid, agent: ActorRef<ActorMessage>) -> Result<(), Error> {
-        //let agent_id = agent.get_name().unwrap_or("default_name".to_string());
+    async fn register_agent(&self, id: ActorID, agent: ActorRef<ActorMessage>) -> Result<(), Error> {
         info!("Registering agent: {:?}", id);
-
-        self.agents.write().await.insert(id, agent);
+        self.actors.write().await.insert(id, agent);
         Ok(())
     }
 
-    async fn subscribe(&self, agent_id: AgentID, topic: String) -> Result<(), Error> {
-        info!("Agent {:?} subscribing to topic: {}", agent_id, topic);
+    async fn subscribe(&self, actor_id: ActorID, topic: String) -> Result<(), Error> {
+        info!("Agent {:?} subscribing to topic: {}", actor_id, topic);
 
         let mut subscriptions = self.subscriptions.write().await;
         let agents = subscriptions.entry(topic).or_insert_with(Vec::new);
 
-        if !agents.contains(&agent_id) {
-            agents.push(agent_id);
+        if !agents.contains(&actor_id) {
+            agents.push(actor_id);
         }
 
         Ok(())

@@ -1,13 +1,16 @@
-use crate::runtime::Task;
+use std::fmt::Debug;
 use autoagents_llm::chat::ChatMessage;
 use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
 use uuid::Uuid;
+use crate::actor::{ActorMessage, ActorTask};
+use crate::agent::task::Task;
 
-/// Submission IDs are used to track agent tasks
+/// Submission IDs are used to track actor tasks
 pub type SubmissionId = Uuid;
 
-/// Agent IDs are used to identify agents
-pub type AgentID = Uuid;
+/// Agent IDs are used to identify actors
+pub type ActorID = Uuid;
 
 /// Session IDs are used to identify sessions
 pub type RuntimeID = Uuid;
@@ -15,19 +18,19 @@ pub type RuntimeID = Uuid;
 /// Event IDs are used to correlate events with their responses
 pub type EventId = Uuid;
 
-/// Protocol events represent the various events that can occur during agent execution
+/// Protocol events represent the various events that can occur during actor execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
     /// A new task has been submitted to an agent
     NewTask {
-        agent_id: AgentID,
+        actor_id: ActorID,
         task: Task,
     },
 
     /// A task has started execution
     TaskStarted {
         sub_id: SubmissionId,
-        agent_id: AgentID,
+        actor_id: ActorID,
         task_description: String,
     },
 
@@ -42,6 +45,17 @@ pub enum Event {
         sub_id: SubmissionId,
         result: TaskResult,
     },
+
+    PublishMessage {
+        topic: String,
+        message: String,
+    },
+
+    SendMessage {
+        message: String,
+        actor_id: ActorID,
+    },
+
 
     /// Tool call requested (with ID)
     ToolCallRequested {
@@ -75,14 +89,6 @@ pub enum Event {
         turn_number: usize,
         final_turn: bool,
     },
-    PublishMessage {
-        topic: String,
-        message: String,
-    },
-    SendMessage {
-        message: String,
-        agent_id: AgentID,
-    },
 }
 
 /// Results from a completed task
@@ -98,16 +104,8 @@ pub enum TaskResult {
     Aborted,
 }
 
-/// Messages from the agent - used for A2A communication
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct AgentMessage {
-    /// The content of the message
-    pub content: String,
 
-    /// Optional chat messages for a full conversation history
-    pub chat_messages: Option<Vec<ChatMessage>>,
-}
-
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,3 +345,4 @@ mod tests {
         assert_ne!(runtime_id, event_id);
     }
 }
+*/

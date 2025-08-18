@@ -2,16 +2,18 @@ use super::{
     error::AgentBuildError, output::AgentOutputT, AgentActor, AgentExecutor, IntoRunnable,
 };
 use crate::{
-    agent::runnable::RunnableAgentImpl, error::Error, memory::MemoryProvider, protocol::AgentID,
+    error::Error, protocol::ActorID,
     runtime::Runtime, tool::ToolT,
 };
 use async_trait::async_trait;
-use autoagents_llm::{chat::StructuredOutputFormat, LLMProvider};
+use autoagents_llm::LLMProvider;
 use ractor::Actor;
 use serde_json::Value;
 use std::{fmt::Debug, sync::Arc};
 use tokio::sync::RwLock;
 use uuid::Uuid;
+use crate::agent::config::AgentConfig;
+use crate::agent::memory::MemoryProvider;
 
 /// Core trait that defines agent metadata and behavior
 /// This trait is implemented via the #[agent] macro
@@ -32,17 +34,6 @@ pub trait AgentDeriveT: Send + Sync + 'static + AgentExecutor + Debug {
     fn tools(&self) -> Vec<Box<dyn ToolT>>;
 }
 
-pub struct AgentConfig {
-    /// The agent's name
-    pub name: String,
-    /// The agent's description
-    pub description: String,
-    /// The Agent ID
-    pub id: AgentID,
-    /// The output schema for the agent
-    pub output_schema: Option<StructuredOutputFormat>,
-}
-
 /// Base agent type that wraps an AgentDeriveT implementation with additional runtime components
 #[derive(Clone)]
 pub struct BaseAgent<T: AgentDeriveT> {
@@ -51,7 +42,7 @@ pub struct BaseAgent<T: AgentDeriveT> {
     /// LLM provider for this agent
     pub llm: Arc<dyn LLMProvider>,
     // Agent ID
-    pub id: AgentID,
+    pub id: ActorID,
     /// Optional memory provider
     pub memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
     //Stream
@@ -169,11 +160,11 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
     }
 
     /// Build the BaseAgent
-    pub async fn build(self) -> Result<Arc<RunnableAgentImpl<T>>, Error> {
+    pub async fn build(self) -> Result<Arc<BaseAgent<T>>, Error> {
         let llm = self.llm.ok_or(AgentBuildError::BuildFailure(
             "LLM provider is required".to_string(),
         ))?;
-        let runnable: Arc<RunnableAgentImpl<T>> =
+        let runnable: Arc<BaseAgent<T>> =
             BaseAgent::new(self.inner, llm, self.memory, self.stream).into_runnable();
         if let Some(runtime) = self.runtime {
             let a = runnable.clone();

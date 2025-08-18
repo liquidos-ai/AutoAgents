@@ -9,8 +9,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = []
-full = ["autoagents-core/full", "autoagents-llm/full"]
+default = ["single_threaded"]
+full = ["autoagents-core/full", "autoagents-llm/full", "logging"]
 openai = ["autoagents-core/openai", "autoagents-llm/openai"]
 anthropic = ["autoagents-core/anthropic", "autoagents-llm/anthropic"]
 ollama = ["autoagents-core/ollama", "autoagents-llm/ollama"]
@@ -23,6 +23,7 @@ azure_openai = ["autoagents-core/azure_openai", "autoagents-llm/azure_openai"]
 liquid_edge = ["autoagents-core/liquid_edge", "autoagents-llm/liquid_edge"]
 logging = ["dep:env_logger"]
 wasm = ["autoagents-core/wasm"]
+single_threaded = ["autoagents-core/single_threaded"]
 
 [dependencies]
 autoagents-core.workspace = true
