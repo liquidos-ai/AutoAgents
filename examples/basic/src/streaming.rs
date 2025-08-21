@@ -3,35 +3,58 @@ use autoagents::core::agent::memory::SlidingWindowMemory;
 /// This example demonstrates Agent Streaming using the new runtime architecture
 use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT, RunnableAgent};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
-use autoagents::core::tool::ToolT;
+use autoagents::core::runtime::SingleThreadedRuntime;
+use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::LLMProvider;
-use autoagents_derive::{agent, AgentOutput};
+use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
 use colored::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
+use tokio_stream::{wrappers::ReceiverStream, StreamExt as TokioStreamExt};
+
+#[derive(Serialize, Deserialize, ToolInput, Debug)]
+pub struct AdditionArgs {
+    #[input(description = "Left Operand for addition")]
+    left: i64,
+    #[input(description = "Right Operand for addition")]
+    right: i64,
+}
+
+#[tool(
+    name = "Addition",
+    description = "Use this tool to Add two numbers",
+    input = AdditionArgs,
+)]
+struct Addition {}
+
+impl ToolRuntime for Addition {
+    fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        let typed_args: AdditionArgs = serde_json::from_value(args)?;
+        let result = typed_args.left + typed_args.right;
+        println!("Tool Call Executed: {}", result);
+        Ok(result.into())
+    }
+}
 
 /// Streaming agent output
 #[derive(Debug, Serialize, Deserialize, AgentOutput)]
 pub struct StreamingAgentOutput {
-    #[output(description = "The streamed response")]
+    #[output(description = "Response to the user query")]
     response: String,
-    #[output(description = "Response timestamp")]
-    timestamp: String,
 }
 
 #[agent(
     name = "streaming_agent",
     description = "You are a math expert and knowledgeable assistant that provides detailed explanations. Respond in a conversational manner.",
-    tools = [],
+    tools = [Addition],
     output = StreamingAgentOutput
 )]
+#[derive(Clone)]
 pub struct StreamingAgent {}
 
 impl ReActExecutor for StreamingAgent {}
@@ -47,7 +70,7 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     // Create topic for streaming agent
     let streaming_topic = Topic::<Task>::new("streaming_agent");
 
-    let _ = AgentBuilder::new(agent)
+    let agent_handler = AgentBuilder::new(agent)
         .with_llm(llm)
         .runtime(runtime.clone())
         .subscribe_topic(streaming_topic.clone())
@@ -69,27 +92,24 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     // Send multiple messages to demonstrate streaming
     println!("\n📤 Sending streaming tasks...");
 
-    let tasks = vec![
-        "What is Vector Calculus and why is it important in mathematics?",
-        "Explain the concept of derivatives in simple terms",
-        "How do integrals relate to the area under a curve?",
-        "What are some real-world applications of linear algebra?",
-    ];
+    let agent = agent_handler.agent;
+    let task = Task::new("What is 2 + 2?");
 
-    for (i, task_content) in tasks.iter().enumerate() {
-        println!("\n💬 Sending task {}: {}", i + 1, task_content);
+    // Process the stream directly
+    let mut stream = agent.run_stream(task).await?;
+    println!("🔄 Processing stream tokens...\n");
 
-        let task = Task::new(*task_content);
-
-        // Publish to topic
-        runtime.publish(&streaming_topic, task).await?;
-
-        // Give some time between tasks to see streaming effect
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    // Print each stream token as it arrives
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(output) => {
+                println!("TSE: {:?}", output);
+            }
+            Err(e) => {
+                println!("🔴 {}", format!("Stream error: {}", e).red());
+            }
+        }
     }
-
-    // Give time for processing
-    tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
 
     println!("\n✅ Streaming example completed!");
     Ok(())
@@ -99,23 +119,8 @@ fn handle_streaming_events(mut event_stream: ReceiverStream<Event>) {
     tokio::spawn(async move {
         let mut task_counter = 0;
 
-        while let Some(event) = event_stream.next().await {
+        while let Some(event) = TokioStreamExt::next(&mut event_stream).await {
             match event {
-                Event::TaskStarted {
-                    actor_id,
-                    task_description,
-                    ..
-                } => {
-                    task_counter += 1;
-                    println!(
-                        "{}",
-                        format!(
-                            "🎯 Task {} Started - Agent: {:?}\n   📝 Task: {}",
-                            task_counter, actor_id, task_description
-                        )
-                        .cyan()
-                    );
-                }
                 Event::TaskComplete { result, .. } => {
                     match result {
                         TaskResult::Value(val) => {
@@ -130,8 +135,7 @@ fn handle_streaming_events(mut event_stream: ReceiverStream<Event>) {
                                         println!(
                                             "{}",
                                             format!(
-                                                "🌊 Streaming Response ({}): {}",
-                                                streaming_output.timestamp,
+                                                "🌊 Streaming Response ({})",
                                                 streaming_output.response
                                             )
                                             .green()
@@ -158,45 +162,10 @@ fn handle_streaming_events(mut event_stream: ReceiverStream<Event>) {
                         TaskResult::Aborted => todo!(),
                     }
                 }
-                Event::ToolCallRequested {
-                    tool_name,
-                    arguments,
-                    ..
-                } => {
+                Event::StreamChunk { sub_id, chunk } => {
                     println!(
                         "{}",
-                        format!("🔧 Tool Call: {} with args: {}", tool_name, arguments).yellow()
-                    );
-                }
-                Event::ToolCallCompleted {
-                    tool_name, result, ..
-                } => {
-                    println!(
-                        "{}",
-                        format!("✅ Tool Completed: {} - Result: {:?}", tool_name, result).yellow()
-                    );
-                }
-                Event::TurnStarted {
-                    turn_number,
-                    max_turns,
-                } => {
-                    println!(
-                        "{}",
-                        format!("🔄 Turn {}/{} started", turn_number + 1, max_turns).magenta()
-                    );
-                }
-                Event::TurnCompleted {
-                    turn_number,
-                    final_turn,
-                } => {
-                    println!(
-                        "{}",
-                        format!(
-                            "✅ Turn {} completed{}",
-                            turn_number + 1,
-                            if final_turn { " (final)" } else { "" }
-                        )
-                        .magenta()
+                        format!("📦 Stream chunk ({}): {}", sub_id, chunk).cyan()
                     );
                 }
                 _ => {

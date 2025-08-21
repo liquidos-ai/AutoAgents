@@ -6,13 +6,13 @@ use crate::agent::task::Task;
 use crate::error::Error;
 use crate::protocol::{Event, TaskResult};
 use crate::tool::ToolCallResult;
+use futures::Stream;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use serde_json::Value;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
-use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 /// State tracking for agent execution
@@ -22,15 +22,13 @@ pub struct AgentState {
     pub tool_calls: Vec<ToolCallResult>,
     /// Tasks that have been executed
     pub task_history: Vec<Task>,
-    pub tx: Option<Sender<Event>>,
 }
 
 impl AgentState {
-    pub fn new(tx: Sender<Event>) -> Self {
+    pub fn new() -> Self {
         Self {
             tool_calls: vec![],
             task_history: vec![],
-            tx: Some(tx),
         }
     }
 
@@ -41,11 +39,6 @@ impl AgentState {
     pub fn record_task(&mut self, task: Task) {
         self.task_history.push(task);
     }
-
-    pub fn set_tx(&mut self, tx: Sender<Event>) -> &mut Self {
-        self.tx = Some(tx);
-        self
-    }
 }
 
 /// Trait for agents that can be executed within the system
@@ -55,17 +48,16 @@ pub trait RunnableAgent: Send + Sync + 'static + Debug {
     fn description(&self) -> &'static str;
     fn id(&self) -> Uuid;
 
-    async fn run(self: Arc<Self>, task: Task, tx_event: Sender<Event>) -> Result<(), Error>;
+    fn tx(&self) -> Sender<Event>;
 
-    fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>>;
+    async fn run(self: Arc<Self>, task: Task) -> Result<TaskResult, Error>;
 
-    fn spawn_task(
+    async fn run_stream(
         self: Arc<Self>,
         task: Task,
-        tx_event: Sender<Event>,
-    ) -> JoinHandle<Result<(), Error>> {
-        tokio::spawn(async move { self.run(task.clone(), tx_event).await })
-    }
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<TaskResult, Error>> + Send>>, Error>;
+
+    fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>>;
 }
 
 /// Enhanced BaseAgent that includes runtime state for execution
@@ -88,16 +80,22 @@ where
         self.id
     }
 
-    async fn run(self: Arc<Self>, task: Task, tx_event: Sender<Event>) -> Result<(), Error> {
+    fn tx(&self) -> Sender<Event> {
+        self.tx.clone()
+    }
+
+    async fn run(self: Arc<Self>, task: Task) -> Result<TaskResult, Error> {
         let submission_id = task.submission_id;
+        let tx_event = self.tx();
 
         let context = Context::new(self.llm(), tx_event.clone())
             .with_memory(self.memory())
             .with_tools(self.tools())
             .with_config(self.agent_config())
-            .with_stream(self.stream);
+            .with_stream(self.stream());
+
         // Execute the agent's logic using the executor
-        match self.inner().execute(&task, context).await {
+        match self.inner().execute(&task, Arc::new(context)).await {
             Ok(output) => {
                 // Convert output to Value
                 let value: Value = output.into();
@@ -106,15 +104,67 @@ where
                 let _ = tx_event
                     .send(Event::TaskComplete {
                         sub_id: submission_id,
-                        result: TaskResult::Value(value),
+                        result: TaskResult::Value(value.clone()),
                     })
                     .await
                     .map_err(RunnableAgentError::event_send_error)?;
 
-                Ok(())
+                Ok(TaskResult::Value(value))
             }
             Err(e) => {
                 // Send error event
+                let error_msg = e.to_string();
+                let _ = tx_event
+                    .send(Event::TaskComplete {
+                        sub_id: submission_id,
+                        result: TaskResult::Failure(error_msg.clone()),
+                    })
+                    .await;
+
+                Err(RunnableAgentError::ExecutorError(error_msg).into())
+            }
+        }
+    }
+
+    async fn run_stream(
+        self: Arc<Self>,
+        task: Task,
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<TaskResult, Error>> + Send>>, Error>
+    {
+        let submission_id = task.submission_id;
+        let tx_event = self.tx();
+
+        let context = Context::new(self.llm(), tx_event.clone())
+            .with_memory(self.memory())
+            .with_tools(self.tools())
+            .with_config(self.agent_config())
+            .with_stream(self.stream());
+
+        // Execute the agent's streaming logic using the executor
+        match self.inner().execute_stream(&task, Arc::new(context)).await {
+            Ok(stream) => {
+                use futures::StreamExt;
+
+                // Transform the stream to convert agent output to TaskResult
+                let transformed_stream = stream.map(move |result| {
+                    match result {
+                        Ok(output) => {
+                            // Convert output to Value
+                            let value: Value = output.into();
+                            Ok(TaskResult::Value(value))
+                        }
+                        Err(e) => {
+                            // Handle error
+                            let error_msg = e.to_string();
+                            Err(RunnableAgentError::ExecutorError(error_msg).into())
+                        }
+                    }
+                });
+
+                Ok(Box::pin(transformed_stream))
+            }
+            Err(e) => {
+                // Send error event for stream creation failure
                 let error_msg = e.to_string();
                 let _ = tx_event
                     .send(Event::TaskComplete {
@@ -149,30 +199,33 @@ where
 {
     type Msg = Task;
     type State = AgentState;
-    type Arguments = Sender<Event>;
+    type Arguments = ();
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        args: Self::Arguments,
+        _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(AgentState::new(args))
+        Ok(AgentState::new())
     }
 
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
         message: Self::Msg,
-        state: &mut Self::State,
+        _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         let agent = self.0.clone();
         let task = message;
-        let tx = state.tx.as_ref().unwrap().clone();
 
         //Run agent
-        let _ = agent.run(task, tx).await;
-
-        Ok(())
+        if agent.stream() {
+            let _ = agent.run_stream(task).await?;
+            Ok(())
+        } else {
+            let _ = agent.run(task).await?;
+            Ok(())
+        }
     }
 }
 

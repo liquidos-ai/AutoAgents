@@ -399,15 +399,6 @@ AutoAgents is designed for high performance:
 
 ---
 
-## 🗺️ Roadmap
-
-- [ ] Enhanced tool system and marketplace
-- [ ] Advanced memory systems and RAG integration
-- [ ] Distributed agent networks
-- [ ] Production-ready stable release
-
----
-
 ## 📜 License
 
 AutoAgents is dual-licensed under:
