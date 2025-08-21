@@ -19,8 +19,11 @@
 ## 🚀 Overview
 
 AutoAgents is a cutting-edge multi-agent framework built in Rust that enables the creation of intelligent, autonomous
-agents powered by Large Language Models (LLMs). Designed for performance, safety, and scalability, AutoAgents provides a
-robust foundation for building complex AI systems that can reason, act, and collaborate.
+agents powered by Large Language Models (LLMs) and [Ractor](https://github.com/slawlor/ractor). Designed for
+performance, safety, and scalability. AutoAgents provides a robust foundation for building complex AI systems that can
+reason, act, and collaborate. With AutoAgents you can create Cloud Native Agents, Edge Native Agents and Hybrid Models
+as well. It is So extensible
+that other ML Models can be used to create complex pipelines using Actor Framework.
 
 ---
 
@@ -61,7 +64,7 @@ robust foundation for building complex AI systems that can reason, act, and coll
 ### 🤖 **Multi-Agent Orchestration**
 
 - **Agent Coordination**: Seamless communication and collaboration between multiple agents
-- **Task Distribution**: Intelligent workload distribution across agent networks
+- **Type Safe Pub/Sub**: Type Safe Rust Native Pub/Sub
 - **Knowledge Sharing**: Shared memory and context between agents (In Roadmap)
 
 ---
@@ -323,6 +326,7 @@ AutoAgents/
 │   ├── autoagents/     # Main library entry point
 │   ├── core/           # Core agent framework
 │   ├── llm/            # LLM provider implementations
+│   ├── liquid-edge/    # Edge Runtime Implementation
 │   └── derive/         # Procedural macros
 ├── examples/           # Example implementations
 ```
