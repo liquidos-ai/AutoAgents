@@ -113,7 +113,7 @@ fn handle_streaming_events(mut event_stream: ReceiverStream<Event>) {
                             "🎯 Task {} Started - Agent: {:?}\n   📝 Task: {}",
                             task_counter, actor_id, task_description
                         )
-                            .cyan()
+                        .cyan()
                     );
                 }
                 Event::TaskComplete { result, .. } => {
@@ -122,7 +122,11 @@ fn handle_streaming_events(mut event_stream: ReceiverStream<Event>) {
                             match serde_json::from_value::<ReActAgentOutput>(val) {
                                 Ok(agent_out) => {
                                     // Try to parse as streaming output
-                                    if let Ok(streaming_output) = serde_json::from_str::<StreamingAgentOutput>(&agent_out.response) {
+                                    if let Ok(streaming_output) =
+                                        serde_json::from_str::<StreamingAgentOutput>(
+                                            &agent_out.response,
+                                        )
+                                    {
                                         println!(
                                             "{}",
                                             format!(
@@ -130,7 +134,7 @@ fn handle_streaming_events(mut event_stream: ReceiverStream<Event>) {
                                                 streaming_output.timestamp,
                                                 streaming_output.response
                                             )
-                                                .green()
+                                            .green()
                                         );
                                     } else {
                                         // Fallback to regular output
@@ -151,7 +155,7 @@ fn handle_streaming_events(mut event_stream: ReceiverStream<Event>) {
                         TaskResult::Failure(error) => {
                             println!("{}", format!("❌ Task failed: {}", error).red());
                         }
-                        TaskResult::Aborted => todo!()
+                        TaskResult::Aborted => todo!(),
                     }
                 }
                 Event::ToolCallRequested {
@@ -161,8 +165,7 @@ fn handle_streaming_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("🔧 Tool Call: {} with args: {}", tool_name, arguments)
-                            .yellow()
+                        format!("🔧 Tool Call: {} with args: {}", tool_name, arguments).yellow()
                     );
                 }
                 Event::ToolCallCompleted {
@@ -170,8 +173,7 @@ fn handle_streaming_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("✅ Tool Completed: {} - Result: {:?}", tool_name, result)
-                            .yellow()
+                        format!("✅ Tool Completed: {} - Result: {:?}", tool_name, result).yellow()
                     );
                 }
                 Event::TurnStarted {
@@ -194,7 +196,7 @@ fn handle_streaming_events(mut event_stream: ReceiverStream<Event>) {
                             turn_number + 1,
                             if final_turn { " (final)" } else { "" }
                         )
-                            .magenta()
+                        .magenta()
                     );
                 }
                 _ => {

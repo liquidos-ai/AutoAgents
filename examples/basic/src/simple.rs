@@ -85,10 +85,17 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     handle_events(receiver);
 
     // Publish message to all the subscribing actors
-    runtime.publish(&Topic::<Task>::new("test"), Task::new("what is 2 + 2?")).await?;
+    runtime
+        .publish(&Topic::<Task>::new("test"), Task::new("what is 2 + 2?"))
+        .await?;
     // Send a direct message for memory test
     println!("\n📧 Sending direct message to test memory...");
-    runtime.send_message(Task::new("What was the question I asked?"), agent_handle.addr()).await?;
+    runtime
+        .send_message(
+            Task::new("What was the question I asked?"),
+            agent_handle.addr(),
+        )
+        .await?;
 
     let _ = environment.run().await;
     Ok(())
@@ -109,7 +116,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                             "📋 Task Started - Agent: {:?}, Task: {}",
                             actor_id, task_description
                         )
-                            .green()
+                        .green()
                     );
                 }
                 Event::ToolCallRequested {
@@ -143,7 +150,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                                 "Math Value: {}, Explanation: {}, Generic: {:?}",
                                 math_out.value, math_out.explanation, math_out.generic
                             )
-                                .green()
+                            .green()
                         );
                     }
                     _ => {
@@ -170,7 +177,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                             turn_number + 1,
                             if final_turn { " (final)" } else { "" }
                         )
-                            .green()
+                        .green()
                     );
                 }
                 _ => {

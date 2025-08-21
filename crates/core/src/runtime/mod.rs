@@ -78,7 +78,8 @@ pub trait TypedRuntime: Runtime {
         M: CloneableMessage + 'static,
     {
         let arc_actor = Arc::new(actor) as Arc<dyn AnyActor>;
-        self.subscribe_any(topic.name(), TypeId::of::<M>(), arc_actor).await
+        self.subscribe_any(topic.name(), TypeId::of::<M>(), arc_actor)
+            .await
     }
 
     async fn publish<M>(&self, topic: &Topic<M>, message: M) -> Result<(), RuntimeError>
@@ -86,11 +87,17 @@ pub trait TypedRuntime: Runtime {
         M: CloneableMessage + 'static,
     {
         let arc_msg = Arc::new(message) as Arc<dyn Any + Send + Sync>;
-        self.publish_any(topic.name(), TypeId::of::<M>(), arc_msg).await
+        self.publish_any(topic.name(), TypeId::of::<M>(), arc_msg)
+            .await
     }
 
-    async fn send_message<M: CloneableMessage + 'static>(&self, message: M, addr: ActorRef<M>) -> Result<(), RuntimeError> {
-        addr.cast(message).map_err(|e| RuntimeError::SendMessage(e.to_string()))
+    async fn send_message<M: CloneableMessage + 'static>(
+        &self,
+        message: M,
+        addr: ActorRef<M>,
+    ) -> Result<(), RuntimeError> {
+        addr.cast(message)
+            .map_err(|e| RuntimeError::SendMessage(e.to_string()))
     }
 
     async fn subscribe_shared<M>(
@@ -102,11 +109,8 @@ pub trait TypedRuntime: Runtime {
         M: Send + Sync + 'static,
     {
         let arc_actor = Arc::new(actor) as Arc<dyn AnyActor>;
-        self.subscribe_any(
-            topic.name(),
-            TypeId::of::<SharedMessage<M>>(),
-            arc_actor,
-        ).await
+        self.subscribe_any(topic.name(), TypeId::of::<SharedMessage<M>>(), arc_actor)
+            .await
     }
 
     async fn publish_shared<M>(
@@ -119,15 +123,10 @@ pub trait TypedRuntime: Runtime {
     {
         let shared_msg = SharedMessage::new(message);
         let arc_msg = Arc::new(shared_msg) as Arc<dyn Any + Send + Sync>;
-        self.publish_any(
-            topic.name(),
-            TypeId::of::<SharedMessage<M>>(),
-            arc_msg,
-        ).await
+        self.publish_any(topic.name(), TypeId::of::<SharedMessage<M>>(), arc_msg)
+            .await
     }
 }
 
 // Auto-implement TypedRuntime for all Runtime implementations
 impl<T: Runtime + ?Sized> TypedRuntime for T {}
-
-

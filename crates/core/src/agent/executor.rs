@@ -41,13 +41,8 @@ pub trait AgentExecutor: Send + Sync + 'static {
     fn config(&self) -> ExecutorConfig;
 
     /// Execute the agent with the given task
-    async fn execute(
-        &self,
-        task: &Task,
-        context: Context,
-    ) -> Result<Self::Output, Self::Error>;
+    async fn execute(&self, task: &Task, context: Context) -> Result<Self::Output, Self::Error>;
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -269,9 +264,7 @@ mod tests {
         let (tx_event, _rx_event) = mpsc::channel(100);
         let context = Context::new(llm, tx_event);
 
-        let result = executor
-            .execute(&task, context)
-            .await;
+        let result = executor.execute(&task, context).await;
 
         assert!(result.is_ok());
         let output = result.unwrap();
@@ -286,9 +279,7 @@ mod tests {
         let (tx_event, _rx_event) = mpsc::channel(100);
         let context = Context::new(llm, tx_event);
 
-        let result = executor
-            .execute(&task, context)
-            .await;
+        let result = executor.execute(&task, context).await;
 
         assert!(result.is_err());
         let error = result.unwrap_err();
@@ -343,7 +334,6 @@ mod tests {
         assert!(debug_str.contains("TestOutput"));
         assert!(debug_str.contains("debug test"));
     }
-
 
     #[test]
     fn test_test_output_into_value() {

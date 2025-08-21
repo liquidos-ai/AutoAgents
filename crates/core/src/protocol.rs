@@ -113,7 +113,6 @@ pub enum TaskResult {
     Aborted,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,7 +120,7 @@ mod tests {
 
     #[test]
     fn test_event_serialization_new_task() {
-        let agent_id = Uuid::new_v4();
+        let _ = Uuid::new_v4();
         let event = Event::NewTask {
             actor_id: Default::default(),
             task: Task::new(String::from("test")),

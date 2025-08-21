@@ -42,7 +42,8 @@ impl Context {
                 message: Arc::new(message) as Arc<dyn Any + Send + Sync>,
                 topic_type: topic.type_id(),
             })
-            .await.map_err(|e| Error::CustomError(e.to_string()))
+            .await
+            .map_err(|e| Error::CustomError(e.to_string()))
     }
 
     pub fn with_memory(mut self, memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>) -> Self {
@@ -122,7 +123,7 @@ mod tests {
         assert!(context.messages.is_empty());
         assert!(context.memory.is_none());
         assert!(context.tools.is_empty());
-        assert_eq!(context.stream, false);
+        assert!(!context.stream);
     }
 
     #[test]
@@ -131,7 +132,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel(10);
         let context = Context::new(llm.clone(), tx);
 
-        // Verify the LLM provider is set correctly  
+        // Verify the LLM provider is set correctly
         let context_llm = context.llm();
         assert!(Arc::strong_count(&context_llm) > 0);
     }
@@ -141,8 +142,7 @@ mod tests {
         let llm = Arc::new(MockLLMProvider);
         let (tx, _rx) = mpsc::channel(10);
         let memory = Box::new(SlidingWindowMemory::new(5));
-        let context = Context::new(llm, tx)
-            .with_memory(Some(Arc::new(RwLock::new(memory))));
+        let context = Context::new(llm, tx).with_memory(Some(Arc::new(RwLock::new(memory))));
 
         assert!(context.memory().is_some());
     }
@@ -151,11 +151,8 @@ mod tests {
     fn test_context_with_messages() {
         let llm = Arc::new(MockLLMProvider);
         let (tx, _rx) = mpsc::channel(10);
-        let message = ChatMessage::user()
-            .content("Hello".to_string())
-            .build();
-        let context = Context::new(llm, tx)
-            .with_messages(vec![message]);
+        let message = ChatMessage::user().content("Hello".to_string()).build();
+        let context = Context::new(llm, tx).with_messages(vec![message]);
 
         assert_eq!(context.messages().len(), 1);
         assert_eq!(context.messages()[0].role, ChatRole::User);
@@ -166,10 +163,9 @@ mod tests {
     fn test_context_streaming_flag() {
         let llm = Arc::new(MockLLMProvider);
         let (tx, _rx) = mpsc::channel(10);
-        let context = Context::new(llm, tx)
-            .with_stream(true);
+        let context = Context::new(llm, tx).with_stream(true);
 
-        assert_eq!(context.stream(), true);
+        assert!(context.stream());
     }
 
     #[test]
@@ -188,6 +184,6 @@ mod tests {
 
         assert!(context.memory().is_some());
         assert_eq!(context.messages().len(), 1);
-        assert_eq!(context.stream(), true);
+        assert!(context.stream());
     }
 }

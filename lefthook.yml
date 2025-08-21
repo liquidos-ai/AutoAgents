@@ -1,12 +1,12 @@
 pre-commit:
   parallel: true
   commands:
-#    fmt:
-#      run: cargo fmt -- --check
-#      stage_fixed: true
+    fmt:
+      run: cargo fmt -- --check
+      stage_fixed: true
 
-#    clippy:
-#      run: cargo clippy --all-features --all-targets -- -D warnings
+    clippy:
+      run: cargo clippy --all-features --all-targets -- -D warnings
 
     test:
       run: cargo test --all-features

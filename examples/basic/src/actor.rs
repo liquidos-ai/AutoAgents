@@ -1,18 +1,18 @@
-use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
+use async_trait::async_trait;
 use autoagents::core::actor::{ActorMessage, CloneableMessage, Topic};
-use autoagents::core::protocol::ActorID;
 use autoagents::core::environment::Environment;
-use autoagents::core::protocol::Event;
 use autoagents::core::error::Error;
+use autoagents::core::protocol::ActorID;
+use autoagents::core::protocol::Event;
+use autoagents::core::ractor::concurrency::sleep;
+use autoagents::core::ractor::{Actor, ActorProcessingErr, ActorRef};
+use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::llm::LLMProvider;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
-use uuid::Uuid;
-use serde::{Deserialize, Serialize};
-use autoagents::core::ractor::{Actor, ActorRef, ActorProcessingErr};
-use async_trait::async_trait;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
-use autoagents::core::ractor::concurrency::sleep;
+use uuid::Uuid;
 
 /// Simple message type for basic actor communication
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,64 +74,70 @@ impl Actor for SimpleActor {
 /// Basic example showing new messaging system
 pub async fn run(_llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     println!("🚀 Basic Actor Messaging Example");
-    
+
     // Create runtime
     let runtime = SingleThreadedRuntime::new(Some(10));
-    
+
     // Create environment
     let mut environment = Environment::new(None);
     environment.register_runtime(runtime.clone()).await?;
-    
+
     // Set up event handling
     let receiver = environment.take_event_receiver(None).await?;
     handle_events(receiver);
-    
+
     // Create actors
     let actor1 = SimpleActor::new("Actor1");
     let actor2 = SimpleActor::new("Actor2");
-    
-    let actor1_ref = Actor::spawn(None, actor1, ()).await
+
+    let actor1_ref = Actor::spawn(None, actor1, ())
+        .await
         .map_err(|e| Error::CustomError(e.to_string()))?
         .0;
-    let actor2_ref = Actor::spawn(None, actor2, ()).await
+    let actor2_ref = Actor::spawn(None, actor2, ())
+        .await
         .map_err(|e| Error::CustomError(e.to_string()))?
         .0;
-    
+
     // Create topics for pub/sub messaging
     let general_topic = Topic::<SimpleMessage>::new("general");
     let announcements_topic = Topic::<SimpleMessage>::new("announcements");
-    
+
     // Subscribe actors to topics
-    runtime.subscribe(&general_topic, actor1_ref.clone()).await?;
-    runtime.subscribe(&general_topic, actor2_ref.clone()).await?;
-    runtime.subscribe(&announcements_topic, actor1_ref.clone()).await?;
+    runtime
+        .subscribe(&general_topic, actor1_ref.clone())
+        .await?;
+    runtime
+        .subscribe(&general_topic, actor2_ref.clone())
+        .await?;
+    runtime
+        .subscribe(&announcements_topic, actor1_ref.clone())
+        .await?;
 
     // Topic publishing example
     println!("\n📡 Publishing to general topic...");
-    let general_message = SimpleMessage {
-        content: 0
-    };
+    let general_message = SimpleMessage { content: 0 };
 
-    runtime.publish(&general_topic, general_message.clone()).await?;
-    runtime.publish(&general_topic, SimpleMessage {
-        content: 1
-    }).await?;
-    
+    runtime
+        .publish(&general_topic, general_message.clone())
+        .await?;
+    runtime
+        .publish(&general_topic, SimpleMessage { content: 1 })
+        .await?;
+
     // Announcement example
     println!("\n📢 Publishing announcement...");
-    let announcement = SimpleMessage {
-        content: 2
-    };
-    
+    let announcement = SimpleMessage { content: 2 };
+
     runtime.publish(&announcements_topic, announcement).await?;
 
     //Send Direct Message
     runtime.send_message(general_message, actor1_ref).await?;
 
     let _ = environment.run().await;
-    
+
     println!("\n✅ All messages sent successfully!");
-    
+
     Ok(())
 }
 
@@ -139,8 +145,15 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
     tokio::spawn(async move {
         while let Some(event) = event_stream.next().await {
             match event {
-                Event::TaskStarted { actor_id, task_description, .. } => {
-                    println!("🎯 Task Started - Actor: {:?}, Task: {}", actor_id, task_description);
+                Event::TaskStarted {
+                    actor_id,
+                    task_description,
+                    ..
+                } => {
+                    println!(
+                        "🎯 Task Started - Actor: {:?}, Task: {}",
+                        actor_id, task_description
+                    );
                 }
                 Event::TaskComplete { result, .. } => {
                     println!("✅ Task Completed: {:?}", result);

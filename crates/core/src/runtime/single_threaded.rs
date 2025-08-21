@@ -48,10 +48,7 @@ pub struct SingleThreadedRuntime {
 
 impl SingleThreadedRuntime {
     pub fn new(channel_buffer: Option<usize>) -> Arc<Self> {
-        Self::with_transport(
-            channel_buffer,
-            Arc::new(crate::actor::LocalTransport),
-        )
+        Self::with_transport(channel_buffer, Arc::new(crate::actor::LocalTransport))
     }
 
     pub fn with_transport(
@@ -80,7 +77,7 @@ impl SingleThreadedRuntime {
 
     /// Process internal events in the runtime
     async fn process_internal_event(&self, event: InternalEvent) -> Result<(), Error> {
-        debug!("Received internal event: {:?}", event);
+        debug!("Received internal event: {event:?}");
         match event {
             InternalEvent::ProtocolEvent(event) => {
                 self.process_protocol_event(event).await?;
@@ -96,8 +93,13 @@ impl SingleThreadedRuntime {
     /// Forward protocol events to external channel
     async fn process_protocol_event(&self, event: Event) -> Result<(), Error> {
         match event {
-            Event::PublishMessage { topic_type, topic_name, message } => {
-                self.handle_publish_message(&topic_name, topic_type, message).await?;
+            Event::PublishMessage {
+                topic_type,
+                topic_name,
+                message,
+            } => {
+                self.handle_publish_message(&topic_name, topic_type, message)
+                    .await?;
             }
             _ => {
                 //Other protocol events are sent to external
@@ -117,7 +119,7 @@ impl SingleThreadedRuntime {
         topic_type: TypeId,
         message: Arc<dyn Any + Send + Sync>,
     ) -> Result<(), RuntimeError> {
-        debug!("Handling publish event: {}", topic_name);
+        debug!("Handling publish event: {topic_name}");
 
         let subscriptions = self.subscriptions.read().await;
 
@@ -128,17 +130,24 @@ impl SingleThreadedRuntime {
                     "Type mismatch for topic '{}': expected {:?}, got {:?}",
                     topic_name, subscription.topic_type, topic_type
                 );
-                return Err(RuntimeError::TopicTypeMismatch(topic_name.to_owned(), topic_type));
+                return Err(RuntimeError::TopicTypeMismatch(
+                    topic_name.to_owned(),
+                    topic_type,
+                ));
             }
 
             // Send to all subscribed actors sequentially to maintain strict ordering
             for actor in &subscription.actors {
-                if let Err(e) = self.transport.send(actor.as_ref(), Arc::clone(&message)).await {
-                    error!("Failed to send message to subscriber: {}", e);
+                if let Err(e) = self
+                    .transport
+                    .send(actor.as_ref(), Arc::clone(&message))
+                    .await
+                {
+                    error!("Failed to send message to subscriber: {e}");
                 }
             }
         } else {
-            debug!("No subscribers for topic: {}", topic_name);
+            debug!("No subscribers for topic: {topic_name}");
         }
 
         Ok(())
@@ -151,7 +160,7 @@ impl SingleThreadedRuntime {
         topic_type: TypeId,
         actor: Arc<dyn AnyActor>,
     ) -> Result<(), RuntimeError> {
-        info!("Actor subscribing to topic: {}", topic_name);
+        info!("Actor subscribing to topic: {topic_name}");
 
         let mut subscriptions = self.subscriptions.write().await;
 
@@ -160,7 +169,8 @@ impl SingleThreadedRuntime {
                 // Verify type consistency
                 if subscription.topic_type != topic_type {
                     return Err(RuntimeError::TopicTypeMismatch(
-                        topic_name.to_string(), subscription.topic_type,
+                        topic_name.to_string(),
+                        subscription.topic_type,
                     ));
                 }
                 subscription.actors.push(actor);
@@ -196,16 +206,16 @@ impl SingleThreadedRuntime {
                 // Process internal events
                 Some(event) = internal_rx.recv() => {
                     debug!("Processing internal event");
-                    
+
                     // Check for shutdown event first
                     if matches!(event, InternalEvent::Shutdown) {
                         info!("Received shutdown event");
                         self.process_internal_event(event).await?;
                         break;
                     }
-                    
+
                     if let Err(e) = self.process_internal_event(event).await {
-                        error!("Error processing internal event: {}", e);
+                        error!("Error processing internal event: {e}");
                         break;
                     }
                 }
@@ -228,7 +238,7 @@ impl SingleThreadedRuntime {
         info!("Draining remaining events before shutdown");
         while let Ok(event) = internal_rx.try_recv() {
             if let Err(e) = self.process_internal_event(event).await {
-                error!("Error processing event during shutdown: {}", e);
+                error!("Error processing event during shutdown: {e}");
             }
         }
 
@@ -249,7 +259,7 @@ impl Runtime for SingleThreadedRuntime {
         topic_type: TypeId,
         actor: Arc<dyn AnyActor>,
     ) -> Result<(), RuntimeError> {
-        self.handle_subscribe(&topic_name, topic_type, actor).await
+        self.handle_subscribe(topic_name, topic_type, actor).await
     }
 
     async fn publish_any(
@@ -258,7 +268,8 @@ impl Runtime for SingleThreadedRuntime {
         topic_type: TypeId,
         message: Arc<dyn Any + Send + Sync>,
     ) -> Result<(), RuntimeError> {
-        self.handle_publish_message(&topic_name, topic_type, message).await
+        self.handle_publish_message(topic_name, topic_type, message)
+            .await
     }
 
     async fn tx(&self) -> mpsc::Sender<Event> {
@@ -268,11 +279,8 @@ impl Runtime for SingleThreadedRuntime {
 
         tokio::spawn(async move {
             while let Some(event) = interceptor_rx.recv().await {
-                if let Err(e) = internal_tx
-                    .send(InternalEvent::ProtocolEvent(event))
-                    .await
-                {
-                    error!("Failed to forward event to internal channel: {}", e);
+                if let Err(e) = internal_tx.send(InternalEvent::ProtocolEvent(event)).await {
+                    error!("Failed to forward event to internal channel: {e}");
                     break;
                 }
             }
@@ -305,7 +313,7 @@ impl Runtime for SingleThreadedRuntime {
         self.internal_tx
             .send(InternalEvent::Shutdown)
             .await
-            .map_err(|e| format!("Failed to send shutdown signal: {}", e))?;
+            .map_err(|e| format!("Failed to send shutdown signal: {e}"))?;
 
         // Wait a brief moment for shutdown to complete
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -379,9 +387,7 @@ mod tests {
         let runtime_handle = runtime.clone();
 
         // Start runtime in background
-        let runtime_task = tokio::spawn(async move {
-            runtime_handle.run().await
-        });
+        let runtime_task = tokio::spawn(async move { runtime_handle.run().await });
 
         // Create test actor
         let received = Arc::new(Mutex::new(Vec::new()));
@@ -392,8 +398,8 @@ mod tests {
             },
             received.clone(),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // Subscribe to topic
         let topic = Topic::<TestMessage>::new("test_topic");
@@ -440,9 +446,7 @@ mod tests {
         let runtime_handle = runtime.clone();
 
         // Start runtime in background
-        let runtime_task = tokio::spawn(async move {
-            runtime_handle.run().await
-        });
+        let runtime_task = tokio::spawn(async move { runtime_handle.run().await });
 
         // Create test actor for shared messages
         struct SharedActor {
@@ -483,8 +487,8 @@ mod tests {
             },
             received.clone(),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // Subscribe to shared topic
         let topic = Topic::<SharedMessage<SharedTestMessage>>::new("shared_topic");
@@ -531,9 +535,7 @@ mod tests {
         let runtime_handle = runtime.clone();
 
         // Start runtime in background
-        let runtime_task = tokio::spawn(async move {
-            runtime_handle.run().await
-        });
+        let runtime_task = tokio::spawn(async move { runtime_handle.run().await });
 
         // Create topic and subscribe with one type
         let topic_name = "typed_topic";
@@ -547,8 +549,8 @@ mod tests {
             },
             received.clone(),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         runtime.subscribe(&topic1, actor_ref).await.unwrap();
 
@@ -614,9 +616,7 @@ mod tests {
         let runtime_handle = runtime.clone();
 
         // Start runtime in background
-        let runtime_task = tokio::spawn(async move {
-            runtime_handle.run().await
-        });
+        let runtime_task = tokio::spawn(async move { runtime_handle.run().await });
 
         // Create test actor that tracks message order
         let received = Arc::new(Mutex::new(Vec::new()));
@@ -627,8 +627,8 @@ mod tests {
             },
             received.clone(),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // Subscribe to topic
         let topic = Topic::<TestMessage>::new("order_test");
@@ -640,7 +640,7 @@ mod tests {
                 .publish(
                     &topic,
                     TestMessage {
-                        content: format!("Message {}", i),
+                        content: format!("Message {i}"),
                     },
                 )
                 .await
@@ -655,7 +655,7 @@ mod tests {
         assert_eq!(received_msgs.len(), 10);
 
         for (i, msg) in received_msgs.iter().enumerate() {
-            assert_eq!(msg, &format!("Message {}", i));
+            assert_eq!(msg, &format!("Message {i}"));
         }
 
         // Shutdown
@@ -669,9 +669,7 @@ mod tests {
         let runtime_handle = runtime.clone();
 
         // Start runtime in background
-        let runtime_task = tokio::spawn(async move {
-            runtime_handle.run().await
-        });
+        let runtime_task = tokio::spawn(async move { runtime_handle.run().await });
 
         // Create multiple topics
         let topic1 = Topic::<TestMessage>::new("topic1");
@@ -687,8 +685,8 @@ mod tests {
             },
             received1.clone(),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         let (actor_ref2, _) = Actor::spawn(
             None,
@@ -697,8 +695,8 @@ mod tests {
             },
             received2.clone(),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // Subscribe to different topics
         runtime.subscribe(&topic1, actor_ref1).await.unwrap();
@@ -740,9 +738,7 @@ mod tests {
         let runtime_handle = runtime.clone();
 
         // Start runtime in background
-        let runtime_task = tokio::spawn(async move {
-            runtime_handle.run().await
-        });
+        let runtime_task = tokio::spawn(async move { runtime_handle.run().await });
 
         let topic = Topic::<TestMessage>::new("shared_topic");
 
@@ -756,8 +752,8 @@ mod tests {
             },
             received1.clone(),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         let (actor_ref2, _) = Actor::spawn(
             None,
@@ -766,8 +762,8 @@ mod tests {
             },
             received2.clone(),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // Subscribe both actors to same topic
         runtime.subscribe(&topic, actor_ref1).await.unwrap();

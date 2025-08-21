@@ -17,7 +17,6 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 
-
 #[agent(
     name = "agent_1",
     description = "You are a math geek and expert in linear algebra",
@@ -41,11 +40,7 @@ impl AgentExecutor for Agent1 {
         ExecutorConfig { max_turns: 10 }
     }
 
-    async fn execute(
-        &self,
-        task: &Task,
-        context: Context,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn execute(&self, task: &Task, context: Context) -> Result<Self::Output, Self::Error> {
         println!("Agent 1 Executing");
         let mut messages = vec![ChatMessage {
             role: ChatRole::System,
@@ -59,11 +54,14 @@ impl AgentExecutor for Agent1 {
             content: task.prompt.clone(),
         };
         messages.push(chat_msg);
-        let response = context.llm()
+        let response = context
+            .llm()
             .chat(&messages, context.config().output_schema.clone())
             .await?;
         let response_text = response.text().unwrap_or_default();
-        context.publish(Topic::<Task>::new("agent_2"), Task::new(response_text)).await?;
+        context
+            .publish(Topic::<Task>::new("agent_2"), Task::new(response_text))
+            .await?;
         Ok("Agent 1 Responed".into())
     }
 }
@@ -77,11 +75,7 @@ impl AgentExecutor for Agent2 {
         ExecutorConfig { max_turns: 10 }
     }
 
-    async fn execute(
-        &self,
-        task: &Task,
-        context: Context,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn execute(&self, task: &Task, context: Context) -> Result<Self::Output, Self::Error> {
         println!("Agent 2 Executing");
         let mut messages = vec![ChatMessage {
             role: ChatRole::System,
@@ -95,7 +89,8 @@ impl AgentExecutor for Agent2 {
             content: task.prompt.clone(),
         };
         messages.push(chat_msg);
-        let response = context.llm()
+        let response = context
+            .llm()
             .chat(&messages, context.config().output_schema.clone())
             .await?;
         let response_text = response.text().unwrap_or_default();

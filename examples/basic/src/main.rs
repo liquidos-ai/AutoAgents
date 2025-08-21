@@ -7,9 +7,9 @@ use autoagents::{
     init_logging,
     llm::{backends::openai::OpenAI, builder::LLMBuilder},
 };
+mod actor;
 mod liquid_edge;
 mod streaming;
-mod actor;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum UseCase {
@@ -17,7 +17,7 @@ enum UseCase {
     Chaining,
     Edge,
     Streaming,
-    Actor
+    Actor,
 }
 
 #[derive(Debug, Clone, ValueEnum)]

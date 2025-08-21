@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use autoagents_llm::chat::ChatMessage;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AgentProtocol {
@@ -36,7 +36,6 @@ pub enum AgentProtocol {
         final_turn: bool,
     },
 }
-
 
 /// Messages from the agent - used for A2A communication
 #[derive(Debug, Clone, Serialize, Deserialize)]

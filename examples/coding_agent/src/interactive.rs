@@ -1,13 +1,13 @@
 use crate::agent::CodingAgent;
-use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput};
+use autoagents::core::actor::{ActorMessage, CloneableMessage, Topic};
+use autoagents::core::agent::memory::SlidingWindowMemory;
+use autoagents::core::agent::prebuilt::executor::ReActAgentOutput;
+use autoagents::core::agent::task::Task;
 use autoagents::core::agent::AgentBuilder;
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{SingleThreadedRuntime, RuntimeError, TypedRuntime};
-use autoagents::core::actor::{ActorMessage, CloneableMessage, Topic};
-use autoagents::core::agent::task::Task;
+use autoagents::core::runtime::{RuntimeError, SingleThreadedRuntime, TypedRuntime};
 use autoagents::llm::LLMProvider;
 use colored::*;
 use std::io::{self, Write};
@@ -92,7 +92,7 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
 
                 // Create task and send using the new messaging system
                 let task = Task::new(input);
-                
+
                 // Publish to topic for all subscribers
                 let any_topic = Topic::<Task>::new("test");
                 runtime.publish(&any_topic, task).await?;
@@ -131,8 +131,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("🔧 Tool Call: {} with args: {}", tool_name, arguments)
-                            .yellow()
+                        format!("🔧 Tool Call: {} with args: {}", tool_name, arguments).yellow()
                     );
                 }
                 Event::ToolCallCompleted {
@@ -140,34 +139,31 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("✅ Tool Completed: {} - Result: {:?}", tool_name, result)
-                            .yellow()
+                        format!("✅ Tool Completed: {} - Result: {:?}", tool_name, result).yellow()
                     );
                 }
-                Event::TaskComplete { result, .. } => {
-                    match result {
-                        TaskResult::Value(val) => {
-                            match serde_json::from_value::<ReActAgentOutput>(val) {
-                                Ok(agent_out) => {
-                                    let skin = MadSkin::default();
-                                    println!("\n📝 Agent Response:");
-                                    println!("{}", "─".repeat(50).blue());
-                                    skin.print_text(&agent_out.response);
-                                    println!("{}", "─".repeat(50).blue());
-                                }
-                                Err(e) => {
-                                    println!("{}", format!("❌ Failed to parse response: {}", e).red());
-                                }
+                Event::TaskComplete { result, .. } => match result {
+                    TaskResult::Value(val) => {
+                        match serde_json::from_value::<ReActAgentOutput>(val) {
+                            Ok(agent_out) => {
+                                let skin = MadSkin::default();
+                                println!("\n📝 Agent Response:");
+                                println!("{}", "─".repeat(50).blue());
+                                skin.print_text(&agent_out.response);
+                                println!("{}", "─".repeat(50).blue());
+                            }
+                            Err(e) => {
+                                println!("{}", format!("❌ Failed to parse response: {}", e).red());
                             }
                         }
-                        TaskResult::Failure(error) => {
-                            println!("{}", format!("❌ Task failed: {}", error).red());
-                        }
-                        TaskResult::Aborted => {
-                            println!("{}", "🚫 Task aborted".yellow());
-                        }
                     }
-                }
+                    TaskResult::Failure(error) => {
+                        println!("{}", format!("❌ Task failed: {}", error).red());
+                    }
+                    TaskResult::Aborted => {
+                        println!("{}", "🚫 Task aborted".yellow());
+                    }
+                },
                 Event::TurnStarted {
                     turn_number,
                     max_turns,

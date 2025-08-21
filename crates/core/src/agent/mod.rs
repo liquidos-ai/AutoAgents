@@ -1,16 +1,18 @@
 mod base;
+mod builder;
+mod config;
+mod context;
 mod error;
 mod executor;
+pub mod memory;
 mod output;
 pub mod prebuilt;
-mod runnable;
 mod protocol;
-mod config;
-pub mod memory;
-mod context;
+mod runnable;
 pub mod task;
 
-pub use base::{AgentBuilder, AgentDeriveT, AgentHandle, BaseAgent};
+pub use base::{AgentDeriveT, AgentHandle, BaseAgent};
+pub use builder::AgentBuilder;
 pub use config::AgentConfig;
 pub use context::Context;
 pub use error::AgentResultError;

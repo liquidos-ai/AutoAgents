@@ -1,13 +1,13 @@
+use autoagents::core::actor::{ActorMessage, CloneableMessage, Topic};
+use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{SingleThreadedRuntime, RuntimeError, TypedRuntime};
-use autoagents::core::actor::{ActorMessage, CloneableMessage, Topic};
+use autoagents::core::runtime::{RuntimeError, SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT, WasmRuntime};
-use autoagents::core::agent::task::Task;
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
 use colored::*;
@@ -34,14 +34,16 @@ struct WasmAddition {}
 impl ToolRuntime for WasmAddition {
     fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
         println!("🔧 Executing WASM Addition tool...");
-        
+
         let runtime = WasmRuntime::builder()
             .source_file("./examples/wasm_tool/wasm/wasm_tool.wasm")
             .alloc_fn("alloc")
             .execute_fn("execute")
             .free_fn(Some("free".to_string()))
             .build()
-            .map_err(|e| ToolCallError::RuntimeError(format!("Failed to build WASM runtime: {}", e).into()))?;
+            .map_err(|e| {
+                ToolCallError::RuntimeError(format!("Failed to build WASM runtime: {}", e).into())
+            })?;
 
         // Execute and get result
         match runtime.run(args) {
@@ -78,7 +80,7 @@ impl ReActExecutor for WasmMathAgent {}
 
 pub async fn wasm_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     println!("🚀 WASM Agent Example - Math operations using WebAssembly");
-    
+
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
     let agent = WasmMathAgent {};
@@ -107,7 +109,7 @@ pub async fn wasm_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     // Send WASM computation tasks
     println!("\n📤 Sending WASM computation tasks...");
-    
+
     let tasks = vec![
         "Calculate 2 + 2 using the WASM addition tool",
         "What is 15 + 27? Use the WASM tool for this calculation",
@@ -116,12 +118,12 @@ pub async fn wasm_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     for (i, task_content) in tasks.iter().enumerate() {
         println!("\n💻 Sending WASM task {}: {}", i + 1, task_content);
-        
+
         let task = Task::new(*task_content);
-        
+
         // Publish to topic
         runtime.publish(&wasm_topic, task).await?;
-        
+
         // Give time between tasks
         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
     }
@@ -167,8 +169,11 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("✅ WASM Tool Completed: {} - Result: {:?}", tool_name, result)
-                            .yellow()
+                        format!(
+                            "✅ WASM Tool Completed: {} - Result: {:?}",
+                            tool_name, result
+                        )
+                        .yellow()
                     );
                 }
                 Event::TaskComplete { result, .. } => match result {
@@ -176,7 +181,9 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                         match serde_json::from_value::<ReActAgentOutput>(val) {
                             Ok(agent_out) => {
                                 // Try to parse as WASM math output
-                                if let Ok(wasm_output) = serde_json::from_str::<WasmMathAgentOutput>(&agent_out.response) {
+                                if let Ok(wasm_output) =
+                                    serde_json::from_str::<WasmMathAgentOutput>(&agent_out.response)
+                                {
                                     println!(
                                         "{}",
                                         format!(
@@ -190,15 +197,13 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                                     // Fallback to regular output
                                     println!(
                                         "{}",
-                                        format!("💬 Agent Response: {}", agent_out.response).green()
+                                        format!("💬 Agent Response: {}", agent_out.response)
+                                            .green()
                                     );
                                 }
                             }
                             Err(e) => {
-                                println!(
-                                    "{}",
-                                    format!("❌ Failed to parse response: {}", e).red()
-                                );
+                                println!("{}", format!("❌ Failed to parse response: {}", e).red());
                             }
                         }
                     }

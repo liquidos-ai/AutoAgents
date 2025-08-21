@@ -55,11 +55,7 @@ pub trait RunnableAgent: Send + Sync + 'static + Debug {
     fn description(&self) -> &'static str;
     fn id(&self) -> Uuid;
 
-    async fn run(
-        self: Arc<Self>,
-        task: Task,
-        tx_event: Sender<Event>,
-    ) -> Result<(), Error>;
+    async fn run(self: Arc<Self>, task: Task, tx_event: Sender<Event>) -> Result<(), Error>;
 
     fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>>;
 
@@ -92,11 +88,7 @@ where
         self.id
     }
 
-    async fn run(
-        self: Arc<Self>,
-        task: Task,
-        tx_event: Sender<Event>,
-    ) -> Result<(), Error> {
+    async fn run(self: Arc<Self>, task: Task, tx_event: Sender<Event>) -> Result<(), Error> {
         let submission_id = task.submission_id;
 
         let context = Context::new(self.llm(), tx_event.clone())
@@ -105,11 +97,7 @@ where
             .with_config(self.agent_config())
             .with_stream(self.stream);
         // Execute the agent's logic using the executor
-        match self
-            .inner()
-            .execute(&task, context)
-            .await
-        {
+        match self.inner().execute(&task, context).await {
             Ok(output) => {
                 // Convert output to Value
                 let value: Value = output.into();

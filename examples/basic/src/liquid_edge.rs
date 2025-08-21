@@ -114,9 +114,7 @@ pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
     let receiver = environment.take_event_receiver(None).await?;
     handle_events(receiver);
 
-    tokio::spawn(async move {
-        environment.run().await
-    });
+    tokio::spawn(async move { environment.run().await });
 
     // Send chat message using the new messaging system
     println!("\n💬 Sending chat message to local AI...");
@@ -143,7 +141,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                             "🎯 Task Started - Agent: {:?}, Task: {}",
                             actor_id, task_description
                         )
-                            .cyan()
+                        .cyan()
                     );
                 }
                 Event::ToolCallRequested {
@@ -153,8 +151,11 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("🔧 Tool Call Started: {} with args: {}", tool_name, arguments)
-                            .yellow()
+                        format!(
+                            "🔧 Tool Call Started: {} with args: {}",
+                            tool_name, arguments
+                        )
+                        .yellow()
                     );
                 }
                 Event::ToolCallCompleted {
@@ -162,8 +163,11 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("✅ Tool Call Completed: {} - Result: {:?}", tool_name, result)
-                            .yellow()
+                        format!(
+                            "✅ Tool Call Completed: {} - Result: {:?}",
+                            tool_name, result
+                        )
+                        .yellow()
                     );
                 }
                 Event::TaskComplete { result, .. } => match result {
@@ -210,7 +214,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                             turn_number + 1,
                             if final_turn { " (final)" } else { "" }
                         )
-                            .blue()
+                        .blue()
                     );
                 }
                 _ => {

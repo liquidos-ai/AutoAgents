@@ -165,8 +165,8 @@ pub trait ReActExecutor: Send + Sync + 'static {
                 Some(&tools_serialized),
                 agent_config.output_schema.clone(),
             )
-                .await
-                .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?
+            .await
+            .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?
         } else {
             llm.chat(messages, agent_config.output_schema.clone())
                 .await
@@ -269,11 +269,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
         ExecutorConfig { max_turns: 10 }
     }
 
-    async fn execute(
-        &self,
-        task: &Task,
-        context: Context,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn execute(&self, task: &Task, context: Context) -> Result<Self::Output, Self::Error> {
         debug!("Starting ReAct Executor");
         let task = task.clone();
         let max_turns = self.config().max_turns;
@@ -337,10 +333,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
                 .with_config(agent_config.clone())
                 .with_messages(messages)
                 .with_stream(context.stream());
-            match self
-                .process_turn(&turn_context, tools)
-                .await?
-            {
+            match self.process_turn(&turn_context, tools).await? {
                 TurnResult::Complete(result) => {
                     // If we have accumulated tool calls, merge them with the final result
                     if !accumulated_tool_calls.is_empty() {
