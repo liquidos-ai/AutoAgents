@@ -10,12 +10,12 @@ pub mod memory;
 mod context;
 pub mod task;
 
-pub use base::{AgentBuilder, AgentDeriveT, BaseAgent};
+pub use base::{AgentBuilder, AgentDeriveT, AgentHandle, BaseAgent};
+pub use config::AgentConfig;
+pub use context::Context;
 pub use error::AgentResultError;
 pub use error::{AgentBuildError, RunnableAgentError};
 pub use executor::{AgentExecutor, ExecutorConfig, TurnResult};
 pub use output::AgentOutputT;
-pub use runnable::{AgentActor, AgentState, IntoRunnable, RunnableAgent};
 pub use protocol::AgentProtocol;
-pub use config::AgentConfig;
-pub use context::Context;
+pub use runnable::{AgentActor, AgentState, IntoRunnable, RunnableAgent};

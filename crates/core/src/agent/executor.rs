@@ -1,11 +1,11 @@
+use crate::agent::context::Context;
+use crate::agent::task::Task;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use std::error::Error;
 use std::fmt::Debug;
-use crate::agent::context::Context;
-use crate::agent::task::Task;
 
 /// Result of processing a single turn in the agent's execution
 #[derive(Debug)]
@@ -47,15 +47,13 @@ pub trait AgentExecutor: Send + Sync + 'static {
         context: Context,
     ) -> Result<Self::Output, Self::Error>;
 }
-/*
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::base::AgentConfig;
-    use crate::agent::runnable::AgentState;
-    use crate::memory::MemoryProvider;
-    use crate::protocol::Event;
-    use crate::runtime::Task;
+    use crate::agent::context::Context;
+    use crate::agent::task::Task;
     use async_trait::async_trait;
     use autoagents_llm::{
         chat::{ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat},
@@ -67,8 +65,7 @@ mod tests {
     };
     use serde::{Deserialize, Serialize};
     use std::sync::Arc;
-    use tokio::sync::{mpsc, RwLock};
-    use uuid::Uuid;
+    use tokio::sync::mpsc;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct TestOutput {
@@ -121,13 +118,8 @@ mod tests {
 
         async fn execute(
             &self,
-            _llm: Arc<dyn LLMProvider>,
-            _memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-            _tools: Vec<Box<dyn ToolT>>,
-            _agent_config: &AgentConfig,
-            task: Task,
-            _state: Arc<RwLock<AgentState>>,
-            _tx_event: mpsc::Sender<Event>,
+            task: &Task,
+            _context: Context,
         ) -> Result<Self::Output, Self::Error> {
             if self.should_fail {
                 return Err(TestError::TestError("Mock execution failed".to_string()));
@@ -269,25 +261,16 @@ mod tests {
         assert!(debug_str.contains("test"));
     }
 
-    /*
-
     #[tokio::test]
     async fn test_mock_executor_success() {
         let executor = MockExecutor::new(false);
         let llm = Arc::new(MockLLMProvider);
-        let tools = vec![];
-        let agent_config = AgentConfig {
-            name: "test".to_string(),
-            id: Uuid::new_v4(),
-            description: "test agent".to_string(),
-            output_schema: None,
-        };
-        let task = Task::new("test task", None);
-        let state = Arc::new(RwLock::new(AgentState::new()));
+        let task = Task::new("test task");
         let (tx_event, _rx_event) = mpsc::channel(100);
+        let context = Context::new(llm, tx_event);
 
         let result = executor
-            .execute(llm, None, tools, &agent_config, task, state, tx_event)
+            .execute(&task, context)
             .await;
 
         assert!(result.is_ok());
@@ -299,19 +282,12 @@ mod tests {
     async fn test_mock_executor_failure() {
         let executor = MockExecutor::new(true);
         let llm = Arc::new(MockLLMProvider);
-        let tools = vec![];
-        let agent_config = AgentConfig {
-            name: "test".to_string(),
-            id: Uuid::new_v4(),
-            description: "test agent".to_string(),
-            output_schema: None,
-        };
-        let task = Task::new("test task", None);
-        let state = Arc::new(RwLock::new(AgentState::new()));
+        let task = Task::new("test task");
         let (tx_event, _rx_event) = mpsc::channel(100);
+        let context = Context::new(llm, tx_event);
 
         let result = executor
-            .execute(llm, None, tools, &agent_config, task, state, tx_event)
+            .execute(&task, context)
             .await;
 
         assert!(result.is_err());
@@ -367,7 +343,7 @@ mod tests {
         assert!(debug_str.contains("TestOutput"));
         assert!(debug_str.contains("debug test"));
     }
-    */
+
 
     #[test]
     fn test_test_output_into_value() {
@@ -398,5 +374,3 @@ mod tests {
         assert!(error.source().is_none());
     }
 }
-
-*/

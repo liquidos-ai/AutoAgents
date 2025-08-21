@@ -4,14 +4,14 @@ use futures::future::try_join_all;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
-#[derive(Default)]
 pub struct RuntimeManager {
     runtimes: RwLock<HashMap<RuntimeID, Arc<dyn Runtime>>>,
 }
 
 impl RuntimeManager {
     pub fn new() -> Self {
-        Self::default()
+        let runtimes = RwLock::new(HashMap::new());
+        RuntimeManager { runtimes }
     }
 
     pub async fn register_runtime(&self, runtime: Arc<dyn Runtime>) -> Result<(), RuntimeError> {
@@ -33,7 +33,7 @@ impl RuntimeManager {
             .map(|runtime| tokio::spawn(async move { runtime.run().await }))
             .collect::<Vec<_>>();
         // Await all in parallel and propagate the first error
-        let _ = try_join_all(tasks).await.map_err(RuntimeError::from)?;
+        let _ = try_join_all(tasks).await.map_err(RuntimeError::JoinError)?;
         Ok(())
     }
 
@@ -47,7 +47,7 @@ impl RuntimeManager {
             .collect::<Vec<_>>();
 
         // Wait for all to finish and propagate first error if any
-        let _ = try_join_all(tasks).await.map_err(RuntimeError::from)?;
+        let _ = try_join_all(tasks).await.map_err(RuntimeError::JoinError)?;
         Ok(())
     }
 }

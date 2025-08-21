@@ -15,7 +15,7 @@ pub enum EnvironmentError {
     #[error("Runtime error: {0}")]
     RuntimeError(#[from] RuntimeError),
 
-    #[error("Error when comusimg receiver")]
+    #[error("Error when consuming receiver")]
     EventError,
 }
 
@@ -36,7 +36,7 @@ pub struct Environment {
     config: EnvironmentConfig,
     runtime_manager: Arc<RuntimeManager>,
     default_runtime: Option<RuntimeID>,
-    handle: Option<tokio::task::JoinHandle<Result<(), RuntimeError>>>,
+    handle: Option<JoinHandle<Result<(), RuntimeError>>>,
 }
 
 impl Environment {

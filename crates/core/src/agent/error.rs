@@ -1,3 +1,4 @@
+use ractor::SpawnErr;
 use std::fmt::Debug;
 use thiserror::Error;
 
@@ -67,6 +68,9 @@ where
 pub enum AgentBuildError {
     #[error("Build Failure")]
     BuildFailure(String),
+
+    #[error("SpawnError")]
+    SpawnError(#[from] SpawnErr),
 }
 
 #[derive(Error, Debug)]

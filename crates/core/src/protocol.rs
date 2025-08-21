@@ -1,10 +1,9 @@
-use std::fmt::Debug;
-use autoagents_llm::chat::ChatMessage;
-use serde::{Deserialize, Serialize};
-use serde::de::DeserializeOwned;
-use uuid::Uuid;
-use crate::actor::{ActorMessage, ActorTask};
 use crate::agent::task::Task;
+use serde::{Deserialize, Serialize};
+use std::any::{Any, TypeId};
+use std::fmt::Debug;
+use std::sync::Arc;
+use uuid::Uuid;
 
 /// Submission IDs are used to track actor tasks
 pub type SubmissionId = Uuid;
@@ -46,16 +45,17 @@ pub enum Event {
         result: TaskResult,
     },
 
+    #[serde(skip)]
     PublishMessage {
-        topic: String,
-        message: String,
+        topic_name: String,
+        topic_type: TypeId,
+        message: Arc<dyn Any + Send + Sync>,
     },
 
     SendMessage {
         message: String,
         actor_id: ActorID,
     },
-
 
     /// Tool call requested (with ID)
     ToolCallRequested {
@@ -91,6 +91,15 @@ pub enum Event {
     },
 }
 
+/// Internal events that are processed within the runtime
+#[derive(Debug)]
+pub enum InternalEvent {
+    /// Process a protocol event
+    ProtocolEvent(Event),
+    /// Shutdown signal
+    Shutdown,
+}
+
 /// Results from a completed task
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TaskResult {
@@ -105,7 +114,6 @@ pub enum TaskResult {
 }
 
 
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,8 +123,8 @@ mod tests {
     fn test_event_serialization_new_task() {
         let agent_id = Uuid::new_v4();
         let event = Event::NewTask {
-            agent_id,
-            task: Task::new(String::from("test"), Some(agent_id)),
+            actor_id: Default::default(),
+            task: Task::new(String::from("test")),
         };
 
         //Check if serialization and deserilization works properly
@@ -135,7 +143,7 @@ mod tests {
     fn test_event_serialization_task_started() {
         let event = Event::TaskStarted {
             sub_id: Uuid::new_v4(),
-            agent_id: Uuid::new_v4(),
+            actor_id: Default::default(),
             task_description: "Started task".to_string(),
         };
 
@@ -270,73 +278,9 @@ mod tests {
     }
 
     #[test]
-    fn test_agent_message_serialization() {
-        let message = AgentMessage {
-            content: "Test message".to_string(),
-            chat_messages: None,
-        };
-
-        let serialized = serde_json::to_string(&message).unwrap();
-        let deserialized: AgentMessage = serde_json::from_str(&serialized).unwrap();
-
-        assert_eq!(deserialized.content, "Test message");
-        assert!(deserialized.chat_messages.is_none());
-    }
-
-    #[test]
-    fn test_agent_message_with_chat_messages() {
-        use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
-
-        let chat_msg = ChatMessage {
-            role: ChatRole::User,
-            message_type: MessageType::Text,
-            content: "Hello".to_string(),
-        };
-
-        let message = AgentMessage {
-            content: "Agent response".to_string(),
-            chat_messages: Some(vec![chat_msg]),
-        };
-
-        let serialized = serde_json::to_string(&message).unwrap();
-        let deserialized: AgentMessage = serde_json::from_str(&serialized).unwrap();
-
-        assert_eq!(deserialized.content, "Agent response");
-        assert!(deserialized.chat_messages.is_some());
-        assert_eq!(deserialized.chat_messages.unwrap().len(), 1);
-    }
-
-    #[test]
-    fn test_agent_message_debug_format() {
-        let message = AgentMessage {
-            content: "Debug message".to_string(),
-            chat_messages: None,
-        };
-
-        let debug_str = format!("{message:?}");
-        assert!(debug_str.contains("AgentMessage"));
-        assert!(debug_str.contains("Debug message"));
-    }
-
-    #[test]
-    fn test_agent_message_clone() {
-        let message = AgentMessage {
-            content: "Test content".to_string(),
-            chat_messages: None,
-        };
-
-        let cloned = message.clone();
-        assert_eq!(message.content, cloned.content);
-        assert_eq!(
-            message.chat_messages.is_none(),
-            cloned.chat_messages.is_none()
-        );
-    }
-
-    #[test]
     fn test_uuid_types() {
         let submission_id: SubmissionId = Uuid::new_v4();
-        let agent_id: AgentID = Uuid::new_v4();
+        let agent_id: ActorID = Uuid::new_v4();
         let runtime_id: RuntimeID = Uuid::new_v4();
         let event_id: EventId = Uuid::new_v4();
 
@@ -345,4 +289,3 @@ mod tests {
         assert_ne!(runtime_id, event_id);
     }
 }
-*/

@@ -4,8 +4,10 @@ use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{Runtime, SingleThreadedRuntime};
+use autoagents::core::runtime::{SingleThreadedRuntime, RuntimeError, TypedRuntime};
+use autoagents::core::actor::{ActorMessage, CloneableMessage, Topic};
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT, WasmRuntime};
+use autoagents::core::agent::task::Task;
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
 use colored::*;
@@ -23,29 +25,32 @@ pub struct AdditionArgs {
 }
 
 #[tool(
-    name = "Addition",
-    description = "Use this tool to Add two numbers",
+    name = "WasmAddition",
+    description = "Use this WASM tool to add two numbers using WebAssembly runtime",
     input = AdditionArgs,
 )]
-struct Addition {}
+struct WasmAddition {}
 
-impl ToolRuntime for Addition {
+impl ToolRuntime for WasmAddition {
     fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        println!("🔧 Executing WASM Addition tool...");
+        
         let runtime = WasmRuntime::builder()
             .source_file("./examples/wasm_tool/wasm/wasm_tool.wasm")
             .alloc_fn("alloc")
             .execute_fn("execute")
             .free_fn(Some("free".to_string()))
             .build()
-            .unwrap();
+            .map_err(|e| ToolCallError::RuntimeError(format!("Failed to build WASM runtime: {}", e).into()))?;
+
         // Execute and get result
         match runtime.run(args) {
             Ok(result) => {
-                println!("✅ Output from WASM: {}", result);
-                return Ok(result.into());
+                println!("✅ WASM execution successful: {}", result);
+                Ok(result)
             }
             Err(e) => {
-                println!("Error running WASM: {}", e);
+                println!("❌ WASM execution failed: {}", e);
                 Err(ToolCallError::RuntimeError(e.into()))
             }
         }
@@ -54,55 +59,77 @@ impl ToolRuntime for Addition {
 
 /// Math agent output with Value and Explanation
 #[derive(Debug, Serialize, Deserialize, AgentOutput)]
-pub struct MathAgentOutput {
-    #[output(description = "The addition result")]
+pub struct WasmMathAgentOutput {
+    #[output(description = "The WASM computation result")]
     value: i64,
-    #[output(description = "Explanation of the logic")]
+    #[output(description = "Explanation of the WASM computation")]
     explanation: String,
 }
 
 #[agent(
-    name = "math_agent",
-    description = "You are a Math agent",
-    tools = [Addition]
-    output = MathAgentOutput
+    name = "wasm_math_agent",
+    description = "You are a Math agent that uses WebAssembly (WASM) tools for computations. You demonstrate the power of running secure, sandboxed code through WASM.",
+    tools = [WasmAddition],
+    output = WasmMathAgentOutput
 )]
-pub struct MathAgent {}
+pub struct WasmMathAgent {}
 
-impl ReActExecutor for MathAgent {}
+impl ReActExecutor for WasmMathAgent {}
 
 pub async fn wasm_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
+    println!("🚀 WASM Agent Example - Math operations using WebAssembly");
+    
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = MathAgent {};
-
+    let agent = WasmMathAgent {};
     let runtime = SingleThreadedRuntime::new(None);
 
-    let _ = AgentBuilder::new(agent)
+    // Create topic for WASM agent
+    let wasm_topic = Topic::<Task>::new("wasm_math");
+
+    let agent_handle = AgentBuilder::new(agent)
         .with_llm(llm)
         .runtime(runtime.clone())
-        .subscribe_topic("test")
+        .subscribe_topic(wasm_topic.clone())
         .with_memory(sliding_window_memory)
         .build()
         .await?;
 
     // Create environment and set up event handling
     let mut environment = Environment::new(None);
-    let _ = environment.register_runtime(runtime.clone()).await;
+    environment.register_runtime(runtime.clone()).await?;
 
     let receiver = environment.take_event_receiver(None).await?;
     handle_events(receiver);
 
-    runtime
-        .publish_message("What is 2 + 2?".into(), "test".into())
-        .await
-        .unwrap();
-    runtime
-        .publish_message("What did I ask before?".into(), "test".into())
-        .await
-        .unwrap();
+    // Start the environment
+    let _handle = environment.run();
 
-    let _ = environment.run().await;
+    // Send WASM computation tasks
+    println!("\n📤 Sending WASM computation tasks...");
+    
+    let tasks = vec![
+        "Calculate 2 + 2 using the WASM addition tool",
+        "What is 15 + 27? Use the WASM tool for this calculation",
+        "Compute 100 + 200 and explain how WASM tools work",
+    ];
+
+    for (i, task_content) in tasks.iter().enumerate() {
+        println!("\n💻 Sending WASM task {}: {}", i + 1, task_content);
+        
+        let task = Task::new(*task_content);
+        
+        // Publish to topic
+        runtime.publish(&wasm_topic, task).await?;
+        
+        // Give time between tasks
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+    }
+
+    // Give time for processing
+    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+
+    println!("\n✅ WASM Agent example completed!");
     Ok(())
 }
 
@@ -118,10 +145,10 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                     println!(
                         "{}",
                         format!(
-                            "📋 Task Started - Agent: {:?}, Task: {}",
+                            "🎯 WASM Task Started - Agent: {:?}\n   📝 Task: {}",
                             actor_id, task_description
                         )
-                        .green()
+                        .cyan()
                     );
                 }
                 Event::ToolCallRequested {
@@ -131,8 +158,8 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("Tool Call Started: {} with args: {}", tool_name, arguments)
-                            .green()
+                        format!("🔧 WASM Tool Call: {} with args: {}", tool_name, arguments)
+                            .yellow()
                     );
                 }
                 Event::ToolCallCompleted {
@@ -140,26 +167,46 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("Tool Call Completed: {} - Result: {:?}", tool_name, result)
-                            .green()
+                        format!("✅ WASM Tool Completed: {} - Result: {:?}", tool_name, result)
+                            .yellow()
                     );
                 }
                 Event::TaskComplete { result, .. } => match result {
                     TaskResult::Value(val) => {
-                        let agent_out: ReActAgentOutput = serde_json::from_value(val).unwrap();
-                        let math_out: MathAgentOutput =
-                            serde_json::from_str(&agent_out.response).unwrap();
-                        println!(
-                            "{}",
-                            format!(
-                                "Math Value: {}, Explanation: {}",
-                                math_out.value, math_out.explanation
-                            )
-                            .green()
-                        );
+                        match serde_json::from_value::<ReActAgentOutput>(val) {
+                            Ok(agent_out) => {
+                                // Try to parse as WASM math output
+                                if let Ok(wasm_output) = serde_json::from_str::<WasmMathAgentOutput>(&agent_out.response) {
+                                    println!(
+                                        "{}",
+                                        format!(
+                                            "🧮 WASM Math Result:\n   Value: {}\n   Explanation: {}\n",
+                                            wasm_output.value,
+                                            wasm_output.explanation
+                                        )
+                                        .green()
+                                    );
+                                } else {
+                                    // Fallback to regular output
+                                    println!(
+                                        "{}",
+                                        format!("💬 Agent Response: {}", agent_out.response).green()
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                println!(
+                                    "{}",
+                                    format!("❌ Failed to parse response: {}", e).red()
+                                );
+                            }
+                        }
                     }
-                    _ => {
-                        println!("{}", format!("Error!!!").red());
+                    TaskResult::Failure(error) => {
+                        println!("{}", format!("❌ WASM task failed: {}", error).red());
+                    }
+                    TaskResult::Aborted => {
+                        println!("{}", "🚫 WASM task aborted".yellow());
                     }
                 },
                 Event::TurnStarted {
@@ -168,7 +215,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("Turn {}/{} started", turn_number + 1, max_turns).green()
+                        format!("🔄 Turn {}/{} started", turn_number + 1, max_turns).blue()
                     );
                 }
                 Event::TurnCompleted {
@@ -178,15 +225,15 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                     println!(
                         "{}",
                         format!(
-                            "Turn {} completed{}",
+                            "✅ Turn {} completed{}",
                             turn_number + 1,
                             if final_turn { " (final)" } else { "" }
                         )
-                        .green()
+                        .blue()
                     );
                 }
                 _ => {
-                    println!("📡 Event: {:?}", event);
+                    // Handle other events if needed
                 }
             }
         }

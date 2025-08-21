@@ -1,128 +1,204 @@
-/// This Exmaple demonstrages Agent Streaming
-use autoagents::async_trait;
-use autoagents::core::agent::{AgentBuilder, AgentConfig, AgentDeriveT, AgentExecutor, AgentState, Context, ExecutorConfig};
+use autoagents::core::actor::Topic;
+use autoagents::core::agent::memory::SlidingWindowMemory;
+/// This example demonstrates Agent Streaming using the new runtime architecture
+use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::task::Task;
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::agent::memory::{MemoryProvider, SlidingWindowMemory};
 use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{Runtime, SingleThreadedRuntime};
+use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::ToolT;
-use autoagents::llm::chat::{ChatMessage, ChatRole, MessageType};
 use autoagents::llm::LLMProvider;
-use autoagents_derive::agent;
+use autoagents_derive::{agent, AgentOutput};
 use colored::*;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
-use autoagents::core::actor::ActorTask;
-use autoagents::core::agent::task::Task;
 
-#[agent(
-    name = "agent_1",
-    description = "You are a math geek and expert in linear algebra",
-    tools = [],
-)]
-pub struct Agent1 {}
-
-#[async_trait]
-impl AgentExecutor for Agent1 {
-    type Output = String;
-    type Error = Error;
-
-    fn config(&self) -> ExecutorConfig {
-        ExecutorConfig { max_turns: 10 }
-    }
-
-    async fn execute(
-        &self,
-        task: &Task,
-        context: Context
-    ) -> Result<Self::Output, Self::Error> {
-        let mut messages = vec![ChatMessage {
-            role: ChatRole::System,
-            message_type: MessageType::Text,
-            content: context.config().description.clone(),
-        }];
-        let task = task
-            .as_any()
-            .downcast_ref::<Task>()
-            .expect("Expected Task type")
-            .clone();
-
-        let chat_msg = ChatMessage {
-            role: ChatRole::User,
-            message_type: MessageType::Text,
-            content: task.prompt.clone(),
-        };
-        messages.push(chat_msg);
-        let response = context.llm()
-            .chat(&messages, context.config().output_schema.clone())
-            .await
-            .unwrap();
-        let response_text = response.text().unwrap_or_default();
-        Ok("Agent 1 Responed".into())
-    }
+/// Streaming agent output
+#[derive(Debug, Serialize, Deserialize, AgentOutput)]
+pub struct StreamingAgentOutput {
+    #[output(description = "The streamed response")]
+    response: String,
+    #[output(description = "Response timestamp")]
+    timestamp: String,
 }
 
+#[agent(
+    name = "streaming_agent",
+    description = "You are a math expert and knowledgeable assistant that provides detailed explanations. Respond in a conversational manner.",
+    tools = [],
+    output = StreamingAgentOutput
+)]
+pub struct StreamingAgent {}
+
+impl ReActExecutor for StreamingAgent {}
+
 pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
+    println!("🌊 Agent Streaming Example");
+
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = Agent1 {};
-
+    let agent = StreamingAgent {};
     let runtime = SingleThreadedRuntime::new(None);
 
+    // Create topic for streaming agent
+    let streaming_topic = Topic::<Task>::new("streaming_agent");
+
     let _ = AgentBuilder::new(agent)
-        .with_llm(llm.clone())
+        .with_llm(llm)
         .runtime(runtime.clone())
-        .subscribe_topic("agent_1")
-        .stream(true)
-        .with_memory(sliding_window_memory.clone())
+        .subscribe_topic(streaming_topic.clone())
+        .stream(true) // Enable streaming for this agent
+        .with_memory(sliding_window_memory)
         .build()
         .await?;
 
     // Create environment and set up event handling
     let mut environment = Environment::new(None);
-    let _ = environment.register_runtime(runtime.clone()).await;
+    environment.register_runtime(runtime.clone()).await?;
 
     let receiver = environment.take_event_receiver(None).await?;
-    handle_events(receiver);
+    handle_streaming_events(receiver);
 
-    runtime
-        .publish_message("What is Vector Calculus?".into(), "agent_1".into())
-        .await
-        .unwrap();
+    // Start the environment
+    let _handle = environment.run();
 
-    tokio::select! {
-        _ = environment.run() => {
-            println!("Environment finished running.");
-        }
-        _ = tokio::signal::ctrl_c() => {
-            println!("Ctrl+C detected. Shutting down...");
-            environment.shutdown().await;
-        }
+    // Send multiple messages to demonstrate streaming
+    println!("\n📤 Sending streaming tasks...");
+
+    let tasks = vec![
+        "What is Vector Calculus and why is it important in mathematics?",
+        "Explain the concept of derivatives in simple terms",
+        "How do integrals relate to the area under a curve?",
+        "What are some real-world applications of linear algebra?",
+    ];
+
+    for (i, task_content) in tasks.iter().enumerate() {
+        println!("\n💬 Sending task {}: {}", i + 1, task_content);
+
+        let task = Task::new(*task_content);
+
+        // Publish to topic
+        runtime.publish(&streaming_topic, task).await?;
+
+        // Give some time between tasks to see streaming effect
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
     }
 
+    // Give time for processing
+    tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
+
+    println!("\n✅ Streaming example completed!");
     Ok(())
 }
 
-fn handle_events(mut event_stream: ReceiverStream<Event>) {
+fn handle_streaming_events(mut event_stream: ReceiverStream<Event>) {
     tokio::spawn(async move {
+        let mut task_counter = 0;
+
         while let Some(event) = event_stream.next().await {
             match event {
+                Event::TaskStarted {
+                    actor_id,
+                    task_description,
+                    ..
+                } => {
+                    task_counter += 1;
+                    println!(
+                        "{}",
+                        format!(
+                            "🎯 Task {} Started - Agent: {:?}\n   📝 Task: {}",
+                            task_counter, actor_id, task_description
+                        )
+                            .cyan()
+                    );
+                }
                 Event::TaskComplete { result, .. } => {
                     match result {
                         TaskResult::Value(val) => {
-                            let agent_out: String = serde_json::from_value(val).unwrap();
-                            println!("{}", format!("Thought: {}", agent_out).green());
+                            match serde_json::from_value::<ReActAgentOutput>(val) {
+                                Ok(agent_out) => {
+                                    // Try to parse as streaming output
+                                    if let Ok(streaming_output) = serde_json::from_str::<StreamingAgentOutput>(&agent_out.response) {
+                                        println!(
+                                            "{}",
+                                            format!(
+                                                "🌊 Streaming Response ({}): {}",
+                                                streaming_output.timestamp,
+                                                streaming_output.response
+                                            )
+                                                .green()
+                                        );
+                                    } else {
+                                        // Fallback to regular output
+                                        println!(
+                                            "{}",
+                                            format!("💭 Response: {}", agent_out.response).green()
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    println!(
+                                        "{}",
+                                        format!("❌ Failed to parse response: {}", e).red()
+                                    );
+                                }
+                            }
                         }
-                        _ => {
-                            //
+                        TaskResult::Failure(error) => {
+                            println!("{}", format!("❌ Task failed: {}", error).red());
                         }
+                        TaskResult::Aborted => todo!()
                     }
                 }
+                Event::ToolCallRequested {
+                    tool_name,
+                    arguments,
+                    ..
+                } => {
+                    println!(
+                        "{}",
+                        format!("🔧 Tool Call: {} with args: {}", tool_name, arguments)
+                            .yellow()
+                    );
+                }
+                Event::ToolCallCompleted {
+                    tool_name, result, ..
+                } => {
+                    println!(
+                        "{}",
+                        format!("✅ Tool Completed: {} - Result: {:?}", tool_name, result)
+                            .yellow()
+                    );
+                }
+                Event::TurnStarted {
+                    turn_number,
+                    max_turns,
+                } => {
+                    println!(
+                        "{}",
+                        format!("🔄 Turn {}/{} started", turn_number + 1, max_turns).magenta()
+                    );
+                }
+                Event::TurnCompleted {
+                    turn_number,
+                    final_turn,
+                } => {
+                    println!(
+                        "{}",
+                        format!(
+                            "✅ Turn {} completed{}",
+                            turn_number + 1,
+                            if final_turn { " (final)" } else { "" }
+                        )
+                            .magenta()
+                    );
+                }
                 _ => {
-                    //
+                    // Handle other streaming-specific events if they exist
                 }
             }
         }

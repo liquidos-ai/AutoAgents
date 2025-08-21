@@ -5,12 +5,15 @@ use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{Runtime, SingleThreadedRuntime};
+use autoagents::core::runtime::{SingleThreadedRuntime, RuntimeError, TypedRuntime};
+use autoagents::core::actor::{ActorMessage, CloneableMessage, Topic};
+use autoagents::core::agent::task::Task;
 use autoagents::llm::LLMProvider;
 use colored::*;
 use std::io::{self, Write};
 use std::sync::Arc;
 use termimad::MadSkin;
+use termimad::RelativePosition::Top;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 
 const CODING_TASK_TOPIC: &str = "coding_task";
@@ -24,14 +27,17 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
 
     let runtime = SingleThreadedRuntime::new(None);
 
+    // Create topic for coding tasks
+    let coding_topic = Topic::<Task>::new(CODING_TASK_TOPIC);
+
     // Create the coding agent
     let coding_agent = CodingAgent {};
 
     // Build the agent
-    let _ = AgentBuilder::new(coding_agent)
+    let agent_handle = AgentBuilder::new(coding_agent)
         .with_llm(llm)
         .runtime(runtime.clone())
-        .subscribe_topic(CODING_TASK_TOPIC)
+        .subscribe_topic(coding_topic.clone())
         .with_memory(memory)
         .build()
         .await?;
@@ -39,11 +45,14 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
     // Create environment
     let mut environment = Environment::new(None);
 
-    // Register the agent
-    let _ = environment.register_runtime(runtime.clone()).await?;
+    // Register the runtime
+    environment.register_runtime(runtime.clone()).await?;
 
     let receiver = environment.take_event_receiver(None).await?;
     handle_events(receiver);
+
+    // Start the environment in the background
+    let _handle = environment.run();
 
     let stdin = io::stdin();
     let mut stdout = io::stdout();
@@ -63,8 +72,6 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
             continue;
         }
 
-        environment.run();
-
         match input.to_lowercase().as_str() {
             "quit" | "exit" | "q" => {
                 println!("👋 Goodbye!");
@@ -83,17 +90,18 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
                 // Process the task
                 println!("\n🔄 Processing your request...\n");
 
-                // Add the task
-                let _ = runtime
-                    .clone()
-                    .publish_message(input.into(), CODING_TASK_TOPIC.into())
-                    .await?;
+                // Create task and send using the new messaging system
+                let task = Task::new(input);
+                
+                // Publish to topic for all subscribers
+                let any_topic = Topic::<Task>::new("test");
+                runtime.publish(&any_topic, task).await?;
+
+                // Give some time for processing
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
         }
     }
-
-    // Shutdown
-    environment.shutdown().await;
 
     Ok(())
 }
@@ -110,10 +118,10 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                     println!(
                         "{}",
                         format!(
-                            "📋 Task Started - Agent: {:?}, Task: {}",
+                            "🎯 Task Started - Agent: {:?}\n   📝 Task: {}",
                             actor_id, task_description
                         )
-                        .green()
+                        .cyan()
                     );
                 }
                 Event::ToolCallRequested {
@@ -123,8 +131,8 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("Tool Call Started: {} with args: {}", tool_name, arguments)
-                            .green()
+                        format!("🔧 Tool Call: {} with args: {}", tool_name, arguments)
+                            .yellow()
                     );
                 }
                 Event::ToolCallCompleted {
@@ -132,21 +140,31 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("Tool Call Completed: {} - Result: {:?}", tool_name, result)
-                            .green()
+                        format!("✅ Tool Completed: {} - Result: {:?}", tool_name, result)
+                            .yellow()
                     );
                 }
                 Event::TaskComplete { result, .. } => {
                     match result {
                         TaskResult::Value(val) => {
-                            let agent_out: ReActAgentOutput = serde_json::from_value(val).unwrap();
-                            // Run the specific task
-                            let skin = MadSkin::default();
-                            println!("📝 Agent Response:\n");
-                            skin.print_text(&agent_out.response);
+                            match serde_json::from_value::<ReActAgentOutput>(val) {
+                                Ok(agent_out) => {
+                                    let skin = MadSkin::default();
+                                    println!("\n📝 Agent Response:");
+                                    println!("{}", "─".repeat(50).blue());
+                                    skin.print_text(&agent_out.response);
+                                    println!("{}", "─".repeat(50).blue());
+                                }
+                                Err(e) => {
+                                    println!("{}", format!("❌ Failed to parse response: {}", e).red());
+                                }
+                            }
                         }
-                        _ => {
-                            //
+                        TaskResult::Failure(error) => {
+                            println!("{}", format!("❌ Task failed: {}", error).red());
+                        }
+                        TaskResult::Aborted => {
+                            println!("{}", "🚫 Task aborted".yellow());
                         }
                     }
                 }
@@ -156,7 +174,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("Turn {}/{} started", turn_number + 1, max_turns).green()
+                        format!("🔄 Turn {}/{} started", turn_number + 1, max_turns).blue()
                     );
                 }
                 Event::TurnCompleted {
@@ -166,15 +184,15 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                     println!(
                         "{}",
                         format!(
-                            "Turn {} completed{}",
+                            "✅ Turn {} completed{}",
                             turn_number + 1,
                             if final_turn { " (final)" } else { "" }
                         )
-                        .green()
+                        .blue()
                     );
                 }
                 _ => {
-                    println!("📡 Event: {:?}", event);
+                    // Handle other events silently or with debug output
                 }
             }
         }
@@ -187,11 +205,21 @@ fn print_help() {
 📚 Interactive Coding Agent Help
 
 This agent uses the ReAct (Reasoning + Acting) pattern to solve coding tasks.
+It has access to various coding tools for file operations, code execution, and more.
+
+Example tasks you can try:
+  - "Write a Python function to calculate fibonacci numbers"
+  - "Create a simple HTTP server in Python"
+  - "Help me debug this code: [paste your code]"
+  - "Explain how quicksort works and implement it in Rust"
+  - "Create a React component for a todo list"
 
 Commands:
   help, h     - Show this help message
   clear       - Clear the terminal
   quit, q     - Exit the session
+
+💡 The agent can read files, write code, execute commands, and explain concepts!
 "#
     );
 }

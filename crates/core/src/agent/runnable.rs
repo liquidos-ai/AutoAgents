@@ -1,19 +1,19 @@
 use super::base::{AgentDeriveT, BaseAgent};
 use super::error::RunnableAgentError;
-use crate::error::Error;
+use crate::agent::context::Context;
 use crate::agent::memory::MemoryProvider;
+use crate::agent::task::Task;
+use crate::error::Error;
 use crate::protocol::{Event, TaskResult};
 use crate::tool::ToolCallResult;
 use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
 use serde_json::Value;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::mpsc::Sender;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
-use crate::actor::{ActorMessage, ActorTask};
-use crate::agent::context::Context;
-use crate::agent::task::Task;
 
 /// State tracking for agent execution
 #[derive(Debug, Default, Clone)]
@@ -22,11 +22,16 @@ pub struct AgentState {
     pub tool_calls: Vec<ToolCallResult>,
     /// Tasks that have been executed
     pub task_history: Vec<Task>,
+    pub tx: Option<Sender<Event>>,
 }
 
 impl AgentState {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(tx: Sender<Event>) -> Self {
+        Self {
+            tool_calls: vec![],
+            task_history: vec![],
+            tx: Some(tx),
+        }
     }
 
     pub fn record_tool_call(&mut self, tool_call: ToolCallResult) {
@@ -35,6 +40,11 @@ impl AgentState {
 
     pub fn record_task(&mut self, task: Task) {
         self.task_history.push(task);
+    }
+
+    pub fn set_tx(&mut self, tx: Sender<Event>) -> &mut Self {
+        self.tx = Some(tx);
+        self
     }
 }
 
@@ -47,18 +57,18 @@ pub trait RunnableAgent: Send + Sync + 'static + Debug {
 
     async fn run(
         self: Arc<Self>,
-        task: Box<dyn ActorTask>,
-        tx_event: mpsc::Sender<Event>,
+        task: Task,
+        tx_event: Sender<Event>,
     ) -> Result<(), Error>;
 
     fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>>;
 
     fn spawn_task(
         self: Arc<Self>,
-        task: Box<dyn ActorTask>,
-        tx_event: mpsc::Sender<Event>,
+        task: Task,
+        tx_event: Sender<Event>,
     ) -> JoinHandle<Result<(), Error>> {
-        tokio::spawn(async move { self.run(task, tx_event).await })
+        tokio::spawn(async move { self.run(task.clone(), tx_event).await })
     }
 }
 
@@ -82,19 +92,11 @@ where
         self.id
     }
 
-    fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>> {
-        BaseAgent::memory(self)
-    }
-
     async fn run(
         self: Arc<Self>,
-        task: Box<dyn ActorTask>,
-        tx_event: mpsc::Sender<Event>,
+        task: Task,
+        tx_event: Sender<Event>,
     ) -> Result<(), Error> {
-        // Get submission_id from task if it's a Task type
-        let task = task
-            .as_any()
-            .downcast_ref::<Task>().ok_or(RunnableAgentError::DowncastTaskError)?;
         let submission_id = task.submission_id;
 
         let context = Context::new(self.llm(), tx_event.clone())
@@ -105,7 +107,7 @@ where
         // Execute the agent's logic using the executor
         match self
             .inner()
-            .execute(task, context)
+            .execute(&task, context)
             .await
         {
             Ok(output) => {
@@ -137,6 +139,10 @@ where
             }
         }
     }
+
+    fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>> {
+        BaseAgent::memory(self)
+    }
 }
 
 #[derive(Debug)]
@@ -153,31 +159,30 @@ impl<T: AgentDeriveT> Actor for AgentActor<T>
 where
     T: Send + Sync + 'static,
 {
-    type Msg = ActorMessage;
+    type Msg = Task;
     type State = AgentState;
-    type Arguments = ();
+    type Arguments = Sender<Event>;
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _: Self::Arguments,
+        args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(AgentState::new())
+        Ok(AgentState::new(args))
     }
 
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
         message: Self::Msg,
-        _state: &mut Self::State,
+        state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         let agent = self.0.clone();
-        let task = message.task;
-        let tx = message.tx;
+        let task = message;
+        let tx = state.tx.as_ref().unwrap().clone();
 
-        tokio::spawn(async move {
-            let _ = agent.run(task, tx).await;
-        });
+        //Run agent
+        let _ = agent.run(task, tx).await;
 
         Ok(())
     }

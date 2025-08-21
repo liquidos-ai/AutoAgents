@@ -1,45 +1,51 @@
 <div align="center">
   <img src="assets/logo.png" alt="AutoAgents Logo" width="200" height="200">
 
-  # AutoAgents
+# AutoAgents
 
-  **A Modern Multi-Agent Framework in Rust**
+**A Modern Multi-Agent Framework in Rust**
 
-  [![Crates.io](https://img.shields.io/crates/v/autoagents.svg)](https://crates.io/crates/autoagents)
-  [![Documentation](https://docs.rs/autoagents/badge.svg)](https://liquidos-ai.github.io/AutoAgents)
-  [![License](https://img.shields.io/crates/l/autoagents.svg)](https://github.com/liquidos-ai/AutoAgents#license)
-  [![Build Status](https://github.com/liquidos-ai/AutoAgents/workflows/coverage/badge.svg)](https://github.com/liquidos-ai/AutoAgents/actions)
-  [![codecov](https://codecov.io/gh/liquidos-ai/AutoAgents/graph/badge.svg)](https://codecov.io/gh/liquidos-ai/AutoAgents)
+[![Crates.io](https://img.shields.io/crates/v/autoagents.svg)](https://crates.io/crates/autoagents)
+[![Documentation](https://docs.rs/autoagents/badge.svg)](https://liquidos-ai.github.io/AutoAgents)
+[![License](https://img.shields.io/crates/l/autoagents.svg)](https://github.com/liquidos-ai/AutoAgents#license)
+[![Build Status](https://github.com/liquidos-ai/AutoAgents/workflows/coverage/badge.svg)](https://github.com/liquidos-ai/AutoAgents/actions)
+[![codecov](https://codecov.io/gh/liquidos-ai/AutoAgents/graph/badge.svg)](https://codecov.io/gh/liquidos-ai/AutoAgents)
 
-  [Documentation](https://liquidos-ai.github.io/AutoAgents/) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
+[Documentation](https://liquidos-ai.github.io/AutoAgents/) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
 </div>
 
 ---
 
 ## 🚀 Overview
 
-AutoAgents is a cutting-edge multi-agent framework built in Rust that enables the creation of intelligent, autonomous agents powered by Large Language Models (LLMs). Designed for performance, safety, and scalability, AutoAgents provides a robust foundation for building complex AI systems that can reason, act, and collaborate.
+AutoAgents is a cutting-edge multi-agent framework built in Rust that enables the creation of intelligent, autonomous
+agents powered by Large Language Models (LLMs). Designed for performance, safety, and scalability, AutoAgents provides a
+robust foundation for building complex AI systems that can reason, act, and collaborate.
 
 ---
 
 ## ✨ Key Features
 
 ### 🔧 **Extensive Tool Integration**
+
 - **Built-in Tools**: File operations, web scraping, API calls, and more coming soon!
 - **Custom Tools**: Easy integration of external tools and services
 - **Tool Chaining**: Complex workflows through tool composition
 
 ### 🏗️ **Flexible Architecture**
+
 - **Modular Design**: Plugin-based architecture for easy extensibility
 - **Provider Agnostic**: Support for multiple LLM providers
 - **Memory Systems**: Configurable memory backends (sliding window, persistent, etc.)
 
 ### 📊 **Structured Outputs**
+
 - **JSON Schema Support**: Type-safe agent responses with automatic validation
 - **Custom Output Types**: Define complex structured outputs for your agents
 - **Serialization**: Built-in support for various data formats
 
 ### 🕹️ WASM Runtime for Tool Execution
+
 - **Sandboxed Environment**: Secure and isolated execution of tools using WebAssembly
 - **Cross-Platform Compatibility**: Run tools uniformly across diverse platforms and architectures
 - **Fast Startup & Low Overhead**: Near-native performance with minimal resource consumption
@@ -47,11 +53,13 @@ AutoAgents is a cutting-edge multi-agent framework built in Rust that enables th
 - **Extensibility:** Easily add new tools from Hub (Coming Soon!)
 
 ### 🎯 **ReAct Framework**
+
 - **Reasoning**: Advanced reasoning capabilities with step-by-step logic
 - **Acting**: Tool execution with intelligent decision making
 - **Observation**: Environmental feedback and adaptation
 
 ### 🤖 **Multi-Agent Orchestration**
+
 - **Agent Coordination**: Seamless communication and collaboration between multiple agents
 - **Task Distribution**: Intelligent workload distribution across agent networks
 - **Knowledge Sharing**: Shared memory and context between agents (In Roadmap)
@@ -62,18 +70,18 @@ AutoAgents is a cutting-edge multi-agent framework built in Rust that enables th
 
 AutoAgents supports a wide range of LLM providers, allowing you to choose the best fit for your use case:
 
-| Provider | Status |
-|----------|---------|
-| **LiquidEdge (ONNX)** | ✅ |
-| **OpenAI** | ✅ |
-| **Anthropic** | ✅ |
-| **Ollama** | ✅ |
-| **DeepSeek** | ✅ |
-| **xAI** | ✅ |
-| **Phind** | ✅ |
-| **Groq** | ✅ |
-| **Google** | ✅ |
-| **Azure OpenAI** | ✅ |
+| Provider              | Status |
+|-----------------------|--------|
+| **LiquidEdge (ONNX)** | ✅      |
+| **OpenAI**            | ✅      |
+| **Anthropic**         | ✅      |
+| **Ollama**            | ✅      |
+| **DeepSeek**          | ✅      |
+| **xAI**               | ✅      |
+| **Phind**             | ✅      |
+| **Groq**              | ✅      |
+| **Google**            | ✅      |
+| **Azure OpenAI**      | ✅      |
 
 *Provider support is actively expanding based on community needs.*
 
@@ -94,11 +102,13 @@ For contributing to AutoAgents or building from source:
 #### Install LeftHook
 
 **macOS (using Homebrew):**
+
 ```bash
 brew install lefthook
 ```
 
 **Linux/Windows:**
+
 ```bash
 # Using npm
 npm install -g lefthook
@@ -122,6 +132,7 @@ cargo test --all-features
 ```
 
 The lefthook configuration will automatically:
+
 - Format code with `cargo fmt`
 - Run linting with `cargo clippy`
 - Execute tests before commits
@@ -133,16 +144,17 @@ The lefthook configuration will automatically:
 ### Basic Usage
 
 ```rust
-use autoagents::core::agent::prebuilt::react::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::actor::Topic;
+use autoagents::core::agent::memory::SlidingWindowMemory;
+use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::memory::SlidingWindowMemory;
 use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{Runtime, SingleThreadedRuntime};
-use autoagents::init_logging;
-use autoagents::core::tool::{ToolCallError, ToolInputT, ToolT};
-use autoagents::{llm::backends::openai::OpenAI, llm::builder::LLMBuilder};
+use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
+use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
+use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
 use colored::*;
 use serde::{Deserialize, Serialize};
@@ -180,6 +192,8 @@ pub struct MathAgentOutput {
     value: i64,
     #[output(description = "Explanation of the logic")]
     explanation: String,
+    #[output(description = "If user asks other than math questions, use this to answer them.")]
+    generic: Option<String>,
 }
 
 #[agent(
@@ -192,32 +206,19 @@ pub struct MathAgent {}
 
 impl ReActExecutor for MathAgent {}
 
-#[tokio::main]
-async fn main() -> Result<(), Error> {
-    init_logging();
-    // Check if API key is set
-    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or("".into());
-
-    // Initialize and configure the LLM client
-    let llm: Arc<OpenAI> = LLMBuilder::<OpenAI>::new()
-        .api_key(api_key) // Set the API key
-        .model("gpt-4o") // Use GPT-4o-mini model
-        .max_tokens(512) // Limit response length
-        .temperature(0.2) // Control response randomness (0.0-1.0)
-        .stream(false) // Disable streaming responses
-        .build()
-        .expect("Failed to build LLM");
-
+pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
     let agent = MathAgent {};
 
     let runtime = SingleThreadedRuntime::new(None);
 
-    let _ = AgentBuilder::new(agent)
+    let test_topic = Topic::<Task>::new("test");
+
+    let agent_handle = AgentBuilder::new(agent)
         .with_llm(llm)
         .runtime(runtime.clone())
-        .subscribe_topic("test")
+        .subscribe_topic(test_topic.clone())
         .with_memory(sliding_window_memory)
         .build()
         .await?;
@@ -226,17 +227,14 @@ async fn main() -> Result<(), Error> {
     let mut environment = Environment::new(None);
     let _ = environment.register_runtime(runtime.clone()).await;
 
-    let receiver = environment.take_event_receiver(None).await;
+    let receiver = environment.take_event_receiver(None).await?;
     handle_events(receiver);
 
-    runtime
-        .publish_message("What is 2 + 2?".into(), "test".into())
-        .await
-        .unwrap();
-    runtime
-        .publish_message("What did I ask before?".into(), "test".into())
-        .await
-        .unwrap();
+    // Publish message to all the subscribing actors
+    runtime.publish(&Topic::<Task>::new("test"), Task::new("what is 2 + 2?")).await?;
+    // Send a direct message for memory test
+    println!("\n📧 Sending direct message to test memory...");
+    runtime.send_message(Task::new("What was the question I asked?"), agent_handle.addr()).await?;
 
     let _ = environment.run().await;
     Ok(())
@@ -260,7 +258,7 @@ fn handle_events(event_stream: Option<ReceiverStream<Event>>) {
                                         "Math Value: {}, Explanation: {}",
                                         math_out.value, math_out.explanation
                                     )
-                                    .green()
+                                        .green()
                                 );
                             }
                             _ => {
@@ -285,6 +283,7 @@ fn handle_events(event_stream: Option<ReceiverStream<Event>>) {
 Explore our comprehensive examples to get started quickly:
 
 ### [Basic Agent](examples/basic/)
+
 A simple agent demonstrating core functionality and event-driven architecture.
 
 ```bash
@@ -293,6 +292,7 @@ cargo run --package basic-example -- --usecase simple
 ```
 
 ### [WASM Tool Execution](examples/wasm_runner/)
+
 A simple agent which can run tools in WASM runtime.
 
 ```bash
@@ -301,6 +301,7 @@ cargo run --package wasm-runner
 ```
 
 ### [Coding Agent](examples/coding_agent/)
+
 A sophisticated ReAct-based coding agent with file manipulation capabilities.
 
 ```bash
@@ -356,13 +357,15 @@ cargo tarpaulin --all-features --out html
 ### Git Hooks
 
 This project uses LeftHook for Git hooks management. The hooks will automatically:
+
 - Format code with `cargo fmt --check`
 - Run linting with `cargo clippy -- -D warnings`
 - Execute tests with `cargo test --features full`
 
 ### Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) for details.
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md)
+and [Code of Conduct](CODE_OF_CONDUCT.md) for details.
 
 ---
 
@@ -417,6 +420,7 @@ You may choose either license for your use case.
 Built with ❤️ by the [Liquidos AI](https://liquidos.ai) team and our amazing community contributors.
 
 Special thanks to:
+
 - The Rust community for the excellent ecosystem
 - OpenAI, Anthropic, and other LLM providers for their APIs
 - All contributors who help make AutoAgents better
@@ -426,5 +430,5 @@ Special thanks to:
 <div align="center">
   <strong>Ready to build intelligent agents? Get started with AutoAgents today!</strong>
 
-  ⭐ **Star us on GitHub** | 🐛 **Report Issues** | 💬 **Join Discussions**
+⭐ **Star us on GitHub** | 🐛 **Report Issues** | 💬 **Join Discussions**
 </div>

@@ -24,23 +24,20 @@ liquid_edge = ["autoagents-llm/liquid_edge"]
 wasm = ["dep:wasmtime"]
 
 [dependencies]
-autoagents-derive.workspace = true
 autoagents-llm.workspace = true
 tokio = { workspace = true }
 async-trait = { workspace = true }
-reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
 futures = { workspace = true }
-env_logger = { workspace = true, optional = true }
-dirs = { workspace = true }
 regex = { workspace = true }
 tokio-stream.workspace = true
 log = { workspace = true, features = ["std"] }
 wasmtime = { workspace = true, optional = true }
 ractor = { version = "0.15.7", features = ["serde", "async-trait"] }
+chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
 autoagents-test-utils = { workspace = true }

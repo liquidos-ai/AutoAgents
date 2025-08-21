@@ -1,5 +1,7 @@
+use crate::agent::context::Context;
 use crate::agent::executor::{AgentExecutor, ExecutorConfig, TurnResult};
 use crate::agent::memory::MemoryProvider;
+use crate::agent::task::Task;
 use crate::protocol::Event;
 use crate::tool::{ToolCallResult, ToolT};
 use async_trait::async_trait;
@@ -12,8 +14,6 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::{mpsc, RwLock};
-use crate::agent::context::Context;
-use crate::agent::task::Task;
 
 /// Output of the ReAct-style agent
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,7 +71,7 @@ pub trait ReActExecutor: Send + Sync + 'static {
     async fn process_tool_calls(
         &self,
         tools: &[Box<dyn ToolT>],
-        tool_calls: Vec<autoagents_llm::ToolCall>,
+        tool_calls: Vec<ToolCall>,
         tx_event: mpsc::Sender<Event>,
         _memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
     ) -> Vec<ToolCallResult> {
@@ -165,8 +165,8 @@ pub trait ReActExecutor: Send + Sync + 'static {
                 Some(&tools_serialized),
                 agent_config.output_schema.clone(),
             )
-            .await
-            .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?
+                .await
+                .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?
         } else {
             llm.chat(messages, agent_config.output_schema.clone())
                 .await
@@ -272,14 +272,14 @@ impl<T: ReActExecutor> AgentExecutor for T {
     async fn execute(
         &self,
         task: &Task,
-        mut context: Context,
+        context: Context,
     ) -> Result<Self::Output, Self::Error> {
         debug!("Starting ReAct Executor");
         let task = task.clone();
         let max_turns = self.config().max_turns;
         let mut accumulated_tool_calls = Vec::new();
         let mut final_response = String::new();
-        
+
         let llm = context.llm();
         let mut memory = context.memory();
         let tools = context.tools();
@@ -312,7 +312,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
             .await
             .map_err(ReActExecutorError::EventError)?;
 
-        for turn in 0..max_turns {
+        for _ in 0..max_turns {
             //Prepare messages with memory
             let mut messages = vec![ChatMessage {
                 role: ChatRole::System,
