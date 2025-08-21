@@ -1,10 +1,12 @@
-use autoagents::core::agent::prebuilt::react::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::actor::Topic;
+use autoagents::core::agent::memory::SlidingWindowMemory;
+use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::memory::SlidingWindowMemory;
 use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{Runtime, SingleThreadedRuntime};
+use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
@@ -44,12 +46,14 @@ pub struct MathAgentOutput {
     value: i64,
     #[output(description = "Explanation of the logic")]
     explanation: String,
+    #[output(description = "If user asks other than math questions, use this to answer them.")]
+    generic: Option<String>,
 }
 
 #[agent(
     name = "math_agent",
     description = "You are a Math agent",
-    tools = [Addition]
+    tools = [Addition],
     output = MathAgentOutput
 )]
 pub struct MathAgent {}
@@ -63,10 +67,12 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     let runtime = SingleThreadedRuntime::new(None);
 
-    let _ = AgentBuilder::new(agent)
+    let test_topic = Topic::<Task>::new("test");
+
+    let agent_handle = AgentBuilder::new(agent)
         .with_llm(llm)
         .runtime(runtime.clone())
-        .subscribe_topic("test")
+        .subscribe_topic(test_topic.clone())
         .with_memory(sliding_window_memory)
         .build()
         .await?;
@@ -78,14 +84,18 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let receiver = environment.take_event_receiver(None).await?;
     handle_events(receiver);
 
+    // Publish message to all the subscribing actors
     runtime
-        .publish_message("What is 2 + 2?".into(), "test".into())
-        .await
-        .unwrap();
+        .publish(&Topic::<Task>::new("test"), Task::new("what is 2 + 2?"))
+        .await?;
+    // Send a direct message for memory test
+    println!("\n📧 Sending direct message to test memory...");
     runtime
-        .publish_message("What did I ask before?".into(), "test".into())
-        .await
-        .unwrap();
+        .send_message(
+            Task::new("What was the question I asked?"),
+            agent_handle.addr(),
+        )
+        .await?;
 
     let _ = environment.run().await;
     Ok(())
@@ -96,7 +106,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
         while let Some(event) = event_stream.next().await {
             match event {
                 Event::TaskStarted {
-                    agent_id,
+                    actor_id,
                     task_description,
                     ..
                 } => {
@@ -104,7 +114,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                         "{}",
                         format!(
                             "📋 Task Started - Agent: {:?}, Task: {}",
-                            agent_id, task_description
+                            actor_id, task_description
                         )
                         .green()
                     );
@@ -137,14 +147,14 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                         println!(
                             "{}",
                             format!(
-                                "Math Value: {}, Explanation: {}",
-                                math_out.value, math_out.explanation
+                                "Math Value: {}, Explanation: {}, Generic: {:?}",
+                                math_out.value, math_out.explanation, math_out.generic
                             )
                             .green()
                         );
                     }
                     _ => {
-                        println!("{}", format!("Error!!!").red());
+                        println!("{}", "Error!!!".to_string().red());
                     }
                 },
                 Event::TurnStarted {

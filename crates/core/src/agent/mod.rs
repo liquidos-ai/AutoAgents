@@ -1,13 +1,23 @@
 mod base;
+mod builder;
+mod config;
+mod context;
 mod error;
 mod executor;
+pub mod memory;
 mod output;
 pub mod prebuilt;
+mod protocol;
 mod runnable;
+pub mod task;
 
-pub use base::{AgentBuilder, AgentConfig, AgentDeriveT, BaseAgent};
+pub use base::{AgentDeriveT, AgentHandle, BaseAgent};
+pub use builder::AgentBuilder;
+pub use config::AgentConfig;
+pub use context::Context;
 pub use error::AgentResultError;
 pub use error::{AgentBuildError, RunnableAgentError};
 pub use executor::{AgentExecutor, ExecutorConfig, TurnResult};
 pub use output::AgentOutputT;
-pub use runnable::{AgentState, IntoRunnable, RunnableAgent};
+pub use protocol::AgentProtocol;
+pub use runnable::{AgentActor, AgentState, IntoRunnable, RunnableAgent};

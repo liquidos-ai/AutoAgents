@@ -7,15 +7,17 @@ use autoagents::{
     init_logging,
     llm::{backends::openai::OpenAI, builder::LLMBuilder},
 };
+mod actor;
 mod liquid_edge;
-mod single_threaded;
+mod streaming;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum UseCase {
     Simple,
     Chaining,
-    SingleThreaded,
     Edge,
+    Streaming,
+    Actor,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -54,8 +56,9 @@ async fn main() -> Result<(), Error> {
     match args.usecase {
         UseCase::Simple => simple::simple_agent(llm).await?,
         UseCase::Chaining => chaining::run(llm).await?,
-        UseCase::SingleThreaded => single_threaded::single_threaded_agent(llm).await?,
         UseCase::Edge => liquid_edge::edge_agent(args.device).await?,
+        UseCase::Streaming => streaming::run(llm).await?,
+        UseCase::Actor => actor::run(llm).await?,
     }
 
     Ok(())

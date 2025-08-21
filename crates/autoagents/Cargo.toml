@@ -10,7 +10,7 @@ categories.workspace = true
 
 [features]
 default = []
-full = ["autoagents-core/full", "autoagents-llm/full"]
+full = ["autoagents-core/full", "autoagents-llm/full", "logging"]
 openai = ["autoagents-core/openai", "autoagents-llm/openai"]
 anthropic = ["autoagents-core/anthropic", "autoagents-llm/anthropic"]
 ollama = ["autoagents-core/ollama", "autoagents-llm/ollama"]

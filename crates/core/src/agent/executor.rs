@@ -1,17 +1,11 @@
-use crate::agent::runnable::AgentState;
-use crate::memory::MemoryProvider;
-use crate::protocol::Event;
-use crate::runtime::Task;
-use crate::{agent::base::AgentConfig, tool::ToolT};
+use crate::agent::context::Context;
+use crate::agent::task::Task;
 use async_trait::async_trait;
-use autoagents_llm::LLMProvider;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use std::error::Error;
 use std::fmt::Debug;
-use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
 
 /// Result of processing a single turn in the agent's execution
 #[derive(Debug)]
@@ -47,27 +41,14 @@ pub trait AgentExecutor: Send + Sync + 'static {
     fn config(&self) -> ExecutorConfig;
 
     /// Execute the agent with the given task
-    #[allow(clippy::too_many_arguments)]
-    async fn execute(
-        &self,
-        llm: Arc<dyn LLMProvider>,
-        memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-        tools: Vec<Box<dyn ToolT>>,
-        agent_config: &AgentConfig,
-        task: Task,
-        state: Arc<RwLock<AgentState>>,
-        tx_event: mpsc::Sender<Event>,
-    ) -> Result<Self::Output, Self::Error>;
+    async fn execute(&self, task: &Task, context: Context) -> Result<Self::Output, Self::Error>;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::base::AgentConfig;
-    use crate::agent::runnable::AgentState;
-    use crate::memory::MemoryProvider;
-    use crate::protocol::Event;
-    use crate::runtime::Task;
+    use crate::agent::context::Context;
+    use crate::agent::task::Task;
     use async_trait::async_trait;
     use autoagents_llm::{
         chat::{ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat},
@@ -79,8 +60,7 @@ mod tests {
     };
     use serde::{Deserialize, Serialize};
     use std::sync::Arc;
-    use tokio::sync::{mpsc, RwLock};
-    use uuid::Uuid;
+    use tokio::sync::mpsc;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct TestOutput {
@@ -133,13 +113,8 @@ mod tests {
 
         async fn execute(
             &self,
-            _llm: Arc<dyn LLMProvider>,
-            _memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-            _tools: Vec<Box<dyn ToolT>>,
-            _agent_config: &AgentConfig,
-            task: Task,
-            _state: Arc<RwLock<AgentState>>,
-            _tx_event: mpsc::Sender<Event>,
+            task: &Task,
+            _context: Context,
         ) -> Result<Self::Output, Self::Error> {
             if self.should_fail {
                 return Err(TestError::TestError("Mock execution failed".to_string()));
@@ -285,20 +260,11 @@ mod tests {
     async fn test_mock_executor_success() {
         let executor = MockExecutor::new(false);
         let llm = Arc::new(MockLLMProvider);
-        let tools = vec![];
-        let agent_config = AgentConfig {
-            name: "test".to_string(),
-            id: Uuid::new_v4(),
-            description: "test agent".to_string(),
-            output_schema: None,
-        };
-        let task = Task::new("test task", None);
-        let state = Arc::new(RwLock::new(AgentState::new()));
+        let task = Task::new("test task");
         let (tx_event, _rx_event) = mpsc::channel(100);
+        let context = Context::new(llm, tx_event);
 
-        let result = executor
-            .execute(llm, None, tools, &agent_config, task, state, tx_event)
-            .await;
+        let result = executor.execute(&task, context).await;
 
         assert!(result.is_ok());
         let output = result.unwrap();
@@ -309,20 +275,11 @@ mod tests {
     async fn test_mock_executor_failure() {
         let executor = MockExecutor::new(true);
         let llm = Arc::new(MockLLMProvider);
-        let tools = vec![];
-        let agent_config = AgentConfig {
-            name: "test".to_string(),
-            id: Uuid::new_v4(),
-            description: "test agent".to_string(),
-            output_schema: None,
-        };
-        let task = Task::new("test task", None);
-        let state = Arc::new(RwLock::new(AgentState::new()));
+        let task = Task::new("test task");
         let (tx_event, _rx_event) = mpsc::channel(100);
+        let context = Context::new(llm, tx_event);
 
-        let result = executor
-            .execute(llm, None, tools, &agent_config, task, state, tx_event)
-            .await;
+        let result = executor.execute(&task, context).await;
 
         assert!(result.is_err());
         let error = result.unwrap_err();

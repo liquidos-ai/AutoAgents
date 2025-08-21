@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 autoagents-derive.workspace = true
-autoagents = { workspace = true, features = ["full", "logging"] }
+autoagents = { workspace = true, default-features = false, features = ["openai", "liquid_edge","logging"] }
 liquid-edge = { workspace = true, features = ["cuda"] }
 tokio = { workspace = true }
 futures = { workspace = true }
@@ -14,9 +14,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 clap = { workspace = true }
 async-trait = { workspace = true }
-urlencoding = "2.1.3"
-reqwest.workspace = true
-ureq = { version = "3.0.8", features = ["json"] }
-uuid = { workspace = true }
 tokio-stream.workspace = true
 colored = "3.0.0"
+uuid = { version = "1.17.0", features = ["v4"] }

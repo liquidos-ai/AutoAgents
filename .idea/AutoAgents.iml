@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="EMPTY_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/crates/autoagents/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/derive/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/liquid-edge/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/llm/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/llm/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/test_utils/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/basic/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/coding_agent/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/wasm_runner/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/wasm_tool/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/examples/wasm_tool/target" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

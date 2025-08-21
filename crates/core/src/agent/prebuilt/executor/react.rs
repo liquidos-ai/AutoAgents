@@ -1,13 +1,12 @@
-use crate::agent::base::AgentConfig;
+use crate::agent::context::Context;
 use crate::agent::executor::{AgentExecutor, ExecutorConfig, TurnResult};
-use crate::agent::runnable::AgentState;
-use crate::memory::MemoryProvider;
+use crate::agent::memory::MemoryProvider;
+use crate::agent::task::Task;
 use crate::protocol::Event;
-use crate::runtime::Task;
 use crate::tool::{ToolCallResult, ToolT};
 use async_trait::async_trait;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, Tool};
-use autoagents_llm::{LLMProvider, ToolCall};
+use autoagents_llm::ToolCall;
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -72,7 +71,7 @@ pub trait ReActExecutor: Send + Sync + 'static {
     async fn process_tool_calls(
         &self,
         tools: &[Box<dyn ToolT>],
-        tool_calls: Vec<autoagents_llm::ToolCall>,
+        tool_calls: Vec<ToolCall>,
         tx_event: mpsc::Sender<Event>,
         _memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
     ) -> Vec<ToolCallResult> {
@@ -147,17 +146,18 @@ pub trait ReActExecutor: Send + Sync + 'static {
         results
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn process_turn(
         &self,
-        llm: Arc<dyn LLMProvider>,
-        messages: &[ChatMessage],
-        memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+        context: &Context,
         tools: &[Box<dyn ToolT>],
-        agent_config: &AgentConfig,
-        state: Arc<RwLock<AgentState>>,
-        tx_event: mpsc::Sender<Event>,
     ) -> Result<TurnResult<ReActAgentOutput>, ReActExecutorError> {
+        let llm = context.llm();
+        let agent_config = context.config();
+        let messages = context.messages();
+        let memory = context.memory();
+        let state = context.state();
+        let tx_event = context.tx();
+
         let response = if !tools.is_empty() {
             let tools_serialized: Vec<Tool> = tools.iter().map(Tool::from).collect();
             llm.chat_with_tools(
@@ -269,20 +269,19 @@ impl<T: ReActExecutor> AgentExecutor for T {
         ExecutorConfig { max_turns: 10 }
     }
 
-    async fn execute(
-        &self,
-        llm: Arc<dyn LLMProvider>,
-        mut memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-        tools: Vec<Box<dyn ToolT>>,
-        agent_config: &AgentConfig,
-        task: Task,
-        state: Arc<RwLock<AgentState>>,
-        tx_event: mpsc::Sender<Event>,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn execute(&self, task: &Task, context: Context) -> Result<Self::Output, Self::Error> {
         debug!("Starting ReAct Executor");
+        let task = task.clone();
         let max_turns = self.config().max_turns;
         let mut accumulated_tool_calls = Vec::new();
         let mut final_response = String::new();
+
+        let llm = context.llm();
+        let mut memory = context.memory();
+        let tools = context.tools();
+        let agent_config = context.config();
+        let state = context.state();
+        let tx_event = context.tx();
 
         if let Some(memory) = &mut memory {
             let mut mem = memory.write().await;
@@ -303,12 +302,13 @@ impl<T: ReActExecutor> AgentExecutor for T {
         tx_event
             .send(Event::TaskStarted {
                 sub_id: task.submission_id,
-                agent_id: agent_config.id,
+                actor_id: agent_config.id,
                 task_description: task.prompt,
             })
-            .await?;
+            .await
+            .map_err(ReActExecutorError::EventError)?;
 
-        for turn in 0..max_turns {
+        for _ in 0..max_turns {
             //Prepare messages with memory
             let mut messages = vec![ChatMessage {
                 role: ChatRole::System,
@@ -327,44 +327,21 @@ impl<T: ReActExecutor> AgentExecutor for T {
                 );
             }
 
-            tx_event
-                .send(Event::TurnStarted {
-                    turn_number: turn,
-                    max_turns,
-                })
-                .await?;
-            match self
-                .process_turn(
-                    llm.clone(),
-                    &messages,
-                    memory.clone(),
-                    &tools,
-                    agent_config,
-                    state.clone(),
-                    tx_event.clone(),
-                )
-                .await?
-            {
+            // Create a new context with messages for this turn
+            let turn_context = Context::new(llm.clone(), tx_event.clone())
+                .with_memory(memory.clone())
+                .with_config(agent_config.clone())
+                .with_messages(messages)
+                .with_stream(context.stream());
+            match self.process_turn(&turn_context, tools).await? {
                 TurnResult::Complete(result) => {
                     // If we have accumulated tool calls, merge them with the final result
                     if !accumulated_tool_calls.is_empty() {
-                        tx_event
-                            .send(Event::TurnCompleted {
-                                turn_number: turn,
-                                final_turn: true,
-                            })
-                            .await?;
                         return Ok(ReActAgentOutput {
                             response: result.response,
                             tool_calls: accumulated_tool_calls,
                         });
                     }
-                    tx_event
-                        .send(Event::TurnCompleted {
-                            turn_number: turn,
-                            final_turn: true,
-                        })
-                        .await?;
                     return Ok(result);
                 }
                 TurnResult::Continue(Some(partial_result)) => {
@@ -373,21 +350,9 @@ impl<T: ReActExecutor> AgentExecutor for T {
                     if !partial_result.response.is_empty() {
                         final_response = partial_result.response;
                     }
-                    tx_event
-                        .send(Event::TurnCompleted {
-                            turn_number: turn,
-                            final_turn: false,
-                        })
-                        .await?;
                     continue;
                 }
                 TurnResult::Continue(None) => {
-                    tx_event
-                        .send(Event::TurnCompleted {
-                            turn_number: turn,
-                            final_turn: false,
-                        })
-                        .await?;
                     continue;
                 }
             }

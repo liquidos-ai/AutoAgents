@@ -1,11 +1,11 @@
-use super::{
-    error::AgentBuildError, output::AgentOutputT, AgentExecutor, IntoRunnable, RunnableAgent,
-};
-use crate::{
-    error::Error, memory::MemoryProvider, protocol::AgentID, runtime::Runtime, tool::ToolT,
-};
+use super::{output::AgentOutputT, AgentExecutor};
+use crate::agent::config::AgentConfig;
+use crate::agent::memory::MemoryProvider;
+use crate::agent::task::Task;
+use crate::{protocol::ActorID, tool::ToolT};
 use async_trait::async_trait;
-use autoagents_llm::{chat::StructuredOutputFormat, LLMProvider};
+use autoagents_llm::LLMProvider;
+use ractor::ActorRef;
 use serde_json::Value;
 use std::{fmt::Debug, sync::Arc};
 use tokio::sync::RwLock;
@@ -30,17 +30,6 @@ pub trait AgentDeriveT: Send + Sync + 'static + AgentExecutor + Debug {
     fn tools(&self) -> Vec<Box<dyn ToolT>>;
 }
 
-pub struct AgentConfig {
-    /// The agent's name
-    pub name: String,
-    /// The agent's description
-    pub description: String,
-    /// The Agent ID
-    pub id: AgentID,
-    /// The output schema for the agent
-    pub output_schema: Option<StructuredOutputFormat>,
-}
-
 /// Base agent type that wraps an AgentDeriveT implementation with additional runtime components
 #[derive(Clone)]
 pub struct BaseAgent<T: AgentDeriveT> {
@@ -49,9 +38,11 @@ pub struct BaseAgent<T: AgentDeriveT> {
     /// LLM provider for this agent
     pub llm: Arc<dyn LLMProvider>,
     // Agent ID
-    pub id: AgentID,
+    pub id: ActorID,
     /// Optional memory provider
     pub memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+    //Stream
+    pub stream: bool,
 }
 
 impl<T: AgentDeriveT> Debug for BaseAgent<T> {
@@ -66,6 +57,7 @@ impl<T: AgentDeriveT> BaseAgent<T> {
         inner: T,
         llm: Arc<dyn LLMProvider>,
         memory: Option<Box<dyn MemoryProvider>>,
+        stream: bool,
     ) -> Self {
         // Convert tools to Arc for efficient sharing
         Self {
@@ -73,6 +65,7 @@ impl<T: AgentDeriveT> BaseAgent<T> {
             id: Uuid::new_v4(),
             llm,
             memory: memory.map(|m| Arc::new(RwLock::new(m))),
+            stream,
         }
     }
 
@@ -117,80 +110,42 @@ impl<T: AgentDeriveT> BaseAgent<T> {
     }
 }
 
-/// Builder for creating BaseAgent instances from AgentDeriveT implementations
-pub struct AgentBuilder<T: AgentDeriveT + AgentExecutor> {
-    inner: T,
-    llm: Option<Arc<dyn LLMProvider>>,
-    memory: Option<Box<dyn MemoryProvider>>,
-    runtime: Option<Arc<dyn Runtime>>,
-    subscribed_topics: Vec<String>,
+/// Handle for an agent that includes both the agent and its actor reference
+pub struct AgentHandle<T: AgentDeriveT> {
+    pub agent: Arc<BaseAgent<T>>,
+    pub actor_ref: ActorRef<Task>,
 }
 
-impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
-    /// Create a new builder with an AgentDeriveT implementation
-    pub fn new(inner: T) -> Self {
-        Self {
-            inner,
-            llm: None,
-            memory: None,
-            runtime: None,
-            subscribed_topics: vec![],
-        }
+impl<T: AgentDeriveT> AgentHandle<T> {
+    /// Get the actor reference for direct messaging
+    pub fn addr(&self) -> ActorRef<Task> {
+        self.actor_ref.clone()
     }
 
-    /// Set the LLM provider
-    pub fn with_llm(mut self, llm: Arc<dyn LLMProvider>) -> Self {
-        self.llm = Some(llm);
-        self
+    /// Get the agent reference
+    pub fn agent(&self) -> Arc<BaseAgent<T>> {
+        self.agent.clone()
     }
+}
 
-    /// Set the memory provider
-    pub fn with_memory(mut self, memory: Box<dyn MemoryProvider>) -> Self {
-        self.memory = Some(memory);
-        self
-    }
-
-    pub fn subscribe_topic<S: Into<String>>(mut self, topic: S) -> Self {
-        self.subscribed_topics.push(topic.into());
-        self
-    }
-
-    /// Build the BaseAgent
-    pub async fn build(self) -> Result<Arc<dyn RunnableAgent>, Error> {
-        let llm = self.llm.ok_or(AgentBuildError::BuildFailure(
-            "LLM provider is required".to_string(),
-        ))?;
-        let runnable = BaseAgent::new(self.inner, llm, self.memory).into_runnable();
-        if let Some(runtime) = self.runtime {
-            runtime.register_agent(runnable.clone()).await?;
-            for topic in self.subscribed_topics {
-                runtime.subscribe(runnable.id(), topic).await?;
-            }
-        } else {
-            return Err(AgentBuildError::BuildFailure("Runtime should be defined".into()).into());
-        }
-        Ok(runnable)
-    }
-
-    pub fn runtime(mut self, runtime: Arc<dyn Runtime>) -> Self {
-        self.runtime = Some(runtime);
-        self
+impl<T: AgentDeriveT> Debug for AgentHandle<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgentHandle")
+            .field("agent", &self.agent)
+            .finish()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::{AgentDeriveT, AgentState, ExecutorConfig};
-    use crate::memory::MemoryProvider;
-    use crate::protocol::Event;
-    use crate::runtime::Task;
+    use crate::agent::task::Task;
+    use crate::agent::{AgentDeriveT, Context, ExecutorConfig};
     use async_trait::async_trait;
-    use autoagents_llm::{chat::StructuredOutputFormat, LLMProvider};
+    use autoagents_llm::chat::StructuredOutputFormat;
     use autoagents_test_utils::agent::{MockAgentImpl, TestAgentOutput, TestError};
     use autoagents_test_utils::llm::MockLLMProvider;
     use std::sync::Arc;
-    use tokio::sync::mpsc;
 
     impl AgentOutputT for TestAgentOutput {
         fn output_schema() -> &'static str {
@@ -199,11 +154,16 @@ mod tests {
 
         fn structured_output_format() -> serde_json::Value {
             serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "result": {"type": "string"}
+                "name": "TestAgentOutput",
+                "description": "Test agent output schema",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "result": {"type": "string"}
+                    },
+                    "required": ["result"]
                 },
-                "required": ["result"]
+                "strict": true
             })
         }
     }
@@ -240,13 +200,8 @@ mod tests {
 
         async fn execute(
             &self,
-            _llm: Arc<dyn LLMProvider>,
-            _memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-            _tools: Vec<Box<dyn ToolT>>,
-            _agent_config: &AgentConfig,
-            task: Task,
-            _state: Arc<RwLock<AgentState>>,
-            _tx_event: mpsc::Sender<Event>,
+            task: &Task,
+            _context: Context,
         ) -> Result<Self::Output, Self::Error> {
             if self.should_fail {
                 return Err(TestError::TestError("Mock execution failed".to_string()));
@@ -298,7 +253,7 @@ mod tests {
     fn test_base_agent_creation() {
         let mock_agent = MockAgentImpl::new("test", "test description");
         let llm = Arc::new(MockLLMProvider);
-        let base_agent = BaseAgent::new(mock_agent, llm, None);
+        let base_agent = BaseAgent::new(mock_agent, llm, None, false);
 
         assert_eq!(base_agent.name(), "test");
         assert_eq!(base_agent.description(), "test description");
@@ -309,8 +264,8 @@ mod tests {
     fn test_base_agent_with_memory() {
         let mock_agent = MockAgentImpl::new("test", "test description");
         let llm = Arc::new(MockLLMProvider);
-        let memory = Box::new(crate::memory::SlidingWindowMemory::new(5));
-        let base_agent = BaseAgent::new(mock_agent, llm, Some(memory));
+        let memory = Box::new(crate::agent::memory::SlidingWindowMemory::new(5));
+        let base_agent = BaseAgent::new(mock_agent, llm, Some(memory), false);
 
         assert_eq!(base_agent.name(), "test");
         assert_eq!(base_agent.description(), "test description");
@@ -321,7 +276,7 @@ mod tests {
     fn test_base_agent_inner() {
         let mock_agent = MockAgentImpl::new("test", "test description");
         let llm = Arc::new(MockLLMProvider);
-        let base_agent = BaseAgent::new(mock_agent, llm, None);
+        let base_agent = BaseAgent::new(mock_agent, llm, None, false);
 
         let inner = base_agent.inner();
         assert_eq!(inner.name(), "test");
@@ -332,7 +287,7 @@ mod tests {
     fn test_base_agent_tools() {
         let mock_agent = MockAgentImpl::new("test", "test description");
         let llm = Arc::new(MockLLMProvider);
-        let base_agent = BaseAgent::new(mock_agent, llm, None);
+        let base_agent = BaseAgent::new(mock_agent, llm, None, false);
 
         let tools = base_agent.tools();
         assert!(tools.is_empty());
@@ -342,10 +297,22 @@ mod tests {
     fn test_base_agent_llm() {
         let mock_agent = MockAgentImpl::new("test", "test description");
         let llm = Arc::new(MockLLMProvider);
-        let base_agent = BaseAgent::new(mock_agent, llm.clone(), None);
+        let base_agent = BaseAgent::new(mock_agent, llm.clone(), None, false);
 
         let agent_llm = base_agent.llm();
         // The llm() method returns Arc<dyn LLMProvider>, so we just verify it exists
         assert!(Arc::strong_count(&agent_llm) > 0);
+    }
+
+    #[test]
+    fn test_base_agent_with_streaming() {
+        let mock_agent = MockAgentImpl::new("streaming_agent", "test streaming agent");
+        let llm = Arc::new(MockLLMProvider);
+        let base_agent = BaseAgent::new(mock_agent, llm, None, true);
+
+        assert_eq!(base_agent.name(), "streaming_agent");
+        assert_eq!(base_agent.description(), "test streaming agent");
+        assert!(base_agent.memory().is_none());
+        assert!(base_agent.stream);
     }
 }

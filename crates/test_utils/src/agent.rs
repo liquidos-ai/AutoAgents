@@ -33,4 +33,30 @@ impl MockAgentImpl {
             should_fail: false,
         }
     }
+
+    pub fn with_failure(mut self, should_fail: bool) -> Self {
+        self.should_fail = should_fail;
+        self
+    }
+}
+
+// Test tool for agents
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestToolArgs {
+    pub input: String,
+}
+
+#[derive(Debug)]
+pub struct MockTool {
+    pub name: String,
+    pub description: String,
+}
+
+impl MockTool {
+    pub fn new(name: &str, description: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            description: description.to_string(),
+        }
+    }
 }

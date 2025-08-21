@@ -1,14 +1,16 @@
-use autoagents::core::agent::prebuilt::react::{ReActAgentOutput, ReActExecutor};
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
+use autoagents::core::actor::Topic;
+use autoagents::core::agent::memory::SlidingWindowMemory;
+use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::task::Task;
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::memory::SlidingWindowMemory;
 use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{Runtime, SingleThreadedRuntime};
+use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::backends::liquid_edge::LiquidEdge;
 use autoagents::llm::builder::LLMBuilder;
-use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
+use autoagents_derive::{agent, tool, ToolInput};
 use colored::*;
 use liquid_edge::cpu;
 use liquid_edge::device::cuda_default;
@@ -45,25 +47,18 @@ impl ToolRuntime for Addition {
     }
 }
 
-/// Math agent output with Value and Explanation
-#[derive(Debug, Serialize, Deserialize, AgentOutput)]
-pub struct MathAgentOutput {
-    #[output(description = "The addition result")]
-    value: i64,
-    #[output(description = "Explanation of the logic")]
-    explanation: String,
-}
-
 #[agent(
-    name = "math_agent",
-    description = "You are ChatBOT, a helpful, friendly, and knowledgeable AI assistant. Your name is ChatBOT."
+    name = "chat_agent",
+    description = "You are ChatBOT, a helpful, friendly, and knowledgeable AI assistant. Your name is ChatBOT.",
     tools = []
 )]
-pub struct MathAgent {}
+pub struct ChatAgent {}
 
-impl ReActExecutor for MathAgent {}
+impl ReActExecutor for ChatAgent {}
 
 pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
+    println!("🚀 Liquid Edge Local AI Example");
+
     // Create ONNX model abstraction
     let model_path = Path::new("./demo_models/tinyllama");
     let model = match onnx_model(model_path) {
@@ -71,7 +66,7 @@ pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
         Err(e) => {
             return Err(Error::LLMError(
                 autoagents::llm::error::LLMError::ProviderError(format!(
-                    "Model loading failed: {}",
+                    "Model loading failed: {}. Make sure the model is available at ./models/tinyllama",
                     e
                 )),
             ));
@@ -83,14 +78,14 @@ pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
         EdgeDevice::CPU => cpu(),
         EdgeDevice::CUDA => cuda_default(),
     };
-    println!("Using device: {}", device);
+    println!("🔧 Using device: {}", device);
 
     // Initialize and configure the LLM client with device
     let llm: Arc<LiquidEdge> = LLMBuilder::<LiquidEdge>::new()
         .with_model(model)
         .with_device(device)
-        .max_tokens(50) // Limit response length for faster testing
-        .temperature(0.2) // Control response randomness (0.0-1.0)
+        .max_tokens(100) // Limit response length for faster testing
+        .temperature(0.7) // Control response randomness (0.0-1.0)
         .stream(false) // Disable streaming responses
         .build()
         .await
@@ -98,31 +93,36 @@ pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
 
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = MathAgent {};
-
+    let agent = ChatAgent {};
     let runtime = SingleThreadedRuntime::new(None);
+
+    // Create topic for chat agent
+    let chat_topic = Topic::<Task>::new("chat");
 
     let _ = AgentBuilder::new(agent)
         .with_llm(llm)
         .runtime(runtime.clone())
-        .subscribe_topic("test")
+        .subscribe_topic(chat_topic.clone())
         .with_memory(sliding_window_memory)
         .build()
         .await?;
 
     // Create environment and set up event handling
     let mut environment = Environment::new(None);
-    let _ = environment.register_runtime(runtime.clone()).await;
+    environment.register_runtime(runtime.clone()).await?;
 
     let receiver = environment.take_event_receiver(None).await?;
     handle_events(receiver);
 
-    runtime
-        .publish_message("Heyyy, What is your name?".into(), "test".into())
-        .await
-        .unwrap();
+    tokio::spawn(async move { environment.run().await });
 
-    let _ = environment.run().await;
+    // Send chat message using the new messaging system
+    println!("\n💬 Sending chat message to local AI...");
+    let chat_task = Task::new("Hello! What is your name and how can you help me?");
+
+    runtime.publish(&chat_topic, chat_task).await?;
+
+    println!("\n✅ Liquid Edge example completed!");
     Ok(())
 }
 
@@ -131,17 +131,17 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
         while let Some(event) = event_stream.next().await {
             match event {
                 Event::TaskStarted {
-                    agent_id,
+                    actor_id,
                     task_description,
                     ..
                 } => {
                     println!(
                         "{}",
                         format!(
-                            "📋 Task Started - Agent: {:?}, Task: {}",
-                            agent_id, task_description
+                            "🎯 Task Started - Agent: {:?}, Task: {}",
+                            actor_id, task_description
                         )
-                        .green()
+                        .cyan()
                     );
                 }
                 Event::ToolCallRequested {
@@ -151,8 +151,11 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("Tool Call Started: {} with args: {}", tool_name, arguments)
-                            .green()
+                        format!(
+                            "🔧 Tool Call Started: {} with args: {}",
+                            tool_name, arguments
+                        )
+                        .yellow()
                     );
                 }
                 Event::ToolCallCompleted {
@@ -160,29 +163,35 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("Tool Call Completed: {} - Result: {:?}", tool_name, result)
-                            .green()
+                        format!(
+                            "✅ Tool Call Completed: {} - Result: {:?}",
+                            tool_name, result
+                        )
+                        .yellow()
                     );
                 }
                 Event::TaskComplete { result, .. } => match result {
                     TaskResult::Value(val) => {
                         match serde_json::from_value::<ReActAgentOutput>(val) {
                             Ok(agent_out) => {
-                                println!("Agent response: {}", agent_out.response);
+                                println!(
+                                    "{}",
+                                    format!("🤖 Local AI Response: {}", agent_out.response).green()
+                                );
                             }
                             Err(e) => {
                                 println!(
                                     "{}",
-                                    format!("Failed to parse ReActAgentOutput: {}", e).red()
+                                    format!("❌ Failed to parse agent output: {}", e).red()
                                 );
                             }
                         }
                     }
                     TaskResult::Failure(e) => {
-                        println!("{}", format!("Error!!! {e}").red());
+                        println!("{}", format!("❌ Task failed: {}", e).red());
                     }
                     _ => {
-                        println!("Aborted")
+                        println!("🚫 Task aborted");
                     }
                 },
                 Event::TurnStarted {
@@ -191,7 +200,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                 } => {
                     println!(
                         "{}",
-                        format!("Turn {}/{} started", turn_number + 1, max_turns).green()
+                        format!("🔄 Turn {}/{} started", turn_number + 1, max_turns).blue()
                     );
                 }
                 Event::TurnCompleted {
@@ -201,15 +210,15 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                     println!(
                         "{}",
                         format!(
-                            "Turn {} completed{}",
+                            "✅ Turn {} completed{}",
                             turn_number + 1,
                             if final_turn { " (final)" } else { "" }
                         )
-                        .green()
+                        .blue()
                     );
                 }
                 _ => {
-                    println!("📡 Event: {:?}", event);
+                    // Handle other events if needed
                 }
             }
         }

@@ -1,10 +1,9 @@
-use autoagents_llm::error::LLMError;
-
 use crate::{
     agent::{AgentBuildError, AgentResultError, RunnableAgentError},
     environment::EnvironmentError,
     runtime::RuntimeError,
 };
+use autoagents_llm::error::LLMError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -20,4 +19,6 @@ pub enum Error {
     LLMError(#[from] LLMError),
     #[error(transparent)]
     AgentResultError(#[from] AgentResultError),
+    #[error("Custom Error: {0}")]
+    CustomError(String),
 }

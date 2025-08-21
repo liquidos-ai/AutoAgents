@@ -1,13 +1,13 @@
-use autoagents::async_trait;
-/// This Exmaple demonstrages Agent Chaining
-use autoagents::core::agent::{
-    AgentBuilder, AgentConfig, AgentDeriveT, AgentExecutor, AgentState, ExecutorConfig,
-};
+use async_trait::async_trait;
+use autoagents::core::actor::Topic;
+use autoagents::core::agent::memory::SlidingWindowMemory;
+use autoagents::core::agent::task::Task;
+/// This example demonstrates Agent Chaining using the new runtime architecture
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentExecutor, Context, ExecutorConfig};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::memory::{MemoryProvider, SlidingWindowMemory};
 use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{Runtime, SingleThreadedRuntime, Task};
+use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::ToolT;
 use autoagents::llm::chat::{ChatMessage, ChatRole, MessageType};
 use autoagents::llm::LLMProvider;
@@ -15,7 +15,6 @@ use autoagents_derive::agent;
 use colored::*;
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 
 #[agent(
@@ -27,7 +26,7 @@ pub struct Agent1 {}
 
 #[agent(
     name = "agent_2",
-    description = "You are a math professor in linear algebera, Your goal is to review the given content if correct",
+    description = "You are a math professor in linear algebra, Your goal is to review the given content if correct",
     tools = [],
 )]
 pub struct Agent2 {}
@@ -41,39 +40,28 @@ impl AgentExecutor for Agent1 {
         ExecutorConfig { max_turns: 10 }
     }
 
-    async fn execute(
-        &self,
-        llm: Arc<dyn LLMProvider>,
-        _memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-        _tools: Vec<Box<dyn ToolT>>,
-        agent_config: &AgentConfig,
-        task: Task,
-        _state: Arc<RwLock<AgentState>>,
-        tx_event: mpsc::Sender<Event>,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn execute(&self, task: &Task, context: Context) -> Result<Self::Output, Self::Error> {
+        println!("Agent 1 Executing");
         let mut messages = vec![ChatMessage {
             role: ChatRole::System,
             message_type: MessageType::Text,
-            content: agent_config.description.clone(),
+            content: context.config().description.clone(),
         }];
+
         let chat_msg = ChatMessage {
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: task.prompt.clone(),
         };
         messages.push(chat_msg);
-        let response = llm
-            .chat(&messages, agent_config.output_schema.clone())
-            .await
-            .unwrap();
+        let response = context
+            .llm()
+            .chat(&messages, context.config().output_schema.clone())
+            .await?;
         let response_text = response.text().unwrap_or_default();
-        tx_event
-            .send(Event::PublishMessage {
-                topic: "agent_2".into(),
-                message: response_text,
-            })
-            .await
-            .unwrap();
+        context
+            .publish(Topic::<Task>::new("agent_2"), Task::new(response_text))
+            .await?;
         Ok("Agent 1 Responed".into())
     }
 }
@@ -87,32 +75,26 @@ impl AgentExecutor for Agent2 {
         ExecutorConfig { max_turns: 10 }
     }
 
-    async fn execute(
-        &self,
-        llm: Arc<dyn LLMProvider>,
-        _memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
-        _tools: Vec<Box<dyn ToolT>>,
-        agent_config: &AgentConfig,
-        task: Task,
-        _state: Arc<RwLock<AgentState>>,
-        _tx_event: mpsc::Sender<Event>,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn execute(&self, task: &Task, context: Context) -> Result<Self::Output, Self::Error> {
+        println!("Agent 2 Executing");
         let mut messages = vec![ChatMessage {
             role: ChatRole::System,
             message_type: MessageType::Text,
-            content: agent_config.description.clone(),
+            content: context.config().description.clone(),
         }];
+
         let chat_msg = ChatMessage {
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: task.prompt.clone(),
         };
         messages.push(chat_msg);
-        let response = llm
-            .chat(&messages, agent_config.output_schema.clone())
-            .await
-            .unwrap();
+        let response = context
+            .llm()
+            .chat(&messages, context.config().output_schema.clone())
+            .await?;
         let response_text = response.text().unwrap_or_default();
+        println!("Agent 2 respond: {}", response_text);
         Ok(response_text)
     }
 }
@@ -120,15 +102,18 @@ impl AgentExecutor for Agent2 {
 pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = Agent1 {};
+    let topic1 = Topic::<Task>::new("agent_1");
+    let topic2 = Topic::<Task>::new("agent_2");
+
+    let agent1 = Agent1 {};
     let agent2 = Agent2 {};
 
     let runtime = SingleThreadedRuntime::new(None);
 
-    let _ = AgentBuilder::new(agent)
+    let _ = AgentBuilder::new(agent1)
         .with_llm(llm.clone())
         .runtime(runtime.clone())
-        .subscribe_topic("agent_1")
+        .subscribe_topic(topic1.clone())
         .with_memory(sliding_window_memory.clone())
         .build()
         .await?;
@@ -136,7 +121,7 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let _ = AgentBuilder::new(agent2)
         .with_llm(llm)
         .runtime(runtime.clone())
-        .subscribe_topic("agent_2")
+        .subscribe_topic(topic2.clone())
         .with_memory(sliding_window_memory)
         .build()
         .await?;
@@ -149,9 +134,8 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     handle_events(receiver);
 
     runtime
-        .publish_message("What is Vector Calculus?".into(), "agent_1".into())
-        .await
-        .unwrap();
+        .publish(&topic1, Task::new("What is Vector Calculus?"))
+        .await?;
 
     tokio::select! {
         _ = environment.run() => {
@@ -169,7 +153,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
     tokio::spawn(async move {
         while let Some(event) = event_stream.next().await {
             match event {
-                Event::NewTask { agent_id: _, task } => {
+                Event::NewTask { actor_id: _, task } => {
                     println!("{}", format!("New TASK: {:?}", task).green());
                 }
                 Event::TaskComplete { result, .. } => {
