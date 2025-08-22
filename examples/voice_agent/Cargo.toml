@@ -39,9 +39,19 @@ rubato = "0.15.0"
 candle-examples = "0.9.1"
 safetensors = "0.4.5"
 realfft = "3.3.0"
+espeak-rs = "0.1.9"
+indicatif = "0.17.11"
+ndarray = "0.16.1"
+lazy_static = "1.5.0"
+regex = "1.11.1"
+reqwest = { version = "0.12.19" }
+ndarray-npy = "0.9.1"
+mp3lame-encoder = "0.2.1"
+tracing = "0.1"
+ort = { version = "2.0.0-rc.10", default-features = true }
 
 [features]
-default = ["cuda"]
+default = []
 cuda = ["candle/cuda", "candle-nn/cuda"]
 cudnn = ["candle/cudnn", "candle-nn/cudnn"]
 metal = ["candle/metal", "candle-nn/metal"]

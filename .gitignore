@@ -20,6 +20,7 @@ target/
 
 
 tarpaulin-report.html
+checkpoints
 
 usls
 demo_models
