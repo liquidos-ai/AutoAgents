@@ -1,0 +1,47 @@
+[package]
+name = "voice-agent-example"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[dependencies]
+autoagents-derive.workspace = true
+autoagents = { workspace = true, features = ["openai", "logging"] }
+tokio = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+async-trait = { workspace = true }
+tokio-stream.workspace = true
+colored = "3.0.0"
+uuid = { version = "1.17.0", features = ["v4"] }
+anyhow = "1.0"
+candle = { version = "0.9.1", package = "candle-core" }
+candle-nn = "0.9.1"
+hf-hub = { version = "0.4.3", features = ["tokio"] }
+kaudio = "0.2.1"
+moshi = "0.6.1"
+sentencepiece = "0.11.3"
+rand = "0.9.2"
+hound = "3.5.1"
+cpal = "0.16.0"
+candle-transformers = "0.9.1"
+tracing-subscriber = "0.3.19"
+byteorder = "1.5.0"
+tokenizers.workspace = true
+rubato = "0.15.0"
+candle-examples = "0.9.1"
+safetensors = "0.4.5"
+realfft = "3.3.0"
+
+[features]
+default = ["cuda"]
+cuda = ["candle/cuda", "candle-nn/cuda"]
+cudnn = ["candle/cudnn", "candle-nn/cudnn"]
+metal = ["candle/metal", "candle-nn/metal"]

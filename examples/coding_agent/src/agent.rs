@@ -62,6 +62,7 @@ Remember: You are a systematic problem solver. Think through each step, use your
         AnalyzeCodeTool
     ],
 )]
+#[derive(Clone)]
 pub struct CodingAgent {}
 
 impl ReActExecutor for CodingAgent {}
@@ -98,6 +99,7 @@ Keep responses under 2 lines unless showing code or results.",
         AnalyzeCodeTool
     ],
 )]
+#[derive(Clone)]
 pub struct ConciseCodingAgent {}
 
 impl ReActExecutor for ConciseCodingAgent {}
