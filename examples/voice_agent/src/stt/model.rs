@@ -1,12 +1,11 @@
+use anyhow::{Error as E, Result};
 use candle::{Device, IndexOp, Tensor};
 use candle_nn::{ops::softmax, VarBuilder};
+use candle_transformers::models::whisper::{self as m, audio, Config};
 use clap::{Parser, ValueEnum};
 use hf_hub::{api::sync::Api, Repo, RepoType};
 use rand::{distr::Distribution, SeedableRng};
-use candle_transformers::models::whisper::{self as m, audio, Config};
 use tokenizers::Tokenizer;
-use anyhow::{Error as E, Result};
-
 
 pub enum Model {
     Normal(m::model::Whisper),
@@ -52,20 +51,20 @@ impl Model {
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct DecodingResult {
-    tokens: Vec<u32>,
-    text: String,
-    avg_logprob: f64,
-    no_speech_prob: f64,
-    temperature: f64,
-    compression_ratio: f64,
+    pub tokens: Vec<u32>,
+    pub text: String,
+    pub avg_logprob: f64,
+    pub no_speech_prob: f64,
+    pub temperature: f64,
+    pub compression_ratio: f64,
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Segment {
-    start: f64,
-    duration: f64,
-    dr: DecodingResult,
+    pub start: f64,
+    pub duration: f64,
+    pub dr: DecodingResult,
 }
 
 pub struct Decoder {

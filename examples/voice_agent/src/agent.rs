@@ -1,11 +1,9 @@
-// Main Agent
-
+use autoagents::core::agent::prebuilt::executor::ReActExecutor;
+use autoagents::core::agent::{AgentDeriveT, AgentOutputT};
+use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
+use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use autoagents::core::agent::prebuilt::executor::ReActExecutor;
-use autoagents::core::tool::{ToolCallError, ToolRuntime, ToolT, ToolInputT};
-use autoagents::core::agent::{AgentDeriveT, AgentOutputT};
-use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct AdditionArgs {
@@ -32,22 +30,18 @@ impl ToolRuntime for Addition {
 
 /// Math agent output with Value and Explanation
 #[derive(Debug, Serialize, Deserialize, AgentOutput)]
-pub struct MathAgentOutput {
-    #[output(description = "The addition result")]
-    value: i64,
-    #[output(description = "Explanation of the logic")]
-    explanation: String,
+pub struct AgentOutput {
     #[output(description = "If user asks other than math questions, use this to answer them.")]
-    generic: Option<String>,
+    pub response: String,
 }
 
 #[agent(
-    name = "math_agent",
-    description = "You are a Math agent",
+    name = "voice_agent",
+    description = "You're name is Bella, You are developed by LiquidOS, You are a voice assistant that can answer questions and perform calculations.",
     tools = [Addition],
-    output = MathAgentOutput
+    output = AgentOutput
 )]
 #[derive(Default, Clone)]
-pub struct MathAgent {}
+pub struct VoiceAgent {}
 
-impl ReActExecutor for MathAgent {}
+impl ReActExecutor for VoiceAgent {}
