@@ -52,6 +52,7 @@ impl ToolRuntime for Addition {
     description = "You are ChatBOT, a helpful, friendly, and knowledgeable AI assistant. Your name is ChatBOT.",
     tools = []
 )]
+#[derive(Clone)]
 pub struct ChatAgent {}
 
 impl ReActExecutor for ChatAgent {}

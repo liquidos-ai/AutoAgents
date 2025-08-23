@@ -161,7 +161,7 @@ mod tests {
 
         assert!(result.is_ok());
         let agent_handle = result.unwrap();
-        assert!(agent_handle.agent.stream);
+        assert!(agent_handle.agent.stream());
     }
 
     #[tokio::test]

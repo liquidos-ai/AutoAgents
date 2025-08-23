@@ -639,6 +639,25 @@ impl ChatProvider for OpenAI {
         messages: &[ChatMessage],
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
+        self.chat_stream_with_tools(messages, None).await
+    }
+
+    /// Sends a streaming chat request to OpenAI's API with tool support.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - Slice of chat messages representing the conversation
+    /// * `tools` - Optional slice of tools to make available to the model
+    ///
+    /// # Returns
+    ///
+    /// A stream of text tokens or an error
+    async fn chat_stream_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
+    {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError("Missing OpenAI API key".to_string()));
         }
@@ -687,7 +706,7 @@ impl ChatProvider for OpenAI {
             stream: true,
             top_p: self.top_p,
             top_k: self.top_k,
-            tools: self.tools.clone(),
+            tools: tools.map(|t| t.to_vec()),
             tool_choice: self.tool_choice.clone(),
             reasoning_effort: self.reasoning_effort.clone(),
             response_format: None,

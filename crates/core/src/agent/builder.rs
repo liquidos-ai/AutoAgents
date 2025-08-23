@@ -60,17 +60,17 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
         let llm = self.llm.ok_or(AgentBuildError::BuildFailure(
             "LLM provider is required".to_string(),
         ))?;
-        let runnable: Arc<BaseAgent<T>> =
-            BaseAgent::new(self.inner, llm, self.memory, self.stream).into_runnable();
-
         let runtime = self.runtime.ok_or(AgentBuildError::BuildFailure(
             "Runtime should be defined".into(),
         ))?;
+        let tx = runtime.tx().await;
+
+        let runnable: Arc<BaseAgent<T>> =
+            BaseAgent::new(self.inner, llm, self.memory, tx, self.stream).into_runnable();
 
         // Create agent actor
         let agent_actor = AgentActor(runnable.clone());
-        let tx = runtime.tx().await;
-        let actor_ref = Actor::spawn(Some(runnable.inner.name().into()), agent_actor, tx.clone())
+        let actor_ref = Actor::spawn(Some(runnable.inner.name().into()), agent_actor, ())
             .await
             .map_err(AgentBuildError::SpawnError)?
             .0;

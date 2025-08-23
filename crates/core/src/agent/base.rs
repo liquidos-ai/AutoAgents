@@ -2,12 +2,14 @@ use super::{output::AgentOutputT, AgentExecutor};
 use crate::agent::config::AgentConfig;
 use crate::agent::memory::MemoryProvider;
 use crate::agent::task::Task;
+use crate::protocol::Event;
 use crate::{protocol::ActorID, tool::ToolT};
 use async_trait::async_trait;
 use autoagents_llm::LLMProvider;
 use ractor::ActorRef;
 use serde_json::Value;
 use std::{fmt::Debug, sync::Arc};
+use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -37,12 +39,14 @@ pub struct BaseAgent<T: AgentDeriveT> {
     pub inner: Arc<T>,
     /// LLM provider for this agent
     pub llm: Arc<dyn LLMProvider>,
-    // Agent ID
+    /// Agent ID
     pub id: ActorID,
     /// Optional memory provider
     pub memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+    /// Tx sender
+    pub tx: Sender<Event>,
     //Stream
-    pub stream: bool,
+    stream: bool,
 }
 
 impl<T: AgentDeriveT> Debug for BaseAgent<T> {
@@ -57,6 +61,7 @@ impl<T: AgentDeriveT> BaseAgent<T> {
         inner: T,
         llm: Arc<dyn LLMProvider>,
         memory: Option<Box<dyn MemoryProvider>>,
+        tx: Sender<Event>,
         stream: bool,
     ) -> Self {
         // Convert tools to Arc for efficient sharing
@@ -64,6 +69,7 @@ impl<T: AgentDeriveT> BaseAgent<T> {
             inner: Arc::new(inner),
             id: Uuid::new_v4(),
             llm,
+            tx,
             memory: memory.map(|m| Arc::new(RwLock::new(m))),
             stream,
         }
@@ -86,6 +92,10 @@ impl<T: AgentDeriveT> BaseAgent<T> {
     /// Get the tools as Arc-wrapped references
     pub fn tools(&self) -> Vec<Box<dyn ToolT>> {
         self.inner.tools()
+    }
+
+    pub fn stream(&self) -> bool {
+        self.stream
     }
 
     pub fn agent_config(&self) -> AgentConfig {
@@ -111,6 +121,7 @@ impl<T: AgentDeriveT> BaseAgent<T> {
 }
 
 /// Handle for an agent that includes both the agent and its actor reference
+#[derive(Clone)]
 pub struct AgentHandle<T: AgentDeriveT> {
     pub agent: Arc<BaseAgent<T>>,
     pub actor_ref: ActorRef<Task>,
@@ -145,7 +156,9 @@ mod tests {
     use autoagents_llm::chat::StructuredOutputFormat;
     use autoagents_test_utils::agent::{MockAgentImpl, TestAgentOutput, TestError};
     use autoagents_test_utils::llm::MockLLMProvider;
+    use futures::Stream;
     use std::sync::Arc;
+    use tokio::sync::mpsc;
 
     impl AgentOutputT for TestAgentOutput {
         fn output_schema() -> &'static str {
@@ -201,7 +214,7 @@ mod tests {
         async fn execute(
             &self,
             task: &Task,
-            _context: Context,
+            _context: Arc<Context>,
         ) -> Result<Self::Output, Self::Error> {
             if self.should_fail {
                 return Err(TestError::TestError("Mock execution failed".to_string()));
@@ -210,6 +223,16 @@ mod tests {
             Ok(TestAgentOutput {
                 result: format!("Processed: {}", task.prompt),
             })
+        }
+        async fn execute_stream(
+            &self,
+            _task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<
+            std::pin::Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>,
+            Self::Error,
+        > {
+            unimplemented!()
         }
     }
 
@@ -253,7 +276,8 @@ mod tests {
     fn test_base_agent_creation() {
         let mock_agent = MockAgentImpl::new("test", "test description");
         let llm = Arc::new(MockLLMProvider);
-        let base_agent = BaseAgent::new(mock_agent, llm, None, false);
+        let (tx, _) = mpsc::channel(1);
+        let base_agent = BaseAgent::new(mock_agent, llm, None, tx, false);
 
         assert_eq!(base_agent.name(), "test");
         assert_eq!(base_agent.description(), "test description");
@@ -265,7 +289,8 @@ mod tests {
         let mock_agent = MockAgentImpl::new("test", "test description");
         let llm = Arc::new(MockLLMProvider);
         let memory = Box::new(crate::agent::memory::SlidingWindowMemory::new(5));
-        let base_agent = BaseAgent::new(mock_agent, llm, Some(memory), false);
+        let (tx, _) = mpsc::channel(1);
+        let base_agent = BaseAgent::new(mock_agent, llm, Some(memory), tx, false);
 
         assert_eq!(base_agent.name(), "test");
         assert_eq!(base_agent.description(), "test description");
@@ -276,7 +301,8 @@ mod tests {
     fn test_base_agent_inner() {
         let mock_agent = MockAgentImpl::new("test", "test description");
         let llm = Arc::new(MockLLMProvider);
-        let base_agent = BaseAgent::new(mock_agent, llm, None, false);
+        let (tx, _) = mpsc::channel(1);
+        let base_agent = BaseAgent::new(mock_agent, llm, None, tx, false);
 
         let inner = base_agent.inner();
         assert_eq!(inner.name(), "test");
@@ -287,7 +313,8 @@ mod tests {
     fn test_base_agent_tools() {
         let mock_agent = MockAgentImpl::new("test", "test description");
         let llm = Arc::new(MockLLMProvider);
-        let base_agent = BaseAgent::new(mock_agent, llm, None, false);
+        let (tx, _) = mpsc::channel(1);
+        let base_agent = BaseAgent::new(mock_agent, llm, None, tx, false);
 
         let tools = base_agent.tools();
         assert!(tools.is_empty());
@@ -297,7 +324,8 @@ mod tests {
     fn test_base_agent_llm() {
         let mock_agent = MockAgentImpl::new("test", "test description");
         let llm = Arc::new(MockLLMProvider);
-        let base_agent = BaseAgent::new(mock_agent, llm.clone(), None, false);
+        let (tx, _) = mpsc::channel(1);
+        let base_agent = BaseAgent::new(mock_agent, llm.clone(), None, tx, false);
 
         let agent_llm = base_agent.llm();
         // The llm() method returns Arc<dyn LLMProvider>, so we just verify it exists
@@ -308,7 +336,8 @@ mod tests {
     fn test_base_agent_with_streaming() {
         let mock_agent = MockAgentImpl::new("streaming_agent", "test streaming agent");
         let llm = Arc::new(MockLLMProvider);
-        let base_agent = BaseAgent::new(mock_agent, llm, None, true);
+        let (tx, _) = mpsc::channel(1);
+        let base_agent = BaseAgent::new(mock_agent, llm, None, tx, true);
 
         assert_eq!(base_agent.name(), "streaming_agent");
         assert_eq!(base_agent.description(), "test streaming agent");

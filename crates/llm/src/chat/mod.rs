@@ -305,6 +305,26 @@ pub trait ChatProvider: Sync + Send {
         ))
     }
 
+    /// Sends a streaming chat request to the provider with a sequence of messages and tools.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - The conversation history as a slice of chat messages
+    /// * `tools` - Optional slice of tools to use in the chat
+    ///
+    /// # Returns
+    ///
+    /// A stream of text tokens or an error
+    async fn chat_stream_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        _tools: Option<&[Tool]>,
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
+    {
+        // Default implementation falls back to regular chat_stream (ignoring tools)
+        self.chat_stream(messages).await
+    }
+
     /// Get current memory contents if provider supports memory
     async fn memory_contents(&self) -> Option<Vec<ChatMessage>> {
         None
