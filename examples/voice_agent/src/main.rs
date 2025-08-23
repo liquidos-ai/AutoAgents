@@ -1,7 +1,9 @@
 mod agent;
+mod audio;
 mod cli;
 mod kokoros;
 mod stt;
+pub(crate) mod utils;
 
 use cli::Cli;
 use tracing_subscriber::fmt::time::FormatTime;

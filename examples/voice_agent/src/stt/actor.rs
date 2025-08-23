@@ -1,5 +1,5 @@
-use crate::cli::{AudioBufferMessage, SimpleMessage};
-use crate::stt::{model::WhichModel, STTProcessor};
+use crate::cli::AudioBufferMessage;
+use crate::stt::STTProcessor;
 use autoagents::{
     async_trait,
     core::{
@@ -9,8 +9,8 @@ use autoagents::{
         runtime::{SingleThreadedRuntime, TypedRuntime},
     },
 };
-use std::sync::Arc;
 use std::sync::Mutex;
+use std::{path::PathBuf, sync::Arc};
 
 /// STT Actor that processes audio buffers and publishes transcribed text
 pub struct STTActor {
@@ -28,12 +28,8 @@ impl STTActor {
         }
     }
 
-    pub async fn initialize_stt(
-        &self,
-        model: WhichModel,
-        language: Option<String>,
-    ) -> anyhow::Result<()> {
-        let processor = STTProcessor::new(model, language).await?;
+    pub async fn initialize_stt(&self, model_path: PathBuf) -> anyhow::Result<()> {
+        let processor = STTProcessor::new(model_path).await?;
         let mut stt_lock = self.stt_processor.lock().unwrap();
         *stt_lock = Some(processor);
         Ok(())
@@ -63,19 +59,6 @@ impl Actor for STTActor {
         message: Self::Msg,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        // Reduced logging for cleaner conversation flow
-
-        // Skip processing if audio is too short (likely noise)
-        let min_samples_needed = message.sample_rate / 4; // At least 0.25 seconds
-        if message.audio_data.len() < min_samples_needed as usize {
-            println!(
-                "⚠️ Audio too short ({} samples < {} needed), skipping STT processing",
-                message.audio_data.len(),
-                min_samples_needed
-            );
-            return Ok(());
-        }
-
         // Process the audio buffer through STT
         let transcribed_text = {
             let mut stt_lock = self.stt_processor.lock().unwrap();
@@ -96,8 +79,6 @@ impl Actor for STTActor {
                 return Err("Processing error".into());
             }
         };
-
-        // Internal transcription complete
 
         // If we have non-empty text, send it to the LLM agent
         if !transcribed_text.trim().is_empty() {
