@@ -144,7 +144,6 @@ where
         match self.inner().execute_stream(&task, Arc::new(context)).await {
             Ok(stream) => {
                 use futures::StreamExt;
-
                 // Transform the stream to convert agent output to TaskResult
                 let transformed_stream = stream.map(move |result| {
                     match result {

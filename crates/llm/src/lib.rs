@@ -13,7 +13,6 @@
 //! # Architecture
 //! The crate is organized into modules that handle different aspects of LLM interactions:
 
-use chat::Tool;
 use serde::{Deserialize, Serialize};
 
 /// Backend implementations for supported LLM providers like OpenAI, Anthropic, etc.
@@ -54,9 +53,6 @@ pub trait LLMProvider:
     + Sync
     + 'static
 {
-    fn tools(&self) -> Option<&[Tool]> {
-        None
-    }
 }
 
 /// Tool call represents a function call that an LLM wants to make.
@@ -84,9 +80,10 @@ pub struct FunctionCall {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::ChatProvider;
+    use crate::chat::{ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat, Tool};
     use crate::completion::CompletionProvider;
     use crate::embedding::EmbeddingProvider;
+    use crate::error::LLMError;
     use async_trait::async_trait;
     use serde_json::json;
 
@@ -360,14 +357,14 @@ mod tests {
 
     #[async_trait]
     impl chat::ChatProvider for MockLLMProvider {
-        async fn chat_with_tools(
+        async fn chat(
             &self,
-            _messages: &[chat::ChatMessage],
-            _tools: Option<&[chat::Tool]>,
-            _json_schema: Option<chat::StructuredOutputFormat>,
-        ) -> Result<Box<dyn chat::ChatResponse>, error::LLMError> {
+            _messages: &[ChatMessage],
+            _tools: Option<&[Tool]>,
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
             Ok(Box::new(MockChatResponse {
-                text: Some("Mock response".to_string()),
+                text: Some("Mock response".into()),
             }))
         }
     }
@@ -399,11 +396,7 @@ mod tests {
     #[async_trait]
     impl models::ModelsProvider for MockLLMProvider {}
 
-    impl LLMProvider for MockLLMProvider {
-        fn tools(&self) -> Option<&[chat::Tool]> {
-            None
-        }
-    }
+    impl LLMProvider for MockLLMProvider {}
 
     struct MockChatResponse {
         text: Option<String>,
@@ -436,7 +429,7 @@ mod tests {
         let provider = MockLLMProvider;
         let messages = vec![chat::ChatMessage::user().content("Test").build()];
 
-        let response = provider.chat(&messages, None).await.unwrap();
+        let response = provider.chat(&messages, None, None).await.unwrap();
         assert_eq!(response.text(), Some("Mock response".to_string()));
     }
 
@@ -458,11 +451,5 @@ mod tests {
         assert_eq!(embeddings.len(), 2);
         assert_eq!(embeddings[0], vec![0.0, 1.0]);
         assert_eq!(embeddings[1], vec![1.0, 2.0]);
-    }
-
-    #[test]
-    fn test_llm_provider_tools() {
-        let provider = MockLLMProvider;
-        assert!(provider.tools().is_none());
     }
 }

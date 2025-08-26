@@ -50,16 +50,10 @@ pub struct Google {
     pub system: Option<String>,
     /// Request timeout in seconds
     pub timeout_seconds: Option<u64>,
-    /// Whether to stream responses
-    pub stream: Option<bool>,
     /// Top-p sampling parameter
     pub top_p: Option<f32>,
     /// Top-k sampling parameter
     pub top_k: Option<u32>,
-    /// JSON schema for structured output
-    pub json_schema: Option<StructuredOutputFormat>,
-    /// Available tools for function calling
-    pub tools: Option<Vec<Tool>>,
     /// HTTP client for making API requests
     client: Client,
 }
@@ -427,11 +421,8 @@ impl Google {
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
         system: Option<String>,
-        stream: Option<bool>,
         top_p: Option<f32>,
         top_k: Option<u32>,
-        json_schema: Option<StructuredOutputFormat>,
-        tools: Option<Vec<Tool>>,
     ) -> Self {
         let mut builder = Client::builder();
         if let Some(sec) = timeout_seconds {
@@ -444,190 +435,9 @@ impl Google {
             temperature,
             system,
             timeout_seconds,
-            stream,
             top_p,
             top_k,
-            json_schema,
-            tools,
             client: builder.build().expect("Failed to build reqwest Client"),
-        }
-    }
-}
-
-#[async_trait]
-impl ChatProvider for Google {
-    /// Sends a chat request to Google's Gemini API.
-    ///
-    /// # Arguments
-    ///
-    /// * `messages` - Slice of chat messages representing the conversation
-    ///
-    /// # Returns
-    ///
-    /// The model's response text or an error
-    async fn chat(
-        &self,
-        messages: &[ChatMessage],
-        json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing Google API key".to_string()));
-        }
-
-        let mut chat_contents = Vec::with_capacity(messages.len());
-
-        // Add system message if present
-        if let Some(system) = &self.system {
-            chat_contents.push(GoogleChatContent {
-                role: "user",
-                parts: vec![GoogleContentPart::Text(system)],
-            });
-        }
-
-        // Add conversation messages in pairs to maintain context
-        for msg in messages {
-            // For tool results, we need to use "function" role
-            let role = match &msg.message_type {
-                MessageType::ToolResult(_) => "function",
-                _ => match msg.role {
-                    ChatRole::User => "user",
-                    ChatRole::Assistant => "model",
-                    ChatRole::Tool => "tool",
-                    ChatRole::System => "system",
-                },
-            };
-
-            chat_contents.push(GoogleChatContent {
-                role,
-                parts: match &msg.message_type {
-                    MessageType::Text => vec![GoogleContentPart::Text(&msg.content)],
-                    MessageType::Image((image_mime, raw_bytes)) => {
-                        vec![GoogleContentPart::InlineData(GoogleInlineData {
-                            mime_type: image_mime.mime_type().to_string(),
-                            data: BASE64.encode(raw_bytes),
-                        })]
-                    }
-                    MessageType::ImageURL(_) => unimplemented!(),
-                    MessageType::Pdf(raw_bytes) => {
-                        vec![GoogleContentPart::InlineData(GoogleInlineData {
-                            mime_type: "application/pdf".to_string(),
-                            data: BASE64.encode(raw_bytes),
-                        })]
-                    }
-                    MessageType::ToolUse(calls) => calls
-                        .iter()
-                        .map(|call| {
-                            GoogleContentPart::FunctionCall(GoogleFunctionCall {
-                                name: call.function.name.clone(),
-                                args: serde_json::from_str(&call.function.arguments)
-                                    .unwrap_or(serde_json::Value::Null),
-                            })
-                        })
-                        .collect(),
-                    MessageType::ToolResult(result) => result
-                        .iter()
-                        .map(|result| {
-                            let parsed_args =
-                                serde_json::from_str::<Value>(&result.function.arguments)
-                                    .unwrap_or(serde_json::Value::Null);
-
-                            GoogleContentPart::FunctionResponse(GoogleFunctionResponse {
-                                name: result.function.name.clone(),
-                                response: GoogleFunctionResponseContent {
-                                    name: result.function.name.clone(),
-                                    content: parsed_args,
-                                },
-                            })
-                        })
-                        .collect(),
-                },
-            });
-        }
-
-        // Remove generation_config if empty to avoid validation errors
-        let generation_config = if self.max_tokens.is_none()
-            && self.temperature.is_none()
-            && self.top_p.is_none()
-            && self.top_k.is_none()
-            && json_schema.is_none()
-        {
-            None
-        } else {
-            // If json_schema and json_schema.schema are not None, use json_schema.schema as the response schema and set response_mime_type to JSON
-            // Google's API doesn't need the schema to have a "name" field, so we can just use the schema directly.
-            let (response_mime_type, response_schema) = if let Some(json_schema) = &json_schema {
-                if let Some(schema) = &json_schema.schema {
-                    // If the schema has an "additionalProperties" field (as required by OpenAI), remove it as Google's API doesn't support it
-                    let mut schema = schema.clone();
-
-                    if let Some(obj) = schema.as_object_mut() {
-                        obj.remove("additionalProperties");
-                    }
-
-                    (Some(GoogleResponseMimeType::Json), Some(schema))
-                } else {
-                    (None, None)
-                }
-            } else {
-                (None, None)
-            };
-
-            Some(GoogleGenerationConfig {
-                max_output_tokens: self.max_tokens,
-                temperature: self.temperature,
-                top_p: self.top_p,
-                top_k: self.top_k,
-                response_mime_type,
-                response_schema,
-            })
-        };
-
-        let req_body = GoogleChatRequest {
-            contents: chat_contents,
-            generation_config,
-            tools: None,
-        };
-
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&req_body) {
-                log::trace!("Google Gemini request payload: {json}");
-            }
-        }
-
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
-            model = self.model,
-            key = self.api_key
-        );
-
-        let mut request = self.client.post(&url).json(&req_body);
-
-        if let Some(timeout) = self.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
-
-        let resp = request.send().await?;
-
-        log::debug!("Google Gemini HTTP status: {}", resp.status());
-
-        let resp = resp.error_for_status()?;
-
-        // Get the raw response text for debugging
-        let resp_text = resp.text().await?;
-
-        // Try to parse the response
-        let json_resp: Result<GoogleChatResponse, serde_json::Error> =
-            serde_json::from_str(&resp_text);
-
-        match json_resp {
-            Ok(response) => Ok(Box::new(response)),
-            Err(e) => {
-                // Return a more descriptive error with the raw response
-                Err(LLMError::ResponseFormatError {
-                    message: format!("Failed to decode Google API response: {e}"),
-                    raw_response: resp_text,
-                })
-            }
         }
     }
 
@@ -775,7 +585,6 @@ impl ChatProvider for Google {
             "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
             model = self.model,
             key = self.api_key
-
         );
 
         let mut request = self.client.post(&url).json(&req_body);
@@ -808,6 +617,27 @@ impl ChatProvider for Google {
             }
         }
     }
+}
+
+#[async_trait]
+impl ChatProvider for Google {
+    /// Sends a chat request to Google's Gemini API.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - Slice of chat messages representing the conversation
+    ///
+    /// # Returns
+    ///
+    /// The model's response text or an error
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        self.chat_with_tools(messages, tools, json_schema).await
+    }
 
     /// Sends a streaming chat request to Google's Gemini API.
     ///
@@ -821,6 +651,8 @@ impl ChatProvider for Google {
     async fn chat_stream(
         &self,
         messages: &[ChatMessage],
+        _tools: Option<&[Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
         if self.api_key.is_empty() {
@@ -935,7 +767,7 @@ impl CompletionProvider for Google {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<CompletionResponse, LLMError> {
         let chat_message = ChatMessage::user().content(req.prompt.clone()).build();
-        if let Some(text) = self.chat(&[chat_message], json_schema).await?.text() {
+        if let Some(text) = self.chat(&[chat_message], None, json_schema).await?.text() {
             Ok(CompletionResponse { text })
         } else {
             Err(LLMError::ProviderError(
@@ -984,11 +816,7 @@ impl EmbeddingProvider for Google {
     }
 }
 
-impl LLMProvider for Google {
-    fn tools(&self) -> Option<&[Tool]> {
-        self.tools.as_deref()
-    }
-}
+impl LLMProvider for Google {}
 
 /// Parses a Server-Sent Events (SSE) chunk from Google's streaming API.
 ///
@@ -1032,23 +860,19 @@ impl ModelsProvider for Google {}
 
 impl LLMBuilder<Google> {
     pub fn build(self) -> Result<Arc<Google>, LLMError> {
-        let (tools, _) = self.validate_tool_config()?;
         let api_key = self.api_key.ok_or_else(|| {
             LLMError::InvalidRequest("No API key provided for Google".to_string())
         })?;
 
-        let google = crate::backends::google::Google::new(
+        let google = Google::new(
             api_key,
             self.model,
             self.max_tokens,
             self.temperature,
             self.timeout_seconds,
             self.system,
-            self.stream,
             self.top_p,
             self.top_k,
-            self.json_schema,
-            tools,
         );
 
         Ok(Arc::new(google))

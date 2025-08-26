@@ -23,6 +23,7 @@ struct Addition {}
 impl ToolRuntime for Addition {
     fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
         let typed_args: AdditionArgs = serde_json::from_value(args)?;
+        println!("TOOL CALL: {:?}", typed_args);
         let result = typed_args.left + typed_args.right;
         Ok(result.into())
     }

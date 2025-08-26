@@ -1,3 +1,4 @@
+use crate::cli::SimpleMessage;
 use crate::{
     audio::AudioPlayback, cli::AudioBufferMessage, kokoros::tts::koko::TTSKoko, stt::STTProcessor,
 };
@@ -133,10 +134,26 @@ pub async fn run_test_mode(
 pub async fn run_realtime_mode_actor_based(
     runtime: Arc<SingleThreadedRuntime>,
     stt_topic: Topic<AudioBufferMessage>,
+    tts_topc: Topic<SimpleMessage>,
     chunk_duration_seconds: u32,
+    recording_control: Option<Arc<tokio::sync::RwLock<bool>>>,
 ) -> Result<()> {
     println!("🎬 Starting continuous recording mode...");
     println!("💬 Recording in {}-second chunks", chunk_duration_seconds);
+
+    // Publish first welcome message
+    runtime
+        .publish(
+            &tts_topc,
+            SimpleMessage {
+                content: "Hey!, I am LiquidOS, Your AI Assistant. How can I help you?".into(),
+            },
+        )
+        .await?;
+
+    // Use provided recording control or create a new one
+    let recording_enabled =
+        recording_control.unwrap_or_else(|| Arc::new(tokio::sync::RwLock::new(true)));
 
     let host = cpal::default_host();
     let input_device = host
@@ -154,6 +171,7 @@ pub async fn run_realtime_mode_actor_based(
 
     let audio_buffer = Arc::new(Mutex::new(Vec::<f32>::with_capacity(chunk_size)));
     let buffer_clone = audio_buffer.clone();
+    let recording_enabled_clone = recording_enabled.clone();
 
     let (audio_tx, mut audio_rx) = tokio::sync::mpsc::channel::<AudioBufferMessage>(10);
 
@@ -161,6 +179,14 @@ pub async fn run_realtime_mode_actor_based(
     let stream = input_device.build_input_stream(
         &config.into(),
         move |data: &[f32], _: &cpal::InputCallbackInfo| {
+            // Check if recording is enabled (non-blocking check)
+            let is_recording = recording_enabled_clone
+                .try_read()
+                .map_or(true, |guard| *guard);
+            if !is_recording {
+                return; // Skip processing if recording is disabled
+            }
+
             let mut buffer = buffer_clone.lock().unwrap();
 
             // Convert multi-channel to mono and add to buffer
@@ -221,20 +247,6 @@ pub async fn run_realtime_mode_actor_based(
                         eprintln!("❌ Resampling failed: {}", e);
                         continue;
                     }
-                }
-            }
-
-            // Normalize audio to [-1, 1] range for Whisper
-            let max_val = audio_message
-                .audio_data
-                .iter()
-                .map(|&x| x.abs())
-                .fold(0.0f32, f32::max);
-
-            if max_val > 1.0 {
-                println!("📊 Normalizing audio (peak: {:.2})", max_val);
-                for sample in &mut audio_message.audio_data {
-                    *sample /= max_val;
                 }
             }
 

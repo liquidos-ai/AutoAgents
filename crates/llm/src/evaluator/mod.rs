@@ -57,7 +57,7 @@ impl LLMEvaluator {
     ) -> Result<Vec<EvalResult>, LLMError> {
         let mut results = Vec::new();
         for llm in &self.llms {
-            let response = llm.chat(messages, None).await?;
+            let response = llm.chat(messages, None, None).await?;
             let score = self.compute_score(&response.text().unwrap_or_default());
             results.push(EvalResult {
                 text: response.text().unwrap_or_default(),
@@ -129,7 +129,7 @@ mod tests {
 
     #[async_trait]
     impl ChatProvider for MockLLMProvider {
-        async fn chat_with_tools(
+        async fn chat(
             &self,
             _messages: &[ChatMessage],
             _tools: Option<&[crate::chat::Tool]>,

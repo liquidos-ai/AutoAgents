@@ -1,3 +1,12 @@
+#![allow(
+    dead_code,
+    unused_variables,
+    unused_mut,
+    unreachable_patterns,
+    unused_variables,
+    unused_imports,
+    unreachable_code
+)]
 use crate::agent::{AgentOutput, VoiceAgent};
 use crate::kokoros::actor::{TTSActor, TTSActorArgs, TTSConfig};
 use crate::kokoros::tts::koko::TTSKoko;
@@ -32,7 +41,7 @@ pub enum Mode {
     /// Take an input audio file and convert to text, then generate speech
     File {
         /// Path to input audio file (WAV format)
-        #[arg(short, long, default_value = "./examples/voice_agent/audio/input.wav")]
+        #[arg(short, long, default_value = "examples/voice_agent/data/input.wav")]
         input: String,
 
         /// Path to output audio file (optional, plays directly if not specified)
@@ -50,7 +59,7 @@ pub enum Mode {
         silence_duration: u32,
 
         /// Recording duration in seconds (0 for unlimited)
-        #[arg(long, default_value = "10")]
+        #[arg(long, default_value = "6")]
         max_recording_duration: u32,
     },
     /// Test TTS audio generation and playback
@@ -107,7 +116,7 @@ pub struct Cli {
         short = 'p',
         long = "speed",
         value_name = "SPEED",
-        default_value_t = 1.0
+        default_value_t = 1.3
     )]
     pub speed: f32,
 
@@ -208,7 +217,6 @@ pub async fn run(cli: Cli) -> Result<()> {
         .model("gpt-4o") // Use GPT-4o-mini model
         .max_tokens(512) // Limit response length
         .temperature(0.2) // Control response randomness (0.0-1.0)
-        .stream(false) // Disable streaming responses
         .build()
         .expect("Failed to build LLM");
 
@@ -231,11 +239,15 @@ pub async fn run(cli: Cli) -> Result<()> {
         .runtime(runtime.clone())
         .subscribe_topic(agent_topic.clone())
         .with_memory(sliding_window_memory)
+        .stream(false)
         .build()
         .await?;
 
     // Set up event handling
     let receiver = environment.take_event_receiver(None).await?;
+
+    // Create recording control for synchronization
+    let recording_control = Arc::new(tokio::sync::RwLock::new(true));
 
     // Create actors with proper configuration
     let tts_config = TTSConfig {
@@ -246,7 +258,8 @@ pub async fn run(cli: Cli) -> Result<()> {
         initial_silence: cli.initial_silence,
     };
 
-    let tts_actor = TTSActor::new("TTS_Actor", runtime.clone(), tts_config);
+    let tts_actor = TTSActor::new("TTS_Actor", runtime.clone(), tts_config)
+        .with_recording_control(recording_control.clone());
     let stt_actor = STTActor::new("STT_Actor", runtime.clone());
 
     // Initialize the actors with their models
@@ -291,7 +304,9 @@ pub async fn run(cli: Cli) -> Result<()> {
             run_realtime_mode_actor_based(
                 runtime.clone(),
                 stt_topic.clone(),
+                tts_topic.clone(),
                 max_recording_duration,
+                Some(recording_control.clone()),
             )
             .await
         }
@@ -334,11 +349,13 @@ fn handle_streaming_events(
                                                 streaming_output.response
                                             )
                                         );
+
+                                        // Publish to TTS - the TTS actor will handle recording control
                                         let _ = runtime
                                             .publish(
                                                 &topic,
                                                 SimpleMessage {
-                                                    content: streaming_output.response,
+                                                    content: streaming_output.response.clone(),
                                                 },
                                             )
                                             .await;
@@ -356,7 +373,7 @@ fn handle_streaming_events(
                     }
                 }
                 Event::StreamChunk { sub_id, chunk } => {
-                    println!("{}", format!("📦 Stream chunk ({}): {}", sub_id, chunk));
+                    println!("{}", format!("📦 Stream chunk ({}): {:?}", sub_id, chunk));
                 }
                 _ => {}
             }

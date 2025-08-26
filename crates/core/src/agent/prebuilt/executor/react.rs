@@ -21,6 +21,7 @@ use tokio::sync::{mpsc, RwLock};
 pub struct ReActAgentOutput {
     pub response: String,
     pub tool_calls: Vec<ToolCallResult>,
+    pub done: bool,
 }
 
 impl From<ReActAgentOutput> for Value {
@@ -153,7 +154,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
 
         let response = if !tools.is_empty() {
             let tools_serialized: Vec<Tool> = tools.iter().map(Tool::from).collect();
-            llm.chat_with_tools(
+            llm.chat(
                 messages,
                 Some(&tools_serialized),
                 agent_config.output_schema.clone(),
@@ -161,9 +162,14 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
             .await
             .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?
         } else {
-            llm.chat(messages, agent_config.output_schema.clone())
-                .await
-                .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?
+            let tools_serialized: Vec<Tool> = tools.iter().map(Tool::from).collect();
+            llm.chat(
+                messages,
+                Some(&tools_serialized),
+                agent_config.output_schema.clone(),
+            )
+            .await
+            .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?
         };
 
         let response_text = response.text().unwrap_or_default();
@@ -225,6 +231,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
 
             Ok(TurnResult::Continue(Some(ReActAgentOutput {
                 response: response_text,
+                done: true,
                 tool_calls: tool_results,
             })))
         } else {
@@ -244,6 +251,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
 
             Ok(TurnResult::Complete(ReActAgentOutput {
                 response: response_text,
+                done: true,
                 tool_calls: vec![],
             }))
         }
@@ -254,7 +262,6 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
         &self,
         context: &Context,
         tools: &[Box<dyn ToolT>],
-        accumulated_tool_calls: &[ToolCallResult],
         tx: &mpsc::Sender<Result<ReActAgentOutput, ReActExecutorError>>,
         submission_id: SubmissionId,
     ) -> Result<StreamingTurnResult, ReActExecutorError> {
@@ -265,38 +272,75 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
         } else {
             None
         };
+        let agent_config = context.config();
 
         // First, stream the response for real-time updates
         let mut stream = context
             .llm()
-            .chat_stream_with_tools(&messages, tools_for_streaming)
+            .chat_stream_struct(
+                &messages,
+                tools_for_streaming,
+                agent_config.output_schema.clone(),
+            )
             .await
             .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?;
 
         let mut response_text = String::new();
+        let mut collected_tool_calls: Vec<ToolCall> = Vec::new();
+
+        // Map to accumulate tool call arguments by index
+        let mut tool_calls_map: std::collections::HashMap<
+            usize,
+            (Option<String>, Option<String>, String),
+        > = std::collections::HashMap::new();
 
         // Collect streaming chunks
         while let Some(chunk_result) = stream.next().await {
             match chunk_result {
                 Ok(chunk) => {
-                    response_text.push_str(&chunk);
+                    if let Some(choice) = chunk.choices.first() {
+                        // Collect content
+                        if let Some(content) = &choice.delta.content {
+                            response_text.push_str(content);
+                            // Send intermediate result
+                            let _ = tx
+                                .send(Ok(ReActAgentOutput {
+                                    response: content.clone(),
+                                    tool_calls: vec![],
+                                    done: false,
+                                }))
+                                .await;
+                        }
 
-                    // Send streaming update
-                    let _ = context
-                        .tx()
-                        .send(Event::StreamChunk {
-                            sub_id: submission_id,
-                            chunk: chunk.clone(),
-                        })
-                        .await;
+                        // Collect tool calls from delta
+                        if let Some(tool_call_deltas) = &choice.delta.tool_calls {
+                            for delta in tool_call_deltas {
+                                let entry = tool_calls_map.entry(delta.index).or_insert((
+                                    None,
+                                    None,
+                                    String::new(),
+                                ));
 
-                    // Send intermediate result
-                    let _ = tx
-                        .send(Ok(ReActAgentOutput {
-                            response: response_text.clone(),
-                            tool_calls: accumulated_tool_calls.to_vec(),
-                        }))
-                        .await;
+                                if let Some(function) = &delta.function {
+                                    // Update function name if provided
+                                    if !function.name.is_empty() {
+                                        entry.0 = Some(function.name.clone());
+                                    }
+                                    // Append function arguments
+                                    entry.2.push_str(&function.arguments);
+                                }
+                            }
+                        }
+
+                        // Send streaming update
+                        let _ = context
+                            .tx()
+                            .send(Event::StreamChunk {
+                                sub_id: submission_id,
+                                chunk: choice.clone(),
+                            })
+                            .await;
+                    }
                 }
                 Err(e) => {
                     return Err(ReActExecutorError::LLMError(e.to_string()));
@@ -304,27 +348,31 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
             }
         }
 
-        // After streaming, make a non-streaming call to check for tool calls
-        // This is necessary because streaming doesn't return tool call information
-        if !tools.is_empty() {
-            // Add the streamed response to messages for context
-            let mut check_messages = messages.clone();
-            check_messages.push(ChatMessage {
-                role: ChatRole::Assistant,
-                message_type: MessageType::Text,
-                content: response_text.clone(),
-            });
+        // After streaming, process any collected tool calls
+        if !tools.is_empty() && !tool_calls_map.is_empty() {
+            // Convert accumulated tool calls map to ToolCall objects
+            let mut sorted_calls: Vec<_> = tool_calls_map.into_iter().collect();
+            sorted_calls.sort_by_key(|(index, _)| *index);
 
-            // Make a quick non-streaming call to detect tool calls
-            let tool_check_response = context
-                .llm()
-                .chat_with_tools(&messages, Some(&tools_serialized), None)
-                .await
-                .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?;
+            for (_index, (name, id, args)) in sorted_calls {
+                if let Some(name) = name {
+                    // Generate a tool call ID if not provided
+                    let call_id = id.unwrap_or_else(|| format!("{}", uuid::Uuid::new_v4()));
 
-            if let Some(tool_calls) = tool_check_response.tool_calls() {
+                    collected_tool_calls.push(ToolCall {
+                        id: call_id,
+                        call_type: "function".to_string(),
+                        function: FunctionCall {
+                            name,
+                            arguments: args,
+                        },
+                    });
+                }
+            }
+
+            if !collected_tool_calls.is_empty() {
                 // Emit streaming tool call events
-                for tool_call in &tool_calls {
+                for tool_call in &collected_tool_calls {
                     let _ = context
                         .tx()
                         .send(Event::StreamToolCall {
@@ -339,7 +387,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
                 let tool_results = self
                     .process_tool_calls(
                         tools,
-                        tool_calls.clone(),
+                        collected_tool_calls.clone(),
                         context.tx().clone(),
                         context.memory(),
                     )
@@ -348,7 +396,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
                 // Update memory with tool calls and results
                 self.update_memory_with_tools(
                     context.memory(),
-                    &tool_calls,
+                    &collected_tool_calls,
                     &tool_results,
                     &response_text,
                 )
@@ -527,6 +575,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
                     if !accumulated_tool_calls.is_empty() {
                         return Ok(ReActAgentOutput {
                             response: result.response,
+                            done: true,
                             tool_calls: accumulated_tool_calls,
                         });
                     }
@@ -548,6 +597,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
         if !final_response.is_empty() || !accumulated_tool_calls.is_empty() {
             Ok(ReActAgentOutput {
                 response: final_response,
+                done: true,
                 tool_calls: accumulated_tool_calls,
             })
         } else {
@@ -559,8 +609,10 @@ impl<T: ReActExecutor> AgentExecutor for T {
         &self,
         task: &Task,
         context: Arc<Context>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>, Self::Error>
-    {
+    ) -> Result<
+        Pin<Box<dyn Stream<Item = Result<ReActAgentOutput, Self::Error>> + Send>>,
+        Self::Error,
+    > {
         let submission_id = task.submission_id;
         let task_prompt = task.prompt.clone();
         let max_turns = self.config().max_turns;
@@ -616,22 +668,11 @@ impl<T: ReActExecutor> AgentExecutor for T {
                     .await;
 
                 // Build context for this turn
-                let turn_context = Context::new(context_clone.llm(), context_clone.tx().clone())
-                    .with_memory(context_clone.memory())
-                    .with_config(context_clone.config().clone())
-                    // .with_tools(tools.to_vec())
-                    // .with_state(context_clone.state())
-                    .with_stream(true);
+                let turn_context = context.clone();
 
                 // Process streaming turn with hybrid approach
                 match executor
-                    .process_streaming_turn_hybrid(
-                        &turn_context,
-                        tools,
-                        &accumulated_tool_calls,
-                        &tx,
-                        submission_id,
-                    )
+                    .process_streaming_turn_hybrid(&turn_context, tools, &tx, submission_id)
                     .await
                 {
                     Ok(StreamingTurnResult::Complete(response)) => {
@@ -656,6 +697,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
                         let _ = tx
                             .send(Ok(ReActAgentOutput {
                                 response: String::new(),
+                                done: false,
                                 tool_calls: accumulated_tool_calls.clone(),
                             }))
                             .await;
@@ -690,7 +732,8 @@ impl<T: ReActExecutor> AgentExecutor for T {
             // Send final result
             let _ = tx
                 .send(Ok(ReActAgentOutput {
-                    response: final_response,
+                    response: final_response.clone(),
+                    done: true,
                     tool_calls: accumulated_tool_calls,
                 }))
                 .await;
@@ -721,6 +764,7 @@ mod tests {
 
         let react_output = ReActAgentOutput {
             response: serde_json::to_string(&agent_output).unwrap(),
+            done: true,
             tool_calls: vec![],
         };
 

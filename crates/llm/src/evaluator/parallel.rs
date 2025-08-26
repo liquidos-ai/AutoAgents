@@ -89,7 +89,7 @@ impl ParallelEvaluator {
                 let messages = messages.to_vec();
                 async move {
                     let start = Instant::now();
-                    let result = provider.chat(&messages, None).await;
+                    let result = provider.chat(&messages, None, None).await;
                     let elapsed = start.elapsed().as_millis();
                     (id, result, elapsed)
                 }
@@ -143,9 +143,7 @@ impl ParallelEvaluator {
                 let tools_clone = tools.map(|t| t.to_vec());
                 async move {
                     let start = Instant::now();
-                    let result = provider
-                        .chat_with_tools(&messages, tools_clone.as_deref(), None)
-                        .await;
+                    let result = provider.chat(&messages, tools_clone.as_deref(), None).await;
                     let elapsed = start.elapsed().as_millis();
                     (id, result, elapsed)
                 }

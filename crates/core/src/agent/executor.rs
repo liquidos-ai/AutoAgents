@@ -36,7 +36,7 @@ impl Default for ExecutorConfig {
 /// for agents, such as ReAct loops, chain-of-thought, or custom patterns.
 #[async_trait]
 pub trait AgentExecutor: Send + Sync + 'static {
-    type Output: Serialize + DeserializeOwned + Clone + Send + Sync + Into<Value>;
+    type Output: Serialize + DeserializeOwned + Clone + Send + Sync + Into<Value> + Debug;
     type Error: Error + Send + Sync + 'static;
 
     /// Get the configuration for this executor
@@ -167,7 +167,7 @@ mod tests {
 
     #[async_trait]
     impl ChatProvider for MockLLMProvider {
-        async fn chat_with_tools(
+        async fn chat(
             &self,
             _messages: &[ChatMessage],
             _tools: Option<&[autoagents_llm::chat::Tool]>,

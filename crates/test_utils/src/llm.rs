@@ -13,7 +13,7 @@ pub struct MockLLMProvider;
 
 #[async_trait]
 impl ChatProvider for MockLLMProvider {
-    async fn chat_with_tools(
+    async fn chat(
         &self,
         _messages: &[ChatMessage],
         _tools: Option<&[autoagents_llm::chat::Tool]>,

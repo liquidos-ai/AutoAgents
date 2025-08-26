@@ -39,8 +39,6 @@ pub struct XAI {
     pub system: Option<String>,
     /// Request timeout duration in seconds
     pub timeout_seconds: Option<u64>,
-    /// Whether to enable streaming responses
-    pub stream: Option<bool>,
     /// Top-p sampling parameter for controlling response diversity
     pub top_p: Option<f32>,
     /// Top-k sampling parameter for controlling response diversity
@@ -49,8 +47,6 @@ pub struct XAI {
     pub embedding_encoding_format: Option<String>,
     /// Embedding dimensions
     pub embedding_dimensions: Option<u32>,
-    /// JSON schema for structured output
-    pub json_schema: Option<StructuredOutputFormat>,
     /// XAI search parameters
     pub xai_search_mode: Option<String>,
     /// XAI search sources
@@ -257,12 +253,10 @@ impl XAI {
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
         system: Option<String>,
-        stream: Option<bool>,
         top_p: Option<f32>,
         top_k: Option<u32>,
         embedding_encoding_format: Option<String>,
         embedding_dimensions: Option<u32>,
-        json_schema: Option<StructuredOutputFormat>,
         xai_search_mode: Option<String>,
         xai_search_source_type: Option<String>,
         xai_search_excluded_websites: Option<Vec<String>>,
@@ -281,12 +275,10 @@ impl XAI {
             temperature,
             system,
             timeout_seconds,
-            stream,
             top_p,
             top_k,
             embedding_encoding_format,
             embedding_dimensions,
-            json_schema,
             xai_search_mode,
             xai_search_source_type,
             xai_search_excluded_websites,
@@ -354,6 +346,7 @@ impl ChatProvider for XAI {
     async fn chat(
         &self,
         messages: &[ChatMessage],
+        _tools: Option<&[Tool]>, // XAI Does not support tools yet
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
@@ -411,7 +404,7 @@ impl ChatProvider for XAI {
             messages: xai_msgs,
             max_tokens: self.max_tokens,
             temperature: self.temperature,
-            stream: self.stream.unwrap_or(false),
+            stream: false,
             top_p: self.top_p,
             top_k: self.top_k,
             response_format,
@@ -444,26 +437,6 @@ impl ChatProvider for XAI {
         Ok(Box::new(json_resp))
     }
 
-    /// Sends a chat request to X.AI's API with tools.
-    ///
-    /// # Arguments
-    ///
-    /// * `messages` - The conversation history as a slice of chat messages
-    /// * `tools` - Optional slice of tools to use in the chat
-    ///
-    /// # Returns
-    ///
-    /// The provider's response text or an error
-    async fn chat_with_tools(
-        &self,
-        messages: &[ChatMessage],
-        _tools: Option<&[Tool]>,
-        json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        // XAI doesn't support tools yet, fall back to regular chat
-        self.chat(messages, json_schema).await
-    }
-
     /// Sends a streaming chat request to X.AI's API.
     ///
     /// # Arguments
@@ -476,6 +449,8 @@ impl ChatProvider for XAI {
     async fn chat_stream(
         &self,
         messages: &[ChatMessage],
+        _tools: Option<&[Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
         if self.api_key.is_empty() {
@@ -659,12 +634,10 @@ impl LLMBuilder<XAI> {
             self.temperature,
             self.timeout_seconds,
             self.system,
-            self.stream,
             self.top_p,
             self.top_k,
             self.embedding_encoding_format,
             self.embedding_dimensions,
-            self.json_schema,
             None,
             None,
             None,

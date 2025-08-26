@@ -60,7 +60,7 @@ impl AgentExecutor for Agent1 {
         messages.push(chat_msg);
         let response = context
             .llm()
-            .chat(&messages, context.config().output_schema.clone())
+            .chat(&messages, None, context.config().output_schema.clone())
             .await?;
         let response_text = response.text().unwrap_or_default();
         context
@@ -99,7 +99,7 @@ impl AgentExecutor for Agent2 {
         messages.push(chat_msg);
         let response = context
             .llm()
-            .chat(&messages, context.config().output_schema.clone())
+            .chat(&messages, None, context.config().output_schema.clone())
             .await?;
         let response_text = response.text().unwrap_or_default();
         println!("Agent 2 respond: {}", response_text);

@@ -427,3 +427,7 @@ Special thanks to:
 
 ⭐ **Star us on GitHub** | 🐛 **Report Issues** | 💬 **Join Discussions**
 </div>
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=liquidos-ai/AutoAgents&type=Date)](https://www.star-history.com/#liquidos-ai/AutoAgents&Date)

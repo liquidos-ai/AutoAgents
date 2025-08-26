@@ -49,7 +49,6 @@ async fn main() -> Result<(), Error> {
         .model("gpt-4o") // Use GPT-4o-mini model
         .max_tokens(512) // Limit response length
         .temperature(0.2) // Control response randomness (0.0-1.0)
-        .stream(false) // Disable streaming responses
         .build()
         .expect("Failed to build LLM");
 

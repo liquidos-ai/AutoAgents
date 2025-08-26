@@ -22,6 +22,8 @@ pub enum LLMError {
     JsonError(String),
     /// Tool configuration error
     ToolConfigError(String),
+    /// No Tool Support
+    NoToolSupport(String),
 }
 
 impl fmt::Display for LLMError {
@@ -43,6 +45,7 @@ impl fmt::Display for LLMError {
             }
             LLMError::JsonError(e) => write!(f, "JSON Parse Error: {e}"),
             LLMError::ToolConfigError(e) => write!(f, "Tool Configuration Error: {e}"),
+            LLMError::NoToolSupport(e) => write!(f, "No Tool Support: {e}"),
         }
     }
 }

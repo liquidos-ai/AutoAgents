@@ -31,7 +31,6 @@ async fn main() -> Result<(), Error> {
         .model("gpt-4o")
         .max_tokens(2048)
         .temperature(0.1) // Lower temperature for more consistent code generation
-        .stream(false)
         .build()
         .expect("Failed to build LLM");
 
