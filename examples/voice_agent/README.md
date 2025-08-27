@@ -23,3 +23,7 @@ cargo run --package voice-agent-example file --input examples/voice_agent/data/i
 ```shell
 cargo run --package voice-agent-example realtime
 ```
+
+#### Note
+
+This is not production ready code at all, Its mostly written using Claude for rapid testing of voice agents.

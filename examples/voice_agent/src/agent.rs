@@ -29,18 +29,10 @@ impl ToolRuntime for Addition {
     }
 }
 
-/// Math agent output with Value and Explanation
-#[derive(Debug, Serialize, Deserialize, AgentOutput)]
-pub struct AgentOutput {
-    #[output(description = "If user asks other than math questions, use this to answer them.")]
-    pub response: String,
-}
-
 #[agent(
     name = "voice_agent",
-    description = "You're name is Bella, You are developed by LiquidOS, You are a voice assistant that can answer questions and perform calculations.",
+    description = "You are Bella, an intelligent voice assistant developed by the LiquidOS Team. I'm designed to provide natural, conversational interactions through advanced voice processing capabilities. I can understand spoken queries, engage in meaningful conversations, perform mathematical calculations, and provide helpful information across a wide range of topics. My voice activity detection ensures seamless communication by automatically detecting when you start and stop speaking, making our interactions feel natural and fluid. I'm here to assist you with questions, calculations, and general conversation whenever you need help. DO NOT REPONSE IN MARKDOWN, ONLY RESPOSND in KOKOROS Speech Text format",
     tools = [Addition],
-    output = AgentOutput
 )]
 #[derive(Default, Clone)]
 pub struct VoiceAgent {}

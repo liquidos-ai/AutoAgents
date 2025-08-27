@@ -1,6 +1,7 @@
 use crate::cli::SimpleMessage;
 use crate::{
     audio::AudioPlayback, cli::AudioBufferMessage, kokoros::tts::koko::TTSKoko, stt::STTProcessor,
+    vad::VADSegmenter,
 };
 use anyhow::Result;
 use autoagents::core::runtime::TypedRuntime;
@@ -134,19 +135,19 @@ pub async fn run_test_mode(
 pub async fn run_realtime_mode_actor_based(
     runtime: Arc<SingleThreadedRuntime>,
     stt_topic: Topic<AudioBufferMessage>,
-    tts_topc: Topic<SimpleMessage>,
-    chunk_duration_seconds: u32,
+    tts_topic: Topic<SimpleMessage>,
+    _chunk_duration_seconds: u32, // Not used in VAD mode
     recording_control: Option<Arc<tokio::sync::RwLock<bool>>>,
 ) -> Result<()> {
-    println!("🎬 Starting continuous recording mode...");
-    println!("💬 Recording in {}-second chunks", chunk_duration_seconds);
+    println!("🎬 Starting VAD-based continuous recording mode...");
+    println!("🎯 Using Voice Activity Detection for smart speech segmentation");
 
     // Publish first welcome message
     runtime
         .publish(
-            &tts_topc,
+            &tts_topic,
             SimpleMessage {
-                content: "Hey!, I am LiquidOS, Your AI Assistant. How can I help you?".into(),
+                content: "I am Bella, Your AI Assistant. How can I help you?".into(),
             },
         )
         .await?;
@@ -163,19 +164,53 @@ pub async fn run_realtime_mode_actor_based(
     let config = input_device.default_input_config()?;
     let sample_rate = config.sample_rate().0;
     let channels = config.channels() as usize;
-    let chunk_size = (sample_rate * chunk_duration_seconds) as usize;
 
     println!("Using input device: {}", input_device.name()?);
     println!("Sample rate: {}Hz, Channels: {}", sample_rate, channels);
-    println!("Chunk size: {} samples", chunk_size);
 
-    let audio_buffer = Arc::new(Mutex::new(Vec::<f32>::with_capacity(chunk_size)));
+    // Create VAD segmenter - we'll use 16kHz for compatibility with Whisper
+    let target_sample_rate = 16000_usize;
+    let mut vad_segmenter_instance = VADSegmenter::new(
+        target_sample_rate,
+        500,   // min_speech_duration_ms: 500ms minimum speech (increased)
+        20000, // max_duration_ms: 20 seconds max recording (increased)
+        0.6,   // speech_threshold: 0.6 probability (higher threshold to start)
+        0.25,  // silence_threshold: 0.25 to end speech (lower threshold - more tolerant)
+        None,  // Use default chunk size
+    )?;
+
+    // Configure silence timeout for automatic completion (increased for natural pauses)
+    vad_segmenter_instance.set_silence_timeout(2500); // 2.5 seconds of silence to auto-complete
+    let vad_segmenter = Arc::new(Mutex::new(vad_segmenter_instance));
+
+    let vad_chunk_size = vad_segmenter.lock().unwrap().chunk_size_samples();
+    println!(
+        "VAD chunk size: {} samples @ {}Hz",
+        vad_chunk_size, target_sample_rate
+    );
+
+    // Calculate input chunk size needed to get exactly vad_chunk_size after resampling
+    let input_chunk_size = if sample_rate as usize != target_sample_rate {
+        // Calculate input samples needed to produce vad_chunk_size output samples
+        (vad_chunk_size * sample_rate as usize) / target_sample_rate
+    } else {
+        vad_chunk_size
+    };
+
+    println!(
+        "Input chunk size: {} samples @ {}Hz",
+        input_chunk_size, sample_rate
+    );
+
+    // Buffer for accumulating audio before VAD processing
+    let audio_buffer = Arc::new(Mutex::new(Vec::<f32>::with_capacity(input_chunk_size * 2)));
     let buffer_clone = audio_buffer.clone();
     let recording_enabled_clone = recording_enabled.clone();
+    let vad_clone = vad_segmenter.clone();
 
     let (audio_tx, mut audio_rx) = tokio::sync::mpsc::channel::<AudioBufferMessage>(10);
 
-    // Continuous recording stream
+    // Continuous recording stream with VAD processing
     let stream = input_device.build_input_stream(
         &config.into(),
         move |data: &[f32], _: &cpal::InputCallbackInfo| {
@@ -189,22 +224,62 @@ pub async fn run_realtime_mode_actor_based(
 
             let mut buffer = buffer_clone.lock().unwrap();
 
-            // Convert multi-channel to mono and add to buffer
+            // Convert multi-channel to mono and accumulate samples
             for chunk in data.chunks(channels) {
                 if let Some(&sample) = chunk.first() {
                     buffer.push(sample);
+                }
+            }
 
-                    // When buffer reaches chunk size, send it
-                    if buffer.len() >= chunk_size {
-                        let audio_data: Vec<f32> = buffer.drain(..).collect();
+            // Process in input-sized chunks when we have enough data
+            while buffer.len() >= input_chunk_size {
+                let audio_chunk: Vec<f32> = buffer.drain(..input_chunk_size).collect();
+
+                // Resample to 16kHz if needed
+                let final_chunk = if sample_rate as usize != target_sample_rate {
+                    match resample_audio_buffer(audio_chunk, sample_rate, target_sample_rate as u32)
+                    {
+                        Ok(mut resampled) => {
+                            // Ensure we have exactly vad_chunk_size samples
+                            if resampled.len() != vad_chunk_size {
+                                resampled.resize(vad_chunk_size, 0.0);
+                            }
+                            resampled
+                        }
+                        Err(e) => {
+                            eprintln!("❌ Resampling failed: {}", e);
+                            continue;
+                        }
+                    }
+                } else {
+                    audio_chunk
+                };
+
+                // Process through VAD
+                let mut vad = vad_clone.lock().unwrap();
+                match vad.process_chunk(&final_chunk) {
+                    Ok(Some(speech_segment)) => {
+                        // Complete speech segment detected
+                        println!(
+                            "📦 Speech segment complete: {} samples ({:.2}s)",
+                            speech_segment.len(),
+                            speech_segment.len() as f32 / target_sample_rate as f32
+                        );
+
                         let audio_message = AudioBufferMessage {
-                            audio_data,
-                            sample_rate,
+                            audio_data: speech_segment,
+                            sample_rate: target_sample_rate as u32,
                         };
 
                         if let Err(_) = audio_tx.try_send(audio_message) {
-                            eprintln!("⚠️ Audio buffer channel full, dropping chunk");
+                            eprintln!("⚠️ Audio buffer channel full, dropping segment");
                         }
+                    }
+                    Ok(None) => {
+                        // Still collecting or no speech
+                    }
+                    Err(e) => {
+                        eprintln!("❌ VAD error: {}", e);
                     }
                 }
             }
@@ -214,44 +289,19 @@ pub async fn run_realtime_mode_actor_based(
     )?;
 
     stream.play()?;
-    println!("🎤 Continuous recording started!");
+    println!("🎤 VAD-based recording started!");
+    println!("🔊 Speak naturally - I'll detect when you start and stop speaking");
+    println!("🤫 1.5 seconds of silence will automatically complete your speech");
 
-    // Process incoming audio chunks
+    // Process incoming speech segments
     let runtime_clone = runtime.clone();
     let topic_clone = stt_topic.clone();
 
     tokio::spawn(async move {
-        while let Some(mut audio_message) = audio_rx.recv().await {
-            // Resample if necessary
-            if audio_message.sample_rate != WHISPER_SAMPLE_RATE {
-                println!(
-                    "🔄 Resampling audio from {}Hz to {}Hz...",
-                    audio_message.sample_rate, WHISPER_SAMPLE_RATE
-                );
-
-                match resample_audio_buffer(
-                    audio_message.audio_data,
-                    audio_message.sample_rate,
-                    WHISPER_SAMPLE_RATE,
-                ) {
-                    Ok(resampled) => {
-                        println!(
-                            "✅ Resampled to {} samples at {}Hz",
-                            resampled.len(),
-                            WHISPER_SAMPLE_RATE
-                        );
-                        audio_message.audio_data = resampled;
-                        audio_message.sample_rate = WHISPER_SAMPLE_RATE;
-                    }
-                    Err(e) => {
-                        eprintln!("❌ Resampling failed: {}", e);
-                        continue;
-                    }
-                }
-            }
-
+        while let Some(audio_message) = audio_rx.recv().await {
+            // Audio is already at 16kHz from VAD processing, no resampling needed
             println!(
-                "📡 Publishing to STT: {} samples @ {}Hz ({:.2}s)",
+                "📡 Publishing speech segment to STT: {} samples @ {}Hz ({:.2}s)",
                 audio_message.audio_data.len(),
                 audio_message.sample_rate,
                 audio_message.audio_data.len() as f32 / audio_message.sample_rate as f32
@@ -279,11 +329,11 @@ pub fn create_resampler(
     chunk_size: usize,
 ) -> Result<SincFixedIn<f32>> {
     let params = SincInterpolationParameters {
-        sinc_len: 256,
-        f_cutoff: 0.95,
+        sinc_len: 256,  // Higher quality filtering
+        f_cutoff: 0.95, // Anti-aliasing cutoff
         interpolation: SincInterpolationType::Linear,
         oversampling_factor: 256,
-        window: WindowFunction::BlackmanHarris2,
+        window: WindowFunction::BlackmanHarris2, // High-quality window
     };
 
     let resampler = SincFixedIn::<f32>::new(
@@ -307,42 +357,16 @@ pub fn resample_audio_buffer(
         return Ok(audio);
     }
 
-    // Create resampler with appropriate chunk size
-    let chunk_size = 1024; // Process in chunks
+    // Process the entire buffer at once for better quality
+    let chunk_size = audio.len();
     let mut resampler = create_resampler(input_rate, output_rate, chunk_size)?;
 
-    let mut output = Vec::new();
-    let mut input_buffer = vec![vec![0.0f32; chunk_size]; 1];
+    // Create input buffer with the audio data
+    let input_buffer = vec![audio];
 
-    // Process audio in chunks
-    for chunk in audio.chunks(chunk_size) {
-        // Fill input buffer (pad with zeros if necessary)
-        input_buffer[0].clear();
-        input_buffer[0].extend_from_slice(chunk);
-        while input_buffer[0].len() < chunk_size {
-            input_buffer[0].push(0.0);
-        }
+    // Process the entire chunk at once
+    let output_data = resampler.process(&input_buffer, None)?;
 
-        // Resample
-        let resampled = resampler.process(&input_buffer, None)?;
-        output.extend_from_slice(&resampled[0]);
-    }
-
-    // Process any remaining samples
-    let remaining = audio.len() % chunk_size;
-    if remaining > 0 {
-        input_buffer[0].clear();
-        for i in (audio.len() - remaining)..audio.len() {
-            input_buffer[0].push(audio[i]);
-        }
-        while input_buffer[0].len() < chunk_size {
-            input_buffer[0].push(0.0);
-        }
-
-        let resampled = resampler.process(&input_buffer, None)?;
-        let useful_samples = (remaining as f64 * output_rate as f64 / input_rate as f64) as usize;
-        output.extend_from_slice(&resampled[0][..useful_samples.min(resampled[0].len())]);
-    }
-
-    Ok(output)
+    // Return the resampled audio
+    Ok(output_data[0].clone())
 }

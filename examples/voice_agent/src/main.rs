@@ -5,6 +5,8 @@ mod kokoros;
 mod stt;
 pub(crate) mod utils;
 
+mod vad;
+
 use cli::Cli;
 use tracing_subscriber::fmt::time::FormatTime;
 

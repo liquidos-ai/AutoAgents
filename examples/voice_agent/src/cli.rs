@@ -7,7 +7,7 @@
     unused_imports,
     unreachable_code
 )]
-use crate::agent::{AgentOutput, VoiceAgent};
+use crate::agent::VoiceAgent;
 use crate::kokoros::actor::{TTSActor, TTSActorArgs, TTSConfig};
 use crate::kokoros::tts::koko::TTSKoko;
 use crate::stt::actor::{STTActor, STTActorArgs};
@@ -34,6 +34,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio_stream::{wrappers::ReceiverStream, StreamExt as TokioStreamExt};
 
 #[derive(Subcommand, Debug, Clone)]
@@ -181,6 +182,59 @@ impl CloneableMessage for TTSAudioMessage {}
 
 impl ActorMessage for TTSAudioMessage {}
 
+/// Buffer for streaming text with natural pause detection
+#[derive(Debug)]
+struct StreamingBuffer {
+    buffer: String,
+    last_token_time: Instant,
+    flush_timeout_ms: u64,
+}
+
+impl StreamingBuffer {
+    fn new(flush_timeout_ms: u64) -> Self {
+        Self {
+            buffer: String::new(),
+            last_token_time: Instant::now(),
+            flush_timeout_ms,
+        }
+    }
+
+    fn add_token(&mut self, token: &str) {
+        self.buffer.push_str(token);
+        self.last_token_time = Instant::now();
+    }
+
+    fn should_flush(&self) -> bool {
+        if self.buffer.is_empty() {
+            return false;
+        }
+
+        // Check for natural pause tokens (sentence endings, phrase pauses)
+        if self.buffer.ends_with('.')
+            || self.buffer.ends_with('!')
+            || self.buffer.ends_with('?')
+            || self.buffer.ends_with(", ")
+            || self.buffer.ends_with("; ")
+        {
+            return true;
+        }
+
+        // Check timeout rule: if buffer has content and timeout exceeded
+        let elapsed = self.last_token_time.elapsed();
+        elapsed >= Duration::from_millis(self.flush_timeout_ms) && !self.buffer.trim().is_empty()
+    }
+
+    fn flush(&mut self) -> String {
+        let content = self.buffer.clone();
+        self.buffer.clear();
+        content.trim().to_string()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.buffer.trim().is_empty()
+    }
+}
+
 pub async fn run(cli: Cli) -> Result<()> {
     println!("🚀 Initializing Voice Agent...");
     println!("📁 TTS Model path: {}", cli.model_path);
@@ -239,7 +293,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         .runtime(runtime.clone())
         .subscribe_topic(agent_topic.clone())
         .with_memory(sliding_window_memory)
-        .stream(false)
+        .stream(true)
         .build()
         .await?;
 
@@ -331,49 +385,123 @@ fn handle_streaming_events(
     topic: Topic<SimpleMessage>,
 ) {
     tokio::spawn(async move {
+        // Create streaming buffer with 500ms timeout for flushing
+        let buffer = Arc::new(Mutex::new(StreamingBuffer::new(500)));
+        let runtime_clone = runtime.clone();
+        let topic_clone = topic.clone();
+        let buffer_clone = buffer.clone();
+
+        // Start periodic flush task for timeout-based flushing
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(100));
+
+            loop {
+                interval.tick().await;
+
+                let should_flush = {
+                    let buffer_guard = buffer_clone.lock().unwrap();
+                    buffer_guard.should_flush()
+                };
+
+                if should_flush {
+                    let content = {
+                        let mut buffer_guard = buffer_clone.lock().unwrap();
+                        buffer_guard.flush()
+                    };
+
+                    if !content.is_empty() {
+                        println!("⏰ Timeout flush: {}", content);
+                        let _ = runtime_clone
+                            .publish(&topic_clone, SimpleMessage { content })
+                            .await;
+                    }
+                }
+            }
+        });
+
+        // Main event processing loop
         while let Some(event) = TokioStreamExt::next(&mut event_stream).await {
             match event {
                 Event::TaskComplete { result, .. } => {
+                    // Flush any remaining buffer content when task completes
+                    let remaining_content = {
+                        let mut buffer_guard = buffer.lock().unwrap();
+                        if !buffer_guard.is_empty() {
+                            buffer_guard.flush()
+                        } else {
+                            String::new()
+                        }
+                    };
+
+                    if !remaining_content.is_empty() {
+                        println!("✅ Final flush on completion: {}", remaining_content);
+                        let _ = runtime
+                            .publish(
+                                &topic,
+                                SimpleMessage {
+                                    content: remaining_content,
+                                },
+                            )
+                            .await;
+                    }
+
                     match result {
                         TaskResult::Value(val) => {
                             match serde_json::from_value::<ReActAgentOutput>(val) {
                                 Ok(agent_out) => {
-                                    // Try to parse as streaming output
-                                    if let Ok(streaming_output) =
-                                        serde_json::from_str::<AgentOutput>(&agent_out.response)
-                                    {
-                                        println!(
-                                            "{}",
-                                            format!(
-                                                "🌊 Streaming Response ({:?})",
-                                                streaming_output.response
-                                            )
-                                        );
-
-                                        // Publish to TTS - the TTS actor will handle recording control
-                                        let _ = runtime
-                                            .publish(
-                                                &topic,
-                                                SimpleMessage {
-                                                    content: streaming_output.response.clone(),
-                                                },
-                                            )
-                                            .await;
-                                    }
+                                    println!(
+                                        "🌊 Task completed with response: {:?}",
+                                        agent_out.response
+                                    );
                                 }
-                                Err(e) => {
-                                    println!("{}", format!("❌ Failed to parse response: {}", e));
-                                }
+                                Err(_) => continue,
                             }
                         }
                         TaskResult::Failure(error) => {
-                            println!("{}", format!("❌ Task failed: {}", error));
+                            println!("❌ Task failed: {}", error);
                         }
-                        TaskResult::Aborted => todo!(),
+                        TaskResult::Aborted => {
+                            println!("⚠️ Task was aborted");
+                        }
                     }
                 }
                 Event::StreamChunk { sub_id, chunk } => {
-                    println!("{}", format!("📦 Stream chunk ({}): {:?}", sub_id, chunk));
+                    let content = chunk.delta.content.unwrap_or_default();
+
+                    if !content.is_empty() {
+                        println!("📦 Stream token ({}): '{}'", sub_id, content);
+
+                        // Add token to buffer
+                        {
+                            let mut buffer_guard = buffer.lock().unwrap();
+                            buffer_guard.add_token(&content);
+                        }
+
+                        // Check if we should flush immediately based on natural pauses
+                        let should_flush = {
+                            let buffer_guard = buffer.lock().unwrap();
+                            buffer_guard.should_flush()
+                        };
+
+                        if should_flush {
+                            let chunk_content = {
+                                let mut buffer_guard = buffer.lock().unwrap();
+                                buffer_guard.flush()
+                            };
+
+                            if !chunk_content.is_empty() {
+                                println!("🚀 Natural pause flush: {}", chunk_content);
+                                let _ = runtime
+                                    .publish(
+                                        &topic,
+                                        SimpleMessage {
+                                            content: chunk_content,
+                                        },
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
                 }
                 _ => {}
             }
