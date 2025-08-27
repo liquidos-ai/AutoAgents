@@ -29,7 +29,7 @@ impl Context {
             memory: None,
             tools: vec![],
             config: AgentConfig::default(),
-            state: Arc::new(RwLock::new(AgentState::new(tx.clone()))),
+            state: Arc::new(RwLock::new(AgentState::new())),
             stream: false,
             tx,
         }

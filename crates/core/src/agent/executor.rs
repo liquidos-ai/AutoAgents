@@ -1,11 +1,13 @@
 use crate::agent::context::Context;
 use crate::agent::task::Task;
 use async_trait::async_trait;
+use futures::{stream, Stream};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use std::error::Error;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 /// Result of processing a single turn in the agent's execution
 #[derive(Debug)]
@@ -34,14 +36,34 @@ impl Default for ExecutorConfig {
 /// for agents, such as ReAct loops, chain-of-thought, or custom patterns.
 #[async_trait]
 pub trait AgentExecutor: Send + Sync + 'static {
-    type Output: Serialize + DeserializeOwned + Clone + Send + Sync + Into<Value>;
+    type Output: Serialize + DeserializeOwned + Clone + Send + Sync + Into<Value> + Debug;
     type Error: Error + Send + Sync + 'static;
 
     /// Get the configuration for this executor
     fn config(&self) -> ExecutorConfig;
 
     /// Execute the agent with the given task
-    async fn execute(&self, task: &Task, context: Context) -> Result<Self::Output, Self::Error>;
+    async fn execute(
+        &self,
+        task: &Task,
+        context: Arc<Context>,
+    ) -> Result<Self::Output, Self::Error>;
+
+    /// Stream agent execution
+    async fn execute_stream(
+        &self,
+        task: &Task,
+        context: Arc<Context>,
+    ) -> Result<
+        std::pin::Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>,
+        Self::Error,
+    > {
+        // Default fallback to self.execute with final result as a single-item stream
+        let context_clone = context.clone();
+        let result = self.execute(task, context_clone).await;
+        let stream = stream::once(async move { result });
+        Ok(Box::pin(stream))
+    }
 }
 
 #[cfg(test)]
@@ -114,7 +136,7 @@ mod tests {
         async fn execute(
             &self,
             task: &Task,
-            _context: Context,
+            _context: Arc<Context>,
         ) -> Result<Self::Output, Self::Error> {
             if self.should_fail {
                 return Err(TestError::TestError("Mock execution failed".to_string()));
@@ -124,6 +146,20 @@ mod tests {
                 message: format!("Processed: {}", task.prompt),
             })
         }
+        async fn execute_stream(
+            &self,
+            task: &Task,
+            context: Arc<Context>,
+        ) -> Result<
+            std::pin::Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>,
+            Self::Error,
+        > {
+            // Use the default implementation from the trait
+            let context_clone = context.clone();
+            let result = self.execute(task, context_clone).await;
+            let stream = stream::once(async move { result });
+            Ok(Box::pin(stream))
+        }
     }
 
     // Mock LLM Provider
@@ -131,7 +167,7 @@ mod tests {
 
     #[async_trait]
     impl ChatProvider for MockLLMProvider {
-        async fn chat_with_tools(
+        async fn chat(
             &self,
             _messages: &[ChatMessage],
             _tools: Option<&[autoagents_llm::chat::Tool]>,
@@ -264,7 +300,7 @@ mod tests {
         let (tx_event, _rx_event) = mpsc::channel(100);
         let context = Context::new(llm, tx_event);
 
-        let result = executor.execute(&task, context).await;
+        let result = executor.execute(&task, Arc::new(context)).await;
 
         assert!(result.is_ok());
         let output = result.unwrap();
@@ -279,7 +315,7 @@ mod tests {
         let (tx_event, _rx_event) = mpsc::channel(100);
         let context = Context::new(llm, tx_event);
 
-        let result = executor.execute(&task, context).await;
+        let result = executor.execute(&task, Arc::new(context)).await;
 
         assert!(result.is_err());
         let error = result.unwrap_err();

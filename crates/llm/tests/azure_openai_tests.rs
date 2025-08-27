@@ -128,16 +128,12 @@ mod azure_openai_test_cases {
             None,
             None,
             None,
-            None,
-            None,
-            None,
         );
 
         assert_eq!(client.model, "gpt-3.5-turbo");
         assert!(client.max_tokens.is_none());
         assert!(client.temperature.is_none());
         assert!(client.system.is_none());
-        assert!(client.stream.is_none());
     }
 
     #[test]
@@ -174,37 +170,6 @@ mod azure_openai_test_cases {
         );
     }
 
-    #[test]
-    fn test_structured_output_configuration() {
-        let schema = StructuredOutputFormat {
-            name: "TestSchema".to_string(),
-            description: Some("Test schema description".to_string()),
-            schema: Some(json!({
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "age": {"type": "number"}
-                },
-                "required": ["name", "age"],
-                "additionalProperties": false
-            })),
-            strict: Some(true),
-        };
-
-        let client = LLMBuilder::<AzureOpenAI>::new()
-            .api_key("test-key")
-            .api_version("2023-05-15")
-            .deployment_id("gpt-4-deployment")
-            .base_url("https://myresource.openai.azure.com/")
-            .schema(schema.clone())
-            .build()
-            .expect("Failed to build Azure OpenAI client with JSON schema");
-
-        assert!(client.json_schema.is_some());
-        let client_schema = client.json_schema.as_ref().unwrap();
-        assert_eq!(client_schema.name, "TestSchema");
-    }
-
     #[tokio::test]
     async fn test_chat_auth_error() {
         let client = AzureOpenAI::new(
@@ -223,14 +188,11 @@ mod azure_openai_test_cases {
             None,
             None,
             None,
-            None,
-            None,
-            None,
         );
 
         let messages = vec![ChatMessage::user().content("Hello").build()];
 
-        let result = client.chat(&messages, None).await;
+        let result = client.chat(&messages, None, None).await;
         assert!(result.is_err());
 
         match result.err().unwrap() {
@@ -262,9 +224,6 @@ mod azure_openai_test_cases {
             "2023-05-15",
             "my-deployment",
             "https://myresource.openai.azure.com",
-            None,
-            None,
-            None,
             None,
             None,
             None,

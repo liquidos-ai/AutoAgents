@@ -52,6 +52,7 @@ impl ToolRuntime for Addition {
     description = "You are ChatBOT, a helpful, friendly, and knowledgeable AI assistant. Your name is ChatBOT.",
     tools = []
 )]
+#[derive(Clone)]
 pub struct ChatAgent {}
 
 impl ReActExecutor for ChatAgent {}
@@ -86,7 +87,6 @@ pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
         .with_device(device)
         .max_tokens(100) // Limit response length for faster testing
         .temperature(0.7) // Control response randomness (0.0-1.0)
-        .stream(false) // Disable streaming responses
         .build()
         .await
         .expect("Failed to build LLM");

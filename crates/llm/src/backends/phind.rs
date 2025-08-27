@@ -32,8 +32,6 @@ pub struct Phind {
     pub system: Option<String>,
     /// Request timeout in seconds
     pub timeout_seconds: Option<u64>,
-    /// Whether to stream responses
-    pub stream: Option<bool>,
     /// Top-p sampling parameter
     pub top_p: Option<f32>,
     /// Top-k sampling parameter
@@ -74,7 +72,6 @@ impl Phind {
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
         system: Option<String>,
-        stream: Option<bool>,
         top_p: Option<f32>,
         top_k: Option<u32>,
     ) -> Self {
@@ -88,7 +85,6 @@ impl Phind {
             temperature,
             system,
             timeout_seconds,
-            stream,
             top_p,
             top_k,
             api_base_url: "https://https.extension.phind.com/agent/".to_string(),
@@ -182,8 +178,12 @@ impl ChatProvider for Phind {
     async fn chat(
         &self,
         messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        if tools.is_some() {
+            return Err(LLMError::NoToolSupport("No Tool Support as of now.".into()));
+        }
         let mut message_history = vec![];
         for m in messages {
             let role_str = match m.role {
@@ -243,25 +243,6 @@ impl ChatProvider for Phind {
 
         self.interpret_response(response).await
     }
-
-    /// Sends a chat request to Phind's API with tools.
-    ///
-    /// # Arguments
-    ///
-    /// * `messages` - The conversation history as a slice of chat messages
-    /// * `tools` - Optional slice of tools to use in the chat
-    ///
-    /// # Returns
-    ///
-    /// The provider's response text or an error
-    async fn chat_with_tools(
-        &self,
-        _messages: &[ChatMessage],
-        _tools: Option<&[Tool]>,
-        _json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        todo!()
-    }
 }
 
 /// Implementation of completion functionality for Phind.
@@ -277,6 +258,7 @@ impl CompletionProvider for Phind {
                 &[crate::chat::ChatMessage::user()
                     .content(_req.prompt.clone())
                     .build()],
+                None,
                 json_schema,
             )
             .await?;
@@ -315,7 +297,6 @@ impl LLMBuilder<Phind> {
             self.temperature,
             self.timeout_seconds,
             self.system,
-            self.stream,
             self.top_p,
             self.top_k,
         );

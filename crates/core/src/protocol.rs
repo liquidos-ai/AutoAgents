@@ -1,4 +1,6 @@
 use crate::agent::task::Task;
+use crate::tool::ToolCallResult;
+use autoagents_llm::chat::StreamChoice;
 use serde::{Deserialize, Serialize};
 use std::any::{Any, TypeId};
 use std::fmt::Debug;
@@ -89,6 +91,23 @@ pub enum Event {
         turn_number: usize,
         final_turn: bool,
     },
+
+    /// Streaming chunk from agent
+    StreamChunk {
+        sub_id: SubmissionId,
+        chunk: StreamChoice,
+    },
+
+    /// Streaming tool call chunk
+    StreamToolCall {
+        sub_id: SubmissionId,
+        tool_call: serde_json::Value,
+    },
+
+    /// Streaming completed
+    StreamComplete {
+        sub_id: SubmissionId,
+    },
 }
 
 /// Internal events that are processed within the runtime
@@ -111,6 +130,12 @@ pub enum TaskResult {
 
     /// The task was aborted
     Aborted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StreamingTurnResult {
+    Complete(String),
+    ToolCallsProcessed(Vec<ToolCallResult>),
 }
 
 #[cfg(test)]

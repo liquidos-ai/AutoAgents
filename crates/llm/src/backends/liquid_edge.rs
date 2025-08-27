@@ -519,7 +519,7 @@ impl LiquidEdge {
 
 #[async_trait]
 impl ChatProvider for LiquidEdge {
-    async fn chat_with_tools(
+    async fn chat(
         &self,
         messages: &[ChatMessage],
         _tools: Option<&[crate::chat::Tool]>,
@@ -568,14 +568,6 @@ impl ChatProvider for LiquidEdge {
             },
         }))
     }
-
-    async fn chat(
-        &self,
-        messages: &[ChatMessage],
-        json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        self.chat_with_tools(messages, None, json_schema).await
-    }
 }
 
 #[async_trait]
@@ -618,11 +610,7 @@ impl ModelsProvider for LiquidEdge {
     }
 }
 
-impl LLMProvider for LiquidEdge {
-    fn tools(&self) -> Option<&[crate::chat::Tool]> {
-        None
-    }
-}
+impl LLMProvider for LiquidEdge {}
 
 impl LLMBuilder<LiquidEdge> {
     pub async fn build(self) -> Result<Arc<LiquidEdge>, LLMError> {

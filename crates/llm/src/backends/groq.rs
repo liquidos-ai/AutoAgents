@@ -51,7 +51,6 @@ pub struct Groq {
     pub temperature: Option<f32>,
     pub system: Option<String>,
     pub timeout_seconds: Option<u64>,
-    pub stream: Option<bool>,
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,
     client: Client,
@@ -125,7 +124,6 @@ impl Groq {
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
         system: Option<String>,
-        stream: Option<bool>,
         top_p: Option<f32>,
         top_k: Option<u32>,
     ) -> Self {
@@ -140,7 +138,6 @@ impl Groq {
             temperature,
             system,
             timeout_seconds,
-            stream,
             top_p,
             top_k,
             client: builder.build().expect("Failed to build reqwest Client"),
@@ -153,10 +150,17 @@ impl ChatProvider for Groq {
     async fn chat(
         &self,
         messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError("Missing Groq API key".to_string()));
+        }
+
+        if tools.is_some() {
+            return Err(LLMError::NoToolSupport(
+                "Doesn't support tools yet.".to_string(),
+            ));
         }
 
         let mut groq_msgs: Vec<GroqChatMessage> = messages
@@ -188,7 +192,7 @@ impl ChatProvider for Groq {
             messages: groq_msgs,
             max_tokens: self.max_tokens,
             temperature: self.temperature,
-            stream: self.stream.unwrap_or(false),
+            stream: false,
             top_p: self.top_p,
             top_k: self.top_k,
         };
@@ -218,15 +222,6 @@ impl ChatProvider for Groq {
         let json_resp: GroqChatResponse = resp.json().await?;
 
         Ok(Box::new(json_resp))
-    }
-
-    async fn chat_with_tools(
-        &self,
-        _messages: &[ChatMessage],
-        _tools: Option<&[Tool]>,
-        _json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        todo!()
     }
 }
 
@@ -265,14 +260,13 @@ impl LLMBuilder<Groq> {
 
         let model = self.model.map(GroqModel::from);
 
-        let groq = crate::backends::groq::Groq::new(
+        let groq = Groq::new(
             api_key,
             model,
             self.max_tokens,
             self.temperature,
             self.timeout_seconds,
             self.system,
-            self.stream,
             self.top_p,
             self.top_k,
         );

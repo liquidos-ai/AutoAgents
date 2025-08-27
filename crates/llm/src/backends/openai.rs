@@ -2,6 +2,10 @@
 //!
 //! This module provides integration with OpenAI's GPT models through their API.
 
+use crate::chat::utils::check_response_status;
+use crate::chat::{
+    StreamChoice, StreamDelta, StreamResponse, StreamToolCallDelta, StreamToolCallFunction, Usage,
+};
 use crate::{
     builder::LLMBackend,
     chat::Tool,
@@ -21,6 +25,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use either::*;
 use futures::stream::Stream;
+use futures::StreamExt;
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -37,17 +42,13 @@ pub struct OpenAI {
     pub temperature: Option<f32>,
     pub system: Option<String>,
     pub timeout_seconds: Option<u64>,
-    pub stream: Option<bool>,
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,
-    pub tools: Option<Vec<Tool>>,
     pub tool_choice: Option<ToolChoice>,
     /// Embedding parameters
     pub embedding_encoding_format: Option<String>,
     pub embedding_dimensions: Option<u32>,
     pub reasoning_effort: Option<String>,
-    /// JSON schema for structured output
-    pub json_schema: Option<StructuredOutputFormat>,
     pub voice: Option<String>,
     pub enable_web_search: Option<bool>,
     pub web_search_context_size: Option<String>,
@@ -142,6 +143,8 @@ struct OpenAIChatRequest<'a> {
     response_format: Option<OpenAIResponseFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
     web_search_options: Option<OpenAIWebSearchOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream_options: Option<OpenAIStreamOptions>,
 }
 
 impl std::fmt::Display for ToolCall {
@@ -194,24 +197,6 @@ struct OpenAIEmbeddingResponse {
     data: Vec<OpenAIEmbeddingData>,
 }
 
-/// Response from OpenAI's streaming chat API endpoint.
-#[derive(Deserialize, Debug)]
-struct OpenAIChatStreamResponse {
-    choices: Vec<OpenAIChatStreamChoice>,
-}
-
-/// Individual choice within an OpenAI streaming chat API response.
-#[derive(Deserialize, Debug)]
-struct OpenAIChatStreamChoice {
-    delta: OpenAIChatStreamDelta,
-}
-
-/// Delta content within an OpenAI streaming chat API response.
-#[derive(Deserialize, Debug)]
-struct OpenAIChatStreamDelta {
-    content: Option<String>,
-}
-
 /// An object specifying the format that the model must output.
 ///Setting to `{ "type": "json_schema", "json_schema": {...} }` enables Structured Outputs which ensures the model will match your supplied JSON schema. Learn more in the [Structured Outputs guide](https://platform.openai.com/docs/guides/structured-outputs).
 /// Setting to `{ "type": "json_object" }` enables the older JSON mode, which ensures the message the model generates is valid JSON. Using `json_schema` is preferred for models that support it.
@@ -254,6 +239,56 @@ struct ApproximateLocation {
     country: String,
     city: String,
     region: String,
+}
+
+#[derive(Deserialize, Debug, Serialize)]
+struct OpenAIStreamOptions {
+    include_usage: bool,
+}
+
+/// Response from OpenAI's streaming chat API endpoint.
+#[derive(Deserialize, Debug)]
+struct ChatStreamChunk {
+    choices: Vec<ChatStreamChoice>,
+    usage: Option<Usage>,
+}
+
+/// Individual choice within an OpenAI streaming chat API response.
+#[derive(Deserialize, Debug)]
+struct ChatStreamChoice {
+    delta: ChatStreamDelta,
+}
+
+/// Delta content within an OpenAI streaming chat API response.
+#[derive(Deserialize, Debug)]
+struct ChatStreamDelta {
+    content: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<ChatStreamToolCallDelta>>,
+}
+
+/// Tool call delta in streaming response
+#[allow(dead_code)]
+#[derive(Deserialize, Debug, Clone)]
+struct ChatStreamToolCallDelta {
+    #[serde(default)]
+    index: Option<usize>,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(rename = "type")]
+    #[serde(default)]
+    call_type: Option<String>,
+    #[serde(default)]
+    function: Option<ChatStreamToolCallFunction>,
+}
+
+/// Function details in tool call delta
+#[derive(Deserialize, Debug, Clone)]
+struct ChatStreamToolCallFunction {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    arguments: Option<String>,
 }
 
 impl From<StructuredOutputFormat> for OpenAIResponseFormat {
@@ -355,15 +390,12 @@ impl OpenAI {
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
         system: Option<String>,
-        stream: Option<bool>,
         top_p: Option<f32>,
         top_k: Option<u32>,
         embedding_encoding_format: Option<String>,
         embedding_dimensions: Option<u32>,
-        tools: Option<Vec<Tool>>,
         tool_choice: Option<ToolChoice>,
         reasoning_effort: Option<String>,
-        json_schema: Option<StructuredOutputFormat>,
         voice: Option<String>,
         enable_web_search: Option<bool>,
         web_search_context_size: Option<String>,
@@ -387,16 +419,13 @@ impl OpenAI {
             temperature,
             system,
             timeout_seconds,
-            stream,
             top_p,
             top_k,
-            tools,
             tool_choice,
             embedding_encoding_format,
             embedding_dimensions,
             client: builder.build().expect("Failed to build reqwest Client"),
             reasoning_effort,
-            json_schema,
             voice,
             enable_web_search,
             web_search_context_size,
@@ -404,6 +433,173 @@ impl OpenAI {
             web_search_user_location_approximate_country,
             web_search_user_location_approximate_city,
             web_search_user_location_approximate_region,
+        }
+    }
+
+    fn build_chat_completion_request<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+        tools: Option<&'a [Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+        stream: bool,
+        stream_options: Option<OpenAIStreamOptions>,
+    ) -> Result<OpenAIChatRequest<'a>, LLMError> {
+        // Clone the messages to have an owned mutable vector.
+        let messages = messages.to_vec();
+
+        let mut openai_msgs: Vec<OpenAIChatMessage> = vec![];
+
+        for msg in messages {
+            if let MessageType::ToolResult(ref results) = msg.message_type {
+                for result in results {
+                    openai_msgs.push(
+                        // Clone strings to own them
+                        OpenAIChatMessage {
+                            role: "tool",
+                            tool_call_id: Some(result.id.clone()),
+                            tool_calls: None,
+                            content: Some(Right(result.function.arguments.clone())),
+                        },
+                    );
+                }
+            } else {
+                openai_msgs.push(chat_message_to_api_message(msg))
+            }
+        }
+
+        if let Some(system) = &self.system {
+            openai_msgs.insert(
+                0,
+                OpenAIChatMessage {
+                    role: "system",
+                    content: Some(Left(vec![MessageContent {
+                        message_type: Some("text"),
+                        text: Some(system),
+                        image_url: None,
+                        tool_call_id: None,
+                        tool_output: None,
+                    }])),
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+            );
+        }
+
+        let response_format: Option<OpenAIResponseFormat> = json_schema.clone().map(|s| s.into());
+
+        let request_tools = tools.map(|t| t.to_vec());
+
+        let request_tool_choice = if request_tools.is_some() {
+            self.tool_choice.clone()
+        } else {
+            None
+        };
+
+        let web_search_options = if self.enable_web_search.unwrap_or(false) {
+            let loc_type_opt = self
+                .web_search_user_location_type
+                .as_ref()
+                .filter(|t| matches!(t.as_str(), "exact" | "approximate"));
+
+            let country = self.web_search_user_location_approximate_country.as_ref();
+            let city = self.web_search_user_location_approximate_city.as_ref();
+            let region = self.web_search_user_location_approximate_region.as_ref();
+
+            let approximate = if [country, city, region].iter().any(|v| v.is_some()) {
+                Some(ApproximateLocation {
+                    country: country.cloned().unwrap_or_default(),
+                    city: city.cloned().unwrap_or_default(),
+                    region: region.cloned().unwrap_or_default(),
+                })
+            } else {
+                None
+            };
+
+            let user_location = loc_type_opt.map(|loc_type| UserLocation {
+                location_type: loc_type.clone(),
+                approximate,
+            });
+
+            Some(OpenAIWebSearchOptions {
+                search_context_size: self.web_search_context_size.clone(),
+                user_location,
+            })
+        } else {
+            None
+        };
+
+        Ok(OpenAIChatRequest {
+            model: &self.model,
+            messages: openai_msgs,
+            max_tokens: self.max_tokens,
+            temperature: self.temperature,
+            stream,
+            top_p: self.top_p,
+            top_k: self.top_k,
+            tools: request_tools,
+            tool_choice: request_tool_choice,
+            reasoning_effort: self.reasoning_effort.clone(),
+            response_format,
+            web_search_options,
+            stream_options,
+        })
+    }
+
+    /// Sends a chat request to OpenAI's API.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - Slice of chat messages representing the conversation
+    /// * `tools` - Optional slice of tools to use in the chat
+    /// # Returns
+    ///
+    /// The model's response text or an error
+    async fn chat_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        if self.api_key.is_empty() {
+            return Err(LLMError::AuthError("Missing OpenAI API key".to_string()));
+        }
+
+        let body = self.build_chat_completion_request(messages, tools, json_schema, false, None)?;
+
+        let url = self
+            .base_url
+            .join("chat/completions")
+            .map_err(|e| LLMError::HttpError(e.to_string()))?;
+
+        let mut request = self.client.post(url).bearer_auth(&self.api_key).json(&body);
+
+        if log::log_enabled!(log::Level::Trace) {
+            if let Ok(json) = serde_json::to_string(&body) {
+                log::trace!("OpenAI request payload: {json}");
+            }
+        }
+
+        if let Some(timeout) = self.timeout_seconds {
+            request = request.timeout(std::time::Duration::from_secs(timeout));
+        }
+
+        let response = request.send().await?;
+
+        log::debug!("OpenAI HTTP status: {}", response.status());
+
+        let response = check_response_status(response).await?;
+
+        // Parse the successful response
+        let resp_text = response.text().await?;
+        let json_resp: Result<OpenAIChatResponse, serde_json::Error> =
+            serde_json::from_str(&resp_text);
+
+        match json_resp {
+            Ok(response) => Ok(Box::new(response)),
+            Err(e) => Err(LLMError::ResponseFormatError {
+                message: format!("Failed to decode OpenAI API response: {e}"),
+                raw_response: resp_text,
+            }),
         }
     }
 
@@ -455,174 +651,13 @@ impl OpenAI {
 
 #[async_trait]
 impl ChatProvider for OpenAI {
-    /// Sends a chat request to OpenAI's API.
-    ///
-    /// # Arguments
-    ///
-    /// * `messages` - Slice of chat messages representing the conversation
-    /// * `tools` - Optional slice of tools to use in the chat
-    /// # Returns
-    ///
-    /// The model's response text or an error
-    async fn chat_with_tools(
+    async fn chat(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing OpenAI API key".to_string()));
-        }
-
-        // Clone the messages to have an owned mutable vector.
-        let messages = messages.to_vec();
-
-        let mut openai_msgs: Vec<OpenAIChatMessage> = vec![];
-
-        for msg in messages {
-            if let MessageType::ToolResult(ref results) = msg.message_type {
-                for result in results {
-                    openai_msgs.push(
-                        // Clone strings to own them
-                        OpenAIChatMessage {
-                            role: "tool",
-                            tool_call_id: Some(result.id.clone()),
-                            tool_calls: None,
-                            content: Some(Right(result.function.arguments.clone())),
-                        },
-                    );
-                }
-            } else {
-                openai_msgs.push(chat_message_to_api_message(msg))
-            }
-        }
-
-        if let Some(system) = &self.system {
-            openai_msgs.insert(
-                0,
-                OpenAIChatMessage {
-                    role: "system",
-                    content: Some(Left(vec![MessageContent {
-                        message_type: Some("text"),
-                        text: Some(system),
-                        image_url: None,
-                        tool_call_id: None,
-                        tool_output: None,
-                    }])),
-                    tool_calls: None,
-                    tool_call_id: None,
-                },
-            );
-        }
-
-        let response_format: Option<OpenAIResponseFormat> = json_schema.clone().map(|s| s.into());
-
-        let request_tools = tools.map(|t| t.to_vec()).or_else(|| self.tools.clone());
-
-        let request_tool_choice = if request_tools.is_some() {
-            self.tool_choice.clone()
-        } else {
-            None
-        };
-
-        let web_search_options = if self.enable_web_search.unwrap_or(false) {
-            let loc_type_opt = self
-                .web_search_user_location_type
-                .as_ref()
-                .filter(|t| matches!(t.as_str(), "exact" | "approximate"));
-
-            let country = self.web_search_user_location_approximate_country.as_ref();
-            let city = self.web_search_user_location_approximate_city.as_ref();
-            let region = self.web_search_user_location_approximate_region.as_ref();
-
-            let approximate = if [country, city, region].iter().any(|v| v.is_some()) {
-                Some(ApproximateLocation {
-                    country: country.cloned().unwrap_or_default(),
-                    city: city.cloned().unwrap_or_default(),
-                    region: region.cloned().unwrap_or_default(),
-                })
-            } else {
-                None
-            };
-
-            let user_location = loc_type_opt.map(|loc_type| UserLocation {
-                location_type: loc_type.clone(),
-                approximate,
-            });
-
-            Some(OpenAIWebSearchOptions {
-                search_context_size: self.web_search_context_size.clone(),
-                user_location,
-            })
-        } else {
-            None
-        };
-
-        let body = OpenAIChatRequest {
-            model: &self.model,
-            messages: openai_msgs,
-            max_tokens: self.max_tokens,
-            temperature: self.temperature,
-            stream: self.stream.unwrap_or(false),
-            top_p: self.top_p,
-            top_k: self.top_k,
-            tools: request_tools,
-            tool_choice: request_tool_choice,
-            reasoning_effort: self.reasoning_effort.clone(),
-            response_format,
-            web_search_options,
-        };
-
-        let url = self
-            .base_url
-            .join("chat/completions")
-            .map_err(|e| LLMError::HttpError(e.to_string()))?;
-
-        let mut request = self.client.post(url).bearer_auth(&self.api_key).json(&body);
-
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&body) {
-                log::trace!("OpenAI request payload: {json}");
-            }
-        }
-
-        if let Some(timeout) = self.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
-
-        let response = request.send().await?;
-
-        log::debug!("OpenAI HTTP status: {}", response.status());
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await?;
-            return Err(LLMError::ResponseFormatError {
-                message: format!("OpenAI API returned error status: {status}"),
-                raw_response: error_text,
-            });
-        }
-
-        // Parse the successful response
-        let resp_text = response.text().await?;
-        let json_resp: Result<OpenAIChatResponse, serde_json::Error> =
-            serde_json::from_str(&resp_text);
-
-        match json_resp {
-            Ok(response) => Ok(Box::new(response)),
-            Err(e) => Err(LLMError::ResponseFormatError {
-                message: format!("Failed to decode OpenAI API response: {e}"),
-                raw_response: resp_text,
-            }),
-        }
-    }
-
-    async fn chat(
-        &self,
-        messages: &[ChatMessage],
-        json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        self.chat_with_tools(messages, None, json_schema).await
+        self.chat_with_tools(messages, tools, json_schema).await
     }
 
     /// Sends a streaming chat request to OpenAI's API.
@@ -637,87 +672,108 @@ impl ChatProvider for OpenAI {
     async fn chat_stream(
         &self,
         messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
+        let struct_stream = self
+            .chat_stream_struct(messages, tools, json_schema)
+            .await?;
+        let content_stream = struct_stream.filter_map(|result| async move {
+            match result {
+                Ok(stream_response) => {
+                    if let Some(choice) = stream_response.choices.first() {
+                        if let Some(content) = &choice.delta.content {
+                            if !content.is_empty() {
+                                return Some(Ok(content.clone()));
+                            }
+                        }
+                    }
+                    // Skip chunks without content (like usage metadata)
+                    None
+                }
+                Err(e) => Some(Err(e)),
+            }
+        });
+        Ok(Box::pin(content_stream))
+    }
+
+    /// Sends a streaming chat request that returns structured response chunks.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - Slice of chat messages representing the conversation
+    ///
+    /// # Returns
+    ///
+    /// A stream of `StreamResponse` objects mimicking OpenAI's format
+    async fn chat_stream_struct(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<
+        std::pin::Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>,
+        LLMError,
+    > {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError("Missing OpenAI API key".to_string()));
         }
 
-        let messages = messages.to_vec();
-        let mut openai_msgs: Vec<OpenAIChatMessage> = vec![];
-
-        for msg in messages {
-            if let MessageType::ToolResult(ref results) = msg.message_type {
-                for result in results {
-                    openai_msgs.push(OpenAIChatMessage {
-                        role: "tool",
-                        tool_call_id: Some(result.id.clone()),
-                        tool_calls: None,
-                        content: Some(Right(result.function.arguments.clone())),
-                    });
-                }
-            } else {
-                openai_msgs.push(chat_message_to_api_message(msg))
-            }
-        }
-
-        if let Some(system) = &self.system {
-            openai_msgs.insert(
-                0,
-                OpenAIChatMessage {
-                    role: "system",
-                    content: Some(Left(vec![MessageContent {
-                        message_type: Some("text"),
-                        text: Some(system),
-                        image_url: None,
-                        tool_call_id: None,
-                        tool_output: None,
-                    }])),
-                    tool_calls: None,
-                    tool_call_id: None,
-                },
-            );
-        }
-
-        let body = OpenAIChatRequest {
-            model: &self.model,
-            messages: openai_msgs,
-            max_tokens: self.max_tokens,
-            temperature: self.temperature,
-            stream: true,
-            top_p: self.top_p,
-            top_k: self.top_k,
-            tools: self.tools.clone(),
-            tool_choice: self.tool_choice.clone(),
-            reasoning_effort: self.reasoning_effort.clone(),
-            response_format: None,
-            web_search_options: None,
-        };
+        let body = self.build_chat_completion_request(
+            messages,
+            tools,
+            json_schema,
+            true,
+            Some(OpenAIStreamOptions {
+                include_usage: true,
+            }),
+        )?;
 
         let url = self
             .base_url
             .join("chat/completions")
             .map_err(|e| LLMError::HttpError(e.to_string()))?;
-
         let mut request = self.client.post(url).bearer_auth(&self.api_key).json(&body);
-
         if let Some(timeout) = self.timeout_seconds {
             request = request.timeout(std::time::Duration::from_secs(timeout));
         }
-
         let response = request.send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await?;
-            return Err(LLMError::ResponseFormatError {
-                message: format!("OpenAI API returned error status: {status}"),
-                raw_response: error_text,
-            });
-        }
-
-        Ok(crate::chat::create_sse_stream(response, parse_sse_chunk))
+        let response = check_response_status(response).await?;
+        Ok(create_struct_sse_stream(response))
     }
+}
+
+/// Creates a structured SSE stream that returns StreamResponse objects
+///
+/// # Arguments
+///
+/// * `response` - The HTTP response from the streaming API
+///
+/// # Returns
+///
+/// A pinned stream of StreamResponse objects
+fn create_struct_sse_stream(
+    response: reqwest::Response,
+) -> std::pin::Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>> {
+    use futures::stream::StreamExt;
+    let stream = response
+        .bytes_stream()
+        .map(move |chunk| match chunk {
+            Ok(bytes) => {
+                let text = String::from_utf8_lossy(&bytes);
+                parse_sse_chunk(&text)
+            }
+            Err(e) => Err(LLMError::HttpError(e.to_string())),
+        })
+        .filter_map(|result| async move {
+            match result {
+                Ok(Some(response)) => Some(Ok(response)),
+                Ok(None) => None,
+                Err(e) => Some(Err(e)),
+            }
+        });
+    Box::pin(stream)
 }
 
 // Create an owned OpenAIChatMessage that doesn't borrow from any temporary variables
@@ -913,13 +969,9 @@ impl ModelsProvider for OpenAI {
     }
 }
 
-impl LLMProvider for OpenAI {
-    fn tools(&self) -> Option<&[Tool]> {
-        self.tools.as_deref()
-    }
-}
+impl LLMProvider for OpenAI {}
 
-/// Parses a Server-Sent Events (SSE) chunk from OpenAI's streaming API.
+/// Parse SSE chunk and convert to StreamResponse format
 ///
 /// # Arguments
 ///
@@ -927,41 +979,135 @@ impl LLMProvider for OpenAI {
 ///
 /// # Returns
 ///
-/// * `Ok(Some(String))` - Content token if found
-/// * `Ok(None)` - If chunk should be skipped (e.g., ping, done signal)
+/// * `Ok(Some(StreamResponse))` - Structured response if content or usage found
+/// * `Ok(None)` - If chunk should be skipped
 /// * `Err(LLMError)` - If parsing fails
-fn parse_sse_chunk(chunk: &str) -> Result<Option<String>, LLMError> {
+fn parse_sse_chunk(chunk: &str) -> Result<Option<StreamResponse>, LLMError> {
     let mut collected_content = String::new();
+    let mut has_content = false;
+    // Use a HashMap to track multiple tool calls by index
+    let mut tool_calls_map: std::collections::HashMap<usize, (Option<String>, String)> =
+        std::collections::HashMap::new();
+    let mut has_tool_calls = false;
 
     for line in chunk.lines() {
         let line = line.trim();
-
         if let Some(data) = line.strip_prefix("data: ") {
             if data == "[DONE]" {
-                if collected_content.is_empty() {
-                    return Ok(None);
-                } else {
-                    return Ok(Some(collected_content));
-                }
+                break;
             }
 
-            match serde_json::from_str::<OpenAIChatStreamResponse>(data) {
+            match serde_json::from_str::<ChatStreamChunk>(data) {
                 Ok(response) => {
+                    // Handle usage metadata if present (typically in the last chunk)
+                    if let Some(usage) = response.usage {
+                        return Ok(Some(StreamResponse {
+                            choices: vec![StreamChoice {
+                                delta: StreamDelta {
+                                    content: None,
+                                    tool_calls: None,
+                                },
+                            }],
+                            usage: Some(usage),
+                        }));
+                    }
+
                     if let Some(choice) = response.choices.first() {
+                        // Collect content
                         if let Some(content) = &choice.delta.content {
                             collected_content.push_str(content);
+                            has_content = true;
+                        }
+
+                        // Collect tool calls
+                        if let Some(delta_tool_calls) = &choice.delta.tool_calls {
+                            has_tool_calls = true;
+                            for delta_tool_call in delta_tool_calls {
+                                let index = delta_tool_call.index.unwrap_or(0);
+
+                                // Get or create entry for this index
+                                let entry =
+                                    tool_calls_map.entry(index).or_insert((None, String::new()));
+
+                                if let Some(function) = &delta_tool_call.function {
+                                    // Update function name if provided
+                                    if let Some(name) = &function.name {
+                                        entry.0 = Some(name.clone());
+                                    }
+                                    // Append function arguments if provided
+                                    if let Some(args) = &function.arguments {
+                                        entry.1.push_str(args);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-                Err(_) => continue,
+                Err(_) => {
+                    // Skip malformed chunks silently
+                    continue;
+                }
             }
         }
     }
 
-    if collected_content.is_empty() {
-        Ok(None)
+    // Build response based on what we collected
+    if has_content || has_tool_calls {
+        // Convert all collected tool calls to StreamToolCallDelta objects
+        let tool_calls = if !tool_calls_map.is_empty() {
+            let mut deltas: Vec<StreamToolCallDelta> = Vec::new();
+
+            // Sort by index to ensure consistent ordering
+            let mut sorted_calls: Vec<_> = tool_calls_map.iter().collect();
+            sorted_calls.sort_by_key(|(index, _)| *index);
+
+            for (index, (name, args)) in sorted_calls {
+                // Only include tool calls that have either a name or arguments
+                if name.is_some() || !args.is_empty() {
+                    deltas.push(StreamToolCallDelta {
+                        index: *index,
+                        function: if let Some(name) = name {
+                            Some(StreamToolCallFunction {
+                                name: name.clone(),
+                                arguments: args.clone(),
+                            })
+                        } else if !args.is_empty() {
+                            // If we have arguments but no name, we still need to provide something
+                            Some(StreamToolCallFunction {
+                                name: String::new(),
+                                arguments: args.clone(),
+                            })
+                        } else {
+                            None
+                        },
+                    });
+                }
+            }
+
+            if !deltas.is_empty() {
+                Some(deltas)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Ok(Some(StreamResponse {
+            choices: vec![StreamChoice {
+                delta: StreamDelta {
+                    content: if has_content {
+                        Some(collected_content)
+                    } else {
+                        None
+                    },
+                    tool_calls,
+                },
+            }],
+            usage: None,
+        }))
     } else {
-        Ok(Some(collected_content))
+        Ok(None)
     }
 }
 
@@ -973,7 +1119,6 @@ impl LLMBuilder<OpenAI> {
     }
 
     pub fn build(self) -> Result<Arc<OpenAI>, LLMError> {
-        let (tools, tool_choice) = self.validate_tool_config()?;
         let key = self.api_key.ok_or_else(|| {
             LLMError::InvalidRequest("No API key provided for OpenAI".to_string())
         })?;
@@ -985,15 +1130,12 @@ impl LLMBuilder<OpenAI> {
             self.temperature,
             self.timeout_seconds,
             self.system,
-            self.stream,
             self.top_p,
             self.top_k,
             self.embedding_encoding_format,
             self.embedding_dimensions,
-            tools,
-            tool_choice,
+            self.tool_choice,
             self.reasoning_effort,
-            self.json_schema,
             self.voice,
             None,
             None,

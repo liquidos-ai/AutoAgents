@@ -68,7 +68,7 @@ mod openai_test_cases {
     fn test_openai_default_values() {
         let client = OpenAI::new(
             "test-key", None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None,
         );
 
         assert_eq!(client.model, "gpt-3.5-turbo");
@@ -93,7 +93,7 @@ mod openai_test_cases {
     fn test_web_search_configuration() {
         let mut client = OpenAI::new(
             "test-key", None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None,
         );
 
         client = client.set_enable_web_search(true);
@@ -128,12 +128,12 @@ mod openai_test_cases {
         let client = OpenAI::new(
             "", // Empty API key
             None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None,
+            None, None, None, None, None,
         );
 
         let messages = vec![ChatMessage::user().content("Hello").build()];
 
-        let result = client.chat(&messages, None).await;
+        let result = client.chat(&messages, None, None).await;
         assert!(result.is_err());
 
         match result.err().unwrap() {

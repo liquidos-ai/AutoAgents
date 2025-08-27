@@ -28,7 +28,6 @@ pub struct DeepSeek {
     pub temperature: Option<f32>,
     pub system: Option<String>,
     pub timeout_seconds: Option<u64>,
-    pub stream: Option<bool>,
     client: Client,
 }
 
@@ -91,7 +90,6 @@ impl DeepSeek {
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
         system: Option<String>,
-        stream: Option<bool>,
     ) -> Self {
         let mut builder = Client::builder();
         if let Some(sec) = timeout_seconds {
@@ -104,7 +102,6 @@ impl DeepSeek {
             temperature,
             system,
             timeout_seconds,
-            stream,
             client: builder.build().expect("Failed to build reqwest Client"),
         }
     }
@@ -124,10 +121,17 @@ impl ChatProvider for DeepSeek {
     async fn chat(
         &self,
         messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError("Missing DeepSeek API key".to_string()));
+        }
+
+        if tools.is_some() {
+            return Err(LLMError::NoToolSupport(
+                "Currently Dont Support Tools".to_string(),
+            ));
         }
 
         let mut deepseek_msgs: Vec<DeepSeekChatMessage> = messages
@@ -157,7 +161,7 @@ impl ChatProvider for DeepSeek {
             model: &self.model,
             messages: deepseek_msgs,
             temperature: self.temperature,
-            stream: self.stream.unwrap_or(false),
+            stream: false,
         };
 
         if log::log_enabled!(log::Level::Trace) {
@@ -185,25 +189,6 @@ impl ChatProvider for DeepSeek {
         let json_resp: DeepSeekChatResponse = resp.json().await?;
 
         Ok(Box::new(json_resp))
-    }
-
-    /// Sends a chat request to DeepSeek's API with tools.
-    ///
-    /// # Arguments
-    ///
-    /// * `messages` - The conversation history as a slice of chat messages
-    /// * `tools` - Optional slice of tools to use in the chat
-    ///
-    /// # Returns
-    ///
-    /// The provider's response text or an error
-    async fn chat_with_tools(
-        &self,
-        _messages: &[ChatMessage],
-        _tools: Option<&[Tool]>,
-        _json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        todo!()
     }
 }
 
@@ -240,14 +225,13 @@ impl LLMBuilder<DeepSeek> {
             LLMError::InvalidRequest("No API key provided for DeepSeek".to_string())
         })?;
 
-        let deepseek = crate::backends::deepseek::DeepSeek::new(
+        let deepseek = DeepSeek::new(
             api_key,
             self.model,
             self.max_tokens,
             self.temperature,
             self.timeout_seconds,
             self.system,
-            self.stream,
         );
 
         Ok(Arc::new(deepseek))

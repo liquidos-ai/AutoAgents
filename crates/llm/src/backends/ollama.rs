@@ -28,13 +28,8 @@ pub struct Ollama {
     pub temperature: Option<f32>,
     pub system: Option<String>,
     pub timeout_seconds: Option<u64>,
-    pub stream: Option<bool>,
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,
-    /// JSON schema for structured output
-    pub json_schema: Option<StructuredOutputFormat>,
-    /// Available tools for function calling
-    pub tools: Option<Vec<Tool>>,
     client: Client,
 }
 
@@ -273,11 +268,8 @@ impl Ollama {
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
         system: Option<String>,
-        stream: Option<bool>,
         top_p: Option<f32>,
         top_k: Option<u32>,
-        json_schema: Option<StructuredOutputFormat>,
-        tools: Option<Vec<Tool>>,
     ) -> Self {
         let mut builder = Client::builder();
         if let Some(sec) = timeout_seconds {
@@ -291,101 +283,10 @@ impl Ollama {
             max_tokens,
             timeout_seconds,
             system,
-            stream,
             top_p,
             top_k,
-            json_schema,
-            tools,
             client: builder.build().expect("Failed to build reqwest Client"),
         }
-    }
-}
-
-#[async_trait]
-impl ChatProvider for Ollama {
-    /// Sends a chat request to Ollama's API.
-    ///
-    /// # Arguments
-    ///
-    /// * `messages` - Slice of chat messages representing the conversation
-    ///
-    /// # Returns
-    ///
-    /// The model's response text or an error
-    async fn chat(
-        &self,
-        messages: &[ChatMessage],
-        json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        if self.base_url.is_empty() {
-            return Err(LLMError::InvalidRequest("Missing base_url".to_string()));
-        }
-
-        let mut chat_messages: Vec<OllamaChatMessage> = messages
-            .iter()
-            .map(|msg| OllamaChatMessage {
-                role: match msg.role {
-                    ChatRole::User => "user",
-                    ChatRole::Assistant => "assistant",
-                    ChatRole::Tool => "tool",
-                    ChatRole::System => "system",
-                },
-                content: &msg.content,
-            })
-            .collect();
-
-        if let Some(system) = &self.system {
-            chat_messages.insert(
-                0,
-                OllamaChatMessage {
-                    role: "system",
-                    content: system,
-                },
-            );
-        }
-
-        // Ollama doesn't require the "name" field in the schema, so we just use the schema itself
-        let format = if let Some(schema) = &json_schema {
-            schema.schema.as_ref().map(|schema| OllamaResponseFormat {
-                format: OllamaResponseType::StructuredOutput(schema.clone()),
-            })
-        } else {
-            None
-        };
-
-        let req_body = OllamaChatRequest {
-            model: self.model.clone(),
-            messages: chat_messages,
-            stream: self.stream.unwrap_or(false),
-            options: Some(OllamaOptions {
-                top_p: self.top_p,
-                top_k: self.top_k,
-            }),
-            format,
-            tools: None,
-        };
-
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&req_body) {
-                log::trace!("Ollama request payload: {json}");
-            }
-        }
-
-        let url = format!("{}/api/chat", self.base_url);
-
-        let mut request = self.client.post(&url).json(&req_body);
-
-        if let Some(timeout) = self.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
-
-        let resp = request.send().await?;
-
-        log::debug!("Ollama HTTP status: {}", resp.status());
-
-        let resp = resp.error_for_status()?;
-        let json_resp: OllamaResponse = resp.json().await?;
-        Ok(Box::new(json_resp))
     }
 
     async fn chat_with_tools(
@@ -436,7 +337,7 @@ impl ChatProvider for Ollama {
         let req_body = OllamaChatRequest {
             model: self.model.clone(),
             messages: chat_messages,
-            stream: self.stream.unwrap_or(false),
+            stream: false,
             options: Some(OllamaOptions {
                 top_p: self.top_p,
                 top_k: self.top_k,
@@ -467,6 +368,27 @@ impl ChatProvider for Ollama {
         let json_resp = resp.json::<OllamaResponse>().await?;
 
         Ok(Box::new(json_resp))
+    }
+}
+
+#[async_trait]
+impl ChatProvider for Ollama {
+    /// Sends a chat request to Ollama's API.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - Slice of chat messages representing the conversation
+    ///
+    /// # Returns
+    ///
+    /// The model's response text or an error
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        self.chat_with_tools(messages, tools, json_schema).await
     }
 }
 
@@ -546,19 +468,14 @@ impl EmbeddingProvider for Ollama {
 #[async_trait]
 impl ModelsProvider for Ollama {}
 
-impl crate::LLMProvider for Ollama {
-    fn tools(&self) -> Option<&[Tool]> {
-        self.tools.as_deref()
-    }
-}
+impl crate::LLMProvider for Ollama {}
 
 impl LLMBuilder<Ollama> {
     pub fn build(self) -> Result<Arc<Ollama>, LLMError> {
-        let (tools, _) = self.validate_tool_config()?;
         let url = self
             .base_url
             .unwrap_or("http://localhost:11434".to_string());
-        let ollama = crate::backends::ollama::Ollama::new(
+        let ollama = Ollama::new(
             url,
             self.api_key,
             self.model,
@@ -566,11 +483,8 @@ impl LLMBuilder<Ollama> {
             self.temperature,
             self.timeout_seconds,
             self.system,
-            self.stream,
             self.top_p,
             self.top_k,
-            self.json_schema,
-            tools,
         );
 
         Ok(Arc::new(ollama))

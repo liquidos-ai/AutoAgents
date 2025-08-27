@@ -57,27 +57,24 @@ mod google_test_cases {
 
     #[test]
     fn test_google_default_values() {
-        let client = Google::new(
-            "test-key", None, None, None, None, None, None, None, None, None, None,
-        );
+        let client = Google::new("test-key", None, None, None, None, None, None, None);
 
         assert_eq!(client.model, "gemini-1.5-flash");
         assert!(client.max_tokens.is_none());
         assert!(client.temperature.is_none());
         assert!(client.system.is_none());
-        assert!(client.stream.is_none());
     }
 
     #[tokio::test]
     async fn test_chat_auth_error() {
         let client = Google::new(
             "", // Empty API key
-            None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None,
         );
 
         let messages = vec![ChatMessage::user().content("Hello").build()];
 
-        let result = client.chat(&messages, None).await;
+        let result = client.chat(&messages, None, None).await;
         assert!(result.is_err());
 
         match result.err().unwrap() {

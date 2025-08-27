@@ -34,17 +34,13 @@ pub struct AzureOpenAI {
     pub temperature: Option<f32>,
     pub system: Option<String>,
     pub timeout_seconds: Option<u64>,
-    pub stream: Option<bool>,
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,
-    pub tools: Option<Vec<Tool>>,
     pub tool_choice: Option<ToolChoice>,
     /// Embedding parameters
     pub embedding_encoding_format: Option<String>,
     pub embedding_dimensions: Option<u32>,
     pub reasoning_effort: Option<String>,
-    /// JSON schema for structured output
-    pub json_schema: Option<StructuredOutputFormat>,
     client: Client,
 }
 
@@ -344,15 +340,12 @@ impl AzureOpenAI {
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
         system: Option<String>,
-        stream: Option<bool>,
         top_p: Option<f32>,
         top_k: Option<u32>,
         embedding_encoding_format: Option<String>,
         embedding_dimensions: Option<u32>,
-        tools: Option<Vec<Tool>>,
         tool_choice: Option<ToolChoice>,
         reasoning_effort: Option<String>,
-        json_schema: Option<StructuredOutputFormat>,
     ) -> Self {
         let mut builder = Client::builder();
         if let Some(sec) = timeout_seconds {
@@ -372,43 +365,24 @@ impl AzureOpenAI {
             temperature,
             system,
             timeout_seconds,
-            stream,
             top_p,
             top_k,
-            tools,
             tool_choice,
             embedding_encoding_format,
             embedding_dimensions,
             client: builder.build().expect("Failed to build reqwest Client"),
             reasoning_effort,
-            json_schema,
         }
     }
-}
 
-#[async_trait]
-impl ChatProvider for AzureOpenAI {
-    /// Sends a chat request to OpenAI's API.
-    ///
-    /// # Arguments
-    ///
-    /// * `messages` - Slice of chat messages representing the conversation
-    /// * `tools` - Optional slice of tools to use in the chat
-    /// # Returns
-    ///
-    /// The model's response text or an error
-    async fn chat_with_tools(
-        &self,
-        messages: &[ChatMessage],
-        tools: Option<&[Tool]>,
+    fn build_chat_completion_request<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+        tools: Option<&'a [Tool]>,
         json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        if self.api_key.is_empty() {
-            return Err(LLMError::AuthError(
-                "Missing Azure OpenAI API key".to_string(),
-            ));
-        }
-
+        _stream: bool,
+        _stream_options: Option<AzureOpenAIChatRequest>,
+    ) -> Result<AzureOpenAIChatRequest<'a>, LLMError> {
         let mut openai_msgs: Vec<AzureOpenAIChatMessage> = vec![];
 
         for msg in messages {
@@ -450,26 +424,50 @@ impl ChatProvider for AzureOpenAI {
         // Build the response format object
         let response_format: Option<OpenAIResponseFormat> = json_schema.clone().map(|s| s.into());
 
-        let request_tools = tools.map(|t| t.to_vec()).or_else(|| self.tools.clone());
+        let request_tools = tools.map(|t| t.to_vec());
         let request_tool_choice = if request_tools.is_some() {
             self.tool_choice.clone()
         } else {
             None
         };
 
-        let body = AzureOpenAIChatRequest {
+        Ok(AzureOpenAIChatRequest {
             model: &self.model,
             messages: openai_msgs,
             max_tokens: self.max_tokens,
             temperature: self.temperature,
-            stream: self.stream.unwrap_or(false),
+            stream: false,
             top_p: self.top_p,
             top_k: self.top_k,
             tools: request_tools,
             tool_choice: request_tool_choice,
             reasoning_effort: self.reasoning_effort.clone(),
             response_format,
-        };
+        })
+    }
+
+    /// Sends a chat request to OpenAI's API.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - Slice of chat messages representing the conversation
+    /// * `tools` - Optional slice of tools to use in the chat
+    /// # Returns
+    ///
+    /// The model's response text or an error
+    async fn chat_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        if self.api_key.is_empty() {
+            return Err(LLMError::AuthError(
+                "Missing Azure OpenAI API key".to_string(),
+            ));
+        }
+
+        let body = self.build_chat_completion_request(messages, tools, json_schema, false, None)?;
 
         if log::log_enabled!(log::Level::Trace) {
             if let Ok(json) = serde_json::to_string(&body) {
@@ -523,13 +521,17 @@ impl ChatProvider for AzureOpenAI {
             }),
         }
     }
+}
 
+#[async_trait]
+impl ChatProvider for AzureOpenAI {
     async fn chat(
         &self,
         messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        self.chat_with_tools(messages, None, json_schema).await
+        self.chat_with_tools(messages, tools, json_schema).await
     }
 }
 
@@ -593,18 +595,13 @@ impl EmbeddingProvider for AzureOpenAI {
     }
 }
 
-impl LLMProvider for AzureOpenAI {
-    fn tools(&self) -> Option<&[Tool]> {
-        self.tools.as_deref()
-    }
-}
+impl LLMProvider for AzureOpenAI {}
 
 #[async_trait]
 impl ModelsProvider for AzureOpenAI {}
 
 impl LLMBuilder<AzureOpenAI> {
     pub fn build(self) -> Result<Arc<AzureOpenAI>, LLMError> {
-        let (tools, tool_choice) = self.validate_tool_config()?;
         let endpoint = self.base_url.ok_or_else(|| {
             LLMError::InvalidRequest("No API endpoint provided for Azure OpenAI".into())
         })?;
@@ -621,7 +618,7 @@ impl LLMBuilder<AzureOpenAI> {
             LLMError::InvalidRequest("No deployment ID provided for Azure OpenAI".into())
         })?;
 
-        let provider = crate::backends::azure_openai::AzureOpenAI::new(
+        let provider = AzureOpenAI::new(
             key,
             api_version,
             deployment,
@@ -631,15 +628,12 @@ impl LLMBuilder<AzureOpenAI> {
             self.temperature,
             self.timeout_seconds,
             self.system,
-            self.stream,
             self.top_p,
             self.top_k,
             self.embedding_encoding_format,
             self.embedding_dimensions,
-            tools,
-            tool_choice,
+            self.tool_choice,
             self.reasoning_effort,
-            self.json_schema,
         );
 
         Ok(Arc::new(provider))

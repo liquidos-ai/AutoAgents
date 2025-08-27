@@ -2,7 +2,7 @@ use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT, RunnableAgent};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::protocol::{Event, TaskResult};
@@ -56,6 +56,7 @@ pub struct MathAgentOutput {
     tools = [Addition],
     output = MathAgentOutput
 )]
+#[derive(Default, Clone)]
 pub struct MathAgent {}
 
 impl ReActExecutor for MathAgent {}
@@ -77,9 +78,15 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         .build()
         .await?;
 
+    let addr = agent_handle.addr();
+
     // Create environment and set up event handling
     let mut environment = Environment::new(None);
     let _ = environment.register_runtime(runtime.clone()).await;
+
+    println!("Running simple_agent with direct run method");
+    let test = agent_handle.agent.run(Task::new("What is 1 + 1?")).await?;
+    println!("Run method Result: {:?}", test);
 
     let receiver = environment.take_event_receiver(None).await?;
     handle_events(receiver);
@@ -91,10 +98,7 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     // Send a direct message for memory test
     println!("\n📧 Sending direct message to test memory...");
     runtime
-        .send_message(
-            Task::new("What was the question I asked?"),
-            agent_handle.addr(),
-        )
+        .send_message(Task::new("What was the question I asked?"), addr)
         .await?;
 
     let _ = environment.run().await;

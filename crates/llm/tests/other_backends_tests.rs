@@ -51,13 +51,12 @@ mod deepseek_tests {
 
     #[test]
     fn test_deepseek_default_values() {
-        let client = DeepSeek::new("test-key", None, None, None, None, None, None);
+        let client = DeepSeek::new("test-key", None, None, None, None, None);
 
         assert_eq!(client.model, "deepseek-chat");
         assert!(client.max_tokens.is_none());
         assert!(client.temperature.is_none());
         assert!(client.system.is_none());
-        assert!(client.stream.is_none());
     }
 }
 
@@ -105,21 +104,20 @@ mod xai_tests {
     fn test_xai_default_values() {
         let client = XAI::new(
             "test-key", None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None,
+            None, None, None,
         );
 
         assert_eq!(client.model, "grok-2-latest");
         assert!(client.max_tokens.is_none());
         assert!(client.temperature.is_none());
         assert!(client.system.is_none());
-        assert!(client.stream.is_none());
     }
 
     #[test]
     fn test_xai_search_configuration() {
         let mut client = XAI::new(
             "test-key", None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None,
+            None, None, None,
         );
 
         client = client.set_search_mode("auto");
@@ -156,12 +154,12 @@ mod xai_tests {
     async fn test_chat_auth_error() {
         let client = XAI::new(
             "", None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None,
+            None,
         );
 
         let messages = vec![ChatMessage::user().content("Hello").build()];
 
-        let result = client.chat(&messages, None).await;
+        let result = client.chat(&messages, None, None).await;
         assert!(result.is_err());
 
         match result.err().unwrap() {
@@ -203,13 +201,12 @@ mod phind_tests {
 
     #[test]
     fn test_phind_default_values() {
-        let client = Phind::new(None, None, None, None, None, None, None, None);
+        let client = Phind::new(None, None, None, None, None, None, None);
 
         assert_eq!(client.model, "Phind-70B");
         assert!(client.max_tokens.is_none());
         assert!(client.temperature.is_none());
         assert!(client.system.is_none());
-        assert!(client.stream.is_none());
     }
 }
 
@@ -260,7 +257,7 @@ mod groq_tests {
 
     #[test]
     fn test_groq_default_values() {
-        let client = Groq::new("test-key", None, None, None, None, None, None, None, None);
+        let client = Groq::new("test-key", None, None, None, None, None, None, None);
 
         assert_eq!(
             String::from(client.model.clone()),
@@ -269,7 +266,6 @@ mod groq_tests {
         assert!(client.max_tokens.is_none());
         assert!(client.temperature.is_none());
         assert!(client.system.is_none());
-        assert!(client.stream.is_none());
     }
 
     #[test]
@@ -299,11 +295,11 @@ mod groq_tests {
 
     #[tokio::test]
     async fn test_chat_auth_error() {
-        let client = Groq::new("", None, None, None, None, None, None, None, None);
+        let client = Groq::new("", None, None, None, None, None, None, None);
 
         let messages = vec![ChatMessage::user().content("Hello").build()];
 
-        let result = client.chat(&messages, None).await;
+        let result = client.chat(&messages, None, None).await;
         assert!(result.is_err());
 
         match result.err().unwrap() {

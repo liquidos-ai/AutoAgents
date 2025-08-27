@@ -4,10 +4,7 @@
 //! LLM (Large Language Model) provider instances with various settings and options.
 
 use crate::{
-    chat::{
-        FunctionTool, ParameterProperty, ParametersSchema, ReasoningEffort, StructuredOutputFormat,
-        Tool, ToolChoice,
-    },
+    chat::{FunctionTool, ParameterProperty, ParametersSchema, ReasoningEffort, Tool, ToolChoice},
     error::LLMError,
     LLMProvider,
 };
@@ -114,8 +111,6 @@ pub struct LLMBuilder<L: LLMProvider> {
     pub(crate) system: Option<String>,
     /// Request timeout duration in seconds
     pub(crate) timeout_seconds: Option<u64>,
-    /// Whether to enable streaming responses
-    pub(crate) stream: Option<bool>,
     /// Top-p (nucleus) sampling parameter
     pub(crate) top_p: Option<f32>,
     /// Top-k sampling parameter
@@ -128,8 +123,6 @@ pub struct LLMBuilder<L: LLMProvider> {
     pub(crate) validator: Option<Box<ValidatorFn>>,
     /// Number of retry attempts when validation fails
     pub(crate) validator_attempts: usize,
-    /// Function tools
-    pub(crate) tools: Option<Vec<Tool>>,
     /// Tool choice
     pub(crate) tool_choice: Option<ToolChoice>,
     /// Enable parallel tool use
@@ -140,8 +133,6 @@ pub struct LLMBuilder<L: LLMProvider> {
     pub(crate) reasoning_effort: Option<String>,
     /// reasoning_budget_tokens
     pub(crate) reasoning_budget_tokens: Option<u32>,
-    /// JSON schema for structured output
-    pub(crate) json_schema: Option<StructuredOutputFormat>,
     /// API Version
     pub(crate) api_version: Option<String>,
     /// Deployment Id
@@ -166,20 +157,17 @@ impl<L: LLMProvider> Default for LLMBuilder<L> {
             temperature: None,
             system: None,
             timeout_seconds: None,
-            stream: None,
             top_p: None,
             top_k: None,
             embedding_encoding_format: None,
             embedding_dimensions: None,
             validator: None,
             validator_attempts: 0,
-            tools: None,
             tool_choice: None,
             enable_parallel_tool_use: None,
             reasoning: None,
             reasoning_effort: None,
             reasoning_budget_tokens: None,
-            json_schema: None,
             api_version: None,
             deployment_id: None,
             voice: None,
@@ -238,11 +226,6 @@ impl<L: LLMProvider> LLMBuilder<L> {
         self
     }
 
-    pub fn tools(mut self, tools: Vec<Tool>) -> Self {
-        self.tools = Some(tools);
-        self
-    }
-
     /// Sets the system prompt/context.
     pub fn system(mut self, system: impl Into<String>) -> Self {
         self.system = Some(system.into());
@@ -273,12 +256,6 @@ impl<L: LLMProvider> LLMBuilder<L> {
         self
     }
 
-    /// Enables or disables streaming responses.
-    pub fn stream(mut self, stream: bool) -> Self {
-        self.stream = Some(stream);
-        self
-    }
-
     /// Sets the top-p (nucleus) sampling parameter.
     pub fn top_p(mut self, top_p: f32) -> Self {
         self.top_p = Some(top_p);
@@ -306,12 +283,6 @@ impl<L: LLMProvider> LLMBuilder<L> {
         self
     }
 
-    /// Sets the JSON schema for structured output.
-    pub fn schema(mut self, schema: impl Into<StructuredOutputFormat>) -> Self {
-        self.json_schema = Some(schema.into());
-        self
-    }
-
     /// Sets a validation function to verify LLM responses.
     ///
     /// # Arguments
@@ -332,17 +303,6 @@ impl<L: LLMProvider> LLMBuilder<L> {
     /// * `attempts` - Maximum number of times to retry generating a valid response
     pub fn validator_attempts(mut self, attempts: usize) -> Self {
         self.validator_attempts = attempts;
-        self
-    }
-
-    /// Adds a function tool to the builder
-    pub fn function(mut self, function_builder: FunctionBuilder) -> Self {
-        if self.tools.is_none() {
-            self.tools = Some(Vec::new());
-        }
-        if let Some(tools) = &mut self.tools {
-            tools.push(function_builder.build());
-        }
         self
     }
 
@@ -376,28 +336,10 @@ impl<L: LLMProvider> LLMBuilder<L> {
         self.deployment_id = Some(deployment_id.into());
         self
     }
-
-    // Validate that tool configuration is consistent and valid
-    #[allow(dead_code)]
-    pub(crate) fn validate_tool_config(
-        &self,
-    ) -> Result<(Option<Vec<Tool>>, Option<ToolChoice>), LLMError> {
-        match self.tool_choice {
-            Some(ToolChoice::Tool(ref name)) => {
-                match self.tools.clone().map(|tools| tools.iter().any(|tool| tool.function.name == *name)) {
-                        Some(true) => Ok((self.tools.clone(), self.tool_choice.clone())),
-                        _ => Err(LLMError::ToolConfigError(format!("Tool({name}) cannot be tool choice: no tool with name {name} found.  Did you forget to add it with .function?"))),
-                    }
-            }
-            Some(_) if self.tools.is_none() => Err(LLMError::ToolConfigError(
-                "Tool choice cannot be set without tools configured".to_string(),
-            )),
-            _ => Ok((self.tools.clone(), self.tool_choice.clone())),
-        }
-    }
 }
 
 /// Builder for function parameters
+#[allow(dead_code)]
 pub struct ParamBuilder {
     name: String,
     property_type: String,
@@ -443,6 +385,7 @@ impl ParamBuilder {
     }
 
     /// Builds the parameter property
+    #[allow(dead_code)]
     fn build(self) -> (String, ParameterProperty) {
         (
             self.name,
@@ -457,6 +400,7 @@ impl ParamBuilder {
 }
 
 /// Builder for function tools
+#[allow(dead_code)]
 pub struct FunctionBuilder {
     name: String,
     description: String,
@@ -504,6 +448,7 @@ impl FunctionBuilder {
     }
 
     /// Builds the function tool
+    #[allow(dead_code)]
     fn build(self) -> Tool {
         let parameters_value = if let Some(schema) = self.raw_schema {
             schema
@@ -536,6 +481,7 @@ impl FunctionBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chat::{ChatMessage, ChatResponse, StructuredOutputFormat};
     use crate::error::LLMError;
     use serde_json::json;
     use std::str::FromStr;
@@ -730,12 +676,12 @@ mod tests {
 
     #[async_trait::async_trait]
     impl crate::chat::ChatProvider for MockLLMProvider {
-        async fn chat_with_tools(
+        async fn chat(
             &self,
-            _messages: &[crate::chat::ChatMessage],
-            _tools: Option<&[crate::chat::Tool]>,
-            _json_schema: Option<crate::chat::StructuredOutputFormat>,
-        ) -> Result<Box<dyn crate::chat::ChatResponse>, LLMError> {
+            _messages: &[ChatMessage],
+            _tools: Option<&[Tool]>,
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
             unimplemented!()
         }
     }
@@ -773,8 +719,6 @@ mod tests {
         assert!(builder.temperature.is_none());
         assert!(builder.system.is_none());
         assert!(builder.timeout_seconds.is_none());
-        assert!(builder.stream.is_none());
-        assert!(builder.tools.is_none());
         assert!(builder.tool_choice.is_none());
     }
 
@@ -855,12 +799,6 @@ mod tests {
     }
 
     #[test]
-    fn test_llm_builder_stream() {
-        let builder = LLMBuilder::<MockLLMProvider>::new().stream(true);
-        assert_eq!(builder.stream, Some(true));
-    }
-
-    #[test]
     fn test_llm_builder_top_p() {
         let builder = LLMBuilder::<MockLLMProvider>::new().top_p(0.9);
         assert_eq!(builder.top_p, Some(0.9));
@@ -885,18 +823,6 @@ mod tests {
     }
 
     #[test]
-    fn test_llm_builder_schema() {
-        let schema = crate::chat::StructuredOutputFormat {
-            name: "Test".to_string(),
-            description: None,
-            schema: None,
-            strict: None,
-        };
-        let builder = LLMBuilder::<MockLLMProvider>::new().schema(schema.clone());
-        assert_eq!(builder.json_schema, Some(schema));
-    }
-
-    #[test]
     fn test_llm_builder_validator() {
         let builder = LLMBuilder::<MockLLMProvider>::new().validator(|response| {
             if response.contains("error") {
@@ -912,30 +838,6 @@ mod tests {
     fn test_llm_builder_validator_attempts() {
         let builder = LLMBuilder::<MockLLMProvider>::new().validator_attempts(3);
         assert_eq!(builder.validator_attempts, 3);
-    }
-
-    #[test]
-    fn test_llm_builder_function() {
-        let function = FunctionBuilder::new("test_function")
-            .description("A test function")
-            .param(ParamBuilder::new("name").type_of("string"));
-
-        let builder = LLMBuilder::<MockLLMProvider>::new().function(function);
-        assert!(builder.tools.is_some());
-        assert_eq!(builder.tools.as_ref().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn test_llm_builder_multiple_functions() {
-        let function1 = FunctionBuilder::new("function1");
-        let function2 = FunctionBuilder::new("function2");
-
-        let builder = LLMBuilder::<MockLLMProvider>::new()
-            .function(function1)
-            .function(function2);
-
-        assert!(builder.tools.is_some());
-        assert_eq!(builder.tools.as_ref().unwrap().len(), 2);
     }
 
     #[test]
@@ -969,64 +871,6 @@ mod tests {
     }
 
     #[test]
-    fn test_llm_builder_validate_tool_config_valid() {
-        let function = FunctionBuilder::new("test_function");
-        let builder = LLMBuilder::<MockLLMProvider>::new()
-            .function(function)
-            .tool_choice(ToolChoice::Tool("test_function".to_string()));
-
-        let result = builder.validate_tool_config();
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_llm_builder_validate_tool_config_invalid_tool_name() {
-        let function = FunctionBuilder::new("test_function");
-        let builder = LLMBuilder::<MockLLMProvider>::new()
-            .function(function)
-            .tool_choice(ToolChoice::Tool("nonexistent_function".to_string()));
-
-        let result = builder.validate_tool_config();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("no tool with name nonexistent_function found"));
-    }
-
-    #[test]
-    fn test_llm_builder_validate_tool_config_tool_choice_without_tools() {
-        let builder = LLMBuilder::<MockLLMProvider>::new().tool_choice(ToolChoice::Auto);
-
-        let result = builder.validate_tool_config();
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Tool choice cannot be set without tools configured"));
-    }
-
-    #[test]
-    fn test_llm_builder_validate_tool_config_auto_choice() {
-        let function = FunctionBuilder::new("test_function");
-        let builder = LLMBuilder::<MockLLMProvider>::new()
-            .function(function)
-            .tool_choice(ToolChoice::Auto);
-
-        let result = builder.validate_tool_config();
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_llm_builder_validate_tool_config_no_tool_choice() {
-        let function = FunctionBuilder::new("test_function");
-        let builder = LLMBuilder::<MockLLMProvider>::new().function(function);
-
-        let result = builder.validate_tool_config();
-        assert!(result.is_ok());
-    }
-
-    #[test]
     fn test_llm_builder_chaining() {
         let builder = LLMBuilder::<MockLLMProvider>::new()
             .api_key("test_key")
@@ -1035,7 +879,6 @@ mod tests {
             .temperature(0.8)
             .system("You are helpful")
             .timeout_seconds(60)
-            .stream(true)
             .top_p(0.95)
             .top_k(40)
             .embedding_encoding_format("float")
@@ -1052,7 +895,6 @@ mod tests {
         assert_eq!(builder.temperature, Some(0.8));
         assert_eq!(builder.system, Some("You are helpful".to_string()));
         assert_eq!(builder.timeout_seconds, Some(60));
-        assert_eq!(builder.stream, Some(true));
         assert_eq!(builder.top_p, Some(0.95));
         assert_eq!(builder.top_k, Some(40));
         assert_eq!(builder.embedding_encoding_format, Some("float".to_string()));

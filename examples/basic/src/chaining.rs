@@ -40,7 +40,11 @@ impl AgentExecutor for Agent1 {
         ExecutorConfig { max_turns: 10 }
     }
 
-    async fn execute(&self, task: &Task, context: Context) -> Result<Self::Output, Self::Error> {
+    async fn execute(
+        &self,
+        task: &Task,
+        context: Arc<Context>,
+    ) -> Result<Self::Output, Self::Error> {
         println!("Agent 1 Executing");
         let mut messages = vec![ChatMessage {
             role: ChatRole::System,
@@ -56,7 +60,7 @@ impl AgentExecutor for Agent1 {
         messages.push(chat_msg);
         let response = context
             .llm()
-            .chat(&messages, context.config().output_schema.clone())
+            .chat(&messages, None, context.config().output_schema.clone())
             .await?;
         let response_text = response.text().unwrap_or_default();
         context
@@ -75,7 +79,11 @@ impl AgentExecutor for Agent2 {
         ExecutorConfig { max_turns: 10 }
     }
 
-    async fn execute(&self, task: &Task, context: Context) -> Result<Self::Output, Self::Error> {
+    async fn execute(
+        &self,
+        task: &Task,
+        context: Arc<Context>,
+    ) -> Result<Self::Output, Self::Error> {
         println!("Agent 2 Executing");
         let mut messages = vec![ChatMessage {
             role: ChatRole::System,
@@ -91,7 +99,7 @@ impl AgentExecutor for Agent2 {
         messages.push(chat_msg);
         let response = context
             .llm()
-            .chat(&messages, context.config().output_schema.clone())
+            .chat(&messages, None, context.config().output_schema.clone())
             .await?;
         let response_text = response.text().unwrap_or_default();
         println!("Agent 2 respond: {}", response_text);

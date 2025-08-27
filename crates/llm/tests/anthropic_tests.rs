@@ -1,4 +1,4 @@
-#![allow(unused_imports)]
+#![allow(unused_imports, dead_code)]
 use autoagents_llm::{
     builder::LLMBuilder,
     chat::{
@@ -27,34 +27,6 @@ mod anthropic_test_cases {
             .system("Test system prompt")
             .build()
             .expect("Failed to build Anthropic client")
-    }
-
-    fn create_test_anthropic_with_tools() -> Arc<Anthropic> {
-        let tool = Tool {
-            tool_type: "function".to_string(),
-            function: autoagents_llm::chat::FunctionTool {
-                name: "get_weather".to_string(),
-                description: "Get the weather for a location".to_string(),
-                parameters: json!({
-                    "type": "object",
-                    "properties": {
-                        "location": {
-                            "type": "string",
-                            "description": "The city and state"
-                        }
-                    },
-                    "required": ["location"]
-                }),
-            },
-        };
-
-        LLMBuilder::<Anthropic>::new()
-            .api_key("test-key")
-            .model("claude-3-sonnet-20240229")
-            .tools([tool].into())
-            .tool_choice(ToolChoice::Auto)
-            .build()
-            .expect("Failed to build Anthropic client with tools")
     }
 
     #[test]
@@ -99,7 +71,7 @@ mod anthropic_test_cases {
     #[test]
     fn test_anthropic_default_values() {
         let client = Anthropic::new(
-            "test-key", None, None, None, None, None, None, None, None, None, None, None, None,
+            "test-key", None, None, None, None, None, None, None, None, None, None,
         );
 
         assert_eq!(client.model, "claude-3-sonnet-20240229");
@@ -107,36 +79,19 @@ mod anthropic_test_cases {
         assert_eq!(client.temperature, 0.7);
         assert_eq!(client.system, "You are a helpful assistant.");
         assert_eq!(client.timeout_seconds, 30);
-        assert!(!client.stream);
         assert!(!client.reasoning);
-    }
-
-    #[test]
-    fn test_tool_configuration() {
-        let client = create_test_anthropic_with_tools();
-
-        assert!(client.tools.is_some());
-        let tools = client.tools.as_ref().unwrap();
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].function.name, "get_weather");
-
-        assert!(client.tool_choice.is_some());
-        match client.tool_choice.as_ref().unwrap() {
-            ToolChoice::Auto => (),
-            _ => panic!("Expected ToolChoice::Auto"),
-        }
     }
 
     #[tokio::test]
     async fn test_chat_auth_error() {
         let client = Anthropic::new(
             "", // Empty API key
-            None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None,
         );
 
         let messages = vec![ChatMessage::user().content("Hello").build()];
 
-        let result = client.chat(&messages, None).await;
+        let result = client.chat(&messages, None, None).await;
         assert!(result.is_err());
 
         match result.err().unwrap() {
@@ -145,17 +100,6 @@ mod anthropic_test_cases {
             }
             _ => panic!("Expected AuthError"),
         }
-    }
-
-    #[test]
-    fn test_streaming_configuration() {
-        let client = LLMBuilder::<Anthropic>::new()
-            .api_key("test-key")
-            .stream(true)
-            .build()
-            .expect("Failed to build streaming Anthropic client");
-
-        assert!(client.stream);
     }
 
     #[test]

@@ -23,11 +23,13 @@ const DEFAULT_CHANNEL_BUFFER: usize = 100;
 const DEFAULT_INTERNAL_BUFFER: usize = 1000;
 
 /// Topic subscription entry storing type information and actor references
+#[derive(Debug)]
 struct Subscription {
     topic_type: TypeId,
     actors: Vec<Arc<dyn AnyActor>>,
 }
 
+#[derive(Debug)]
 /// Single-threaded runtime implementation with internal event routing
 pub struct SingleThreadedRuntime {
     pub id: RuntimeID,

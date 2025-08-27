@@ -1,10 +1,11 @@
 use crate::actor::AnyActor;
 use async_trait::async_trait;
 use std::any::Any;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 #[async_trait]
-pub trait Transport: Send + Sync {
+pub trait Transport: Send + Sync + Debug {
     async fn send(
         &self,
         actor: &dyn AnyActor,

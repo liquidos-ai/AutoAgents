@@ -74,6 +74,7 @@ pub struct WasmMathAgentOutput {
     tools = [WasmAddition],
     output = WasmMathAgentOutput
 )]
+#[derive(Clone)]
 pub struct WasmMathAgent {}
 
 impl ReActExecutor for WasmMathAgent {}
@@ -191,7 +192,7 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                                             wasm_output.value,
                                             wasm_output.explanation
                                         )
-                                        .green()
+                                            .green()
                                     );
                                 } else {
                                     // Fallback to regular output
