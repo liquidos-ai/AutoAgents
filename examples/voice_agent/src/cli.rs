@@ -7,11 +7,14 @@
     unused_imports,
     unreachable_code
 )]
+
 use crate::agent::VoiceAgent;
+use crate::cli;
 use crate::kokoros::actor::{TTSActor, TTSActorArgs, TTSConfig};
 use crate::kokoros::tts::koko::TTSKoko;
 use crate::stt::actor::{STTActor, STTActorArgs};
 use crate::stt::STTProcessor;
+use crate::ui::VoiceAgentApp;
 use crate::utils::{
     resample_audio_buffer, run_file_mode, run_realtime_mode_actor_based, run_test_mode,
     WHISPER_SAMPLE_RATE,
@@ -32,12 +35,13 @@ use autoagents::llm::builder::LLMBuilder;
 use clap::{Parser, Subcommand};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde::{Deserialize, Serialize};
+use std::cmp::PartialEq;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio_stream::{wrappers::ReceiverStream, StreamExt as TokioStreamExt};
 
-#[derive(Subcommand, Debug, Clone)]
+#[derive(Subcommand, Debug, Clone, PartialEq)]
 pub enum Mode {
     /// Take an input audio file and convert to text, then generate speech
     File {
@@ -63,6 +67,7 @@ pub enum Mode {
         #[arg(long, default_value = "6")]
         max_recording_duration: u32,
     },
+    UI,
     /// Test TTS audio generation and playback
     Test {
         /// Text to synthesize and play
@@ -182,16 +187,27 @@ impl CloneableMessage for TTSAudioMessage {}
 
 impl ActorMessage for TTSAudioMessage {}
 
+/// UI update message type for sending updates to the GUI
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum UIUpdate {
+    TranscriptionUpdate(String),
+    AgentResponse(String),
+    ProcessingStarted,
+    ProcessingComplete,
+    SpeakingStarted,
+    SpeakingComplete,
+}
+
 /// Buffer for streaming text with natural pause detection
 #[derive(Debug)]
-struct StreamingBuffer {
+pub struct StreamingBuffer {
     buffer: String,
     last_token_time: Instant,
     flush_timeout_ms: u64,
 }
 
 impl StreamingBuffer {
-    fn new(flush_timeout_ms: u64) -> Self {
+    pub(crate) fn new(flush_timeout_ms: u64) -> Self {
         Self {
             buffer: String::new(),
             last_token_time: Instant::now(),
@@ -199,12 +215,12 @@ impl StreamingBuffer {
         }
     }
 
-    fn add_token(&mut self, token: &str) {
+    pub(crate) fn add_token(&mut self, token: &str) {
         self.buffer.push_str(token);
         self.last_token_time = Instant::now();
     }
 
-    fn should_flush(&self) -> bool {
+    pub(crate) fn should_flush(&self) -> bool {
         if self.buffer.is_empty() {
             return false;
         }
@@ -224,13 +240,13 @@ impl StreamingBuffer {
         elapsed >= Duration::from_millis(self.flush_timeout_ms) && !self.buffer.trim().is_empty()
     }
 
-    fn flush(&mut self) -> String {
+    pub(crate) fn flush(&mut self) -> String {
         let content = self.buffer.clone();
         self.buffer.clear();
         content.trim().to_string()
     }
 
-    fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.buffer.trim().is_empty()
     }
 }
@@ -332,7 +348,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     runtime.subscribe(&stt_topic, stt_actor_ref.clone()).await?;
 
     //Run indefinitely listening to the events
-    handle_streaming_events(receiver, runtime.clone(), tts_topic.clone());
+    handle_streaming_events(receiver, runtime.clone(), tts_topic.clone(), None);
     let _ = environment.run();
 
     match cli.mode {
@@ -376,6 +392,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
+        _ => Ok(()),
     }
 }
 
@@ -383,6 +400,7 @@ fn handle_streaming_events(
     mut event_stream: ReceiverStream<Event>,
     runtime: Arc<SingleThreadedRuntime>,
     topic: Topic<SimpleMessage>,
+    ui_sender: Option<tokio::sync::mpsc::UnboundedSender<UIUpdate>>,
 ) {
     tokio::spawn(async move {
         // Create streaming buffer with 500ms timeout for flushing
@@ -390,6 +408,7 @@ fn handle_streaming_events(
         let runtime_clone = runtime.clone();
         let topic_clone = topic.clone();
         let buffer_clone = buffer.clone();
+        let ui_sender_clone = ui_sender.clone();
 
         // Start periodic flush task for timeout-based flushing
         tokio::spawn(async move {
@@ -412,8 +431,18 @@ fn handle_streaming_events(
                     if !content.is_empty() {
                         println!("⏰ Timeout flush: {}", content);
                         let _ = runtime_clone
-                            .publish(&topic_clone, SimpleMessage { content })
+                            .publish(
+                                &topic_clone,
+                                SimpleMessage {
+                                    content: content.clone(),
+                                },
+                            )
                             .await;
+
+                        // Send UI update if UI sender is available
+                        if let Some(ref sender) = ui_sender_clone {
+                            let _ = sender.send(UIUpdate::AgentResponse(content));
+                        }
                     }
                 }
             }
@@ -439,10 +468,15 @@ fn handle_streaming_events(
                             .publish(
                                 &topic,
                                 SimpleMessage {
-                                    content: remaining_content,
+                                    content: remaining_content.clone(),
                                 },
                             )
                             .await;
+
+                        // Send UI update if UI sender is available
+                        if let Some(ref sender) = ui_sender {
+                            let _ = sender.send(UIUpdate::AgentResponse(remaining_content));
+                        }
                     }
 
                     match result {
@@ -495,10 +529,15 @@ fn handle_streaming_events(
                                     .publish(
                                         &topic,
                                         SimpleMessage {
-                                            content: chunk_content,
+                                            content: chunk_content.clone(),
                                         },
                                     )
                                     .await;
+
+                                // Send UI update if UI sender is available
+                                if let Some(ref sender) = ui_sender {
+                                    let _ = sender.send(UIUpdate::AgentResponse(chunk_content));
+                                }
                             }
                         }
                     }
@@ -507,4 +546,109 @@ fn handle_streaming_events(
             }
         }
     });
+}
+
+/// Public function to set up voice system with UI updates
+pub async fn setup_voice_system_with_ui(
+    ui_sender: tokio::sync::mpsc::UnboundedSender<UIUpdate>,
+) -> Result<(Arc<SingleThreadedRuntime>, Arc<tokio::sync::RwLock<bool>>)> {
+    println!("🚀 Initializing Voice Agent for UI...");
+
+    let model_path = "checkpoints/kokoro-v1.0.onnx";
+    let data_path = "examples/voice_agent/audio/voices-v1.0.bin";
+    let stt_model = "./examples/voice_agent/models/ggml-base.en.bin";
+
+    // Check if TTS files exist
+    if !std::path::Path::new(&model_path).exists() {
+        println!("📥 TTS model file not found, will download: {}", model_path);
+    }
+    if !std::path::Path::new(&data_path).exists() {
+        println!("📥 TTS data file not found, will download: {}", data_path);
+    }
+
+    println!("🎤 Initializing TTS...");
+    let tts = TTSKoko::new(&model_path, &data_path).await;
+    println!("✅ TTS initialized successfully");
+
+    println!("🎧 Initializing STT...");
+    let mut stt_processor = STTProcessor::new(PathBuf::from(stt_model.clone())).await?;
+    println!("✅ STT initialized successfully");
+
+    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or("".into());
+
+    // Initialize and configure the LLM client
+    let llm: Arc<OpenAI> = LLMBuilder::<OpenAI>::new()
+        .api_key(api_key) // Set the API key
+        .model("gpt-4o") // Use GPT-4o model
+        .max_tokens(512) // Limit response length
+        .temperature(0.2) // Control response randomness (0.0-1.0)
+        .build()
+        .expect("Failed to build LLM");
+
+    // Create runtime
+    let runtime = SingleThreadedRuntime::new(Some(10));
+
+    // Create environment
+    let mut environment = Environment::new(None);
+    environment.register_runtime(runtime.clone()).await?;
+
+    // Create topics for pub/sub messaging
+    let stt_topic = Topic::<AudioBufferMessage>::new("stt_topic");
+    let tts_topic = Topic::<SimpleMessage>::new("tts_topic");
+    let agent_topic = Topic::<Task>::new("agent_topic");
+
+    let sliding_window_memory = Box::new(SlidingWindowMemory::new(100));
+    let agent = VoiceAgent {};
+    let _ = AgentBuilder::new(agent)
+        .with_llm(llm)
+        .runtime(runtime.clone())
+        .subscribe_topic(agent_topic.clone())
+        .with_memory(sliding_window_memory)
+        .stream(true)
+        .build()
+        .await?;
+
+    // Set up event handling
+    let receiver = environment.take_event_receiver(None).await?;
+
+    // Create recording control for synchronization
+    let recording_control = Arc::new(tokio::sync::RwLock::new(false));
+
+    // Create actors with proper configuration
+    let tts_config = TTSConfig {
+        language: "en-us".to_string(),
+        style: "af_sarah.4+af_nicole.6".to_string(),
+        speed: 1.3,
+        mono: false,
+        initial_silence: None,
+    };
+
+    let tts_actor = TTSActor::new("TTS_Actor", runtime.clone(), tts_config)
+        .with_recording_control(recording_control.clone());
+    let stt_actor = STTActor::new("STT_Actor", runtime.clone());
+
+    // Initialize the actors with their models
+    tts_actor.initialize_tts(&model_path, &data_path).await?;
+    stt_actor.initialize_stt(PathBuf::from(stt_model)).await?;
+
+    let (tts_actor_ref, _) = Actor::spawn(None, tts_actor, TTSActorArgs {}).await?;
+    let (stt_actor_ref, _) = Actor::spawn(None, stt_actor, STTActorArgs {}).await?;
+
+    // Subscribe actors to topics
+    runtime.subscribe(&tts_topic, tts_actor_ref.clone()).await?;
+    runtime.subscribe(&stt_topic, stt_actor_ref.clone()).await?;
+
+    // Run event handling with UI updates
+    handle_streaming_events(
+        receiver,
+        runtime.clone(),
+        tts_topic.clone(),
+        Some(ui_sender),
+    );
+
+    tokio::spawn(async move {
+        let _ = environment.run();
+    });
+
+    Ok((runtime, recording_control))
 }

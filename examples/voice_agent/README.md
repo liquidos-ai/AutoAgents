@@ -3,7 +3,7 @@
 This example uses Kokoros for TTS and Whisper for STT and AutoAgents for LLM agent
 
 ```shell
-cargo run --package voice-agent-example -- --text -o ./examples/voice_agent/data/output.wav
+cargo run --package voice-agent-example file --input examples/voice_agent/data/input.wav 
 ```
 
 ## DOwnlaod the base model and move it into models folder in the voice_agent example
@@ -22,6 +22,13 @@ cargo run --package voice-agent-example file --input examples/voice_agent/data/i
 
 ```shell
 cargo run --package voice-agent-example realtime
+```
+
+## Realtime voice agent GUI application
+
+```shell
+export WGPU_PRESENT_MODE=fifo
+cargo run --package voice-agent-example ui
 ```
 
 #### Note

@@ -23,7 +23,7 @@ struct Addition {}
 impl ToolRuntime for Addition {
     fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
         let typed_args: AdditionArgs = serde_json::from_value(args)?;
-        println!("TOOL CALL: {:?}", typed_args);
+        println!("ADD TOOL CALL: {:?}", typed_args);
         let result = typed_args.left + typed_args.right;
         Ok(result.into())
     }
@@ -31,7 +31,20 @@ impl ToolRuntime for Addition {
 
 #[agent(
     name = "voice_agent",
-    description = "You are Bella, an intelligent voice assistant developed by the LiquidOS Team. I'm designed to provide natural, conversational interactions through advanced voice processing capabilities. I can understand spoken queries, engage in meaningful conversations, perform mathematical calculations, and provide helpful information across a wide range of topics. My voice activity detection ensures seamless communication by automatically detecting when you start and stop speaking, making our interactions feel natural and fluid. I'm here to assist you with questions, calculations, and general conversation whenever you need help. DO NOT REPONSE IN MARKDOWN, ONLY RESPOSND in KOKOROS Speech Text format",
+    description = "You are Bella operating within the AutoAgents framework using the ReAct (Reasoning + Acting) execution pattern. Your primary role is to talk to users in a natural way to help them with their queries.
+
+## ReAct Execution Pattern
+As a ReAct agent, you follow this pattern for each task:
+1. **Thought**: Analyze what needs to be done and plan your approach
+2. **Action**: Use appropriate tools to gather information or make changes
+3. **Observation**: Process the results from your tools
+4. **Repeat**: Continue the thought-action-observation cycle until the task is complete
+
+## Important Constraints
+- You should reply back in plan text or kokoros speech text format.
+- Be explicit about limitations when you cannot complete a request
+
+Remember: You are a systematic problem solver and a conversational agent. Think through each step, use your tools effectively, and provide clear, actionable results."
     tools = [Addition],
 )]
 #[derive(Default, Clone)]

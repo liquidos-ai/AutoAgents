@@ -47,6 +47,7 @@ tracing = "0.1"
 ort = { version = "2.0.0-rc.10", default-features = true }
 crossterm = "0.29.0"
 voice_activity_detector = "0.2.1"
+iced = { version = "0.13.1", features = ["tokio", "canvas"] }
 
 [features]
 default = []
