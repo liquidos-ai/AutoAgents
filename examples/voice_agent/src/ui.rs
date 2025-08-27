@@ -627,8 +627,8 @@ impl VoiceAgentApp {
         let llm: Arc<OpenAI> = LLMBuilder::<OpenAI>::new()
             .api_key(api_key)
             .model("gpt-4o")
-            .max_tokens(512)
-            .temperature(0.2)
+            .max_tokens(1024)
+            .temperature(0.3)
             .build()
             .expect("Failed to build LLM");
 
