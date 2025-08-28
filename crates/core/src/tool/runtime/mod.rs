@@ -1,10 +1,12 @@
 use super::ToolCallError;
 use std::fmt::Debug;
 
-#[cfg(feature = "wasm")]
+#[cfg(feature = "wasmtime")]
+#[cfg(not(target_arch = "wasm32"))]
 mod wasm;
 
-#[cfg(feature = "wasm")]
+#[cfg(feature = "wasmtime")]
+#[cfg(not(target_arch = "wasm32"))]
 pub use wasm::{WasmRuntime, WasmRuntimeError};
 
 pub trait ToolRuntime: Send + Sync + Debug {

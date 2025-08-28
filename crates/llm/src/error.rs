@@ -52,7 +52,8 @@ impl fmt::Display for LLMError {
 
 impl std::error::Error for LLMError {}
 
-/// Converts reqwest HTTP errors into LlmErrors
+/// Converts reqwest HTTP errors into LLMErrors
+#[cfg(not(target_arch = "wasm32"))]
 impl From<reqwest::Error> for LLMError {
     fn from(err: reqwest::Error) -> Self {
         LLMError::HttpError(err.to_string())

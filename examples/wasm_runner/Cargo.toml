@@ -9,7 +9,7 @@ autoagents-derive = { path = "../../crates/derive" }
 autoagents = { path = "../../crates/autoagents", features = [
     "full",
     "logging",
-    "wasm",
+    "wasmtime",
 ] }
 tokio = { workspace = true }
 futures = { workspace = true }

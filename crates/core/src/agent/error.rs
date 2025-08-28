@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use ractor::SpawnErr;
 use std::fmt::Debug;
 use thiserror::Error;
@@ -60,6 +61,7 @@ impl RunnableAgentError {
 }
 
 /// Specific conversion for tokio mpsc send errors
+#[cfg(not(target_arch = "wasm32"))]
 impl<T> From<tokio::sync::mpsc::error::SendError<T>> for RunnableAgentError
 where
     T: Debug + Send + 'static,
@@ -74,6 +76,7 @@ pub enum AgentBuildError {
     #[error("Build Failure")]
     BuildFailure(String),
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("SpawnError")]
     SpawnError(#[from] SpawnErr),
 }

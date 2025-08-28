@@ -1,6 +1,8 @@
+#[cfg(not(target_arch = "wasm32"))]
 use crate::actor::{ActorMessage, Topic};
 use crate::agent::memory::MemoryProvider;
-use crate::agent::{AgentConfig, AgentState};
+use crate::agent::state::AgentState;
+use crate::agent::AgentConfig;
 use crate::error::Error;
 use crate::protocol::Event;
 use crate::tool::ToolT;
@@ -8,15 +10,21 @@ use autoagents_llm::chat::ChatMessage;
 use autoagents_llm::LLMProvider;
 use std::any::Any;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::sync::{mpsc, Mutex};
+
+#[cfg(target_arch = "wasm32")]
+use futures::channel::mpsc;
+#[cfg(target_arch = "wasm32")]
+use futures::lock::Mutex;
 
 pub struct Context {
     llm: Arc<dyn LLMProvider>,
     messages: Vec<ChatMessage>,
-    memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+    memory: Option<Arc<Mutex<Box<dyn MemoryProvider>>>>,
     tools: Vec<Box<dyn ToolT>>,
     config: AgentConfig,
-    state: Arc<RwLock<AgentState>>,
+    state: Arc<Mutex<AgentState>>,
     tx: mpsc::Sender<Event>,
     stream: bool,
 }
@@ -29,12 +37,13 @@ impl Context {
             memory: None,
             tools: vec![],
             config: AgentConfig::default(),
-            state: Arc::new(RwLock::new(AgentState::new())),
+            state: Arc::new(Mutex::new(AgentState::new())),
             stream: false,
             tx,
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn publish<M: ActorMessage>(&self, topic: Topic<M>, message: M) -> Result<(), Error> {
         self.tx
             .send(Event::PublishMessage {
@@ -46,7 +55,7 @@ impl Context {
             .map_err(|e| Error::CustomError(e.to_string()))
     }
 
-    pub fn with_memory(mut self, memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>) -> Self {
+    pub fn with_memory(mut self, memory: Option<Arc<Mutex<Box<dyn MemoryProvider>>>>) -> Self {
         self.memory = memory;
         self
     }
@@ -80,7 +89,7 @@ impl Context {
         &self.messages
     }
 
-    pub fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>> {
+    pub fn memory(&self) -> Option<Arc<Mutex<Box<dyn MemoryProvider>>>> {
         self.memory.clone()
     }
 
@@ -92,12 +101,12 @@ impl Context {
         &self.config
     }
 
-    pub fn state(&self) -> Arc<RwLock<AgentState>> {
+    pub fn state(&self) -> Arc<Mutex<AgentState>> {
         self.state.clone()
     }
 
-    pub fn tx(&self) -> &mpsc::Sender<Event> {
-        &self.tx
+    pub fn tx(&self) -> mpsc::Sender<Event> {
+        self.tx.clone()
     }
 
     pub fn stream(&self) -> bool {
@@ -142,7 +151,7 @@ mod tests {
         let llm = Arc::new(MockLLMProvider);
         let (tx, _rx) = mpsc::channel(10);
         let memory = Box::new(SlidingWindowMemory::new(5));
-        let context = Context::new(llm, tx).with_memory(Some(Arc::new(RwLock::new(memory))));
+        let context = Context::new(llm, tx).with_memory(Some(Arc::new(Mutex::new(memory))));
 
         assert!(context.memory().is_some());
     }
@@ -178,7 +187,7 @@ mod tests {
             .build();
 
         let context = Context::new(llm, tx)
-            .with_memory(Some(Arc::new(RwLock::new(memory))))
+            .with_memory(Some(Arc::new(Mutex::new(memory))))
             .with_messages(vec![message])
             .with_stream(true);
 

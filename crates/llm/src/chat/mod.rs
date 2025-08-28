@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::pin::Pin;
 
 use async_trait::async_trait;
 use futures::stream::{Stream, StreamExt};
@@ -350,20 +351,21 @@ pub trait ChatProvider: Sync + Send {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError>;
 
-    /// Sends a streaming chat request to the provider with a sequence of messages.
+    /// Streams a chat request and returns a stream of response content chunks.
+    ///
+    /// This is the default simple streaming interface that yields only content.
+    /// For structured streaming responses (like tool calls), use `chat_stream_struct`.
     ///
     /// # Arguments
     ///
     /// * `messages` - The conversation history as a slice of chat messages
-    /// * `tools` - Tools for the lLM
-    /// * `json_schema` - Structured output schema
     ///
     /// # Returns
     ///
-    /// A stream of text tokens or an error
+    /// A stream of content chunks or an error
     async fn chat_stream(
         &self,
-        _messages: &[ChatMessage],
+        messages: &[ChatMessage],
         _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
@@ -397,33 +399,6 @@ pub trait ChatProvider: Sync + Send {
         Err(LLMError::Generic(
             "Structured streaming not supported for this provider".to_string(),
         ))
-    }
-
-    /// Get current memory contents if provider supports memory
-    async fn memory_contents(&self) -> Option<Vec<ChatMessage>> {
-        None
-    }
-
-    /// Summarizes a conversation history into a concise 2-3 sentence summary
-    ///
-    /// # Arguments
-    /// * `msgs` - The conversation messages to summarize
-    ///
-    /// # Returns
-    /// A string containing the summary or an error if summarization fails
-    async fn summarize_history(&self, msgs: &[ChatMessage]) -> Result<String, LLMError> {
-        let prompt = format!(
-            "Summarize in 2-3 sentences:\n{}",
-            msgs.iter()
-                .map(|m| format!("{:?}: {}", m.role, m.content))
-                .collect::<Vec<_>>()
-                .join("\n"),
-        );
-        let req = [ChatMessage::user().content(prompt).build()];
-        self.chat(&req, None, None)
-            .await?
-            .text()
-            .ok_or(LLMError::Generic("no text in summary response".into()))
     }
 }
 
@@ -523,6 +498,7 @@ impl ChatMessageBuilder {
 /// # Returns
 ///
 /// A pinned stream of text tokens or an error
+#[cfg(not(target_arch = "wasm32"))]
 #[allow(dead_code)]
 pub(crate) fn create_sse_stream<F>(
     response: reqwest::Response,
@@ -551,6 +527,7 @@ where
     Box::pin(stream)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod utils {
     use crate::error::LLMError;
     use reqwest::Response;

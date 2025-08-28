@@ -3,6 +3,7 @@ use autoagents_llm::{chat::ChatMessage, error::LLMError};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::broadcast;
 
 mod sliding_window;
@@ -840,7 +841,13 @@ pub trait MemoryProvider: Send + Sync {
     fn replace_with_summary(&mut self, _summary: String) {}
 
     /// Get a receiver for reactive events if this memory supports them
+    #[cfg(not(target_arch = "wasm32"))]
     fn get_event_receiver(&self) -> Option<broadcast::Receiver<MessageEvent>> {
+        None
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn get_event_receiver(&self) -> Option<()> {
         None
     }
 

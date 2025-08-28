@@ -1,23 +1,32 @@
-mod base;
-mod builder;
+// Runtime-independent modules (available on all platforms)
 mod config;
-mod context;
-mod error;
-mod executor;
+pub mod error;
 pub mod memory;
 mod output;
-pub mod prebuilt;
 mod protocol;
-mod runnable;
 pub mod task;
 
-pub use base::{AgentDeriveT, AgentHandle, BaseAgent};
-pub use builder::AgentBuilder;
+pub mod prebuilt;
+
+// Exports for all platforms
 pub use config::AgentConfig;
-pub use context::Context;
 pub use error::AgentResultError;
-pub use error::{AgentBuildError, RunnableAgentError};
-pub use executor::{AgentExecutor, ExecutorConfig, TurnResult};
 pub use output::AgentOutputT;
 pub use protocol::AgentProtocol;
-pub use runnable::{AgentActor, AgentState, IntoRunnable, RunnableAgent};
+mod base;
+mod builder;
+mod context;
+mod executor;
+mod runnable;
+mod state;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use base::AgentHandle;
+pub use base::{AgentDeriveT, BaseAgent};
+pub use builder::AgentBuilder;
+pub use context::Context;
+pub use executor::{AgentExecutor, ExecutorConfig, TurnResult};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use runnable::AgentActor;
+pub use runnable::{IntoRunnable, RunnableAgent, RunnableAgentImpl};

@@ -1,12 +1,21 @@
+#[cfg(not(target_arch = "wasm32"))]
 use crate::actor::Topic;
+use crate::agent::error::AgentBuildError;
 use crate::agent::memory::MemoryProvider;
+#[cfg(target_arch = "wasm32")]
+use crate::agent::runnable::RunnableAgentImpl;
 use crate::agent::task::Task;
-use crate::agent::{
-    AgentActor, AgentBuildError, AgentDeriveT, AgentExecutor, AgentHandle, BaseAgent, IntoRunnable,
-};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::agent::{AgentActor, AgentHandle};
+use crate::agent::{AgentDeriveT, AgentExecutor, BaseAgent, IntoRunnable};
 use crate::error::Error;
+use crate::protocol::Event;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::runtime::{Runtime, TypedRuntime};
 use autoagents_llm::LLMProvider;
+#[cfg(target_arch = "wasm32")]
+use futures::SinkExt;
+#[cfg(not(target_arch = "wasm32"))]
 use ractor::Actor;
 use std::sync::Arc;
 
@@ -16,7 +25,9 @@ pub struct AgentBuilder<T: AgentDeriveT + AgentExecutor> {
     stream: bool,
     llm: Option<Arc<dyn LLMProvider>>,
     memory: Option<Box<dyn MemoryProvider>>,
+    #[cfg(not(target_arch = "wasm32"))]
     runtime: Option<Arc<dyn Runtime>>,
+    #[cfg(not(target_arch = "wasm32"))]
     subscribed_topics: Vec<Topic<Task>>,
 }
 
@@ -27,8 +38,10 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
             inner,
             llm: None,
             memory: None,
+            #[cfg(not(target_arch = "wasm32"))]
             runtime: None,
             stream: false,
+            #[cfg(not(target_arch = "wasm32"))]
             subscribed_topics: vec![],
         }
     }
@@ -50,11 +63,13 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
         self
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn subscribe_topic(mut self, topic: Topic<Task>) -> Self {
         self.subscribed_topics.push(topic);
         self
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     /// Build the BaseAgent and return a wrapper that includes the actor reference
     pub async fn build(self) -> Result<AgentHandle<T>, Error> {
         let llm = self.llm.ok_or(AgentBuildError::BuildFailure(
@@ -86,6 +101,35 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
         })
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn build_runnable(
+        self,
+    ) -> Result<
+        (
+            Arc<RunnableAgentImpl<T>>,
+            futures::channel::mpsc::Receiver<Event>,
+        ),
+        Error,
+    >
+    where
+        Error: From<AgentBuildError>,
+    {
+        // Ensure LLM provider exists
+        let llm = self
+            .llm
+            .ok_or_else(|| AgentBuildError::BuildFailure("LLM provider is required".to_string()))?;
+
+        // Create channel for events
+        let (tx, rx) = futures::channel::mpsc::channel::<Event>(100);
+
+        // Build BaseAgent and convert to runnable
+        let runnable =
+            BaseAgent::new(self.inner, llm, self.memory, tx, self.stream).into_runnable();
+
+        Ok((runnable, rx))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn runtime(mut self, runtime: Arc<dyn Runtime>) -> Self {
         self.runtime = Some(runtime);
         self

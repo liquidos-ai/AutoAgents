@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::error::Error;
 use std::fmt::Debug;
+use std::pin::Pin;
 use std::sync::Arc;
 
 /// Result of processing a single turn in the agent's execution
@@ -39,17 +40,14 @@ pub trait AgentExecutor: Send + Sync + 'static {
     type Output: Serialize + DeserializeOwned + Clone + Send + Sync + Into<Value> + Debug;
     type Error: Error + Send + Sync + 'static;
 
-    /// Get the configuration for this executor
     fn config(&self) -> ExecutorConfig;
 
-    /// Execute the agent with the given task
     async fn execute(
         &self,
         task: &Task,
         context: Arc<Context>,
     ) -> Result<Self::Output, Self::Error>;
 
-    /// Stream agent execution
     async fn execute_stream(
         &self,
         task: &Task,
@@ -61,7 +59,7 @@ pub trait AgentExecutor: Send + Sync + 'static {
         // Default fallback to self.execute with final result as a single-item stream
         let context_clone = context.clone();
         let result = self.execute(task, context_clone).await;
-        let stream = stream::once(async move { result });
+        let stream = futures::stream::iter(vec![result]);
         Ok(Box::pin(stream))
     }
 }
@@ -150,10 +148,7 @@ mod tests {
             &self,
             task: &Task,
             context: Arc<Context>,
-        ) -> Result<
-            std::pin::Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>,
-            Self::Error,
-        > {
+        ) -> Result<BoxStream<Result<Self::Output, Self::Error>>, Self::Error> {
             // Use the default implementation from the trait
             let context_clone = context.clone();
             let result = self.execute(task, context_clone).await;

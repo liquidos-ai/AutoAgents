@@ -27,7 +27,7 @@ pub enum EdgeError {
     Json(#[from] serde_json::Error),
 
     #[error("ONNX Runtime error: {0}")]
-    #[cfg(feature = "onnx")]
+    #[cfg(all(feature = "onnx", not(target_arch = "wasm32")))]
     OnnxRuntime(#[from] ort::Error),
 
     #[error("Runtime error: {0}")]
