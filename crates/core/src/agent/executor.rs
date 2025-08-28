@@ -148,7 +148,10 @@ mod tests {
             &self,
             task: &Task,
             context: Arc<Context>,
-        ) -> Result<BoxStream<Result<Self::Output, Self::Error>>, Self::Error> {
+        ) -> Result<
+            std::pin::Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>,
+            Self::Error,
+        > {
             // Use the default implementation from the trait
             let context_clone = context.clone();
             let result = self.execute(task, context_clone).await;

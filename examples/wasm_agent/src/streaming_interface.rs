@@ -12,6 +12,8 @@ use futures::StreamExt;
 use serde_json;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::{spawn_local, JsFuture};
+use web_sys;
 
 #[wasm_bindgen]
 pub struct TokenStreamer {
@@ -64,96 +66,32 @@ impl TokenStreamer {
                 console_log!("Agent stream started successfully");
                 console_log!("About to start consuming stream...");
 
+                // Process tokens one by one with proper yielding
+                let mut token_count = 0;
                 while let Some(result) = stream.next().await {
-                    console_log!("Got strem");
                     match result {
                         Ok(task_result) => {
                             console_log!("Received task result: {:?}", task_result);
 
                             match task_result {
                                 TaskResult::Value(val) => {
-                                    // Try to parse as ReActAgentOutput for streaming response
-                                    match serde_json::from_value::<ReActAgentOutput>(val.clone()) {
-                                        Ok(agent_out) => {
-                                            if !agent_out.done {
-                                                // Streaming response - send the token
-                                                console_log!(
-                                                    "Streaming response: {}",
-                                                    agent_out.response
-                                                );
-                                                let js_token =
-                                                    JsValue::from_str(&agent_out.response);
-                                                if let Err(e) =
-                                                    callback.call1(&JsValue::NULL, &js_token)
-                                                {
-                                                    console_log!("Callback error: {:?}", e);
-                                                    return Err(JsValue::from_str(
-                                                        "Callback failed",
-                                                    ));
-                                                }
-                                            } else {
-                                                // Final response - end streaming
-                                                console_log!(
-                                                    "Final response: {}",
-                                                    agent_out.response
-                                                );
-                                                let js_response =
-                                                    JsValue::from_str(&agent_out.response);
-                                                if let Err(e) =
-                                                    callback.call1(&JsValue::NULL, &js_response)
-                                                {
-                                                    console_log!("Callback error: {:?}", e);
-                                                    return Err(JsValue::from_str(
-                                                        "Callback failed",
-                                                    ));
-                                                }
-                                                break; // End streaming
-                                            }
+                                    // Handle streaming tokens from execute_stream
+                                    if let Some(token_str) = val.as_str() {
+                                        // Direct string token from execute_stream
+                                        console_log!("Streaming token: {}", token_str);
+                                        let js_token = JsValue::from_str(token_str);
+                                        if let Err(e) = callback.call1(&JsValue::NULL, &js_token) {
+                                            console_log!("Callback error: {:?}", e);
+                                            return Err(JsValue::from_str("Callback failed"));
                                         }
-                                        Err(_) => {
-                                            // Try to parse as MathAgentOutput (final structured output)
-                                            match serde_json::from_value::<MathAgentOutput>(
-                                                val.clone(),
-                                            ) {
-                                                Ok(math_out) => {
-                                                    console_log!(
-                                                        "Math output - Value: {}, Explanation: {}",
-                                                        math_out.value,
-                                                        math_out.explanation
-                                                    );
-                                                    let final_response = format!(
-                                                        "Value: {}\nExplanation: {}",
-                                                        math_out.value, math_out.explanation
-                                                    );
-                                                    let js_response =
-                                                        JsValue::from_str(&final_response);
-                                                    if let Err(e) =
-                                                        callback.call1(&JsValue::NULL, &js_response)
-                                                    {
-                                                        console_log!("Callback error: {:?}", e);
-                                                        return Err(JsValue::from_str(
-                                                            "Callback failed",
-                                                        ));
-                                                    }
-                                                    break; // End streaming
-                                                }
-                                                Err(e) => {
-                                                    console_log!("Failed to parse as any known output type: {:?}, raw value: {:?}", e, val);
-                                                    // Send raw value as fallback
-                                                    let response_str = val.to_string();
-                                                    let js_response =
-                                                        JsValue::from_str(&response_str);
-                                                    if let Err(e) =
-                                                        callback.call1(&JsValue::NULL, &js_response)
-                                                    {
-                                                        console_log!("Callback error: {:?}", e);
-                                                        return Err(JsValue::from_str(
-                                                            "Callback failed",
-                                                        ));
-                                                    }
-                                                    break;
-                                                }
-                                            }
+
+                                        // Yield every few tokens to prevent blocking
+                                        token_count += 1;
+                                        if token_count % 3 == 0 {
+                                            // Create a promise that resolves in next tick
+                                            let promise =
+                                                js_sys::Promise::resolve(&JsValue::undefined());
+                                            JsFuture::from(promise).await.ok();
                                         }
                                     }
                                 }

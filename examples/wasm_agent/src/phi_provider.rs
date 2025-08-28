@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
-/// Phi model provider for AutoAgents
+/// Phi-3 Mini model provider for AutoAgents
 pub struct PhiProvider {
     model: Arc<Mutex<Model>>,
     temperature: f64,
@@ -29,7 +29,7 @@ pub struct PhiProvider {
 }
 
 impl PhiProvider {
-    /// Create a new PhiProvider with a loaded model
+    /// Create a new PhiProvider with a loaded Phi-3 Mini model
     pub fn new(
         model: Model,
         temperature: Option<f64>,
@@ -47,9 +47,48 @@ impl PhiProvider {
             seed: seed.unwrap_or(42),
         }
     }
+
+    /// Format chat messages based on model type
+    fn format_chat_messages(&self, messages: &[ChatMessage]) -> String {
+        let mut formatted_prompt = String::new();
+
+        // Check if this is a Phi-1.5 model (base model) vs Phi-3 (instruct model)
+        // Phi-1.5 is a base model that continues text, so we format as Q&A
+        // Phi-3 uses ChatML-style format
+
+        // For now, assume it's Phi-1.5 and format as simple Q&A
+        // This is a simple heuristic - in a real implementation you'd check the model config
+
+        // Add a system prompt to make Phi-1.5 behave more like a conversational assistant
+        formatted_prompt.push_str(
+            "You are a helpful AI assistant. Answer questions clearly and concisely.\n\n",
+        );
+
+        for msg in messages {
+            match msg.role {
+                ChatRole::System => {
+                    // Already added above
+                }
+                ChatRole::User => {
+                    formatted_prompt.push_str(&format!("Human: {}\n", msg.content));
+                }
+                ChatRole::Assistant => {
+                    formatted_prompt.push_str(&format!("Assistant: {}\n", msg.content));
+                }
+                ChatRole::Tool => {
+                    formatted_prompt.push_str(&format!("Tool: {}\n", msg.content));
+                }
+            }
+        }
+
+        // Add the assistant prompt for the response
+        formatted_prompt.push_str("Assistant:");
+
+        formatted_prompt
+    }
 }
 
-/// Response structure for Phi chat responses
+/// Response structure for Phi-3 chat responses
 #[derive(Debug, Clone)]
 pub struct PhiChatResponse {
     pub text: Option<String>,
@@ -84,20 +123,8 @@ impl ChatProvider for PhiProvider {
         _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        // Convert messages to a single prompt string
-        let prompt = messages
-            .iter()
-            .map(|msg| {
-                let role = match msg.role {
-                    ChatRole::User => "User",
-                    ChatRole::Assistant => "Assistant",
-                    ChatRole::System => "System",
-                    ChatRole::Tool => "Tool",
-                };
-                format!("{}: {}", role, msg.content)
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+        // Convert messages to proper Phi-2 instruct format
+        let prompt = self.format_chat_messages(messages);
 
         let mut model_guard = self.model.lock().unwrap();
 
@@ -123,7 +150,7 @@ impl ChatProvider for PhiProvider {
             match model_guard.next_token() {
                 Ok(token) => {
                     console_log!("Generated token: {}", token);
-                    if token == "<|endoftext|>" || token.is_empty() {
+                    if token == "<|end|>" || token == "<|endoftext|>" || token.is_empty() {
                         break;
                     }
                     full_response.push_str(&token);
@@ -162,20 +189,8 @@ impl ChatProvider for PhiProvider {
         std::pin::Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>,
         LLMError,
     > {
-        // Convert messages to a single prompt string
-        let prompt = messages
-            .iter()
-            .map(|msg| {
-                let role = match msg.role {
-                    ChatRole::User => "User",
-                    ChatRole::Assistant => "Assistant",
-                    ChatRole::System => "System",
-                    ChatRole::Tool => "Tool",
-                };
-                format!("{}: {}", role, msg.content)
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+        // Convert messages to proper Phi-2 instruct format
+        let prompt = self.format_chat_messages(messages);
 
         // Clone the model Arc to use in the async stream
         let model_arc = Arc::clone(&self.model);
@@ -212,7 +227,10 @@ impl ChatProvider for PhiProvider {
                         ) {
                             Ok(initial_token) => {
                                 console_log!("Initial token: {}", initial_token);
-                                if initial_token == "<|endoftext|>" || initial_token.is_empty() {
+                                if initial_token == "<|end|>"
+                                    || initial_token == "<|endoftext|>"
+                                    || initial_token.is_empty()
+                                {
                                     return None;
                                 }
                                 Ok(initial_token)
@@ -227,7 +245,10 @@ impl ChatProvider for PhiProvider {
                         match model_guard.next_token() {
                             Ok(token) => {
                                 console_log!("Streamed token: {}", token);
-                                if token == "<|endoftext|>" || token.is_empty() {
+                                if token == "<|end|>"
+                                    || token == "<|endoftext|>"
+                                    || token.is_empty()
+                                {
                                     return None;
                                 }
                                 Ok(token)
@@ -300,7 +321,7 @@ impl CompletionProvider for PhiProvider {
         while token_count < max_tokens {
             match model_guard.next_token() {
                 Ok(token) => {
-                    if token == "<|endoftext|>" || token.is_empty() {
+                    if token == "<|end|>" || token == "<|endoftext|>" || token.is_empty() {
                         break;
                     }
                     full_response.push_str(&token);

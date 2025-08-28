@@ -1,9 +1,10 @@
 use crate::console_log;
+use candle_core::quantized::gguf_file;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
-use candle_transformers::models::mixformer::{Config, MixFormerSequentialForCausalLM as MixFormer};
-use candle_transformers::models::quantized_mixformer::MixFormerSequentialForCausalLM as QMixFormer;
+use candle_transformers::models::phi3::{Config as Phi3Config, Model as Phi3Model};
+use candle_transformers::models::quantized_phi3::ModelWeights as QPhi3Model;
 use js_sys::Date;
 use js_sys::Math::log;
 use serde::Deserialize;
@@ -11,8 +12,8 @@ use tokenizers::Tokenizer;
 use wasm_bindgen::prelude::*;
 
 enum SelectedModel {
-    MixFormer(MixFormer),
-    Quantized(QMixFormer),
+    Phi3(Phi3Model),
+    QuantizedPhi3(QPhi3Model),
 }
 
 #[wasm_bindgen]
@@ -44,48 +45,32 @@ impl Model {
         console_log!("loading model");
         let device = Device::Cpu;
         let name: ModelName = serde_json::from_slice(&config)?;
-        let config: Config = serde_json::from_slice(&config)?;
 
         console_log!("config loaded {:?}", name);
         let tokenizer =
             Tokenizer::from_bytes(&tokenizer).map_err(|m| JsError::new(&m.to_string()))?;
         let start = Date::now();
         console_log!("weights len: {:?}", weights.len());
-        let model = if quantized {
-            let vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf_buffer(
-                &weights, &device,
-            )?;
-            console_log!("weights loaded");
 
-            // Try new() first as some GGUF files might use layers.X structure
-            let model = match QMixFormer::new(&config, vb.clone()) {
-                Ok(model) => {
-                    console_log!("Successfully loaded with new() method");
-                    model
-                }
-                Err(e) => {
-                    console_log!("new() method failed: {:?}, trying new_v2", e);
-                    match QMixFormer::new_v2(&config, vb) {
-                        Ok(model) => {
-                            console_log!("Successfully loaded with new_v2() method");
-                            model
-                        }
-                        Err(e2) => {
-                            console_log!("Both new() and new_v2() failed. new() error: {:?}, new_v2() error: {:?}", e, e2);
-                            return Err(JsError::new(&format!(
-                                "Failed to load model with both methods. new(): {}, new_v2(): {}",
-                                e, e2
-                            )));
-                        }
-                    }
-                }
-            };
-            SelectedModel::Quantized(model)
+        // Load Phi-3 model
+        let phi3_config: Phi3Config = serde_json::from_slice(&config)?;
+        let model = if quantized {
+            console_log!("Loading quantized Phi-3 model from GGUF");
+            // Parse GGUF content for quantized models
+            let mut reader = std::io::Cursor::new(&weights);
+            let content = gguf_file::Content::read(&mut reader)
+                .map_err(|e| JsError::new(&format!("Failed to read GGUF content: {}", e)))?;
+
+            // QPhi3Model requires from_gguf method with flash_attn flag
+            let model = QPhi3Model::from_gguf(false, content, &mut reader, &device)
+                .map_err(|e| JsError::new(&format!("Failed to load quantized Phi-3: {}", e)))?;
+            console_log!("Quantized Phi-3 model loaded successfully");
+            SelectedModel::QuantizedPhi3(model)
         } else {
-            let device = &Device::Cpu;
-            let vb = VarBuilder::from_buffered_safetensors(weights, DType::F32, device)?;
-            let model = MixFormer::new(&config, vb)?;
-            SelectedModel::MixFormer(model)
+            console_log!("Loading non-quantized Phi-3 model");
+            let vb = VarBuilder::from_buffered_safetensors(weights, DType::F32, &device)?;
+            let model = Phi3Model::new(&phi3_config, vb)?;
+            SelectedModel::Phi3(model)
         };
         console_log!("model loaded in {:?}s", (Date::now() - start) / 1000.);
         let logits_processor = LogitsProcessor::new(299792458, None, None);
@@ -109,8 +94,8 @@ impl Model {
         seed: u64,
     ) -> Result<String, JsError> {
         match &mut self.model {
-            SelectedModel::MixFormer(m) => m.clear_kv_cache(),
-            SelectedModel::Quantized(m) => m.clear_kv_cache(),
+            SelectedModel::Phi3(m) => m.clear_kv_cache(),
+            SelectedModel::QuantizedPhi3(_) => {} // Not implemented yet
         };
         let temp = if temp <= 0. { None } else { Some(temp) };
         let top_p = if top_p <= 0. || top_p >= 1. {
@@ -148,8 +133,8 @@ impl Model {
         let dev = Device::Cpu;
         let input = Tensor::new(tokens, &dev)?.unsqueeze(0)?;
         let logits = match &mut self.model {
-            SelectedModel::MixFormer(m) => m.forward(&input)?,
-            SelectedModel::Quantized(m) => m.forward(&input)?,
+            SelectedModel::Phi3(m) => m.forward(&input, self.tokens.len())?,
+            SelectedModel::QuantizedPhi3(m) => m.forward(&input, self.tokens.len())?,
         };
         let logits = logits.squeeze(0)?.to_dtype(DType::F32)?;
         let logits = if self.repeat_penalty == 1. {
@@ -165,13 +150,13 @@ impl Model {
 
         let next_token = self.logits_processor.sample(&logits)?;
         self.tokens.push(next_token);
-        let token = match self.tokenizer.decode(&[next_token], false) {
-            Ok(token) => token,
-            Err(e) => {
+        let token = self
+            .tokenizer
+            .decode(&[next_token], false)
+            .unwrap_or_else(|e| {
                 console_log!("error decoding token: {:?}", e);
                 "".to_string()
-            }
-        };
+            });
         // console_log!("token: {:?}: {:?}", token, next_token);
         Ok(token)
     }

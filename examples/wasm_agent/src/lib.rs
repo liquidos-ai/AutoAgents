@@ -1,8 +1,12 @@
 #![allow(dead_code, unused_variables, unused_imports)]
+
 use crate::phi::Model;
 use crate::phi_provider::PhiProvider;
+use async_trait::async_trait;
 use autoagents::core::agent::memory::SlidingWindowMemory;
-use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::prebuilt::executor::{
+    ReActAgentOutput, ReActExecutor, ReActExecutorError,
+};
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentExecutor};
 use autoagents::core::agent::{
@@ -17,8 +21,10 @@ use autoagents::llm::chat::{ChatMessage, ChatRole, MessageType, StructuredOutput
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
 use futures::channel::mpsc::Receiver;
+use futures::{Stream, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::pin::Pin;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
@@ -90,19 +96,86 @@ pub struct MathAgentOutput {
 #[wasm_bindgen]
 pub struct MathAgent {}
 
-impl ReActExecutor for MathAgent {}
-//
-// impl AgentExecutor for MathAgent {
-//     type Output = String;
-//     type Error = String;
-//
-//     fn config(&self) -> ExecutorConfig {
-//         todo!()
-//     }
-//     async fn execute(&self, task: &Task, context: Arc<Context>) -> Result<Self::Output, Self::Error> {
-//         todo!()
-//     }
-//     async fn execute_stream(&self, task: &Task, context: Arc<Context>) -> Result<BoxStream<Result<Self::Output, Self::Error>>, Self::Error> {
-//         todo!()
-//     }
-// }
+// impl ReActExecutor for MathAgent {}
+
+#[async_trait]
+impl AgentExecutor for MathAgent {
+    type Output = String;
+    type Error = Error;
+
+    fn config(&self) -> ExecutorConfig {
+        ExecutorConfig { max_turns: 10 }
+    }
+
+    async fn execute(
+        &self,
+        task: &Task,
+        context: Arc<Context>,
+    ) -> Result<Self::Output, Self::Error> {
+        console_log!("Running Execution");
+        let prompt = task.prompt.clone();
+        let llm = context.llm().clone();
+        let mut stream = llm
+            .chat_stream(
+                &vec![ChatMessage {
+                    role: ChatRole::System,
+                    message_type: MessageType::Text,
+                    content: prompt,
+                }],
+                None,
+                None,
+            )
+            .await?;
+        while let Some(chunk_result) = stream.next().await {
+            match chunk_result {
+                Ok(chunk) => {
+                    console_log!("Chunk: {:?}", chunk);
+                }
+                _ => {}
+            }
+        }
+        Ok("Hello world!".into())
+    }
+
+    async fn execute_stream(
+        &self,
+        task: &Task,
+        context: Arc<Context>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>, Self::Error>
+    {
+        console_log!("Running Execution Stream");
+        let prompt = task.prompt.clone();
+        let llm = context.llm().clone();
+        let stream = llm
+            .chat_stream_struct(
+                &vec![ChatMessage {
+                    role: ChatRole::System,
+                    message_type: MessageType::Text,
+                    content: prompt,
+                }],
+                None,
+                None,
+            )
+            .await?;
+
+        let output_stream = stream.map(|chunk_result| {
+            match chunk_result {
+                Ok(chunk) => {
+                    // Extract the actual text content from StreamResponse
+                    let content = chunk
+                        .choices
+                        .into_iter()
+                        .filter_map(|choice| choice.delta.content)
+                        .collect::<Vec<String>>()
+                        .join("");
+
+                    console_log!("Token: {}", content);
+                    Ok(content)
+                }
+                Err(e) => Err(Error::from(e)),
+            }
+        });
+
+        Ok(Box::pin(output_stream))
+    }
+}
