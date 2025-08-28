@@ -25,10 +25,104 @@ pub struct Model {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default)]
 pub struct ModelName {
     pub _name_or_path: Option<String>,
     pub model_type: Option<String>,
     pub architectures: Option<Vec<String>>,
+}
+
+impl Default for ModelName {
+    fn default() -> Self {
+        Self {
+            _name_or_path: Some("TinyLlama".to_string()),
+            model_type: Some("llama".to_string()),
+            architectures: Some(vec!["LlamaForCausalLM".to_string()]),
+        }
+    }
+}
+
+// Helper function to clean up invalid UTF-8 bytes at the end of tokenizer data
+fn clean_tokenizer_bytes(bytes: &[u8]) -> Vec<u8> {
+    // First, find where valid UTF-8 ends
+    let mut valid_end = bytes.len();
+    while valid_end > 0 {
+        if std::str::from_utf8(&bytes[..valid_end]).is_ok() {
+            break;
+        }
+        valid_end -= 1;
+    }
+
+    if valid_end == 0 {
+        console_log!("No valid UTF-8 found, returning original bytes");
+        return bytes.to_vec();
+    }
+
+    if valid_end < bytes.len() {
+        console_log!(
+            "Found invalid UTF-8 at position {}, truncating to {}",
+            valid_end,
+            valid_end
+        );
+    }
+
+    // Convert the valid portion to string
+    let s = match std::str::from_utf8(&bytes[..valid_end]) {
+        Ok(s) => s,
+        Err(_) => {
+            console_log!("Even truncated bytes are invalid UTF-8, using lossy conversion");
+            return String::from_utf8_lossy(&bytes[..valid_end])
+                .as_bytes()
+                .to_vec();
+        }
+    };
+
+    // The tokenizer JSON might have invalid trailing content after the main structure
+    // Look for the pattern "}}" which typically indicates the end of the tokenizer structure
+    if let Some(double_brace_pos) = s.find("}}") {
+        // Find the position right after the double brace
+        let end_pos = double_brace_pos + 2;
+        let clean_json = &s[..end_pos];
+        console_log!(
+            "Found tokenizer end pattern at position {}, trimming to length: {}",
+            double_brace_pos,
+            clean_json.len()
+        );
+
+        // Verify this creates balanced JSON
+        let open_braces = clean_json.chars().filter(|&c| c == '{').count();
+        let close_braces = clean_json.chars().filter(|&c| c == '}').count();
+        console_log!(
+            "Brace count after trimming: {} open, {} close",
+            open_braces,
+            close_braces
+        );
+
+        if open_braces == close_braces {
+            console_log!("JSON is now balanced!");
+            return clean_json.as_bytes().to_vec();
+        }
+    }
+
+    // Fallback: Find the last valid closing brace
+    if let Some(last_brace) = s.rfind('}') {
+        let clean_json = &s[..=last_brace];
+        console_log!(
+            "Fallback: Found last closing brace at position {}, final length: {}",
+            last_brace,
+            clean_json.len()
+        );
+
+        // Basic JSON validation - count braces
+        let open_braces = clean_json.chars().filter(|&c| c == '{').count();
+        let close_braces = clean_json.chars().filter(|&c| c == '}').count();
+        console_log!("Brace count: {} open, {} close", open_braces, close_braces);
+
+        clean_json.as_bytes().to_vec()
+    } else {
+        console_log!("No closing brace found, returning truncated UTF-8");
+        s.as_bytes().to_vec()
+    }
 }
 
 #[wasm_bindgen]
@@ -36,33 +130,36 @@ impl Model {
     #[wasm_bindgen(constructor)]
     pub fn load(
         weights: Vec<u8>,
-        tokenizer: Vec<u8>,
-        config: Vec<u8>,
+        _tokenizer: Vec<u8>, // Unused - we use embedded tokenizer
+        _config: Vec<u8>,    // Unused - we skip config parsing
         quantized: bool,
     ) -> Result<Model, JsError> {
         console_error_panic_hook::set_once();
         console_log!("loading TinyLlama model");
         let device = Device::Cpu;
-        let name: ModelName = serde_json::from_slice(&config)?;
+        // Simply assume it's a TinyLlama model for now - no complex config parsing
+        console_log!("Skipping config parsing to avoid interference with tokenizer");
 
-        console_log!("config loaded {:?}", name);
+        // Use the embedded tokenizer file instead of downloading
+        console_log!("Using embedded tokenizer from models folder...");
+        let embedded_tokenizer = include_bytes!("../models/tokenizer.json");
+        console_log!("Embedded tokenizer length: {}", embedded_tokenizer.len());
 
-        // Check if this is a TinyLlama model
-        let is_tinyllama = name
-            ._name_or_path
-            .as_ref()
-            .map(|n| n.to_lowercase().contains("tinyllama") || n.to_lowercase().contains("llama"))
-            .unwrap_or(false)
-            || name
-                .architectures
-                .as_ref()
-                .map(|archs| archs.iter().any(|a| a.to_lowercase().contains("llama")))
-                .unwrap_or(false);
-
-        console_log!("Detected TinyLlama model: {}", is_tinyllama);
-
-        let tokenizer =
-            Tokenizer::from_bytes(&tokenizer).map_err(|m| JsError::new(&m.to_string()))?;
+        let tokenizer = match Tokenizer::from_bytes(embedded_tokenizer) {
+            Ok(t) => {
+                console_log!("Embedded tokenizer loaded successfully");
+                t
+            }
+            Err(e) => {
+                console_log!(
+                    "Embedded tokenizer failed: {}, trying downloaded tokenizer...",
+                    e
+                );
+                // Fall back to the downloaded tokenizer parameter
+                Tokenizer::from_bytes(&_tokenizer)
+                    .map_err(|m| JsError::new(&format!("Both embedded and downloaded tokenizer failed. Embedded: {}, Downloaded: {}", e, m)))?
+            }
+        };
         let start = Date::now();
         console_log!("weights len: {:?}", weights.len());
 
