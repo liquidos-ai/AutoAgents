@@ -1,7 +1,4 @@
 #![allow(dead_code, unused_variables, unused_imports)]
-
-use crate::llama::Model;
-use crate::llama_provider::LlamaProvider;
 use async_trait::async_trait;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{

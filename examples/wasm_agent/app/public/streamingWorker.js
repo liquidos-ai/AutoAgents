@@ -193,11 +193,25 @@ const loadModel = async (modelConfig) => {
             downloadFile(modelConfig.config, 'config')
         ]);
         
-        // Parse and fix config for Phi-3 models
+        // Parse and fix both config and tokenizer files
         let modelData;
         try {
             const configText = new TextDecoder().decode(new Uint8Array(configBuffer));
             const configJson = JSON.parse(configText);
+            
+            // Parse and fix tokenizer configuration
+            const tokenizerText = new TextDecoder().decode(new Uint8Array(tokenizerBuffer));
+            const tokenizerJson = JSON.parse(tokenizerText);
+            
+            // Fix tokenizer configuration - add missing _name_or_path field
+            if (!tokenizerJson._name_or_path) {
+                // Use the model config's _name_or_path or generate a default one
+                tokenizerJson._name_or_path = configJson._name_or_path || configJson.name_or_path || modelConfig.name || "TinyLlama/TinyLlama-1.1B-Chat-v1.0";
+                console.log('Added missing _name_or_path to tokenizer:', tokenizerJson._name_or_path);
+            }
+            
+            // Convert fixed tokenizer back to bytes
+            const fixedTokenizerBytes = new TextEncoder().encode(JSON.stringify(tokenizerJson));
             
             // Add missing fields for Phi models (Candle expects different field names)
             if (configJson.model_type === 'phi3' || configJson.model_type === 'phi' || configJson.model_type === 'phi-msft' || configJson._name_or_path?.includes('phi')) {
@@ -313,10 +327,10 @@ const loadModel = async (modelConfig) => {
             // Initialize model with downloaded and fixed data
             modelData = {
                 weights: new Uint8Array(weightsBuffer),
-                tokenizer: new Uint8Array(tokenizerBuffer),
+                tokenizer: fixedTokenizerBytes,
                 config: fixedConfigBytes,
                 quantized: modelConfig.quantized,
-                modelType: modelConfig.modelType || 'phi3'
+                modelType: modelConfig.modelType || 'tinyllama'
             };
         } catch (error) {
             console.error('Failed to parse or fix config:', error);
