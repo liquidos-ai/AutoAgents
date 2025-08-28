@@ -199,28 +199,48 @@ const loadModel = async (modelConfig) => {
             const configText = new TextDecoder().decode(new Uint8Array(configBuffer));
             const configJson = JSON.parse(configText);
             
-            // Add missing fields for Phi-3 models (Candle expects different field names)
-            if (configJson.model_type === 'phi3') {
-                console.log('Fixing Phi-3 config field names for Candle compatibility');
+            // Add missing fields for Phi models (Candle expects different field names)
+            if (configJson.model_type === 'phi3' || configJson.model_type === 'phi' || configJson.model_type === 'phi-msft' || configJson._name_or_path?.includes('phi')) {
+                console.log('Fixing Phi config field names for Candle compatibility, model type:', configJson.model_type, 'name:', configJson._name_or_path);
+                console.log('Original config fields:', Object.keys(configJson));
                 
-                // n_positions mapping
+                // n_positions mapping (max_position_embeddings <-> n_positions)
                 if (!configJson.n_positions && configJson.max_position_embeddings) {
                     configJson.n_positions = configJson.max_position_embeddings;
                 }
+                if (!configJson.max_position_embeddings && configJson.n_positions) {
+                    configJson.max_position_embeddings = configJson.n_positions;
+                }
                 
-                // n_embd mapping (hidden_size -> n_embd)
+                // n_embd mapping (hidden_size <-> n_embd)
                 if (!configJson.n_embd && configJson.hidden_size) {
                     configJson.n_embd = configJson.hidden_size;
                 }
+                // Reverse mapping: ensure hidden_size exists if n_embd does
+                if (!configJson.hidden_size && configJson.n_embd) {
+                    configJson.hidden_size = configJson.n_embd;
+                }
                 
-                // n_head mapping  
+                // n_head mapping (num_attention_heads <-> n_head)
                 if (!configJson.n_head && configJson.num_attention_heads) {
                     configJson.n_head = configJson.num_attention_heads;
                 }
+                if (!configJson.num_attention_heads && configJson.n_head) {
+                    configJson.num_attention_heads = configJson.n_head;
+                }
                 
-                // n_layer mapping
+                // num_key_value_heads - for Phi models without GQA, this equals num_attention_heads
+                if (!configJson.num_key_value_heads) {
+                    configJson.num_key_value_heads = configJson.num_attention_heads || configJson.n_head;
+                    console.log('Set num_key_value_heads to:', configJson.num_key_value_heads);
+                }
+                
+                // n_layer mapping (num_hidden_layers <-> n_layer)
                 if (!configJson.n_layer && configJson.num_hidden_layers) {
                     configJson.n_layer = configJson.num_hidden_layers;
+                }
+                if (!configJson.num_hidden_layers && configJson.n_layer) {
+                    configJson.num_hidden_layers = configJson.n_layer;
                 }
                 
                 // rotary_dim mapping (typically n_embd / n_head for Phi models)
@@ -228,14 +248,27 @@ const loadModel = async (modelConfig) => {
                     configJson.rotary_dim = Math.floor(configJson.n_embd / configJson.n_head);
                 }
                 
-                // activation_function mapping (hidden_act -> activation_function)
+                // activation_function mapping (hidden_act <-> activation_function)
                 if (!configJson.activation_function && configJson.hidden_act) {
                     configJson.activation_function = configJson.hidden_act;
+                }
+                // Reverse mapping: if activation_function exists but hidden_act doesn't
+                if (!configJson.hidden_act && configJson.activation_function) {
+                    configJson.hidden_act = configJson.activation_function;
                 }
                 
                 // Add other potentially missing fields
                 if (!configJson.n_inner && configJson.intermediate_size) {
                     configJson.n_inner = configJson.intermediate_size;
+                }
+                if (!configJson.intermediate_size && configJson.n_inner) {
+                    configJson.intermediate_size = configJson.n_inner;
+                }
+                // If both are missing, calculate intermediate_size (typically 4 * hidden_size for Phi models)
+                if (!configJson.intermediate_size && !configJson.n_inner && configJson.hidden_size) {
+                    configJson.intermediate_size = configJson.hidden_size * 4;
+                    configJson.n_inner = configJson.intermediate_size;
+                    console.log('Calculated intermediate_size:', configJson.intermediate_size);
                 }
                 
                 // layer_norm_epsilon mapping (rms_norm_eps -> layer_norm_epsilon)
@@ -249,13 +282,20 @@ const loadModel = async (modelConfig) => {
                 }
                 
                 console.log('Added Candle compatibility fields:', {
-                    n_positions: configJson.n_positions,
+                    hidden_size: configJson.hidden_size,
                     n_embd: configJson.n_embd,
+                    num_attention_heads: configJson.num_attention_heads,
+                    num_key_value_heads: configJson.num_key_value_heads,
                     n_head: configJson.n_head,
+                    num_hidden_layers: configJson.num_hidden_layers,
                     n_layer: configJson.n_layer,
-                    rotary_dim: configJson.rotary_dim,
-                    activation_function: configJson.activation_function,
+                    max_position_embeddings: configJson.max_position_embeddings,
+                    n_positions: configJson.n_positions,
+                    intermediate_size: configJson.intermediate_size,
                     n_inner: configJson.n_inner,
+                    hidden_act: configJson.hidden_act,
+                    activation_function: configJson.activation_function,
+                    rotary_dim: configJson.rotary_dim,
                     layer_norm_epsilon: configJson.layer_norm_epsilon,
                     pad_vocab_size_multiple: configJson.pad_vocab_size_multiple
                 });

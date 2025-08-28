@@ -1,5 +1,5 @@
-use crate::phi::Model;
-use crate::phi_provider::PhiProvider;
+use crate::llama::Model;
+use crate::llama_provider::LlamaProvider;
 use crate::{console_log, MathAgent, MathAgentOutput};
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
@@ -35,10 +35,17 @@ impl TokenStreamer {
             .map_err(|e| JsValue::from_str(&format!("Failed to load model: {:?}", e)))?;
 
         let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
-        let phi_provider = PhiProvider::new(model, Some(0.7), Some(0.9), Some(1.0), Some(42), None);
+        let llama_provider = LlamaProvider::new(
+            model,
+            Some(0.8),
+            Some(0.95),
+            Some(1.1),
+            Some(64),
+            Some(12345),
+        );
 
         let (agent, rx) = AgentBuilder::new(MathAgent {})
-            .with_llm(Arc::new(phi_provider))
+            .with_llm(Arc::new(llama_provider))
             .with_memory(sliding_window_memory)
             .stream(true)
             .build_runnable()

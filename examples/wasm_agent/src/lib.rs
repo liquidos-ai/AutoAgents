@@ -1,7 +1,7 @@
 #![allow(dead_code, unused_variables, unused_imports)]
 
-use crate::phi::Model;
-use crate::phi_provider::PhiProvider;
+use crate::llama::Model;
+use crate::llama_provider::LlamaProvider;
 use async_trait::async_trait;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{
@@ -28,8 +28,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
-mod phi;
-pub mod phi_provider;
+mod llama;
+pub mod llama_provider;
 pub mod streaming_interface;
 pub use streaming_interface::TokenStreamer;
 

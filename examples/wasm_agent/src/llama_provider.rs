@@ -1,5 +1,5 @@
 use crate::console_log;
-use crate::phi::Model;
+use crate::llama::Model;
 use async_trait::async_trait;
 use autoagents::llm::{
     chat::{
@@ -18,8 +18,8 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
-/// Phi-3 Mini model provider for AutoAgents
-pub struct PhiProvider {
+/// TinyLlama model provider for AutoAgents
+pub struct LlamaProvider {
     model: Arc<Mutex<Model>>,
     temperature: f64,
     top_p: f64,
@@ -28,8 +28,8 @@ pub struct PhiProvider {
     seed: u64,
 }
 
-impl PhiProvider {
-    /// Create a new PhiProvider with a loaded Phi-3 Mini model
+impl LlamaProvider {
+    /// Create a new LlamaProvider with a loaded TinyLlama model
     pub fn new(
         model: Model,
         temperature: Option<f64>,
@@ -48,54 +48,48 @@ impl PhiProvider {
         }
     }
 
-    /// Format chat messages based on model type
+    /// Format chat messages for TinyLlama (simple format)
     fn format_chat_messages(&self, messages: &[ChatMessage]) -> String {
         let mut formatted_prompt = String::new();
 
-        // Check if this is a Phi-1.5 model (base model) vs Phi-3 (instruct model)
-        // Phi-1.5 is a base model that continues text, so we format as Q&A
-        // Phi-3 uses ChatML-style format
-
-        // For now, assume it's Phi-1.5 and format as simple Q&A
-        // This is a simple heuristic - in a real implementation you'd check the model config
-
-        // Add a system prompt to make Phi-1.5 behave more like a conversational assistant
+        // TinyLlama uses a simple conversational format
         formatted_prompt.push_str(
-            "You are a helpful AI assistant. Answer questions clearly and concisely.\n\n",
+            "<|system|>\nYou are a helpful AI assistant. Answer questions clearly and concisely.\n",
         );
 
+        // Process messages in order
         for msg in messages {
             match msg.role {
                 ChatRole::System => {
-                    // Already added above
+                    // Replace default system message with custom one
+                    formatted_prompt = format!("<|system|>\n{}\n", msg.content);
                 }
                 ChatRole::User => {
-                    formatted_prompt.push_str(&format!("Human: {}\n", msg.content));
+                    formatted_prompt.push_str(&format!("<|user|>\n{}\n", msg.content));
                 }
                 ChatRole::Assistant => {
-                    formatted_prompt.push_str(&format!("Assistant: {}\n", msg.content));
+                    formatted_prompt.push_str(&format!("<|assistant|>\n{}\n", msg.content));
                 }
                 ChatRole::Tool => {
-                    formatted_prompt.push_str(&format!("Tool: {}\n", msg.content));
+                    formatted_prompt.push_str(&format!("<|user|>\nTool result: {}\n", msg.content));
                 }
             }
         }
 
-        // Add the assistant prompt for the response
-        formatted_prompt.push_str("Assistant:");
-
+        // Add assistant prompt for response
+        formatted_prompt.push_str("<|assistant|>\n");
         formatted_prompt
     }
 }
 
-/// Response structure for Phi-3 chat responses
+/// Response structure for TinyLlama chat responses
 #[derive(Debug, Clone)]
-pub struct PhiChatResponse {
+pub struct LlamaChatResponse {
     pub text: Option<String>,
     pub usage: Option<Usage>,
 }
 
-impl ChatResponse for PhiChatResponse {
+impl ChatResponse for LlamaChatResponse {
     fn text(&self) -> Option<String> {
         self.text.clone()
     }
@@ -109,21 +103,22 @@ impl ChatResponse for PhiChatResponse {
     }
 }
 
-impl std::fmt::Display for PhiChatResponse {
+impl std::fmt::Display for LlamaChatResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.text.as_deref().unwrap_or(""))
     }
 }
 
+/// TODO: Does not support tool calling
 #[async_trait]
-impl ChatProvider for PhiProvider {
+impl ChatProvider for LlamaProvider {
     async fn chat(
         &self,
         messages: &[ChatMessage],
         _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        // Convert messages to proper Phi-2 instruct format
+        // Convert messages to proper TinyLlama format
         let prompt = self.format_chat_messages(messages);
 
         let mut model_guard = self.model.lock().unwrap();
@@ -150,7 +145,14 @@ impl ChatProvider for PhiProvider {
             match model_guard.next_token() {
                 Ok(token) => {
                     console_log!("Generated token: {}", token);
-                    if token == "<|end|>" || token == "<|endoftext|>" || token.is_empty() {
+                    // Check for any stop tokens
+                    if token == "</s>"
+                        || token == "<|endoftext|>"
+                        || token.is_empty()
+                        || token.contains("<|user|>")
+                        || token.contains("<|system|>")
+                        || token.contains("<|assistant|>")
+                    {
                         break;
                     }
                     full_response.push_str(&token);
@@ -173,7 +175,7 @@ impl ChatProvider for PhiProvider {
             prompt_tokens_details: None,
         };
 
-        Ok(Box::new(PhiChatResponse {
+        Ok(Box::new(LlamaChatResponse {
             text: Some(full_response),
             usage: Some(usage),
         }))
@@ -189,7 +191,7 @@ impl ChatProvider for PhiProvider {
         std::pin::Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>,
         LLMError,
     > {
-        // Convert messages to proper Phi-2 instruct format
+        // Convert messages to proper TinyLlama format
         let prompt = self.format_chat_messages(messages);
 
         // Clone the model Arc to use in the async stream
@@ -227,7 +229,7 @@ impl ChatProvider for PhiProvider {
                         ) {
                             Ok(initial_token) => {
                                 console_log!("Initial token: {}", initial_token);
-                                if initial_token == "<|end|>"
+                                if initial_token == "</s>"
                                     || initial_token == "<|endoftext|>"
                                     || initial_token.is_empty()
                                 {
@@ -245,10 +247,7 @@ impl ChatProvider for PhiProvider {
                         match model_guard.next_token() {
                             Ok(token) => {
                                 console_log!("Streamed token: {}", token);
-                                if token == "<|end|>"
-                                    || token == "<|endoftext|>"
-                                    || token.is_empty()
-                                {
+                                if token == "</s>" || token == "<|endoftext|>" || token.is_empty() {
                                     return None;
                                 }
                                 Ok(token)
@@ -266,7 +265,7 @@ impl ChatProvider for PhiProvider {
 
                 match result {
                     Ok(token) => {
-                        console_log!("Phi provider yielding token to stream: '{}'", token);
+                        console_log!("Llama provider yielding token to stream: '{}'", token);
                         let stream_response = StreamResponse {
                             choices: vec![StreamChoice {
                                 delta: StreamDelta {
@@ -292,7 +291,7 @@ impl ChatProvider for PhiProvider {
 }
 
 #[async_trait]
-impl CompletionProvider for PhiProvider {
+impl CompletionProvider for LlamaProvider {
     async fn complete(
         &self,
         req: &CompletionRequest,
@@ -321,7 +320,14 @@ impl CompletionProvider for PhiProvider {
         while token_count < max_tokens {
             match model_guard.next_token() {
                 Ok(token) => {
-                    if token == "<|end|>" || token == "<|endoftext|>" || token.is_empty() {
+                    // Check for any stop tokens
+                    if token == "</s>"
+                        || token == "<|endoftext|>"
+                        || token.is_empty()
+                        || token.contains("<|user|>")
+                        || token.contains("<|system|>")
+                        || token.contains("<|assistant|>")
+                    {
                         break;
                     }
                     full_response.push_str(&token);
@@ -343,15 +349,15 @@ impl CompletionProvider for PhiProvider {
 }
 
 #[async_trait]
-impl EmbeddingProvider for PhiProvider {
+impl EmbeddingProvider for LlamaProvider {
     async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
         Err(LLMError::Generic(
-            "Phi model does not support embeddings".to_string(),
+            "TinyLlama model does not support embeddings".to_string(),
         ))
     }
 }
 
 #[async_trait]
-impl ModelsProvider for PhiProvider {}
+impl ModelsProvider for LlamaProvider {}
 
-impl LLMProvider for PhiProvider {}
+impl LLMProvider for LlamaProvider {}

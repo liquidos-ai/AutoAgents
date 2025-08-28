@@ -6,7 +6,7 @@ import type {Route} from "./+types/home";
 export function meta({}: Route.MetaArgs) {
     return [
         {title: "AutoAgents WASM Demo"},
-        {name: "description", content: "AutoAgents with Phi Model running in WASM"},
+        {name: "description", content: "AutoAgents with TinyLlama running in WASM"},
     ];
 }
 
@@ -35,30 +35,38 @@ export default function Home() {
     const [isGenerating, setIsGenerating] = useState(false);
     const [currentStreamingContent, setCurrentStreamingContent] = useState<string>("");
     const [error, setError] = useState<string>("");
-    const [selectedModel, setSelectedModel] = useState<string>("phi_1_5_q4k");
+    const [selectedModel, setSelectedModel] = useState<string>("tinyllama_1_1b_q4_0");
     const [worker, setWorker] = useState<Worker | null>(null);
     const [cacheStatus, setCacheStatus] = useState<string>("");
 
-    // Model configurations - Working models only
+    // Model configurations - TinyLlama models only
     const MODELS = {
-        phi_1_5_q4k: {
-            name: "Phi 1.5 Q4K (800 MB) - Reliable",
-            base_url: "https://huggingface.co/lmz/candle-quantized-phi/resolve/main/",
-            weights: "https://huggingface.co/lmz/candle-quantized-phi/resolve/main/model-q4k.gguf",
-            tokenizer: "https://huggingface.co/lmz/candle-quantized-phi/resolve/main/tokenizer.json",
-            config: "https://huggingface.co/lmz/candle-quantized-phi/resolve/main/phi-1_5.json",
+        tinyllama_1_1b_q4_0: {
+            name: "TinyLlama 1.1B Q4_0 (637 MB) - Fast",
+            base_url: "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/",
+            weights: "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_0.gguf",
+            tokenizer: "https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0/resolve/main/tokenizer.json",
+            config: "https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0/resolve/main/config.json",
             quantized: true,
-            size: "800 MB"
+            size: "637 MB"
         },
-        phi_3_mini_4k_gguf: {
-            name: "Phi-3 Mini 4K Instruct Q2_K (1.6 GB) - QuantFactory",
-            base_url: "https://huggingface.co/QuantFactory/Phi-3-mini-4k-instruct-GGUF/resolve/main/",
-            weights: "https://huggingface.co/QuantFactory/Phi-3-mini-4k-instruct-GGUF/resolve/main/Phi-3-mini-4k-instruct.Q2_K.gguf",
-            tokenizer: "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct/resolve/main/tokenizer.json",
-            config: "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct/resolve/main/config.json",
+        tinyllama_1_1b_q5_k_m: {
+            name: "TinyLlama 1.1B Q5_K_M (782 MB) - Balanced",
+            base_url: "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/",
+            weights: "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q5_K_M.gguf",
+            tokenizer: "https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0/resolve/main/tokenizer.json",
+            config: "https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0/resolve/main/config.json",
             quantized: true,
-            size: "1.6 GB",
-            modelType: "phi3"
+            size: "782 MB"
+        },
+        tinyllama_1_1b_q8_0: {
+            name: "TinyLlama 1.1B Q8_0 (1.1 GB) - High Quality",
+            base_url: "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/",
+            weights: "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q8_0.gguf",
+            tokenizer: "https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0/resolve/main/tokenizer.json",
+            config: "https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0/resolve/main/config.json",
+            quantized: true,
+            size: "1.1 GB"
         }
     };
 
@@ -512,7 +520,7 @@ export default function Home() {
                                         </div>
                                         <div>
                                             <h3 className="text-lg font-semibold text-white">
-                                                {MODELS[selectedModel].name.split(' ')[0]} Agent
+                                                TinyLlama Agent
                                             </h3>
                                             <p className="text-xs text-gray-300">
                                                 {isGenerating ? 'Processing...' : tokenStreamer ? 'Ready to assist' : 'Select and initialize a model'}

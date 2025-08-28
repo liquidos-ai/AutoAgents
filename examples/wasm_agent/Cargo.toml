@@ -21,7 +21,12 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true, features = ["v4", "js"] }
 wasm-bindgen-futures = "0.4.50"
-web-sys = { version = "0.3.77", features = ["Window", "Response", "Request", "RequestInit"] }
+web-sys = { version = "0.3.77", features = [
+    "Window",
+    "Response",
+    "Request",
+    "RequestInit",
+] }
 
 # Wasm specific crates.
 console_error_panic_hook = "0.1.7"
@@ -29,7 +34,9 @@ js-sys = "0.3.64"
 candle-core = "0.9.1"
 candle-nn = "0.9.1"
 candle-transformers = "0.9.1"
-tokenizers = { version = "0.21.4", default-features = false, features = ["unstable_wasm"] }
+tokenizers = { version = "0.21.4", default-features = false, features = [
+    "unstable_wasm",
+] }
 num-traits = "0.2.19"
 anyhow = "1.0.99"
 byteorder = "1.5.0"

@@ -1,7 +1,7 @@
 # WASM AGent Execution
 
 ```shell
-wasm-pack build --target web --out-dir pkg
+wasm-pack build --target web --out-dir ./app/pkg
 ```
 
 ```shell
