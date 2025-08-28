@@ -78,12 +78,8 @@ impl LlamaProvider {
                     formatted_prompt
                         .push_str(&format!("<|assistant|>\n{}{}", msg.content, EOS_TOKEN));
                 }
-                ChatRole::Tool => {
-                    // Treat tool results as user messages
-                    formatted_prompt.push_str(&format!(
-                        "<|user|>\nTool result: {}{}",
-                        msg.content, EOS_TOKEN
-                    ));
+                _ => {
+                    continue;
                 }
             }
         }
