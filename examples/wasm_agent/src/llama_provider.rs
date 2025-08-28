@@ -48,35 +48,51 @@ impl LlamaProvider {
         }
     }
 
-    /// Format chat messages for TinyLlama using proper chat template
+    /// Format chat messages using TinyLlama's official chat template
+    /// Template from HuggingFace: {{ '<|user|>\n' + message['content'] + eos_token }} etc.
     fn format_chat_messages(&self, messages: &[ChatMessage]) -> String {
         let mut formatted_prompt = String::new();
+        const EOS_TOKEN: &str = "</s>";
 
-        // Use TinyLlama's official chat template format
-        formatted_prompt.push_str("<|system|>\nYou are a friendly chatbot who always responds in a helpful and conversational manner. Keep your responses concise and natural.</s>\n");
+        // If no system message is provided, add a default one
+        let has_system = messages
+            .iter()
+            .any(|msg| matches!(msg.role, ChatRole::System));
+        if !has_system {
+            formatted_prompt.push_str(&format!("<|system|>\nYou are a helpful, friendly AI assistant. Respond naturally and conversationally to greetings and questions. Keep your responses concise and relevant.{}", EOS_TOKEN));
+        }
 
-        // Process messages in order
+        // Process messages in order using TinyLlama's official template
         for msg in messages {
             match msg.role {
                 ChatRole::System => {
-                    // Replace default system message with custom one
-                    formatted_prompt = format!("<|system|>\n{}</s>\n", msg.content);
+                    // <|system|>\n + content + eos_token
+                    formatted_prompt.push_str(&format!("<|system|>\n{}{}", msg.content, EOS_TOKEN));
                 }
                 ChatRole::User => {
-                    formatted_prompt.push_str(&format!("<|user|>\n{}</s>\n", msg.content));
+                    // <|user|>\n + content + eos_token
+                    formatted_prompt.push_str(&format!("<|user|>\n{}{}", msg.content, EOS_TOKEN));
                 }
                 ChatRole::Assistant => {
-                    formatted_prompt.push_str(&format!("<|assistant|>\n{}</s>\n", msg.content));
+                    // <|assistant|>\n + content + eos_token
+                    formatted_prompt
+                        .push_str(&format!("<|assistant|>\n{}{}", msg.content, EOS_TOKEN));
                 }
                 ChatRole::Tool => {
-                    formatted_prompt
-                        .push_str(&format!("<|user|>\nTool result: {}</s>\n", msg.content));
+                    // Treat tool results as user messages
+                    formatted_prompt.push_str(&format!(
+                        "<|user|>\nTool result: {}{}",
+                        msg.content, EOS_TOKEN
+                    ));
                 }
             }
         }
 
-        // Add assistant prompt for response generation
+        // Add assistant prompt for generation (add_generation_prompt=True)
+        // Add newline after <|assistant|> to match the pattern for content generation
         formatted_prompt.push_str("<|assistant|>\n");
+
+        console_log!("Generated prompt for TinyLlama: '{}'", formatted_prompt);
         formatted_prompt
     }
 }
@@ -145,24 +161,36 @@ impl ChatProvider for LlamaProvider {
                 Ok(token) => {
                     console_log!("Generated token: '{}'", token);
 
-                    // Clean up the token - remove special characters and malformed text
-                    let cleaned_token = token
-                        .replace("<|user|>", "")
-                        .replace("<|assistant|>", "")
-                        .replace("<|system|>", "")
-                        .replace("</s>", "")
-                        .replace("<|endoftext|>", "")
-                        .replace(">", "");
-
-                    // Check for stop conditions
+                    // Check for stop conditions first (before any cleaning)
                     if token == "</s>"
                         || token == "<|endoftext|>"
-                        || token.is_empty()
-                        || token.contains("<|user|>")
-                        || token.contains("<|system|>")
-                        || cleaned_token.is_empty()
+                        || token.starts_with("<|user|>")
+                        || token.starts_with("<|system|>")
+                        || token.starts_with("<|assistant|>")
                     {
+                        console_log!("Stop condition met, breaking generation");
                         break;
+                    }
+
+                    // Skip empty tokens but continue generation
+                    if token.is_empty() {
+                        console_log!("Empty token, skipping but continuing...");
+                        continue;
+                    }
+
+                    // Only clean up malformed partial tokens, not complete content
+                    let cleaned_token = if token.contains("<|") && !token.starts_with("<|") {
+                        // Remove partial special tokens that might appear mid-generation
+                        token
+                            .replace("<|user|>", "")
+                            .replace("<|assistant|>", "")
+                            .replace("<|system|>", "")
+                    } else {
+                        token
+                    };
+
+                    if cleaned_token.is_empty() {
+                        continue;
                     }
 
                     full_response.push_str(&cleaned_token);
@@ -240,22 +268,51 @@ impl ChatProvider for LlamaProvider {
                             Ok(initial_token) => {
                                 console_log!("Initial token: '{}'", initial_token);
 
-                                // Clean up the initial token
-                                let cleaned_token = initial_token
-                                    .replace("<|user|>", "")
-                                    .replace("<|assistant|>", "")
-                                    .replace("<|system|>", "")
-                                    .replace("</s>", "")
-                                    .replace("<|endoftext|>", "")
-                                    .replace(">", "");
-
+                                // Check for stop conditions first
                                 if initial_token == "</s>"
                                     || initial_token == "<|endoftext|>"
-                                    || initial_token.is_empty()
-                                    || initial_token.contains("<|user|>")
-                                    || initial_token.contains("<|system|>")
-                                    || cleaned_token.is_empty()
+                                    || initial_token.starts_with("<|user|>")
+                                    || initial_token.starts_with("<|system|>")
+                                    || initial_token.starts_with("<|assistant|>")
                                 {
+                                    console_log!(
+                                        "Stop condition met for initial token: '{}'",
+                                        initial_token
+                                    );
+                                    return None;
+                                }
+
+                                // Skip empty tokens but don't stop the stream
+                                if initial_token.is_empty() {
+                                    console_log!("Empty initial token, skipping...");
+                                    // Continue to next token instead of stopping
+                                    return Some((
+                                        Ok(StreamResponse {
+                                            choices: vec![StreamChoice {
+                                                delta: StreamDelta {
+                                                    content: Some("".to_string()),
+                                                    tool_calls: None,
+                                                },
+                                            }],
+                                            usage: None,
+                                        }),
+                                        (model_arc, prompt, false, token_count + 1),
+                                    ));
+                                }
+
+                                // Only clean up malformed partial tokens
+                                let cleaned_token = if initial_token.contains("<|")
+                                    && !initial_token.starts_with("<|")
+                                {
+                                    initial_token
+                                        .replace("<|user|>", "")
+                                        .replace("<|assistant|>", "")
+                                        .replace("<|system|>", "")
+                                } else {
+                                    initial_token
+                                };
+
+                                if cleaned_token.is_empty() {
                                     return None;
                                 }
                                 Ok(cleaned_token)
@@ -271,22 +328,46 @@ impl ChatProvider for LlamaProvider {
                             Ok(token) => {
                                 console_log!("Streamed token: '{}'", token);
 
-                                // Clean up the token
-                                let cleaned_token = token
-                                    .replace("<|user|>", "")
-                                    .replace("<|assistant|>", "")
-                                    .replace("<|system|>", "")
-                                    .replace("</s>", "")
-                                    .replace("<|endoftext|>", "")
-                                    .replace(">", "");
-
+                                // Check for stop conditions first
                                 if token == "</s>"
                                     || token == "<|endoftext|>"
-                                    || token.is_empty()
-                                    || token.contains("<|user|>")
-                                    || token.contains("<|system|>")
-                                    || cleaned_token.is_empty()
+                                    || token.starts_with("<|user|>")
+                                    || token.starts_with("<|system|>")
+                                    || token.starts_with("<|assistant|>")
                                 {
+                                    console_log!("Stop condition met for token: '{}'", token);
+                                    return None;
+                                }
+
+                                // Skip empty tokens but continue generation
+                                if token.is_empty() {
+                                    console_log!("Empty token, skipping...");
+                                    return Some((
+                                        Ok(StreamResponse {
+                                            choices: vec![StreamChoice {
+                                                delta: StreamDelta {
+                                                    content: Some("".to_string()),
+                                                    tool_calls: None,
+                                                },
+                                            }],
+                                            usage: None,
+                                        }),
+                                        (model_arc, prompt, false, token_count + 1),
+                                    ));
+                                }
+
+                                // Only clean up malformed partial tokens
+                                let cleaned_token =
+                                    if token.contains("<|") && !token.starts_with("<|") {
+                                        token
+                                            .replace("<|user|>", "")
+                                            .replace("<|assistant|>", "")
+                                            .replace("<|system|>", "")
+                                    } else {
+                                        token
+                                    };
+
+                                if cleaned_token.is_empty() {
                                     return None;
                                 }
                                 Ok(cleaned_token)
@@ -359,25 +440,29 @@ impl CompletionProvider for LlamaProvider {
         while token_count < max_tokens {
             match model_guard.next_token() {
                 Ok(token) => {
-                    // Clean up the token
-                    let cleaned_token = token
-                        .replace("<|user|>", "")
-                        .replace("<|assistant|>", "")
-                        .replace("<|system|>", "")
-                        .replace("</s>", "")
-                        .replace("<|endoftext|>", "")
-                        .replace(">", "");
-
-                    // Check for stop conditions
+                    // Check for stop conditions first
                     if token == "</s>"
                         || token == "<|endoftext|>"
                         || token.is_empty()
-                        || token.contains("<|user|>")
-                        || token.contains("<|system|>")
-                        || token.contains("<|assistant|>")
-                        || cleaned_token.is_empty()
+                        || token.starts_with("<|user|>")
+                        || token.starts_with("<|system|>")
+                        || token.starts_with("<|assistant|>")
                     {
                         break;
+                    }
+
+                    // Only clean up malformed partial tokens
+                    let cleaned_token = if token.contains("<|") && !token.starts_with("<|") {
+                        token
+                            .replace("<|user|>", "")
+                            .replace("<|assistant|>", "")
+                            .replace("<|system|>", "")
+                    } else {
+                        token
+                    };
+
+                    if cleaned_token.is_empty() {
+                        continue;
                     }
                     full_response.push_str(&cleaned_token);
                     token_count += 1;

@@ -85,15 +85,13 @@ pub struct MathAgentOutput {
 
 #[agent(
     name = "math_agent",
-    description = "You are a Math agent",
+    description = "You are an helupful assistant to answer user queries",
     tools = [Addition],
     output = MathAgentOutput
 )]
 #[derive(Default, Clone)]
 #[wasm_bindgen]
 pub struct MathAgent {}
-
-// impl ReActExecutor for MathAgent {}
 
 #[async_trait]
 impl AgentExecutor for MathAgent {
@@ -111,27 +109,35 @@ impl AgentExecutor for MathAgent {
     ) -> Result<Self::Output, Self::Error> {
         console_log!("Running Execution");
         let prompt = task.prompt.clone();
-        let llm = context.llm().clone();
-        let mut stream = llm
-            .chat_stream(
-                &vec![ChatMessage {
-                    role: ChatRole::System,
-                    message_type: MessageType::Text,
-                    content: prompt,
-                }],
-                None,
-                None,
-            )
-            .await?;
-        while let Some(chunk_result) = stream.next().await {
-            match chunk_result {
-                Ok(chunk) => {
-                    console_log!("Chunk: {:?}", chunk);
-                }
-                _ => {}
+        let llm = context.llm();
+        let mut memory = context.memory();
+        let tools = context.tools();
+        let agent_config = context.config();
+
+        let mut messages = vec![ChatMessage {
+            role: ChatRole::System,
+            message_type: MessageType::Text,
+            content: agent_config.description.clone(),
+        }];
+
+        if let Some(memory) = &memory {
+            if let Ok(recalled) = memory.lock().await.recall("", None).await {
+                messages.extend(recalled);
             }
         }
-        Ok("Hello world!".into())
+
+        if let Some(memory) = &mut memory {
+            let mut mem = memory.lock().await;
+            let chat_msg = ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: task.prompt.clone(),
+            };
+            let _ = mem.remember(&chat_msg).await;
+        }
+
+        let resp = llm.chat(&messages, None, None).await?;
+        Ok(resp.to_string())
     }
 
     async fn execute_stream(
@@ -141,19 +147,38 @@ impl AgentExecutor for MathAgent {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>, Self::Error>
     {
         console_log!("Running Execution Stream");
+
         let prompt = task.prompt.clone();
-        let llm = context.llm().clone();
-        let stream = llm
-            .chat_stream_struct(
-                &vec![ChatMessage {
-                    role: ChatRole::System,
-                    message_type: MessageType::Text,
-                    content: prompt,
-                }],
-                None,
-                None,
-            )
-            .await?;
+        let llm = context.llm();
+        let mut memory = context.memory();
+        let tools = context.tools();
+        let agent_config = context.config();
+
+        let mut messages = vec![ChatMessage {
+            role: ChatRole::System,
+            message_type: MessageType::Text,
+            content: agent_config.description.clone(),
+        }];
+
+        if let Some(memory) = &memory {
+            if let Ok(recalled) = memory.lock().await.recall("", None).await {
+                messages.extend(recalled);
+            }
+        }
+
+        if let Some(memory) = &mut memory {
+            let mut mem = memory.lock().await;
+            let chat_msg = ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: task.prompt.clone(),
+            };
+            let _ = mem.remember(&chat_msg).await;
+            messages.push(chat_msg);
+        }
+
+        console_log!("Messaages: {:?}", messages.clone());
+        let stream = llm.chat_stream_struct(&messages, None, None).await?;
 
         let output_stream = stream.map(|chunk_result| {
             match chunk_result {

@@ -37,9 +37,9 @@ impl TokenStreamer {
         let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
         let llama_provider = LlamaProvider::new(
             model,
-            Some(0.8),
-            Some(0.95),
-            Some(1.1),
+            Some(0.3),  // Lower temperature for more focused responses
+            Some(0.9),  // Slightly lower top_p
+            Some(1.05), // Lower repeat penalty
             Some(64),
             Some(12345),
         );
