@@ -48,35 +48,34 @@ impl LlamaProvider {
         }
     }
 
-    /// Format chat messages for TinyLlama (simple format)
+    /// Format chat messages for TinyLlama using proper chat template
     fn format_chat_messages(&self, messages: &[ChatMessage]) -> String {
         let mut formatted_prompt = String::new();
 
-        // TinyLlama uses a simple conversational format
-        formatted_prompt.push_str(
-            "<|system|>\nYou are a helpful AI assistant. Answer questions clearly and concisely.\n",
-        );
+        // Use TinyLlama's official chat template format
+        formatted_prompt.push_str("<|system|>\nYou are a friendly chatbot who always responds in a helpful and conversational manner. Keep your responses concise and natural.</s>\n");
 
         // Process messages in order
         for msg in messages {
             match msg.role {
                 ChatRole::System => {
                     // Replace default system message with custom one
-                    formatted_prompt = format!("<|system|>\n{}\n", msg.content);
+                    formatted_prompt = format!("<|system|>\n{}</s>\n", msg.content);
                 }
                 ChatRole::User => {
-                    formatted_prompt.push_str(&format!("<|user|>\n{}\n", msg.content));
+                    formatted_prompt.push_str(&format!("<|user|>\n{}</s>\n", msg.content));
                 }
                 ChatRole::Assistant => {
-                    formatted_prompt.push_str(&format!("<|assistant|>\n{}\n", msg.content));
+                    formatted_prompt.push_str(&format!("<|assistant|>\n{}</s>\n", msg.content));
                 }
                 ChatRole::Tool => {
-                    formatted_prompt.push_str(&format!("<|user|>\nTool result: {}\n", msg.content));
+                    formatted_prompt
+                        .push_str(&format!("<|user|>\nTool result: {}</s>\n", msg.content));
                 }
             }
         }
 
-        // Add assistant prompt for response
+        // Add assistant prompt for response generation
         formatted_prompt.push_str("<|assistant|>\n");
         formatted_prompt
     }
@@ -144,18 +143,29 @@ impl ChatProvider for LlamaProvider {
         while token_count < max_tokens {
             match model_guard.next_token() {
                 Ok(token) => {
-                    console_log!("Generated token: {}", token);
-                    // Check for any stop tokens
+                    console_log!("Generated token: '{}'", token);
+
+                    // Clean up the token - remove special characters and malformed text
+                    let cleaned_token = token
+                        .replace("<|user|>", "")
+                        .replace("<|assistant|>", "")
+                        .replace("<|system|>", "")
+                        .replace("</s>", "")
+                        .replace("<|endoftext|>", "")
+                        .replace(">", "");
+
+                    // Check for stop conditions
                     if token == "</s>"
                         || token == "<|endoftext|>"
                         || token.is_empty()
                         || token.contains("<|user|>")
                         || token.contains("<|system|>")
-                        || token.contains("<|assistant|>")
+                        || cleaned_token.is_empty()
                     {
                         break;
                     }
-                    full_response.push_str(&token);
+
+                    full_response.push_str(&cleaned_token);
                     token_count += 1;
                 }
                 Err(e) => {
@@ -228,14 +238,27 @@ impl ChatProvider for LlamaProvider {
                             seed,
                         ) {
                             Ok(initial_token) => {
-                                console_log!("Initial token: {}", initial_token);
+                                console_log!("Initial token: '{}'", initial_token);
+
+                                // Clean up the initial token
+                                let cleaned_token = initial_token
+                                    .replace("<|user|>", "")
+                                    .replace("<|assistant|>", "")
+                                    .replace("<|system|>", "")
+                                    .replace("</s>", "")
+                                    .replace("<|endoftext|>", "")
+                                    .replace(">", "");
+
                                 if initial_token == "</s>"
                                     || initial_token == "<|endoftext|>"
                                     || initial_token.is_empty()
+                                    || initial_token.contains("<|user|>")
+                                    || initial_token.contains("<|system|>")
+                                    || cleaned_token.is_empty()
                                 {
                                     return None;
                                 }
-                                Ok(initial_token)
+                                Ok(cleaned_token)
                             }
                             Err(e) => {
                                 console_log!("Init error: {:?}", e);
@@ -246,11 +269,27 @@ impl ChatProvider for LlamaProvider {
                         // Generate the next token
                         match model_guard.next_token() {
                             Ok(token) => {
-                                console_log!("Streamed token: {}", token);
-                                if token == "</s>" || token == "<|endoftext|>" || token.is_empty() {
+                                console_log!("Streamed token: '{}'", token);
+
+                                // Clean up the token
+                                let cleaned_token = token
+                                    .replace("<|user|>", "")
+                                    .replace("<|assistant|>", "")
+                                    .replace("<|system|>", "")
+                                    .replace("</s>", "")
+                                    .replace("<|endoftext|>", "")
+                                    .replace(">", "");
+
+                                if token == "</s>"
+                                    || token == "<|endoftext|>"
+                                    || token.is_empty()
+                                    || token.contains("<|user|>")
+                                    || token.contains("<|system|>")
+                                    || cleaned_token.is_empty()
+                                {
                                     return None;
                                 }
-                                Ok(token)
+                                Ok(cleaned_token)
                             }
                             Err(e) => {
                                 console_log!("Token generation error: {:?}", e);
@@ -320,17 +359,27 @@ impl CompletionProvider for LlamaProvider {
         while token_count < max_tokens {
             match model_guard.next_token() {
                 Ok(token) => {
-                    // Check for any stop tokens
+                    // Clean up the token
+                    let cleaned_token = token
+                        .replace("<|user|>", "")
+                        .replace("<|assistant|>", "")
+                        .replace("<|system|>", "")
+                        .replace("</s>", "")
+                        .replace("<|endoftext|>", "")
+                        .replace(">", "");
+
+                    // Check for stop conditions
                     if token == "</s>"
                         || token == "<|endoftext|>"
                         || token.is_empty()
                         || token.contains("<|user|>")
                         || token.contains("<|system|>")
                         || token.contains("<|assistant|>")
+                        || cleaned_token.is_empty()
                     {
                         break;
                     }
-                    full_response.push_str(&token);
+                    full_response.push_str(&cleaned_token);
                     token_count += 1;
                 }
                 Err(e) => {
