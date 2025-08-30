@@ -151,15 +151,30 @@ impl Model {
         self.repeat_penalty = repeat_penalty;
         self.repeat_last_n = repeat_last_n;
         self.tokens.clear();
-        self.previous_text_length = 0;
-        let tokens = self
+
+        // Set previous_text_length to the prompt length so we only decode generated text
+        let prompt_tokens = self
             .tokenizer
-            .encode(prompt, true)
+            .encode(prompt.clone(), true)
             .map_err(|m| JsError::new(&m.to_string()))?
             .get_ids()
             .to_vec();
+
+        // Decode the prompt to get its length for proper offset
+        let prompt_text = self
+            .tokenizer
+            .decode(&prompt_tokens, true)
+            .unwrap_or(prompt.clone());
+        self.previous_text_length = prompt_text.len();
+
+        console_log!(
+            "Prompt has {} tokens, text length: {}",
+            prompt_tokens.len(),
+            self.previous_text_length
+        );
+
         let text = self
-            .process(&tokens)
+            .process(&prompt_tokens)
             .map_err(|m| JsError::new(&m.to_string()))?;
         Ok(text)
     }
@@ -176,24 +191,40 @@ impl Model {
 
 impl Model {
     fn process(&mut self, tokens: &[u32]) -> candle_core::Result<String> {
+        console_log!(
+            "Processing {} tokens, existing tokens: {}",
+            tokens.len(),
+            self.tokens.len()
+        );
+
         let dev = Device::Cpu;
         let input = Tensor::new(tokens, &dev)?.unsqueeze(0)?;
         let logits = match &mut self.model {
             SelectedModel::Quantized(m) => m.forward(&input, self.tokens.len())?,
         };
         let logits = logits.squeeze(0)?.to_dtype(DType::F32)?;
+
+        // For the initial call, add all prompt tokens to history
+        if self.tokens.is_empty() {
+            for &token in tokens {
+                self.tokens.push(token);
+            }
+        }
+
+        // Apply repeat penalty considering all tokens processed so far
         let logits = if self.repeat_penalty == 1. {
             logits
         } else {
-            let start_at = tokens.len().saturating_sub(self.repeat_last_n);
+            let start_at = self.tokens.len().saturating_sub(self.repeat_last_n);
             candle_transformers::utils::apply_repeat_penalty(
                 &logits,
                 self.repeat_penalty,
-                &tokens[start_at..],
+                &self.tokens[start_at..],
             )?
         };
 
         let next_token = self.logits_processor.sample(&logits)?;
+        console_log!("Sampled next token: {}", next_token);
         self.tokens.push(next_token);
 
         // Decode the entire sequence to get proper spacing, then extract the last token

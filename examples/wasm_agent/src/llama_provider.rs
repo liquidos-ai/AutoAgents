@@ -3,7 +3,7 @@ use crate::llama::Model;
 use async_trait::async_trait;
 use autoagents::llm::{
     chat::{
-        ChatMessage, ChatProvider, ChatResponse, ChatRole, StreamChoice, StreamDelta,
+        ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StreamChoice, StreamDelta,
         StreamResponse, StructuredOutputFormat, Tool, Usage,
     },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
@@ -14,6 +14,7 @@ use autoagents::llm::{
 };
 use futures::stream;
 use futures::stream::{Stream, StreamExt};
+use minijinja::{context, Environment};
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -48,48 +49,72 @@ impl LlamaProvider {
         }
     }
 
-    /// Format chat messages using TinyLlama's official chat template
-    /// Template from HuggingFace: {{ '<|user|>\n' + message['content'] + eos_token }} etc.
-    fn format_chat_messages(&self, messages: &[ChatMessage]) -> String {
-        let mut formatted_prompt = String::new();
-        const EOS_TOKEN: &str = "</s>";
+    fn format_messages(
+        &self,
+        template: String,
+        _system_message: String, // Unused, kept for compatibility
+        messages: &[ChatMessage],
+    ) -> String {
+        // Use all messages as provided
+        let all_messages = Vec::from(messages);
 
-        // If no system message is provided, add a default one
-        let has_system = messages
-            .iter()
-            .any(|msg| matches!(msg.role, ChatRole::System));
-        if !has_system {
-            formatted_prompt.push_str(&format!("<|system|>\nYou are a helpful, friendly AI assistant. Respond naturally and conversationally to greetings and questions. Keep your responses concise and relevant.{}", EOS_TOKEN));
-        }
-
-        // Process messages in order using TinyLlama's official template
-        for msg in messages {
-            match msg.role {
-                ChatRole::System => {
-                    // <|system|>\n + content + eos_token
-                    formatted_prompt.push_str(&format!("<|system|>\n{}{}", msg.content, EOS_TOKEN));
-                }
-                ChatRole::User => {
-                    // <|user|>\n + content + eos_token
-                    formatted_prompt.push_str(&format!("<|user|>\n{}{}", msg.content, EOS_TOKEN));
-                }
-                ChatRole::Assistant => {
-                    // <|assistant|>\n + content + eos_token
-                    formatted_prompt
-                        .push_str(&format!("<|assistant|>\n{}{}", msg.content, EOS_TOKEN));
-                }
-                _ => {
-                    continue;
-                }
+        // Use Jinja2 chat template
+        match self.apply_jinja_template(template, &all_messages) {
+            Ok(formatted) => formatted,
+            Err(e) => {
+                format!("Error: No chat template found. Please add chat_template.jinja file to model directory. {}", e)
             }
         }
+    }
 
-        // Add assistant prompt for generation (add_generation_prompt=True)
-        // Add newline after <|assistant|> to match the pattern for content generation
-        formatted_prompt.push_str("<|assistant|>\n");
+    /// Apply Jinja2 chat template
+    fn apply_jinja_template(
+        &self,
+        template: String,
+        messages: &[ChatMessage],
+    ) -> Result<String, LLMError> {
+        // Create Jinja2 environment
+        let mut env = Environment::new();
 
-        console_log!("Generated prompt for TinyLlama: '{}'", formatted_prompt);
-        formatted_prompt
+        // Convert ChatMessage to template format
+        let template_messages: Vec<serde_json::Value> = messages
+            .iter()
+            .map(|msg| {
+                let role = match msg.role {
+                    ChatRole::System => "system",
+                    ChatRole::User => "user",
+                    ChatRole::Assistant => "assistant",
+                    ChatRole::Tool => "tool",
+                };
+
+                serde_json::json!({
+                    "role": role,
+                    "content": msg.content
+                })
+            })
+            .collect();
+
+        console_log!("Template: {}", template);
+
+        // Add template to environment
+        env.add_template("chat", &template)
+            .map_err(|e| LLMError::ProviderError(format!("Failed to parse chat template: {e}")))?;
+
+        // Render template with messages
+        let template = env
+            .get_template("chat")
+            .map_err(|e| LLMError::ProviderError(format!("Failed to get chat template: {e}")))?;
+
+        let rendered = template
+            .render(context! {
+                messages => template_messages,
+                add_generation_prompt => true,
+                bos_token => "<s>",
+                eos_token => "</s>"
+            })
+            .map_err(|e| LLMError::ProviderError(format!("Failed to render chat template: {e}")))?;
+
+        Ok(rendered)
     }
 }
 
@@ -129,8 +154,12 @@ impl ChatProvider for LlamaProvider {
         _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        // Convert messages to proper TinyLlama format
-        let prompt = self.format_chat_messages(messages);
+        // Convert messages to proper TinyLlama format using Jinja template
+        let prompt = self.format_messages(
+            include_str!("../models/chat_template.jinja").into(),
+            String::new(), // No separate system message needed, it's handled in the template
+            messages,
+        );
 
         let mut model_guard = self.model.lock().unwrap();
 
@@ -225,8 +254,13 @@ impl ChatProvider for LlamaProvider {
         std::pin::Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>,
         LLMError,
     > {
-        // Convert messages to proper TinyLlama format
-        let prompt = self.format_chat_messages(messages);
+        // Convert messages to proper TinyLlama format using Jinja template
+        let prompt = self.format_messages(
+            include_str!("../models/chat_template.jinja").into(),
+            String::new(), // No separate system message needed, it's handled in the template
+            messages,
+        );
+        console_log!("Generated Prompt: {:?}", prompt);
 
         // Clone the model Arc to use in the async stream
         let model_arc = Arc::clone(&self.model);

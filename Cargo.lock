@@ -7971,6 +7971,7 @@ dependencies = [
  "image",
  "js-sys",
  "log",
+ "minijinja",
  "num-traits",
  "safetensors 0.6.2",
  "serde",

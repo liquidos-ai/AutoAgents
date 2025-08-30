@@ -44,3 +44,4 @@ image = "0.25.6"
 log.workspace = true
 safetensors = "0.6.2"
 futures = { workspace = true }
+minijinja = { workspace = true }
