@@ -1,13 +1,12 @@
 use crate::agent::context::Context;
 use crate::agent::task::Task;
 use async_trait::async_trait;
-use futures::{stream, Stream};
+use futures::Stream;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use std::error::Error;
 use std::fmt::Debug;
-use std::pin::Pin;
 use std::sync::Arc;
 
 /// Result of processing a single turn in the agent's execution
@@ -78,6 +77,7 @@ mod tests {
         models::ModelsProvider,
         LLMProvider, ToolCall,
     };
+    use futures::stream;
     use serde::{Deserialize, Serialize};
     use std::sync::Arc;
     use tokio::sync::mpsc;

@@ -9,7 +9,6 @@ use crate::agent::task::Task;
 use crate::agent::{AgentActor, AgentHandle};
 use crate::agent::{AgentDeriveT, AgentExecutor, BaseAgent, IntoRunnable};
 use crate::error::Error;
-use crate::protocol::Event;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::runtime::{Runtime, TypedRuntime};
 use autoagents_llm::LLMProvider;

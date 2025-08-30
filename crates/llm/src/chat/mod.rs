@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::pin::Pin;
 
 use async_trait::async_trait;
 use futures::stream::{Stream, StreamExt};
@@ -365,7 +364,7 @@ pub trait ChatProvider: Sync + Send {
     /// A stream of content chunks or an error
     async fn chat_stream(
         &self,
-        messages: &[ChatMessage],
+        _messages: &[ChatMessage],
         _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>

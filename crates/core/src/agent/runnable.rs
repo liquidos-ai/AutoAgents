@@ -69,7 +69,7 @@ where
 
     async fn run(self: Arc<Self>, task: Task) -> Result<TaskResult, Error> {
         let submission_id = task.submission_id;
-        let mut tx_event = self.tx();
+        let tx_event = self.tx();
 
         let context = Context::new(self.llm(), tx_event.clone())
             .with_memory(self.memory())
@@ -115,7 +115,7 @@ where
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<TaskResult, Error>> + Send>>, Error>
     {
         let submission_id = task.submission_id;
-        let mut tx_event = self.tx();
+        let tx_event = self.tx();
 
         let context = Context::new(self.llm(), tx_event.clone())
             .with_memory(self.memory())

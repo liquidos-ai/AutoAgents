@@ -116,7 +116,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
         &self,
         tools: &[Box<dyn ToolT>],
         tool_calls: Vec<ToolCall>,
-        mut tx_event: mpsc::Sender<Event>,
+        tx_event: mpsc::Sender<Event>,
         _memory: Option<Arc<Mutex<Box<dyn MemoryProvider>>>>,
     ) -> Vec<ToolCallResult> {
         let mut results = Vec::new();
@@ -573,7 +573,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
         let mut memory = context.memory();
         let tools = context.tools();
         let agent_config = context.config();
-        let mut tx_event = context.tx();
+        let tx_event = context.tx();
 
         if let Some(memory) = &mut memory {
             let mut mem = memory.lock().await;
