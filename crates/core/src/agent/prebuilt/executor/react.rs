@@ -76,6 +76,7 @@ impl From<ReActAgentOutput> for Value {
 
 impl ReActAgentOutput {
     /// Extract the agent output from the ReAct response
+    #[allow(clippy::result_large_err)]
     pub fn extract_agent_output<T>(val: Value) -> Result<T, ReActExecutorError>
     where
         T: for<'de> serde::Deserialize<'de>,
@@ -577,10 +578,18 @@ impl<T: ReActExecutor> AgentExecutor for T {
 
         if let Some(memory) = &mut memory {
             let mut mem = memory.lock().await;
-            let chat_msg = ChatMessage {
-                role: ChatRole::User,
-                message_type: MessageType::Text,
-                content: task.prompt.clone(),
+            let chat_msg = if let Some((image_mime, image_data)) = &task.image {
+                ChatMessage {
+                    role: ChatRole::User,
+                    message_type: MessageType::Image((image_mime.clone(), image_data.clone())),
+                    content: task.prompt.clone(),
+                }
+            } else {
+                ChatMessage {
+                    role: ChatRole::User,
+                    message_type: MessageType::Text,
+                    content: task.prompt.clone(),
+                }
             };
             let _ = mem.remember(&chat_msg).await;
         }
@@ -669,13 +678,20 @@ impl<T: ReActExecutor> AgentExecutor for T {
         // Initialize memory with the task
         if let Some(mem) = &context.memory() {
             let mut mem = mem.lock().await;
-            let _ = mem
-                .remember(&ChatMessage {
+            let chat_msg = if let Some((image_mime, image_data)) = &task.image {
+                ChatMessage {
+                    role: ChatRole::User,
+                    message_type: MessageType::Image((image_mime.clone(), image_data.clone())),
+                    content: task_prompt.clone(),
+                }
+            } else {
+                ChatMessage {
                     role: ChatRole::User,
                     message_type: MessageType::Text,
                     content: task_prompt.clone(),
-                })
-                .await;
+                }
+            };
+            let _ = mem.remember(&chat_msg).await;
         }
 
         // Record task in state

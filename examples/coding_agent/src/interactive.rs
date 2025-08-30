@@ -1,5 +1,5 @@
 use crate::agent::CodingAgent;
-use autoagents::core::actor::{ActorMessage, CloneableMessage, Topic};
+use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::ReActAgentOutput;
 use autoagents::core::agent::task::Task;
@@ -7,13 +7,12 @@ use autoagents::core::agent::AgentBuilder;
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{RuntimeError, SingleThreadedRuntime, TypedRuntime};
+use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::llm::LLMProvider;
 use colored::*;
 use std::io::{self, Write};
 use std::sync::Arc;
 use termimad::MadSkin;
-use termimad::RelativePosition::Top;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 
 const CODING_TASK_TOPIC: &str = "coding_task";
@@ -34,7 +33,7 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
     let coding_agent = CodingAgent {};
 
     // Build the agent
-    let agent_handle = AgentBuilder::new(coding_agent)
+    let _ = AgentBuilder::new(coding_agent)
         .with_llm(llm)
         .runtime(runtime.clone())
         .subscribe_topic(coding_topic.clone())
