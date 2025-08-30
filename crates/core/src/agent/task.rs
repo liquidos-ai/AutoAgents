@@ -2,10 +2,23 @@
 use crate::actor::{ActorMessage, CloneableMessage};
 use crate::protocol::SubmissionId;
 use autoagents_llm::chat::ImageMime;
+#[cfg(feature = "cluster")]
+use ractor_cluster::RactorClusterMessage;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+#[cfg(feature = "cluster")]
+#[derive(Debug, Clone, Serialize, Deserialize, RactorClusterMessage)]
+pub struct Task {
+    pub prompt: String,
+    pub image: Option<(ImageMime, Vec<u8>)>,
+    pub submission_id: SubmissionId,
+    pub completed: bool,
+    pub result: Option<Value>,
+}
+
+#[cfg(not(feature = "cluster"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub prompt: String,
@@ -45,6 +58,18 @@ impl Task {
 impl ActorMessage for Task {}
 #[cfg(not(target_arch = "wasm32"))]
 impl CloneableMessage for Task {}
+
+// Manual BytesConvertable implementation for cluster mode since the derive isn't working
+#[cfg(feature = "cluster")]
+impl ractor::BytesConvertable for Task {
+    fn into_bytes(self) -> Vec<u8> {
+        serde_json::to_vec(&self).expect("Failed to serialize Task")
+    }
+
+    fn from_bytes(data: Vec<u8>) -> Self {
+        serde_json::from_slice(&data).expect("Failed to deserialize Task")
+    }
+}
 
 #[cfg(test)]
 mod tests {

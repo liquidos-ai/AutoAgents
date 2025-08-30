@@ -10,28 +10,67 @@ mod tests {
 
     // Test message types for integration testing
     #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "cluster", derive(serde::Serialize, serde::Deserialize))]
     struct ChatMessage {
         user: String,
         content: String,
         timestamp: u64,
     }
+
+    #[cfg(feature = "cluster")]
+    impl ractor::BytesConvertable for ChatMessage {
+        fn into_bytes(self) -> Vec<u8> {
+            serde_json::to_vec(&self).expect("Failed to serialize ChatMessage")
+        }
+
+        fn from_bytes(data: Vec<u8>) -> Self {
+            serde_json::from_slice(&data).expect("Failed to deserialize ChatMessage")
+        }
+    }
+
     impl ActorMessage for ChatMessage {}
     impl CloneableMessage for ChatMessage {}
 
     #[derive(Debug, PartialEq)]
+    #[cfg_attr(feature = "cluster", derive(serde::Serialize, serde::Deserialize))]
     struct FileData {
         filename: String,
         content: Vec<u8>,
         size: usize,
     }
+
+    #[cfg(feature = "cluster")]
+    impl ractor::BytesConvertable for FileData {
+        fn into_bytes(self) -> Vec<u8> {
+            serde_json::to_vec(&self).expect("Failed to serialize FileData")
+        }
+
+        fn from_bytes(data: Vec<u8>) -> Self {
+            serde_json::from_slice(&data).expect("Failed to deserialize FileData")
+        }
+    }
+
     impl ActorMessage for FileData {}
 
     #[derive(Debug, PartialEq)]
+    #[cfg_attr(feature = "cluster", derive(serde::Serialize, serde::Deserialize))]
     struct NotificationMessage {
         title: String,
         body: String,
         priority: u8,
     }
+
+    #[cfg(feature = "cluster")]
+    impl ractor::BytesConvertable for NotificationMessage {
+        fn into_bytes(self) -> Vec<u8> {
+            serde_json::to_vec(&self).expect("Failed to serialize NotificationMessage")
+        }
+
+        fn from_bytes(data: Vec<u8>) -> Self {
+            serde_json::from_slice(&data).expect("Failed to deserialize NotificationMessage")
+        }
+    }
+
     impl ActorMessage for NotificationMessage {}
 
     // Mock chat room actor
@@ -77,6 +116,10 @@ mod tests {
                 )
                 .into())
             }
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            self
         }
     }
 
@@ -137,6 +180,10 @@ mod tests {
             } else {
                 Err("File processor can only handle SharedMessage<FileData>".into())
             }
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            self
         }
     }
 

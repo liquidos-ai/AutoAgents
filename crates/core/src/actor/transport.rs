@@ -36,9 +36,22 @@ mod tests {
 
     // Test message types
     #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "cluster", derive(serde::Serialize, serde::Deserialize))]
     struct TestMessage {
         content: String,
     }
+
+    #[cfg(feature = "cluster")]
+    impl ractor::BytesConvertable for TestMessage {
+        fn into_bytes(self) -> Vec<u8> {
+            serde_json::to_vec(&self).expect("Failed to serialize TestMessage")
+        }
+
+        fn from_bytes(data: Vec<u8>) -> Self {
+            serde_json::from_slice(&data).expect("Failed to deserialize TestMessage")
+        }
+    }
+
     impl ActorMessage for TestMessage {}
     impl CloneableMessage for TestMessage {}
 
@@ -95,6 +108,10 @@ mod tests {
             } else {
                 Err("Type mismatch in mock actor".into())
             }
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            self
         }
     }
 

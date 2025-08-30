@@ -15,7 +15,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 wasm-bindgen = { version = "0.2.100", features = ["serde", "serde_json"] }
 autoagents-derive.workspace = true
-autoagents = { workspace = true, default-features = false, features = [] }
+autoagents = { workspace = true, features = [] }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

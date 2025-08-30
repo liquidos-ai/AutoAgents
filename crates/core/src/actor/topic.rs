@@ -49,15 +49,41 @@ mod tests {
 
     // Test message types
     #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "cluster", derive(serde::Serialize, serde::Deserialize))]
     struct TestMessage {
         _content: String,
     }
+
+    #[cfg(feature = "cluster")]
+    impl ractor::BytesConvertable for TestMessage {
+        fn into_bytes(self) -> Vec<u8> {
+            serde_json::to_vec(&self).expect("Failed to serialize TestMessage")
+        }
+
+        fn from_bytes(data: Vec<u8>) -> Self {
+            serde_json::from_slice(&data).expect("Failed to deserialize TestMessage")
+        }
+    }
+
     impl ActorMessage for TestMessage {}
 
     #[derive(Debug)]
+    #[cfg_attr(feature = "cluster", derive(serde::Serialize, serde::Deserialize))]
     struct AnotherTestMessage {
         _data: i32,
     }
+
+    #[cfg(feature = "cluster")]
+    impl ractor::BytesConvertable for AnotherTestMessage {
+        fn into_bytes(self) -> Vec<u8> {
+            serde_json::to_vec(&self).expect("Failed to serialize AnotherTestMessage")
+        }
+
+        fn from_bytes(data: Vec<u8>) -> Self {
+            serde_json::from_slice(&data).expect("Failed to deserialize AnotherTestMessage")
+        }
+    }
+
     impl ActorMessage for AnotherTestMessage {}
 
     #[test]

@@ -10,7 +10,7 @@ categories.workspace = true
 
 [features]
 default = []
-full = ["autoagents-llm/full", "wasmtime"]
+full = ["autoagents-llm/full", "wasmtime", "cluster"]
 openai = ["autoagents-llm/openai"]
 anthropic = ["autoagents-llm/anthropic"]
 ollama = ["autoagents-llm/ollama"]
@@ -22,6 +22,7 @@ groq = ["autoagents-llm/groq"]
 azure_openai = ["autoagents-llm/azure_openai"]
 liquid_edge = ["autoagents-llm/liquid_edge"]
 wasmtime = ["dep:wasmtime"]
+cluster = ["ractor/cluster", "dep:ractor_cluster"]
 
 [dependencies]
 autoagents-llm.workspace = true
@@ -41,7 +42,10 @@ async-stream = "0.3.6"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
-ractor = { version = "0.15.7", features = ["serde", "async-trait"] }
+ractor = { version = "0.15.8", features = ["serde", "async-trait"] }
+ractor_cluster = { version = "0.15.8", optional = true, features = [
+    "async-trait",
+] }
 
 # WASM dependencies (only when targeting wasm32)
 [target.'cfg(target_arch = "wasm32")'.dependencies]

@@ -1,6 +1,12 @@
+#[cfg(feature = "cluster")]
+use ractor::BytesConvertable;
 use std::sync::Arc;
 
 /// Generic trait for messages that can be sent between actors
+#[cfg(feature = "cluster")]
+pub trait ActorMessage: Send + Sync + 'static + BytesConvertable {}
+
+#[cfg(not(feature = "cluster"))]
 pub trait ActorMessage: Send + Sync + 'static {}
 
 // For messages that can be cloned
@@ -35,8 +41,24 @@ impl<M> SharedMessage<M> {
     }
 }
 
-// SharedMessage<M> is always a PubSubMessage (but NOT CloneableMessage to avoid conflicts)
+// SharedMessage<M> implements ActorMessage
 impl<M: Send + Sync + 'static> ActorMessage for SharedMessage<M> {}
+
+// In cluster mode, SharedMessage needs to implement BytesConvertable
+// but Arc<M> cannot be serialized, so we provide a stub implementation
+// that should only be used for local messaging, not cluster messaging
+#[cfg(feature = "cluster")]
+impl<M: Send + Sync + 'static> ractor::BytesConvertable for SharedMessage<M> {
+    fn into_bytes(self) -> Vec<u8> {
+        // This will panic, but SharedMessage shouldn't be used for cluster messaging
+        panic!("SharedMessage cannot be serialized for cluster messaging. Use direct message types like Task instead.")
+    }
+
+    fn from_bytes(_data: Vec<u8>) -> Self {
+        // This will panic, but SharedMessage shouldn't be used for cluster messaging
+        panic!("SharedMessage cannot be deserialized from cluster messaging. Use direct message types like Task instead.")
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -45,16 +67,40 @@ mod tests {
 
     // Test message types
     #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "cluster", derive(serde::Serialize, serde::Deserialize))]
     struct TestMessage {
         content: String,
+    }
+
+    #[cfg(feature = "cluster")]
+    impl BytesConvertable for TestMessage {
+        fn into_bytes(self) -> Vec<u8> {
+            serde_json::to_vec(&self).expect("Failed to serialize TestMessage")
+        }
+
+        fn from_bytes(data: Vec<u8>) -> Self {
+            serde_json::from_slice(&data).expect("Failed to deserialize TestMessage")
+        }
     }
 
     impl ActorMessage for TestMessage {}
     impl CloneableMessage for TestMessage {}
 
     #[derive(Debug, PartialEq)]
+    #[cfg_attr(feature = "cluster", derive(serde::Serialize, serde::Deserialize))]
     struct NonCloneableMessage {
         data: String,
+    }
+
+    #[cfg(feature = "cluster")]
+    impl BytesConvertable for NonCloneableMessage {
+        fn into_bytes(self) -> Vec<u8> {
+            serde_json::to_vec(&self).expect("Failed to serialize NonCloneableMessage")
+        }
+
+        fn from_bytes(data: Vec<u8>) -> Self {
+            serde_json::from_slice(&data).expect("Failed to deserialize NonCloneableMessage")
+        }
     }
 
     impl ActorMessage for NonCloneableMessage {}

@@ -15,6 +15,14 @@ mod single_threaded;
 use crate::actor::Topic;
 pub use single_threaded::SingleThreadedRuntime;
 
+#[cfg(feature = "cluster")]
+mod cluster_runtime;
+
+#[cfg(feature = "cluster")]
+pub use cluster_runtime::ClusterMessage;
+#[cfg(feature = "cluster")]
+pub use cluster_runtime::ClusterRuntime;
+
 /// Configuration for runtime instances
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
@@ -69,6 +77,16 @@ pub trait Runtime: Send + Sync {
     async fn take_event_receiver(&self) -> Option<ReceiverStream<Event>>;
     async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    /// Connect to a remote cluster node (cluster feature only)
+    #[cfg(feature = "cluster")]
+    async fn connect_to_remote(
+        &self,
+        remote_addr: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let _ = remote_addr;
+        Err("Cluster connection not supported in this runtime".into())
+    }
 }
 
 #[async_trait]
