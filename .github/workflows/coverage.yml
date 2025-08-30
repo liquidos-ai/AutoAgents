@@ -19,7 +19,7 @@ jobs:
 
       - name: Generate code coverage
         run: |
-          apt-get update && apt-get install -y python3-pip && cargo tarpaulin --features="full" --verbose --workspace --timeout 120 --out xml
+          apt-get update && apt-get install -y python3-pip && RUSTFLAGS="-C target-cpu=x86-64" cargo tarpaulin --features="full" --verbose --workspace --timeout 120 --out xml
 
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v5
