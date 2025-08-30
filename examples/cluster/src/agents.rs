@@ -6,7 +6,7 @@ use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentExecutor, Context
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::ClusterRuntime;
+use autoagents::core::runtime::{ClusterClientRuntime, ClusterHostRuntime};
 use autoagents::core::runtime::{Runtime, TypedRuntime};
 use autoagents::core::tool::ToolT;
 use autoagents::llm::backends::openai::OpenAI;
@@ -175,19 +175,26 @@ pub async fn run_research_agent(
     llm: Arc<OpenAI>,
     node_name: String,
     port: u16,
-    remote: Option<String>,
+    host_addr: String,
     host: String,
 ) -> Result<(), Error> {
     println!(
-        "🔍 Initializing ResearchAgent cluster node on port {}",
+        "🔍 Initializing ResearchAgent cluster client on port {}",
         port
     );
 
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
     let research_topic = Topic::<Task>::new("research_agent");
 
-    // Create cluster runtime for ResearchAgent
-    let runtime = ClusterRuntime::new(node_name, "cluster-cookie".to_string(), port, host);
+    // Create cluster client runtime for ResearchAgent - it will connect to dedicated cluster host
+    let runtime = ClusterClientRuntime::new(
+        "research_client".to_string(),
+        host_addr.clone(),
+        node_name,
+        "cluster-cookie".to_string(),
+        port,
+        host,
+    );
 
     let research_agent = ResearchAgent {};
 
@@ -216,29 +223,18 @@ pub async fn run_research_agent(
         }
     });
 
-    // Connect to remote node if specified
-    if let Some(remote_addr) = remote {
-        println!(
-            "🌐 Attempting to connect to AnalysisAgent at {}",
-            remote_addr
-        );
-        sleep(Duration::from_secs(2)).await;
-        if let Err(e) = runtime.connect_to_remote(&remote_addr).await {
-            eprintln!("❌ Failed to connect to remote node: {}", e);
-        } else {
-            println!("✅ Successfully connected to AnalysisAgent node");
-        }
-    }
+    // Connection to host is handled automatically in ClusterClientRuntime
+    println!(
+        "🌐 ClusterClientRuntime will connect to cluster host at {}",
+        host_addr
+    );
+    sleep(Duration::from_secs(2)).await;
 
     // If this is the initiating node, send research tasks after cluster is ready
     if port == 9001 {
         sleep(Duration::from_secs(3)).await;
 
-        let research_topics = vec![
-            "Artificial Intelligence trends in 2024",
-            "Sustainable energy solutions and market adoption",
-            "Remote work impact on productivity and company culture",
-        ];
+        let research_topics = vec!["Artificial Intelligence trends in 2024"];
 
         for topic in research_topics {
             println!("📋 Starting research task: {}", topic);
@@ -263,19 +259,26 @@ pub async fn run_analysis_agent(
     llm: Arc<OpenAI>,
     node_name: String,
     port: u16,
-    remote: Option<String>,
+    host_addr: String,
     host: String,
 ) -> Result<(), Error> {
     println!(
-        "🧠 Initializing AnalysisAgent cluster node on port {}",
+        "🧠 Initializing AnalysisAgent cluster client on port {}",
         port
     );
 
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
     let analysis_topic = Topic::<Task>::new("analysis_agent");
 
-    // Create cluster runtime for AnalysisAgent
-    let runtime = ClusterRuntime::new(node_name, "cluster-cookie".to_string(), port, host);
+    // Create cluster client runtime for AnalysisAgent - it will connect to dedicated cluster host
+    let runtime = ClusterClientRuntime::new(
+        "analysis_client".to_string(),
+        host_addr.clone(),
+        node_name,
+        "cluster-cookie".to_string(),
+        port,
+        host,
+    );
 
     let analysis_agent = AnalysisAgent {};
 
@@ -304,27 +307,53 @@ pub async fn run_analysis_agent(
         }
     });
 
-    // Connect to remote node if specified
-    if let Some(remote_addr) = remote {
-        println!(
-            "🌐 Attempting to connect to ResearchAgent at {}",
-            remote_addr
-        );
-        sleep(Duration::from_secs(2)).await;
-        if let Err(e) = runtime.connect_to_remote(&remote_addr).await {
-            eprintln!("❌ Failed to connect to remote node: {}", e);
-        } else {
-            println!("✅ Successfully connected to ResearchAgent node");
-        }
-    }
+    // Connection to host is handled automatically in ClusterClientRuntime
+    println!(
+        "🌐 ClusterClientRuntime will connect to cluster host at {}",
+        host_addr
+    );
 
-    println!("🧠 AnalysisAgent ready to receive research data for analysis...");
+    println!("🧠 AnalysisAgent client ready to receive research data for analysis...");
 
     // Keep running until Ctrl+C
     tokio::signal::ctrl_c()
         .await
         .expect("Failed to listen for Ctrl+C");
     println!("🧠 Shutting down AnalysisAgent...");
+    if let Err(e) = runtime.stop().await {
+        eprintln!("Error stopping runtime: {}", e);
+    }
+
+    Ok(())
+}
+
+pub async fn run_cluster_host(node_name: String, port: u16, host: String) -> Result<(), Error> {
+    println!("🏠 Initializing ClusterHostRuntime on port {}", port);
+
+    // Create cluster host runtime - this coordinates all client connections and routes events
+    let runtime = ClusterHostRuntime::new(node_name, "cluster-cookie".to_string(), port, host);
+
+    // Create environment and set up event handling
+    let mut environment = Environment::new(None);
+    let _ = environment.register_runtime(runtime.clone()).await;
+
+    let receiver = environment.take_event_receiver(None).await?;
+    handle_events(receiver);
+
+    // Start the runtime and environment
+    tokio::spawn(async move {
+        if let Err(e) = environment.run().await {
+            eprintln!("Environment error: {}", e);
+        }
+    });
+
+    println!("🏠 ClusterHostRuntime ready to coordinate client connections and route events...");
+
+    // Keep running until Ctrl+C
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to listen for Ctrl+C");
+    println!("🏠 Shutting down ClusterHostRuntime...");
     if let Err(e) = runtime.stop().await {
         eprintln!("Error stopping runtime: {}", e);
     }

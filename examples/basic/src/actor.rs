@@ -5,7 +5,7 @@ use autoagents::core::error::Error;
 use autoagents::core::protocol::ActorID;
 use autoagents::core::protocol::Event;
 use autoagents::core::ractor::concurrency::sleep;
-use autoagents::core::ractor::{Actor, ActorProcessingErr, ActorRef};
+use autoagents::core::ractor::{Actor, ActorProcessingErr, ActorRef, BytesConvertable};
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::llm::LLMProvider;
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,16 @@ pub struct SimpleMessage {
 impl CloneableMessage for SimpleMessage {}
 
 impl ActorMessage for SimpleMessage {}
+
+impl BytesConvertable for SimpleMessage {
+    fn from_bytes(bytes: Vec<u8>) -> Self {
+        todo!()
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        todo!()
+    }
+}
 
 /// A simple actor that can receive and process SimpleMessage
 #[derive(Debug)]

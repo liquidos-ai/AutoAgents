@@ -21,7 +21,7 @@ mod cluster_runtime;
 #[cfg(feature = "cluster")]
 pub use cluster_runtime::ClusterMessage;
 #[cfg(feature = "cluster")]
-pub use cluster_runtime::ClusterRuntime;
+pub use cluster_runtime::{ClusterRuntime, ClusterHostRuntime, ClusterClientRuntime};
 
 /// Configuration for runtime instances
 #[derive(Debug, Clone)]
