@@ -22,6 +22,7 @@ use crate::{
     FunctionCall, ToolCall,
 };
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chrono::{DateTime, Utc};
 use either::*;
 use futures::stream::Stream;
@@ -789,8 +790,19 @@ fn chat_message_to_api_message(chat_msg: ChatMessage) -> OpenAIChatMessage<'stat
         tool_call_id: None,
         content: match &chat_msg.message_type {
             MessageType::Text => Some(Right(chat_msg.content.clone())),
-            // Image case is handled separately above
-            MessageType::Image(_) => unreachable!(),
+            MessageType::Image((image_mime, raw_bytes)) => {
+                // Convert raw bytes to base64 data URL
+                let base64_data = BASE64_STANDARD.encode(raw_bytes);
+                let data_url = format!("data:{};base64,{}", image_mime.mime_type(), base64_data);
+                let data_url_str = Box::leak(data_url.into_boxed_str());
+                Some(Left(vec![MessageContent {
+                    message_type: Some("image_url"),
+                    text: None,
+                    image_url: Some(ImageUrlContent { url: data_url_str }),
+                    tool_output: None,
+                    tool_call_id: None,
+                }]))
+            }
             MessageType::Pdf(_) => unimplemented!(),
             MessageType::ImageURL(url) => {
                 // Clone the URL to create an owned version
