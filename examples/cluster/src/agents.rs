@@ -176,6 +176,7 @@ pub async fn run_research_agent(
     node_name: String,
     port: u16,
     remote: Option<String>,
+    host: String,
 ) -> Result<(), Error> {
     println!(
         "🔍 Initializing ResearchAgent cluster node on port {}",
@@ -186,12 +187,7 @@ pub async fn run_research_agent(
     let research_topic = Topic::<Task>::new("research_agent");
 
     // Create cluster runtime for ResearchAgent
-    let runtime = ClusterRuntime::new(
-        node_name,
-        "cluster-cookie".to_string(),
-        port,
-        "localhost".to_string(),
-    );
+    let runtime = ClusterRuntime::new(node_name, "cluster-cookie".to_string(), port, host);
 
     let research_agent = ResearchAgent {};
 
@@ -268,6 +264,7 @@ pub async fn run_analysis_agent(
     node_name: String,
     port: u16,
     remote: Option<String>,
+    host: String,
 ) -> Result<(), Error> {
     println!(
         "🧠 Initializing AnalysisAgent cluster node on port {}",
@@ -278,12 +275,7 @@ pub async fn run_analysis_agent(
     let analysis_topic = Topic::<Task>::new("analysis_agent");
 
     // Create cluster runtime for AnalysisAgent
-    let runtime = ClusterRuntime::new(
-        node_name,
-        "cluster-cookie".to_string(),
-        port,
-        "localhost".to_string(),
-    );
+    let runtime = ClusterRuntime::new(node_name, "cluster-cookie".to_string(), port, host);
 
     let analysis_agent = AnalysisAgent {};
 

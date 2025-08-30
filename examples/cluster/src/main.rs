@@ -24,6 +24,9 @@ enum Commands {
         /// Node name
         #[arg(short = 'n', long, default_value = "research")]
         name: String,
+
+        #[arg(long, default_value = "localhost")]
+        host: String,
     },
     /// Run AnalysisAgent in a cluster node (analyzes research data)
     Analysis {
@@ -36,6 +39,9 @@ enum Commands {
         /// Node name
         #[arg(short = 'n', long, default_value = "analysis")]
         name: String,
+
+        #[arg(long, default_value = "localhost")]
+        host: String,
     },
 }
 
@@ -49,19 +55,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let llm = create_llm_provider()?;
 
     match args.command {
-        Commands::Research { port, remote, name } => {
+        Commands::Research {
+            port,
+            remote,
+            name,
+            host,
+        } => {
             println!(
                 "🔍 Starting ResearchAgent on port {} with name {}",
                 port, name
             );
-            agents::run_research_agent(llm, name, port, remote).await?;
+            agents::run_research_agent(llm, name, port, remote, host).await?;
         }
-        Commands::Analysis { port, remote, name } => {
+        Commands::Analysis {
+            port,
+            remote,
+            name,
+            host,
+        } => {
             println!(
                 "🧠 Starting AnalysisAgent on port {} with name {}",
                 port, name
             );
-            agents::run_analysis_agent(llm, name, port, remote).await?;
+            agents::run_analysis_agent(llm, name, port, remote, host).await?;
         }
     }
     Ok(())
