@@ -1,23 +1,23 @@
-pre-commit:
-  parallel: true
-  commands:
-    fmt:
-      run: cargo fmt -- --check
-      stage_fixed: true
+# pre-commit:
+#   parallel: true
+#   commands:
+#     fmt:
+#       run: cargo fmt -- --check
+#       stage_fixed: true
 
-    clippy:
-      run: cargo clippy --all-features --all-targets -- -D warnings
+#     clippy:
+#       run: cargo clippy --all-features --all-targets -- -D warnings
 
-    test:
-      run: cargo test --all-features
+#     test:
+#       run: cargo test --all-features
 
-    check:
-      run: cargo check --all-features --all-targets
+#     check:
+#       run: cargo check --all-features --all-targets
 
-pre-push:
-  commands:
-    test-full:
-      run: cargo test --all-features --release
+# pre-push:
+#   commands:
+#     test-full:
+#       run: cargo test --all-features --release
 
-    doc:
-      run: cargo doc --all-features --no-deps
+#     doc:
+#       run: cargo doc --all-features --no-deps

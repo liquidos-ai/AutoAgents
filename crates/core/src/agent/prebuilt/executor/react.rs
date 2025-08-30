@@ -115,6 +115,7 @@ pub enum ReActExecutorError {
 pub trait ReActExecutor: Send + Sync + Clone + 'static {
     async fn process_tool_calls(
         &self,
+        context: &Context,
         tools: &[Box<dyn ToolT>],
         tool_calls: Vec<ToolCall>,
         tx_event: mpsc::Sender<Event>,
@@ -137,7 +138,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
                         .await;
 
                     match serde_json::from_str::<Value>(&tool_args) {
-                        Ok(parsed_args) => match tool.run(parsed_args) {
+                        Ok(parsed_args) => match tool.run(context, parsed_args).await {
                             Ok(output) => ToolCallResult {
                                 tool_name: tool_name.clone(),
                                 success: true,
@@ -225,7 +226,13 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
         let response_text = response.text().unwrap_or_default();
         if let Some(tool_calls) = response.tool_calls() {
             let tool_results = self
-                .process_tool_calls(tools, tool_calls.clone(), tx_event.clone(), memory.clone())
+                .process_tool_calls(
+                    context,
+                    tools,
+                    tool_calls.clone(),
+                    tx_event.clone(),
+                    memory.clone(),
+                )
                 .await;
 
             // Store tool calls and results in memory
@@ -436,6 +443,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
                 // Process tool calls
                 let tool_results = self
                     .process_tool_calls(
+                        context,
                         tools,
                         collected_tool_calls.clone(),
                         context.tx().clone(),
