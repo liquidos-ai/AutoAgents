@@ -8,9 +8,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use ndarray::{ArrayD, IxDyn};
-use ort::{session::Session, value::Value as OrtValue};
 
 #[cfg(feature = "onnx")]
+use ort::{session::Session, value::Value as OrtValue};
+
+#[cfg(all(feature = "onnx", not(target_arch = "wasm32")))]
 use ort::execution_providers::ExecutionProvider;
 
 /// ONNX Runtime backend for edge inference

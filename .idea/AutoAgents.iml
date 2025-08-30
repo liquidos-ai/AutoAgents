@@ -14,6 +14,7 @@
       <sourceFolder url="file://$MODULE_DIR$/examples/wasm_runner/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/wasm_tool/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/voice_agent/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/wasm_agent/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/examples/wasm_tool/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/examples/voice_agent/target" />

@@ -10,7 +10,7 @@ categories.workspace = true
 
 [features]
 default = []
-full = ["autoagents-llm/full", "wasm"]
+full = ["autoagents-llm/full", "wasmtime"]
 openai = ["autoagents-llm/openai"]
 anthropic = ["autoagents-llm/anthropic"]
 ollama = ["autoagents-llm/ollama"]
@@ -21,23 +21,34 @@ google = ["autoagents-llm/google"]
 groq = ["autoagents-llm/groq"]
 azure_openai = ["autoagents-llm/azure_openai"]
 liquid_edge = ["autoagents-llm/liquid_edge"]
-wasm = ["dep:wasmtime"]
+wasmtime = ["dep:wasmtime"]
 
 [dependencies]
 autoagents-llm.workspace = true
-tokio = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-uuid = { workspace = true, features = ["serde"] }
+uuid = { workspace = true, features = ["serde", "v4"] }
 thiserror = { workspace = true }
 futures = { workspace = true }
 regex = { workspace = true }
-tokio-stream.workspace = true
 log = { workspace = true, features = ["std"] }
 wasmtime = { workspace = true, optional = true }
-ractor = { version = "0.15.7", features = ["serde", "async-trait"] }
 chrono = { version = "0.4", features = ["serde"] }
+async-stream = "0.3.6"
+
+# Non-WASM dependencies (only when not targeting wasm32)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+ractor = { version = "0.15.7", features = ["serde", "async-trait"] }
+
+# WASM dependencies (only when targeting wasm32)
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4.50"
+getrandom = { workspace = true, features = ["wasm_js"] }
+uuid = { workspace = true, features = ["serde", "v4", "js"] }
 
 [dev-dependencies]
 autoagents-test-utils = { workspace = true }

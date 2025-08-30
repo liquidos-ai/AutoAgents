@@ -1,7 +1,7 @@
 use crate::agent::context::Context;
 use crate::agent::task::Task;
 use async_trait::async_trait;
-use futures::{stream, Stream};
+use futures::Stream;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
@@ -39,17 +39,14 @@ pub trait AgentExecutor: Send + Sync + 'static {
     type Output: Serialize + DeserializeOwned + Clone + Send + Sync + Into<Value> + Debug;
     type Error: Error + Send + Sync + 'static;
 
-    /// Get the configuration for this executor
     fn config(&self) -> ExecutorConfig;
 
-    /// Execute the agent with the given task
     async fn execute(
         &self,
         task: &Task,
         context: Arc<Context>,
     ) -> Result<Self::Output, Self::Error>;
 
-    /// Stream agent execution
     async fn execute_stream(
         &self,
         task: &Task,
@@ -61,7 +58,7 @@ pub trait AgentExecutor: Send + Sync + 'static {
         // Default fallback to self.execute with final result as a single-item stream
         let context_clone = context.clone();
         let result = self.execute(task, context_clone).await;
-        let stream = stream::once(async move { result });
+        let stream = futures::stream::iter(vec![result]);
         Ok(Box::pin(stream))
     }
 }
@@ -80,6 +77,7 @@ mod tests {
         models::ModelsProvider,
         LLMProvider, ToolCall,
     };
+    use futures::stream;
     use serde::{Deserialize, Serialize};
     use std::sync::Arc;
     use tokio::sync::mpsc;

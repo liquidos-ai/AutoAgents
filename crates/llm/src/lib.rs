@@ -37,6 +37,7 @@ pub mod error;
 pub mod evaluator;
 
 /// Secret store for storing API keys and other sensitive information
+#[cfg(not(target_arch = "wasm32"))]
 pub mod secret_store;
 
 /// Listing models support

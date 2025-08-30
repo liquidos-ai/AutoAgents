@@ -26,7 +26,7 @@ lazy_static! {
 // Voice Agent imports
 use crate::agent::VoiceAgent;
 use crate::cli::StreamingBuffer;
-use crate::cli::{setup_voice_system_with_ui, AudioBufferMessage, SimpleMessage, UIUpdate};
+use crate::cli::{AudioBufferMessage, SimpleMessage, UIUpdate};
 use crate::kokoros::actor::{TTSActor, TTSActorArgs, TTSConfig};
 use crate::kokoros::tts::koko::TTSKoko;
 use crate::stt::actor::{STTActor, STTActorArgs};

@@ -13,8 +13,52 @@ use serde_json::Value;
 use std::pin::Pin;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::mpsc::error::SendError;
-use tokio::sync::{mpsc, RwLock};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use tokio::sync::mpsc::error::SendError;
+#[cfg(not(target_arch = "wasm32"))]
+pub use tokio::sync::{mpsc, Mutex};
+
+#[cfg(target_arch = "wasm32")]
+use futures::SinkExt;
+
+#[cfg(target_arch = "wasm32")]
+pub use futures::channel::mpsc;
+#[cfg(target_arch = "wasm32")]
+pub use futures::lock::Mutex;
+#[cfg(target_arch = "wasm32")]
+pub type SendError = futures::channel::mpsc::SendError;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    tokio::spawn(fut)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn spawn<F>(fut: F)
+where
+    F: std::future::Future<Output = ()> + 'static,
+{
+    wasm_bindgen_futures::spawn_local(fut)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn receiver_stream<T: 'static + Send>(
+    rx: tokio::sync::mpsc::Receiver<T>,
+) -> Pin<Box<dyn Stream<Item = T> + Send>> {
+    Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx))
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn receiver_stream<T: 'static + Send>(
+    rx: futures::channel::mpsc::Receiver<T>,
+) -> Pin<Box<dyn Stream<Item = T> + Send>> {
+    Box::pin(rx) // receiver *is already a Stream*
+}
 
 // Output of the ReAct-style agent
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,8 +98,13 @@ pub enum ReActExecutorError {
     #[error("Other error: {0}")]
     Other(String),
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("Event error: {0}")]
     EventError(#[from] SendError<Event>),
+
+    #[cfg(target_arch = "wasm32")]
+    #[error("Event error: {0}")]
+    EventError(#[from] SendError),
 
     #[error("Extracting Agent Output Error: {0}")]
     AgentOutputError(String),
@@ -68,7 +117,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
         tools: &[Box<dyn ToolT>],
         tool_calls: Vec<ToolCall>,
         tx_event: mpsc::Sender<Event>,
-        _memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+        _memory: Option<Arc<Mutex<Box<dyn MemoryProvider>>>>,
     ) -> Vec<ToolCallResult> {
         let mut results = Vec::new();
 
@@ -180,7 +229,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
 
             // Store tool calls and results in memory
             if let Some(mem) = &memory {
-                let mut mem = mem.write().await;
+                let mut mem = mem.lock().await;
 
                 // Record that assistant is calling tools
                 let _ = mem
@@ -224,7 +273,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
             }
 
             let state = context.state();
-            let mut guard = state.write().await;
+            let mut guard = state.lock().await;
             for result in &tool_results {
                 guard.record_tool_call(result.clone());
             }
@@ -238,7 +287,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
             // Record the final response in memory
             if !response_text.is_empty() {
                 if let Some(mem) = &memory {
-                    let mut mem = mem.write().await;
+                    let mut mem = mem.lock().await;
                     let _ = mem
                         .remember(&ChatMessage {
                             role: ChatRole::Assistant,
@@ -262,7 +311,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
         &self,
         context: &Context,
         tools: &[Box<dyn ToolT>],
-        tx: &mpsc::Sender<Result<ReActAgentOutput, ReActExecutorError>>,
+        tx: &mut mpsc::Sender<Result<ReActAgentOutput, ReActExecutorError>>,
         submission_id: SubmissionId,
     ) -> Result<StreamingTurnResult, ReActExecutorError> {
         let messages = self.prepare_messages(context).await;
@@ -404,7 +453,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
 
                 // Update state
                 let state = context.state();
-                let mut guard = state.write().await;
+                let mut guard = state.lock().await;
                 for result in &tool_results {
                     guard.record_tool_call(result.clone());
                 }
@@ -416,7 +465,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
         // No tool calls detected, record the response
         if !response_text.is_empty() {
             if let Some(mem) = context.memory() {
-                let mut mem = mem.write().await;
+                let mut mem = mem.lock().await;
                 let _ = mem
                     .remember(&ChatMessage {
                         role: ChatRole::Assistant,
@@ -439,7 +488,7 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
         }];
 
         if let Some(memory) = context.memory() {
-            if let Ok(recalled) = memory.read().await.recall("", None).await {
+            if let Ok(recalled) = memory.lock().await.recall("", None).await {
                 messages.extend(recalled);
             }
         }
@@ -450,13 +499,13 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
     /// Update memory with tool calls and results
     async fn update_memory_with_tools(
         &self,
-        memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+        memory: Option<Arc<Mutex<Box<dyn MemoryProvider>>>>,
         tool_calls: &[ToolCall],
         tool_results: &[ToolCallResult],
         response_text: &str,
     ) {
         if let Some(mem) = memory {
-            let mut mem = mem.write().await;
+            let mut mem = mem.lock().await;
 
             // Record assistant calling tools
             let _ = mem
@@ -527,7 +576,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
         let tx_event = context.tx();
 
         if let Some(memory) = &mut memory {
-            let mut mem = memory.write().await;
+            let mut mem = memory.lock().await;
             let chat_msg = ChatMessage {
                 role: ChatRole::User,
                 message_type: MessageType::Text,
@@ -538,7 +587,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
 
         // Record the task in state
         let state = context.state();
-        let mut state = state.write().await;
+        let mut state = state.lock().await;
         state.record_task(task.clone());
 
         tx_event
@@ -558,7 +607,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
             }];
 
             if let Some(memory) = &memory {
-                if let Ok(recalled) = memory.read().await.recall("", None).await {
+                if let Ok(recalled) = memory.lock().await.recall("", None).await {
                     messages.extend(recalled);
                 }
             }
@@ -619,7 +668,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
 
         // Initialize memory with the task
         if let Some(mem) = &context.memory() {
-            let mut mem = mem.write().await;
+            let mut mem = mem.lock().await;
             let _ = mem
                 .remember(&ChatMessage {
                     role: ChatRole::User,
@@ -631,7 +680,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
 
         // Record task in state
         let state = context.state();
-        let mut state = state.write().await;
+        let mut state = state.lock().await;
         state.record_task(task.clone());
 
         // Send task started event
@@ -645,14 +694,14 @@ impl<T: ReActExecutor> AgentExecutor for T {
             .await;
 
         // Create channel for streaming results
-        let (tx, rx) = mpsc::channel::<Result<ReActAgentOutput, ReActExecutorError>>(100);
+        let (mut tx, rx) = mpsc::channel::<Result<ReActAgentOutput, ReActExecutorError>>(100);
 
         // Clone necessary components for the async task
         let executor = self.clone();
         let context_clone = context.clone();
 
         // Spawn the streaming task
-        tokio::spawn(async move {
+        spawn(async move {
             let mut accumulated_tool_calls = Vec::new();
             let mut final_response = String::new();
             let tools = context_clone.tools();
@@ -672,7 +721,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
 
                 // Process streaming turn with hybrid approach
                 match executor
-                    .process_streaming_turn_hybrid(&turn_context, tools, &tx, submission_id)
+                    .process_streaming_turn_hybrid(&turn_context, tools, &mut tx, submission_id)
                     .await
                 {
                     Ok(StreamingTurnResult::Complete(response)) => {
@@ -740,7 +789,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
         });
 
         // Return the stream
-        Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx)))
+        Ok(receiver_stream(rx))
     }
 }
 

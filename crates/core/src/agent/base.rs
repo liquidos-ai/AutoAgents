@@ -1,17 +1,25 @@
-use super::{output::AgentOutputT, AgentExecutor};
 use crate::agent::config::AgentConfig;
 use crate::agent::memory::MemoryProvider;
 use crate::agent::task::Task;
+use crate::agent::{output::AgentOutputT, AgentExecutor};
 use crate::protocol::Event;
 use crate::{protocol::ActorID, tool::ToolT};
 use async_trait::async_trait;
 use autoagents_llm::LLMProvider;
+#[cfg(not(target_arch = "wasm32"))]
 use ractor::ActorRef;
+
 use serde_json::Value;
 use std::{fmt::Debug, sync::Arc};
-use tokio::sync::mpsc::Sender;
-use tokio::sync::RwLock;
 use uuid::Uuid;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use tokio::sync::{mpsc::Sender, Mutex};
+
+#[cfg(target_arch = "wasm32")]
+pub use futures::channel::mpsc::Sender;
+#[cfg(target_arch = "wasm32")]
+pub use futures::lock::Mutex;
 
 /// Core trait that defines agent metadata and behavior
 /// This trait is implemented via the #[agent] macro
@@ -42,7 +50,7 @@ pub struct BaseAgent<T: AgentDeriveT> {
     /// Agent ID
     pub id: ActorID,
     /// Optional memory provider
-    pub memory: Option<Arc<RwLock<Box<dyn MemoryProvider>>>>,
+    pub memory: Option<Arc<Mutex<Box<dyn MemoryProvider>>>>,
     /// Tx sender
     pub tx: Sender<Event>,
     //Stream
@@ -70,7 +78,7 @@ impl<T: AgentDeriveT> BaseAgent<T> {
             id: Uuid::new_v4(),
             llm,
             tx,
-            memory: memory.map(|m| Arc::new(RwLock::new(m))),
+            memory: memory.map(|m| Arc::new(Mutex::new(m))),
             stream,
         }
     }
@@ -115,18 +123,20 @@ impl<T: AgentDeriveT> BaseAgent<T> {
     }
 
     /// Get the memory provider if available
-    pub fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>> {
+    pub fn memory(&self) -> Option<Arc<Mutex<Box<dyn MemoryProvider>>>> {
         self.memory.clone()
     }
 }
 
 /// Handle for an agent that includes both the agent and its actor reference
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone)]
 pub struct AgentHandle<T: AgentDeriveT> {
     pub agent: Arc<BaseAgent<T>>,
     pub actor_ref: ActorRef<Task>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<T: AgentDeriveT> AgentHandle<T> {
     /// Get the actor reference for direct messaging
     pub fn addr(&self) -> ActorRef<Task> {
@@ -139,6 +149,7 @@ impl<T: AgentDeriveT> AgentHandle<T> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<T: AgentDeriveT> Debug for AgentHandle<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AgentHandle")

@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use crate::actor::{ActorMessage, CloneableMessage};
 use crate::protocol::SubmissionId;
 use serde::{Deserialize, Serialize};
@@ -23,7 +24,9 @@ impl Task {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl ActorMessage for Task {}
+#[cfg(not(target_arch = "wasm32"))]
 impl CloneableMessage for Task {}
 
 #[cfg(test)]

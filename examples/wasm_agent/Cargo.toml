@@ -1,0 +1,47 @@
+[package]
+name = "wasm_agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+
+[dependencies]
+wasm-bindgen = { version = "0.2.100", features = ["serde", "serde_json"] }
+autoagents-derive.workspace = true
+autoagents = { workspace = true, default-features = false, features = [] }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4", "js"] }
+wasm-bindgen-futures = "0.4.50"
+web-sys = { version = "0.3.77", features = [
+    "Window",
+    "Response",
+    "Request",
+    "RequestInit",
+] }
+
+# Wasm specific crates.
+console_error_panic_hook = "0.1.7"
+js-sys = "0.3.64"
+candle-core = "0.9.1"
+candle-nn = "0.9.1"
+candle-transformers = "0.9.1"
+tokenizers = { version = "0.21.4", default-features = false, features = [
+    "unstable_wasm",
+] }
+num-traits = "0.2.19"
+anyhow = "1.0.99"
+byteorder = "1.5.0"
+image = "0.25.6"
+log.workspace = true
+safetensors = "0.6.2"
+futures = { workspace = true }
+minijinja = { workspace = true }

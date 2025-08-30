@@ -18,12 +18,19 @@ cuda = ["onnx", "ort/cuda"]
 # Core dependencies
 thiserror = { workspace = true }
 log = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync", "fs"] }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-# ONNX Runtime support
+# Utilities
+chrono = { workspace = true }
+
+# Non-WASM dependencies
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["rt", "sync", "fs"] }
+num_cpus = "1.16"
+rand = { workspace = true }
+# ONNX Runtime support for native
 ort = { version = "=2.0.0-rc.10", optional = true, features = [
     "copy-dylibs",
     "half",
@@ -31,11 +38,12 @@ ort = { version = "=2.0.0-rc.10", optional = true, features = [
 ] }
 ndarray = { workspace = true, optional = true }
 
-
-# Utilities
-rand = { workspace = true }
-chrono = { workspace = true }
-num_cpus = "1.16"
+# WASM dependencies
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+getrandom = { workspace = true, optional = true, features = ["wasm_js"] }
+ndarray = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

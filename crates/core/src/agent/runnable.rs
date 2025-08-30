@@ -2,44 +2,27 @@ use super::base::{AgentDeriveT, BaseAgent};
 use super::error::RunnableAgentError;
 use crate::agent::context::Context;
 use crate::agent::memory::MemoryProvider;
+use crate::agent::state::AgentState;
 use crate::agent::task::Task;
 use crate::error::Error;
 use crate::protocol::{Event, TaskResult};
-use crate::tool::ToolCallResult;
+use async_trait::async_trait;
 use futures::Stream;
-use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef};
+#[cfg(not(target_arch = "wasm32"))]
+use ractor::{Actor, ActorProcessingErr, ActorRef};
 use serde_json::Value;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tokio::sync::mpsc::Sender;
-use tokio::sync::RwLock;
 use uuid::Uuid;
 
-/// State tracking for agent execution
-#[derive(Debug, Default, Clone)]
-pub struct AgentState {
-    /// Tool calls made during execution
-    pub tool_calls: Vec<ToolCallResult>,
-    /// Tasks that have been executed
-    pub task_history: Vec<Task>,
-}
-
-impl AgentState {
-    pub fn new() -> Self {
-        Self {
-            tool_calls: vec![],
-            task_history: vec![],
-        }
-    }
-
-    pub fn record_tool_call(&mut self, tool_call: ToolCallResult) {
-        self.tool_calls.push(tool_call);
-    }
-
-    pub fn record_task(&mut self, task: Task) {
-        self.task_history.push(task);
-    }
-}
+#[cfg(target_arch = "wasm32")]
+pub use futures::channel::mpsc::Sender;
+#[cfg(target_arch = "wasm32")]
+pub use futures::lock::Mutex;
+#[cfg(target_arch = "wasm32")]
+use futures::SinkExt;
+#[cfg(not(target_arch = "wasm32"))]
+pub use tokio::sync::{mpsc::Sender, Mutex};
 
 /// Trait for agents that can be executed within the system
 #[async_trait]
@@ -57,7 +40,7 @@ pub trait RunnableAgent: Send + Sync + 'static + Debug {
         task: Task,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<TaskResult, Error>> + Send>>, Error>;
 
-    fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>>;
+    fn memory(&self) -> Option<Arc<Mutex<Box<dyn MemoryProvider>>>>;
 }
 
 /// Enhanced BaseAgent that includes runtime state for execution
@@ -177,20 +160,23 @@ where
         }
     }
 
-    fn memory(&self) -> Option<Arc<RwLock<Box<dyn MemoryProvider>>>> {
+    fn memory(&self) -> Option<Arc<Mutex<Box<dyn MemoryProvider>>>> {
         BaseAgent::memory(self)
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug)]
 pub struct AgentActor<T: AgentDeriveT>(pub Arc<RunnableAgentImpl<T>>);
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<T: AgentDeriveT> AgentActor<T> {
     pub fn id(&self) -> Uuid {
         self.0.id
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[async_trait]
 impl<T: AgentDeriveT> Actor for AgentActor<T>
 where

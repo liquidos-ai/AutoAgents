@@ -7,7 +7,7 @@ use crate::error::{EdgeError, EdgeResult};
 use serde_json::Value;
 use std::collections::HashMap;
 
-#[cfg(feature = "onnx")]
+#[cfg(all(feature = "onnx", not(target_arch = "wasm32")))]
 pub mod onnx;
 
 /// Generic input for inference operations
@@ -60,9 +60,14 @@ impl InferenceRuntime {
         let backend_type = model.model_type().to_string();
 
         let backend: Box<dyn RuntimeBackend> = match backend_type.as_str() {
-            #[cfg(feature = "onnx")]
+            #[cfg(all(feature = "onnx", not(target_arch = "wasm32")))]
             "onnx" => {
                 let backend = onnx::OnnxBackend::from_model_with_device(model, device)?;
+                Box::new(backend)
+            }
+            #[cfg(target_arch = "wasm32")]
+            "onnx" => {
+                let backend = wasm::WasmBackend::from_model_with_device(model, device)?;
                 Box::new(backend)
             }
             _ => {
@@ -86,9 +91,13 @@ impl InferenceRuntime {
         })
     }
 
-    /// Create a new inference runtime from a model (uses CPU device by default)
+    /// Create a new inference runtime from a model (uses CPU device by default, WebGPU on WASM)
     pub async fn from_model(model: Box<dyn crate::Model>) -> EdgeResult<Self> {
+        #[cfg(target_arch = "wasm32")]
+        let device = crate::device::webgpu();
+        #[cfg(not(target_arch = "wasm32"))]
         let device = crate::device::cpu();
+
         Self::from_model_with_device(model, device).await
     }
 

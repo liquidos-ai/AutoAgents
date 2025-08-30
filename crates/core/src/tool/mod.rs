@@ -5,7 +5,7 @@ use std::fmt::Debug;
 mod runtime;
 pub use runtime::ToolRuntime;
 
-#[cfg(feature = "wasm")]
+#[cfg(feature = "wasmtime")]
 pub use runtime::{WasmRuntime, WasmRuntimeError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

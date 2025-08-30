@@ -10,6 +10,9 @@ pub mod runtime;
 
 // Re-exports
 pub use device::{cpu, cpu_with_threads, cuda, cuda_default, Device};
+
+#[cfg(target_arch = "wasm32")]
+pub use device::webgpu;
 pub use error::{EdgeError, EdgeResult};
 pub use model::Model;
 pub use runtime::{InferenceInput, InferenceOutput, InferenceRuntime, RuntimeBackend};
