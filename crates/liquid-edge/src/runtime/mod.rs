@@ -10,9 +10,6 @@ use std::collections::HashMap;
 #[cfg(all(feature = "onnx", not(target_arch = "wasm32")))]
 pub mod onnx;
 
-#[cfg(target_arch = "wasm32")]
-pub mod wasm;
-
 /// Generic input for inference operations
 #[derive(Debug, Clone, Default)]
 pub struct InferenceInput {
