@@ -31,7 +31,11 @@ const DEFAULT_INTERNAL_BUFFER: usize = 1000;
 #[cfg(feature = "cluster")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClusterMessage {
-    Task(Task),
+    Task {
+        task: Task,
+        source_agent_id: Option<String>,
+        target_topic: String,
+    },
     SubscriptionRegistration {
         client_id: String,
         topic_name: String,
@@ -59,14 +63,18 @@ impl crate::actor::CloneableMessage for ClusterMessage {}
 
 impl From<Task> for ClusterMessage {
     fn from(task: Task) -> Self {
-        ClusterMessage::Task(task)
+        ClusterMessage::Task {
+            task,
+            source_agent_id: None,
+            target_topic: "default".to_string(),
+        }
     }
 }
 
 impl From<ClusterMessage> for Task {
     fn from(msg: ClusterMessage) -> Self {
         match msg {
-            ClusterMessage::Task(task) => task,
+            ClusterMessage::Task { task, .. } => task,
             ClusterMessage::SubscriptionRegistration { .. } => {
                 panic!("Cannot convert SubscriptionRegistration to Task")
             }
@@ -357,7 +365,11 @@ impl ClusterHostRuntime {
 
             // Convert message to ClusterMessage and send to client forwarders
             if let Some(task) = message.downcast_ref::<Task>() {
-                let cluster_msg = ClusterMessage::Task(task.clone());
+                let cluster_msg = ClusterMessage::Task {
+                    task: task.clone(),
+                    source_agent_id: None, // Host doesn't have a specific agent_id
+                    target_topic: topic_name.to_string(),
+                };
                 info!(
                     "Converting task to ClusterMessage for distribution: {}",
                     task.prompt.chars().take(50).collect::<String>()
@@ -871,7 +883,11 @@ impl ClusterClientRuntime {
 
             // Convert message to ClusterMessage and send to host forwarders
             if let Some(task) = message.downcast_ref::<Task>() {
-                let cluster_msg = ClusterMessage::Task(task.clone());
+                let cluster_msg = ClusterMessage::Task {
+                    task: task.clone(),
+                    source_agent_id: Some(self.client_id.clone()),
+                    target_topic: topic_name.to_string(),
+                };
 
                 for host_forwarder in host_forwarders {
                     let forwarder_ref = ActorRef::<ClusterMessage>::from(host_forwarder.clone());
@@ -1509,13 +1525,15 @@ impl ractor::Actor for ClusterHostForwarder {
         debug!("[ClusterHostForwarder] Processing cluster message from client");
 
         match message {
-            ClusterMessage::Task(task) => {
-                // Forward task to appropriate global topic based on task content
-                let topic_name = self.determine_target_topic(&task);
-
+            ClusterMessage::Task {
+                task,
+                source_agent_id,
+                target_topic,
+            } => {
                 info!(
-                    "[ClusterHostForwarder] Received task for topic '{}': {}",
-                    topic_name,
+                    "[ClusterHostForwarder] Received task from agent '{:?}' for topic '{}': {}",
+                    source_agent_id,
+                    target_topic,
                     task.prompt.chars().take(100).collect::<String>()
                 );
 
@@ -1523,17 +1541,17 @@ impl ractor::Actor for ClusterHostForwarder {
                 let message_arc = Arc::new(task) as Arc<dyn Any + Send + Sync>;
                 if let Err(e) = self
                     .runtime
-                    .handle_publish_message_global(&topic_name, TypeId::of::<Task>(), message_arc)
+                    .handle_publish_message_global(&target_topic, TypeId::of::<Task>(), message_arc)
                     .await
                 {
                     error!(
                         "Failed to distribute cluster message to global topic '{}': {}",
-                        topic_name, e
+                        target_topic, e
                     );
                 } else {
                     info!(
                         "[ClusterHostForwarder] Successfully distributed task to global topic '{}'",
-                        topic_name
+                        target_topic
                     );
                 }
             }
@@ -1564,20 +1582,7 @@ impl ractor::Actor for ClusterHostForwarder {
 }
 
 #[cfg(feature = "cluster")]
-impl ClusterHostForwarder {
-    /// Determine which global topic should receive the forwarded message
-    fn determine_target_topic(&self, task: &Task) -> String {
-        // Simple heuristic: if the task mentions "analysis", route to analysis_agent
-        // Otherwise, route to a default processing topic
-        if task.prompt.to_lowercase().contains("analysis")
-            || task.prompt.to_lowercase().contains("analyze")
-        {
-            "analysis_agent".to_string()
-        } else {
-            "research_agent".to_string()
-        }
-    }
-}
+impl ClusterHostForwarder {}
 
 /// Client forwarder for receiving messages from host and routing to local subscribers
 #[cfg(feature = "cluster")]
@@ -1612,13 +1617,15 @@ impl ractor::Actor for ClusterClientForwarder {
         info!("[ClusterClientForwarder] Processing cluster message from host");
 
         match message {
-            ClusterMessage::Task(task) => {
-                // Forward task to appropriate local topic based on task content
-                let topic_name = self.determine_target_topic(&task);
-
+            ClusterMessage::Task {
+                task,
+                source_agent_id,
+                target_topic,
+            } => {
                 info!(
-                    "[ClusterClientForwarder] Received task for topic '{}': {}",
-                    topic_name,
+                    "[ClusterClientForwarder] Received task from agent '{:?}' for topic '{}': {}",
+                    source_agent_id,
+                    target_topic,
                     task.prompt.chars().take(100).collect::<String>()
                 );
 
@@ -1627,7 +1634,7 @@ impl ractor::Actor for ClusterClientForwarder {
                 if let Err(e) = self
                     .runtime
                     .deliver_to_local_subscribers_only(
-                        &topic_name,
+                        &target_topic,
                         TypeId::of::<Task>(),
                         message_arc,
                     )
@@ -1635,12 +1642,12 @@ impl ractor::Actor for ClusterClientForwarder {
                 {
                     error!(
                         "Failed to forward cluster message to local topic '{}': {}",
-                        topic_name, e
+                        target_topic, e
                     );
                 } else {
                     info!(
                         "[ClusterClientForwarder] Successfully delivered task to local topic '{}'",
-                        topic_name
+                        target_topic
                     );
                 }
             }
@@ -1656,20 +1663,7 @@ impl ractor::Actor for ClusterClientForwarder {
 }
 
 #[cfg(feature = "cluster")]
-impl ClusterClientForwarder {
-    /// Determine which local topic should receive the forwarded message
-    fn determine_target_topic(&self, task: &Task) -> String {
-        // Simple heuristic: if the task mentions "analysis", route to analysis_agent
-        // Otherwise, route to a default processing topic
-        if task.prompt.to_lowercase().contains("analysis")
-            || task.prompt.to_lowercase().contains("analyze")
-        {
-            "analysis_agent".to_string()
-        } else {
-            "research_agent".to_string()
-        }
-    }
-}
+impl ClusterClientForwarder {}
 
 /*
 Working Example for distributed using ractor_cluster

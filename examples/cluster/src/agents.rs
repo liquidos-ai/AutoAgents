@@ -46,6 +46,22 @@ impl AgentExecutor for ResearchAgent {
         task: &Task,
         context: Arc<Context>,
     ) -> Result<Self::Output, Self::Error> {
+        // Check if this is an analysis report coming back from AnalysisAgent
+        if task.prompt.contains("Analysis Report")
+            || task.prompt.contains("Executive Summary")
+            || task.prompt.contains("Strategic Recommendations")
+            || task.prompt.contains("Key Insights and Patterns")
+        {
+            println!("📊 [ResearchAgent] Received analysis report - summarizing results");
+
+            // Just return a summary instead of re-researching
+            let summary = format!(
+                "Analysis completed successfully. Summary of findings:\n{}",
+                task.prompt.chars().take(500).collect::<String>()
+            );
+            return Ok(summary);
+        }
+
         println!("🔍 [ResearchAgent] Starting research on: {}", task.prompt);
 
         let mut messages = vec![ChatMessage {
@@ -95,14 +111,19 @@ Original Topic: {}
 Research Findings:
 {}
 
-Please analyze this research data and provide insights, recommendations, and strategic conclusions.",
+Please analyze this research data and provide insights, recommendations, and strategic conclusions.
+
+If you receive Analysis Report summarize it and provide a concise summary of the key findings.
+",
             task.prompt, research_data
         ));
 
-        // Send to cluster for distributed processing - the runtime will handle cross-cluster forwarding
-        context
-            .publish(Topic::<Task>::new("analysis_agent"), analysis_task)
-            .await?;
+        if !research_data.to_lowercase().contains("analysis") {
+            // Send to cluster for distributed processing - the runtime will handle cross-cluster forwarding
+            context
+                .publish(Topic::<Task>::new("analysis_agent"), analysis_task)
+                .await?;
+        }
 
         Ok(format!("Research completed for topic: '{}'. Data sent to AnalysisAgent for further processing.", task.prompt))
     }
@@ -122,6 +143,16 @@ impl AgentExecutor for AnalysisAgent {
         task: &Task,
         context: Arc<Context>,
     ) -> Result<Self::Output, Self::Error> {
+        // Check if this is already an analysis report (to prevent infinite loops)
+        if task.prompt.contains("FINAL ANALYSIS REPORT")
+            || task.prompt.contains("Comprehensive Analysis Report")
+            || task.prompt.contains("Executive Summary of Findings")
+            || task.prompt.contains("Key Insights and Patterns")
+        {
+            println!("🔄 [AnalysisAgent] Skipping re-analysis of already analyzed data");
+            return Ok("Already analyzed data - skipping to prevent loop".to_string());
+        }
+
         println!("🧠 [AnalysisAgent] Received research data for analysis");
 
         let mut messages = vec![ChatMessage {
@@ -166,6 +197,13 @@ Provide a comprehensive analysis report.",
         println!("{}", "=".repeat(80));
         println!("{}", analysis_result);
         println!("{}\n", "=".repeat(80));
+
+        context
+            .publish(
+                Topic::<Task>::new("research_agent"),
+                Task::new(analysis_result.clone()),
+            )
+            .await?;
 
         Ok(analysis_result)
     }
