@@ -790,16 +790,13 @@ impl ClusterClientRuntime {
     async fn handle_publish_message_local(
         &self,
         topic_name: &str,
-        topic_type: TypeId,
+        _topic_type: TypeId,
         message: Arc<dyn Any + Send + Sync>,
     ) -> Result<(), RuntimeError> {
         debug!("Handling local publish event: {topic_name}");
 
-        // First, send to local subscribers
-        self.deliver_to_local_subscribers_only(topic_name, topic_type, Arc::clone(&message))
-            .await?;
-
-        // Forward to host for global routing
+        // In cluster mode, let the host handle ALL routing including back to this client
+        // This prevents duplicate delivery and ensures consistent message ordering
         self.forward_to_host(topic_name, message).await;
 
         Ok(())
