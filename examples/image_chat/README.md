@@ -10,12 +10,20 @@ You'll need an OpenAI API key and a test image file:
 export OPENAI_API_KEY="your-openai-api-key"
 ```
 
-Place your test image as `test_img.jpg` in the project root directory.
-
 ## Usage
 
-Simply run the example:
+### Using the default test image
+
+If you run the example without specifying an image, it will use the default test image (`test_img.jpg`) included in the example directory:
 
 ```bash
 cargo run -p image-chat-example
+```
+
+### Specifying an image
+
+You can specify your own image file using the `--image` or `-i` flag:
+
+```bash
+cargo run -p image-chat-example -- --image /path/to/your/image.jpg
 ```

@@ -3700,6 +3700,7 @@ dependencies = [
  "anyhow",
  "autoagents",
  "autoagents-derive",
+ "clap",
  "serde",
  "serde_json",
  "tokio",
