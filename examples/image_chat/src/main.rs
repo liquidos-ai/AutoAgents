@@ -19,7 +19,9 @@ use autoagents::llm::{
     chat::{ChatMessage, ChatProvider, ImageMime},
 };
 use autoagents_derive::agent;
+use clap::Parser;
 use serde_json::Value;
+use std::path::PathBuf;
 
 use tokio::fs;
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
@@ -30,13 +32,38 @@ pub struct ImageAgent {}
 
 impl ReActExecutor for ImageAgent {}
 
+/// Image Chat Example - Analyze images using LLM vision capabilities
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Path to the image file to analyze
+    #[arg(short, long, help = "Path to the image file to analyze")]
+    image: Option<PathBuf>,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Read the test image
-    let image_path = "./examples/image_chat/test_img.jpg";
-    println!("Reading image from: {}", image_path);
+    // Parse command line arguments
+    let args = Args::parse();
 
-    let image_bytes = fs::read(image_path).await?;
+    // Get image path from arguments or use default
+    let image_path = match args.image {
+        Some(path) => path,
+        None => {
+            println!("No image path provided, using default test image.");
+            PathBuf::from("./examples/image_chat/test_img.jpg")
+        }
+    };
+
+    println!("Reading image from: {}", image_path.display());
+
+    // Read the image file
+    let image_bytes = match fs::read(&image_path).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return Err(anyhow::anyhow!("Failed to read image file: {}", e));
+        }
+    };
     println!("Image size: {} bytes", image_bytes.len());
 
     // Create the OpenAI LLM client
