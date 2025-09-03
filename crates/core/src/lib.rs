@@ -21,4 +21,8 @@ mod tests;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ractor {
     pub use ractor::*;
+    #[cfg(feature = "cluster")]
+    pub mod cluster {
+        pub use ractor_cluster::*;
+    }
 }

@@ -1,8 +1,8 @@
+/// This example demonstrates Agent Chaining using the new runtime architecture
 use async_trait::async_trait;
 use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::task::Task;
-/// This example demonstrates Agent Chaining using the new runtime architecture
 use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentExecutor, Context, ExecutorConfig};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;

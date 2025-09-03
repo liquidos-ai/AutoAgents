@@ -334,16 +334,40 @@ mod tests {
 
     // Test message types
     #[derive(Clone, Debug)]
+    #[cfg_attr(feature = "cluster", derive(serde::Serialize, serde::Deserialize))]
     struct TestMessage {
         content: String,
+    }
+
+    #[cfg(feature = "cluster")]
+    impl ractor::BytesConvertable for TestMessage {
+        fn into_bytes(self) -> Vec<u8> {
+            serde_json::to_vec(&self).expect("Failed to serialize TestMessage")
+        }
+
+        fn from_bytes(data: Vec<u8>) -> Self {
+            serde_json::from_slice(&data).expect("Failed to deserialize TestMessage")
+        }
     }
 
     impl crate::actor::ActorMessage for TestMessage {}
     impl CloneableMessage for TestMessage {}
 
     #[derive(Debug)]
+    #[cfg_attr(feature = "cluster", derive(serde::Serialize, serde::Deserialize))]
     struct SharedTestMessage {
         content: String,
+    }
+
+    #[cfg(feature = "cluster")]
+    impl ractor::BytesConvertable for SharedTestMessage {
+        fn into_bytes(self) -> Vec<u8> {
+            serde_json::to_vec(&self).expect("Failed to serialize SharedTestMessage")
+        }
+
+        fn from_bytes(data: Vec<u8>) -> Self {
+            serde_json::from_slice(&data).expect("Failed to deserialize SharedTestMessage")
+        }
     }
 
     // Test actor
@@ -561,7 +585,20 @@ mod tests {
 
         // Try to subscribe with different type to same topic name - should fail
         #[derive(Clone)]
+        #[cfg_attr(feature = "cluster", derive(serde::Serialize, serde::Deserialize))]
         struct OtherMessage;
+
+        #[cfg(feature = "cluster")]
+        impl ractor::BytesConvertable for OtherMessage {
+            fn into_bytes(self) -> Vec<u8> {
+                Vec::new() // Empty message
+            }
+
+            fn from_bytes(_data: Vec<u8>) -> Self {
+                OtherMessage
+            }
+        }
+
         impl crate::actor::ActorMessage for OtherMessage {}
         impl CloneableMessage for OtherMessage {}
 

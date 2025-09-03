@@ -19,6 +19,8 @@ pub trait AnyActor: Send + Sync + Debug {
         &self,
         msg: Arc<dyn Any + Send + Sync>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    fn as_any(&self) -> &dyn Any;
 }
 
 // For actors that receive cloneable messages
@@ -31,6 +33,10 @@ impl<M: CloneableMessage + 'static> AnyActor for ActorRef<M> {
         let msg = msg.downcast_ref::<M>().ok_or("Message type mismatch")?;
 
         self.cast(msg.clone()).map_err(|e| e.into())
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -50,6 +56,10 @@ impl<M: Send + Sync + 'static> AnyActor for ActorRef<SharedMessage<M>> {
         // Clone the SharedMessage (which clones the Arc, not M)
         self.cast(shared_msg.clone()).map_err(|e| e.into())
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 #[cfg(test)]
@@ -59,16 +69,42 @@ mod tests {
 
     // Test message types
     #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "cluster", derive(serde::Serialize, serde::Deserialize))]
     struct TestCloneableMessage {
         content: String,
     }
+
+    #[cfg(feature = "cluster")]
+    impl ractor::BytesConvertable for TestCloneableMessage {
+        fn into_bytes(self) -> Vec<u8> {
+            serde_json::to_vec(&self).expect("Failed to serialize TestCloneableMessage")
+        }
+
+        fn from_bytes(data: Vec<u8>) -> Self {
+            serde_json::from_slice(&data).expect("Failed to deserialize TestCloneableMessage")
+        }
+    }
+
     impl ActorMessage for TestCloneableMessage {}
     impl CloneableMessage for TestCloneableMessage {}
 
     #[derive(Debug, PartialEq)]
+    #[cfg_attr(feature = "cluster", derive(serde::Serialize, serde::Deserialize))]
     struct TestNonCloneableMessage {
         data: String,
     }
+
+    #[cfg(feature = "cluster")]
+    impl ractor::BytesConvertable for TestNonCloneableMessage {
+        fn into_bytes(self) -> Vec<u8> {
+            serde_json::to_vec(&self).expect("Failed to serialize TestNonCloneableMessage")
+        }
+
+        fn from_bytes(data: Vec<u8>) -> Self {
+            serde_json::from_slice(&data).expect("Failed to deserialize TestNonCloneableMessage")
+        }
+    }
+
     impl ActorMessage for TestNonCloneableMessage {}
 
     // Mock actor for testing
@@ -112,6 +148,10 @@ mod tests {
             } else {
                 Err("Unknown message type".into())
             }
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            self
         }
     }
 

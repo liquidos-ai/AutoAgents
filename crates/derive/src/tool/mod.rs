@@ -24,15 +24,13 @@ impl ToolParser {
         let expanded = quote! {
             #input_struct
 
+            #[::async_trait::async_trait]
             impl ToolT for #struct_name {
                 fn name(&self) -> &'static str {
                     #tool_name_literal
                 }
                 fn description(&self) -> &'static str {
                     #tool_description
-                }
-                fn run(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
-                    Ok(self.execute(args)?)
                 }
                 fn args_schema(&self) -> serde_json::Value {
                     // Get the JSON schema string from the input type

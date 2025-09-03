@@ -1,8 +1,9 @@
+use async_trait::async_trait;
 use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT, RunnableAgent};
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT, Context, RunnableAgent};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::protocol::{Event, TaskResult};
@@ -31,8 +32,9 @@ pub struct AdditionArgs {
 )]
 struct Addition {}
 
+#[async_trait]
 impl ToolRuntime for Addition {
-    fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+    async fn execute(&self, _context: &Context, args: Value) -> Result<Value, ToolCallError> {
         let typed_args: AdditionArgs = serde_json::from_value(args)?;
         let result = typed_args.left + typed_args.right;
         Ok(result.into())
