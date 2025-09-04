@@ -1,12 +1,14 @@
+/// This example demonstrates Agent Chaining using the runtime architecture
 use async_trait::async_trait;
 use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::task::Task;
-/// This example demonstrates Agent Chaining using the new runtime architecture
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentExecutor, Context, ExecutorConfig};
+use autoagents::core::agent::{
+    ActorAgent, AgentBuilder, AgentDeriveT, AgentExecutor, Context, EventHelper, ExecutorConfig,
+};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::protocol::{Event, TaskResult};
+use autoagents::core::protocol::Event;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::ToolT;
 use autoagents::llm::chat::{ChatMessage, ChatRole, MessageType};
@@ -46,6 +48,16 @@ impl AgentExecutor for Agent1 {
         context: Arc<Context>,
     ) -> Result<Self::Output, Self::Error> {
         println!("Agent 1 Executing");
+
+        let tx_event = context.tx().ok();
+        EventHelper::send_task_started(
+            &tx_event,
+            task.submission_id,
+            context.config().id,
+            task.prompt.clone(),
+        )
+        .await;
+
         let mut messages = vec![ChatMessage {
             role: ChatRole::System,
             message_type: MessageType::Text,
@@ -85,6 +97,16 @@ impl AgentExecutor for Agent2 {
         context: Arc<Context>,
     ) -> Result<Self::Output, Self::Error> {
         println!("Agent 2 Executing");
+
+        let tx_event = context.tx().ok();
+        EventHelper::send_task_started(
+            &tx_event,
+            task.submission_id,
+            context.config().id,
+            task.prompt.clone(),
+        )
+        .await;
+
         let mut messages = vec![ChatMessage {
             role: ChatRole::System,
             message_type: MessageType::Text,
@@ -118,19 +140,19 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     let runtime = SingleThreadedRuntime::new(None);
 
-    let _ = AgentBuilder::new(agent1)
-        .with_llm(llm.clone())
+    let _ = AgentBuilder::<_, ActorAgent>::new(agent1)
+        .llm(llm.clone())
         .runtime(runtime.clone())
-        .subscribe_topic(topic1.clone())
-        .with_memory(sliding_window_memory.clone())
+        .subscribe(topic1.clone())
+        .memory(sliding_window_memory.clone())
         .build()
         .await?;
 
-    let _ = AgentBuilder::new(agent2)
-        .with_llm(llm)
+    let _ = AgentBuilder::<_, ActorAgent>::new(agent2)
+        .llm(llm)
         .runtime(runtime.clone())
-        .subscribe_topic(topic2.clone())
-        .with_memory(sliding_window_memory)
+        .subscribe(topic2.clone())
+        .memory(sliding_window_memory)
         .build()
         .await?;
 
@@ -143,6 +165,10 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     runtime
         .publish(&topic1, Task::new("What is Vector Calculus?"))
+        .await?;
+
+    runtime
+        .publish(&topic1, Task::new("What is Linear Algebra?"))
         .await?;
 
     tokio::select! {
@@ -161,19 +187,13 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
     tokio::spawn(async move {
         while let Some(event) = event_stream.next().await {
             match event {
-                Event::NewTask { actor_id: _, task } => {
-                    println!("{}", format!("New TASK: {:?}", task).green());
-                }
                 Event::TaskComplete { result, .. } => {
-                    match result {
-                        TaskResult::Value(val) => {
-                            let agent_out: String = serde_json::from_value(val).unwrap();
-                            println!("{}", format!("Thought: {}", agent_out).green());
-                        }
-                        _ => {
-                            //
-                        }
-                    }
+                    println!("{}", format!("Task Complete: {}", result).green());
+                }
+                Event::TaskStarted {
+                    task_description, ..
+                } => {
+                    println!("{}", format!("Task started: {}", task_description).blue());
                 }
                 _ => {
                     //

@@ -1,12 +1,12 @@
-use autoagents::core::actor::{ActorMessage, CloneableMessage, Topic};
+use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
+use autoagents::core::agent::{ActorAgent, AgentBuilder, AgentDeriveT, AgentOutputT};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{RuntimeError, SingleThreadedRuntime, TypedRuntime};
+use autoagents::core::protocol::Event;
+use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT, WasmRuntime};
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
@@ -90,11 +90,11 @@ pub async fn wasm_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     // Create topic for WASM agent
     let wasm_topic = Topic::<Task>::new("wasm_math");
 
-    let agent_handle = AgentBuilder::new(agent)
-        .with_llm(llm)
+    let _ = AgentBuilder::<_, ActorAgent>::new(agent)
+        .llm(llm)
         .runtime(runtime.clone())
-        .subscribe_topic(wasm_topic.clone())
-        .with_memory(sliding_window_memory)
+        .subscribe(wasm_topic.clone())
+        .memory(sliding_window_memory)
         .build()
         .await?;
 
@@ -177,44 +177,34 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                         .yellow()
                     );
                 }
-                Event::TaskComplete { result, .. } => match result {
-                    TaskResult::Value(val) => {
-                        match serde_json::from_value::<ReActAgentOutput>(val) {
-                            Ok(agent_out) => {
-                                // Try to parse as WASM math output
-                                if let Ok(wasm_output) =
-                                    serde_json::from_str::<WasmMathAgentOutput>(&agent_out.response)
-                                {
-                                    println!(
-                                        "{}",
-                                        format!(
-                                            "🧮 WASM Math Result:\n   Value: {}\n   Explanation: {}\n",
-                                            wasm_output.value,
-                                            wasm_output.explanation
-                                        )
-                                            .green()
-                                    );
-                                } else {
-                                    // Fallback to regular output
-                                    println!(
-                                        "{}",
-                                        format!("💬 Agent Response: {}", agent_out.response)
-                                            .green()
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                println!("{}", format!("❌ Failed to parse response: {}", e).red());
+                Event::TaskComplete { result, .. } => {
+                    match serde_json::from_str::<ReActAgentOutput>(&result) {
+                        Ok(agent_out) => {
+                            // Try to parse as WASM math output
+                            if let Ok(wasm_output) =
+                                serde_json::from_str::<WasmMathAgentOutput>(&agent_out.response)
+                            {
+                                println!(
+                                    "{}",
+                                    format!(
+                                        "🧮 WASM Math Result:\n   Value: {}\n   Explanation: {}\n",
+                                        wasm_output.value, wasm_output.explanation
+                                    )
+                                    .green()
+                                );
+                            } else {
+                                // Fallback to regular output
+                                println!(
+                                    "{}",
+                                    format!("💬 Agent Response: {}", agent_out.response).green()
+                                );
                             }
                         }
+                        Err(e) => {
+                            println!("{}", format!("❌ Failed to parse response: {}", e).red());
+                        }
                     }
-                    TaskResult::Failure(error) => {
-                        println!("{}", format!("❌ WASM task failed: {}", error).red());
-                    }
-                    TaskResult::Aborted => {
-                        println!("{}", "🚫 WASM task aborted".yellow());
-                    }
-                },
+                }
                 Event::TurnStarted {
                     turn_number,
                     max_turns,

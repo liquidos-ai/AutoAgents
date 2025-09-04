@@ -59,12 +59,9 @@ impl LlamaProvider {
         let all_messages = Vec::from(messages);
 
         // Use Jinja2 chat template
-        match self.apply_jinja_template(template, &all_messages) {
-            Ok(formatted) => formatted,
-            Err(e) => {
-                format!("Error: No chat template found. Please add chat_template.jinja file to model directory. {}", e)
-            }
-        }
+        self.apply_jinja_template(template, &all_messages).unwrap_or_else(|e| {
+            format!("Error: No chat template found. Please add chat_template.jinja file to model directory. {}", e)
+        })
     }
 
     /// Apply Jinja2 chat template

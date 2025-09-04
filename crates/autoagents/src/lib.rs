@@ -17,6 +17,7 @@ pub fn init_logging() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use autoagents_core::agent::ActorAgent;
     use autoagents_core::{
         runtime::SingleThreadedRuntime,
         tool::{ToolCallResult, ToolT},
@@ -90,8 +91,8 @@ mod tests {
         impl ReActExecutor for MockAgent {}
 
         let llm: Arc<MockLLMProvider> = Arc::new(MockLLMProvider {});
-        let builder = AgentBuilder::new(MockAgent)
-            .with_llm(llm)
+        let builder = AgentBuilder::<_, ActorAgent>::new(MockAgent)
+            .llm(llm)
             .runtime(runtime)
             .build()
             .await

@@ -1,21 +1,17 @@
-/// This example demonstrates Agent Streaming using the new runtime architecture
-use autoagents::core::actor::Topic;
+/// This example demonstrates Agent Streaming
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT, RunnableAgent};
-use autoagents::core::environment::Environment;
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT, DirectAgent};
 use autoagents::core::error::Error;
-use autoagents::core::protocol::TaskResult;
-use autoagents::core::runtime::SingleThreadedRuntime;
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::LLMProvider;
-use autoagents_derive::{agent, tool, ToolInput};
-use colored::*;
+use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio_stream::StreamExt as TokioStreamExt;
+use tokio_stream::StreamExt;
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct AdditionArgs {
@@ -41,10 +37,36 @@ impl ToolRuntime for Addition {
     }
 }
 
+#[derive(Deserialize, Serialize, Debug, AgentOutput)]
+pub struct AgentOutput {
+    #[output(description = "The response of the query")]
+    response: String,
+}
+
+impl From<ReActAgentOutput> for AgentOutput {
+    fn from(output: ReActAgentOutput) -> Self {
+        let resp = output.response;
+        // For streaming: only try to parse JSON if the output is marked as done
+        // and the response is not empty
+        if output.done && !resp.trim().is_empty() {
+            // Try to parse as structured JSON first
+            if let Ok(value) = serde_json::from_str::<AgentOutput>(&resp) {
+                return value;
+            }
+        }
+
+        // For streaming chunks or unparseable content, create a default response
+        AgentOutput {
+            response: resp.to_string(),
+        }
+    }
+}
+
 #[agent(
     name = "streaming_agent",
-    description = "You are a math expert and knowledgeable assistant that provides detailed explanations. Respond in a conversational manner.",
-    tools = [Addition],
+    description = "You are a Math agent and can solve problems in addition",
+    tools = [Addition]
+    output = AgentOutput
 )]
 #[derive(Clone)]
 pub struct StreamingAgent {}
@@ -57,60 +79,29 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
     let agent = StreamingAgent {};
-    let runtime = SingleThreadedRuntime::new(None);
 
-    // Create topic for streaming agent
-    let streaming_topic = Topic::<Task>::new("streaming_agent");
-
-    let agent_handler = AgentBuilder::new(agent)
-        .with_llm(llm)
-        .runtime(runtime.clone())
-        .subscribe_topic(streaming_topic.clone())
+    let agent = AgentBuilder::<_, DirectAgent>::new(agent)
+        .llm(llm)
         .stream(true) // Enable streaming for this agent
-        .with_memory(sliding_window_memory)
-        .build()
-        .await?;
+        .memory(sliding_window_memory)
+        .build()?;
 
-    // Create environment and set up event handling
-    let mut environment = Environment::new(None);
-    environment.register_runtime(runtime.clone()).await?;
-
-    // let _ = environment.take_event_receiver(None).await?;
-
-    // Start the environment
-    let _handle = environment.run();
-
-    let agent = agent_handler.agent;
     let task = Task::new("What is 2 + 2?");
 
     // Process the stream directly
     let mut stream = agent.run_stream(task).await?;
     println!("🔄 Processing stream tokens...\n");
 
-    // Print each stream token as it arrives
     while let Some(result) = stream.next().await {
         match result {
-            Ok(output) => match output {
-                TaskResult::Value(val) => match serde_json::from_value::<ReActAgentOutput>(val) {
-                    Ok(agent_out) => {
-                        if !agent_out.done {
-                            println!(
-                                "{}",
-                                format!("🌊 Streaming Response: {}", agent_out.response).green()
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        println!("{}", format!("❌ Failed to parse response: {}", e).red());
-                    }
-                },
-                TaskResult::Failure(error) => {
-                    println!("{}", format!("❌ Task failed: {}", error).red());
-                }
-                TaskResult::Aborted => todo!(),
-            },
-            Err(e) => {
-                println!("🔴 {}", format!("Stream error: {}", e).red());
+            Ok(output) => {
+                println!(
+                    "{}",
+                    format!("🌊 Streaming Response: {}", output.response).green()
+                );
+            }
+            _ => {
+                //
             }
         }
     }

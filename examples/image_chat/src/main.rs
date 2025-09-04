@@ -2,17 +2,11 @@
 //!
 //! This example demonstrates how to use AutoAgents with image messages.
 //! It shows how to send images to LLMs that support vision capabilities.
-use anyhow::Result;
-use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
-use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::prebuilt::executor::ReActExecutor;
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT};
-use autoagents::core::environment::Environment;
-use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT, DirectAgent};
 use autoagents::core::tool::ToolT;
-
 use autoagents::llm::{
     backends::openai::OpenAI,
     builder::LLMBuilder,
@@ -22,9 +16,7 @@ use autoagents_derive::agent;
 use clap::Parser;
 use serde_json::Value;
 use std::path::PathBuf;
-
 use tokio::fs;
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 
 #[agent(name = "image_agent", description = "You are an Image analysis agent")]
 #[derive(Default, Clone)]
@@ -47,13 +39,17 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     // Get image path from arguments or use default
-    let image_path = match args.image {
-        Some(path) => path,
-        None => {
-            println!("No image path provided, using default test image.");
+    let image_path = args.image.unwrap_or_else(|| {
+        println!("No image path provided, using default test image.");
+        // Try relative path first (when running from examples/image_chat)
+        let local_path = PathBuf::from("./test_img.jpg");
+        if local_path.exists() {
+            local_path
+        } else {
+            // Fall back to path when running from project root
             PathBuf::from("./examples/image_chat/test_img.jpg")
         }
-    };
+    });
 
     println!("Reading image from: {}", image_path.display());
 
@@ -90,77 +86,21 @@ async fn main() -> anyhow::Result<()> {
     println!("Response:\n{}", response.text().unwrap_or_default());
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = ImageAgent {};
+    let agent = AgentBuilder::<_, DirectAgent>::new(ImageAgent {})
+        .llm(llm)
+        .memory(sliding_window_memory)
+        .build()?;
 
-    let runtime = SingleThreadedRuntime::new(None);
-
-    let test_topic = Topic::<Task>::new("test");
-
-    let agent_handle = AgentBuilder::new(agent)
-        .with_llm(llm)
-        .runtime(runtime.clone())
-        .subscribe_topic(test_topic.clone())
-        .with_memory(sliding_window_memory)
-        .build()
+    println!("Running agent with image");
+    let agent_result = agent
+        .run(Task::new_with_image(
+            "What do you see in this image?",
+            ImageMime::JPEG,
+            image_bytes,
+        ))
         .await?;
 
-    let _addr = agent_handle.addr();
+    println!("Agent Response: {}", agent_result);
 
-    // Create environment and set up event handling
-    let mut environment = Environment::new(None);
-    let _ = environment.register_runtime(runtime.clone()).await;
-
-    let receiver = environment.take_event_receiver(None).await?;
-    let _ = handle_events(receiver)?;
-
-    // Publish message with image data to all the subscribing actors
-    runtime
-        .publish(
-            &Topic::<Task>::new("test"),
-            Task::new_with_image(
-                "What do you see in this image?",
-                ImageMime::JPEG,
-                image_bytes,
-            ),
-        )
-        .await?;
-
-    let _ = environment.run().await;
-    Ok(())
-}
-
-fn handle_events(event_stream: ReceiverStream<Event>) -> Result<()> {
-    let mut event_stream = event_stream;
-    tokio::spawn(async move {
-        while let Some(event) = event_stream.next().await {
-            match event {
-                Event::TaskStarted {
-                    actor_id,
-                    task_description,
-                    ..
-                } => {
-                    println!(
-                        "🎯 Task Started - Actor: {:?}, Task: {}",
-                        actor_id, task_description
-                    );
-                }
-                Event::TaskComplete { result, .. } => match result {
-                    TaskResult::Value(val) => {
-                        let react_output: ReActAgentOutput = serde_json::from_value(val).unwrap();
-                        println!("✅ Task Complete - Result: {}", react_output.response);
-                    }
-                    TaskResult::Failure(err) => {
-                        println!("❌ Task Error: {}", err);
-                    }
-                    TaskResult::Aborted => {
-                        println!("⚠️ Task Aborted");
-                    }
-                },
-                _ => {
-                    println!("📋 Event: {:?}", event);
-                }
-            }
-        }
-    });
     Ok(())
 }

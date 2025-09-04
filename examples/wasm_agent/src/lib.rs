@@ -6,12 +6,9 @@ use autoagents::core::agent::prebuilt::executor::{
 };
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentExecutor};
-use autoagents::core::agent::{
-    AgentConfig, AgentOutputT, AgentProtocol, Context, ExecutorConfig, RunnableAgent,
-    RunnableAgentImpl,
-};
+use autoagents::core::agent::{AgentConfig, AgentOutputT, AgentProtocol, Context, ExecutorConfig};
 use autoagents::core::error::Error;
-use autoagents::core::protocol::{Event, TaskResult};
+use autoagents::core::protocol::Event;
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::chat::ChatProvider;
 use autoagents::llm::chat::{ChatMessage, ChatRole, MessageType, StructuredOutputFormat};
@@ -81,6 +78,16 @@ pub struct MathAgentOutput {
     explanation: String,
     #[output(description = "If user asks other than math questions, use this to answer them.")]
     generic: Option<String>,
+}
+
+impl From<String> for MathAgentOutput {
+    fn from(value: String) -> Self {
+        MathAgentOutput {
+            value: 0,
+            explanation: value,
+            generic: None,
+        }
+    }
 }
 
 #[agent(

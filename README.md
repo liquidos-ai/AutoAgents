@@ -147,23 +147,17 @@ The lefthook configuration will automatically:
 ### Basic Usage
 
 ```rust
-use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
-use autoagents::core::environment::Environment;
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT, DirectAgent};
 use autoagents::core::error::Error;
-use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
-use colored::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct AdditionArgs {
@@ -182,6 +176,7 @@ struct Addition {}
 
 impl ToolRuntime for Addition {
     fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        println!("execute tool: {:?}", args);
         let typed_args: AdditionArgs = serde_json::from_value(args)?;
         let result = typed_args.left + typed_args.right;
         Ok(result.into())
@@ -203,79 +198,42 @@ pub struct MathAgentOutput {
     name = "math_agent",
     description = "You are a Math agent",
     tools = [Addition],
-    output = MathAgentOutput
+    output = MathAgentOutput,
 )]
+#[derive(Default, Clone)]
 pub struct MathAgent {}
-
 impl ReActExecutor for MathAgent {}
+impl From<ReActAgentOutput> for MathAgentOutput {
+    fn from(output: ReActAgentOutput) -> Self {
+        let resp = output.response;
+        if output.done && !resp.trim().is_empty() {
+            // Try to parse as structured JSON first
+            if let Ok(value) = serde_json::from_str::<MathAgentOutput>(&resp) {
+                return value;
+            }
+        }
+        // For streaming chunks or unparseable content, create a default response
+        MathAgentOutput {
+            value: 0,
+            explanation: resp,
+            generic: None,
+        }
+    }
+}
 
 pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = MathAgent {};
+    let agent = AgentBuilder::<_, DirectAgent>::new(MathAgent {})
+        .llm(llm)
+        .memory(sliding_window_memory)
+        .build()?;
 
-    let runtime = SingleThreadedRuntime::new(None);
+    println!("Running simple_agent with direct run method");
 
-    let test_topic = Topic::<Task>::new("test");
-
-    let agent_handle = AgentBuilder::new(agent)
-        .with_llm(llm)
-        .runtime(runtime.clone())
-        .subscribe_topic(test_topic.clone())
-        .with_memory(sliding_window_memory)
-        .build()
-        .await?;
-
-    // Create environment and set up event handling
-    let mut environment = Environment::new(None);
-    let _ = environment.register_runtime(runtime.clone()).await;
-
-    let receiver = environment.take_event_receiver(None).await?;
-    handle_events(receiver);
-
-    // Publish message to all the subscribing actors
-    runtime.publish(&Topic::<Task>::new("test"), Task::new("what is 2 + 2?")).await?;
-    // Send a direct message for memory test
-    println!("\n📧 Sending direct message to test memory...");
-    runtime.send_message(Task::new("What was the question I asked?"), agent_handle.addr()).await?;
-
-    let _ = environment.run().await;
+    let result = agent.run(Task::new("What is 1 + 1?")).await?;
+    println!("Result: {:?}", result);
     Ok(())
-}
-
-fn handle_events(event_stream: Option<ReceiverStream<Event>>) {
-    if let Some(mut event_stream) = event_stream {
-        tokio::spawn(async move {
-            while let Some(event) = event_stream.next().await {
-                match event {
-                    Event::TaskComplete { result, .. } => {
-                        match result {
-                            TaskResult::Value(val) => {
-                                let agent_out: ReActAgentOutput =
-                                    serde_json::from_value(val).unwrap();
-                                let math_out: MathAgentOutput =
-                                    serde_json::from_str(&agent_out.response).unwrap();
-                                println!(
-                                    "{}",
-                                    format!(
-                                        "Math Value: {}, Explanation: {}",
-                                        math_out.value, math_out.explanation
-                                    )
-                                        .green()
-                                );
-                            }
-                            _ => {
-                                //
-                            }
-                        }
-                    }
-                    _ => {
-                        //
-                    }
-                }
-            }
-        });
-    }
 }
 ```
 

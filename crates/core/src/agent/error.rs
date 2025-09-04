@@ -38,6 +38,10 @@ pub enum RunnableAgentError {
     #[error("Serialization error: {0}")]
     SerializationError(String),
 
+    /// Error during serialization/deserialization
+    #[error("EmptyTx")]
+    EmptyTx,
+
     /// Generic error wrapper for any std::error::Error
     #[error(transparent)]
     Other(#[from] Box<dyn std::error::Error + Send + Sync>),

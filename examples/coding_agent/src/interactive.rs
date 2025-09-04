@@ -6,7 +6,7 @@ use autoagents::core::agent::task::Task;
 use autoagents::core::agent::AgentBuilder;
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::protocol::{Event, TaskResult};
+use autoagents::core::protocol::Event;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::llm::LLMProvider;
 use colored::*;
@@ -34,10 +34,10 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
 
     // Build the agent
     let _ = AgentBuilder::new(coding_agent)
-        .with_llm(llm)
+        .llm(llm)
         .runtime(runtime.clone())
-        .subscribe_topic(coding_topic.clone())
-        .with_memory(memory)
+        .subscribe(coding_topic.clone())
+        .memory(memory)
         .build()
         .await?;
 
@@ -93,8 +93,7 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
                 let task = Task::new(input);
 
                 // Publish to topic for all subscribers
-                let any_topic = Topic::<Task>::new("test");
-                runtime.publish(&any_topic, task).await?;
+                runtime.publish(&coding_topic, task).await?;
 
                 // Give some time for processing
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -141,28 +140,20 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                         format!("✅ Tool Completed: {} - Result: {:?}", tool_name, result).yellow()
                     );
                 }
-                Event::TaskComplete { result, .. } => match result {
-                    TaskResult::Value(val) => {
-                        match serde_json::from_value::<ReActAgentOutput>(val) {
-                            Ok(agent_out) => {
-                                let skin = MadSkin::default();
-                                println!("\n📝 Agent Response:");
-                                println!("{}", "─".repeat(50).blue());
-                                skin.print_text(&agent_out.response);
-                                println!("{}", "─".repeat(50).blue());
-                            }
-                            Err(e) => {
-                                println!("{}", format!("❌ Failed to parse response: {}", e).red());
-                            }
+                Event::TaskComplete { result, .. } => {
+                    match serde_json::from_str::<ReActAgentOutput>(&result) {
+                        Ok(agent_out) => {
+                            let skin = MadSkin::default();
+                            println!("\n📝 Agent Response:");
+                            println!("{}", "─".repeat(50).blue());
+                            skin.print_text(&agent_out.response);
+                            println!("{}", "─".repeat(50).blue());
+                        }
+                        Err(e) => {
+                            println!("{}", format!("❌ Failed to parse response: {}", e).red());
                         }
                     }
-                    TaskResult::Failure(error) => {
-                        println!("{}", format!("❌ Task failed: {}", error).red());
-                    }
-                    TaskResult::Aborted => {
-                        println!("{}", "🚫 Task aborted".yellow());
-                    }
-                },
+                }
                 Event::TurnStarted {
                     turn_number,
                     max_turns,

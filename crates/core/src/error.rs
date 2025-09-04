@@ -1,4 +1,4 @@
-use crate::agent::AgentResultError;
+use crate::agent::{AgentResultError, ContextError};
 
 use crate::agent::error::{AgentBuildError, RunnableAgentError};
 #[cfg(not(target_arch = "wasm32"))]
@@ -21,6 +21,8 @@ pub enum Error {
     LLMError(#[from] LLMError),
     #[error(transparent)]
     AgentResultError(#[from] AgentResultError),
+    #[error(transparent)]
+    ContextError(#[from] ContextError),
     #[error("Custom Error: {0}")]
     CustomError(String),
 }

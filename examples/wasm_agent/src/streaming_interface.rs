@@ -4,9 +4,9 @@ use crate::{console_log, MathAgent, MathAgentOutput};
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::RunnableAgentImpl;
-use autoagents::core::agent::{AgentBuilder, AgentExecutor, RunnableAgent};
-use autoagents::core::protocol::{Event, TaskResult};
+use autoagents::core::agent::{ActorAgent, BaseAgent, DirectAgent};
+use autoagents::core::agent::{AgentBuilder, AgentExecutor};
+use autoagents::core::protocol::Event;
 use futures::channel::mpsc::Receiver;
 use futures::StreamExt;
 use serde_json;
@@ -17,8 +17,7 @@ use web_sys;
 
 #[wasm_bindgen]
 pub struct TokenStreamer {
-    agent: Arc<RunnableAgentImpl<MathAgent>>,
-    rx: Receiver<Event>,
+    agent: Arc<BaseAgent<MathAgent, DirectAgent>>,
 }
 
 #[wasm_bindgen]
@@ -44,14 +43,16 @@ impl TokenStreamer {
             Some(12345),
         );
 
-        let (agent, rx) = AgentBuilder::new(MathAgent {})
-            .with_llm(Arc::new(llama_provider))
-            .with_memory(sliding_window_memory)
-            .stream(true)
-            .build_runnable()
-            .map_err(|e| JsValue::from_str(&format!("Failed to build agent: {:?}", e)))?;
+        let agent = Arc::new(
+            AgentBuilder::<_, DirectAgent>::new(MathAgent {})
+                .llm(Arc::new(llama_provider))
+                .memory(sliding_window_memory)
+                .stream(true)
+                .build()
+                .unwrap(),
+        );
 
-        Ok(TokenStreamer { agent, rx })
+        Ok(TokenStreamer { agent })
     }
 
     #[wasm_bindgen]
@@ -74,46 +75,10 @@ impl TokenStreamer {
                 console_log!("About to start consuming stream...");
 
                 // Process tokens one by one with proper yielding
-                let mut token_count = 0;
                 while let Some(result) = stream.next().await {
                     match result {
                         Ok(task_result) => {
                             console_log!("Received task result: {:?}", task_result);
-
-                            match task_result {
-                                TaskResult::Value(val) => {
-                                    // Handle streaming tokens from execute_stream
-                                    if let Some(token_str) = val.as_str() {
-                                        // Direct string token from execute_stream
-                                        console_log!("Streaming token: {}", token_str);
-                                        let js_token = JsValue::from_str(token_str);
-                                        if let Err(e) = callback.call1(&JsValue::NULL, &js_token) {
-                                            console_log!("Callback error: {:?}", e);
-                                            return Err(JsValue::from_str("Callback failed"));
-                                        }
-
-                                        // Yield every few tokens to prevent blocking
-                                        token_count += 1;
-                                        if token_count % 3 == 0 {
-                                            // Create a promise that resolves in next tick
-                                            let promise =
-                                                js_sys::Promise::resolve(&JsValue::undefined());
-                                            JsFuture::from(promise).await.ok();
-                                        }
-                                    }
-                                }
-                                TaskResult::Failure(error) => {
-                                    console_log!("Task failed: {}", error);
-                                    return Err(JsValue::from_str(&format!(
-                                        "Task failed: {}",
-                                        error
-                                    )));
-                                }
-                                _ => {
-                                    console_log!("Unexpected task result type: {:?}", task_result);
-                                    continue;
-                                }
-                            }
                         }
                         Err(e) => {
                             console_log!("Stream error: {:?}", e);

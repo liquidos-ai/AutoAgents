@@ -126,17 +126,38 @@ impl OutputParser {
     fn parse_struct(&mut self, input: &DataStruct) -> Result<()> {
         match &input.fields {
             syn::Fields::Named(fields) => {
+                let mut has_output_attribute = false;
+
                 for field in fields.named.iter() {
                     let field_name = field
                         .ident
                         .as_ref()
                         .expect("Couldn't get the field name!")
                         .to_string();
+
+                    // Check if this field has an #[output()] attribute
+                    let has_field_output_attr = field.attrs.iter().any(|attr| {
+                        attr.path()
+                            .is_ident(OutputAttrIdent::Output.to_string().as_str())
+                    });
+
+                    if has_field_output_attr {
+                        has_output_attribute = true;
+                    }
+
                     let output_property = self.parse_field(field_name.clone(), field)?;
                     self.output_data
                         .schema
                         .properties
                         .insert(field_name, output_property);
+                }
+
+                // Validate that at least one field has an #[output()] attribute
+                if !has_output_attribute {
+                    return Err(Error::new(
+                        proc_macro2::Span::call_site(),
+                        "AgentOutput structs must have at least one field with an #[output(description = \"...\")] attribute",
+                    ));
                 }
             }
             _ => {

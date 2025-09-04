@@ -22,7 +22,7 @@ pub type EventId = Uuid;
 /// Protocol events represent the various events that can occur during actor execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
-    /// A new task has been submitted to an agent
+    // /// A new task has been submitted to an agent
     NewTask {
         actor_id: ActorID,
         task: Task,
@@ -38,13 +38,13 @@ pub enum Event {
     /// A task has been completed
     TaskComplete {
         sub_id: SubmissionId,
-        result: TaskResult,
+        result: String,
     },
 
     /// A task encountered an error
     TaskError {
         sub_id: SubmissionId,
-        result: TaskResult,
+        error: String,
     },
 
     #[serde(skip)]
@@ -117,19 +117,6 @@ pub enum InternalEvent {
     ProtocolEvent(Event),
     /// Shutdown signal
     Shutdown,
-}
-
-/// Results from a completed task
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum TaskResult {
-    /// The task was completed with a value
-    Value(serde_json::Value),
-
-    /// The task failed
-    Failure(String),
-
-    /// The task was aborted
-    Aborted,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

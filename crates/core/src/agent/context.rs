@@ -3,7 +3,6 @@ use crate::actor::{ActorMessage, Topic};
 use crate::agent::memory::MemoryProvider;
 use crate::agent::state::AgentState;
 use crate::agent::AgentConfig;
-use crate::error::Error;
 use crate::protocol::Event;
 use crate::tool::ToolT;
 use autoagents_llm::chat::ChatMessage;
@@ -25,12 +24,21 @@ pub struct Context {
     tools: Vec<Box<dyn ToolT>>,
     config: AgentConfig,
     state: Arc<Mutex<AgentState>>,
-    tx: mpsc::Sender<Event>,
+    tx: Option<mpsc::Sender<Event>>,
     stream: bool,
 }
 
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum ContextError {
+    #[error("Tx value is None, Tx is only set for Actor agents")]
+    EmptyTx,
+    /// Error when sending events
+    #[error("Failed to send event: {0}")]
+    EventSendError(String),
+}
+
 impl Context {
-    pub fn new(llm: Arc<dyn LLMProvider>, tx: mpsc::Sender<Event>) -> Self {
+    pub fn new(llm: Arc<dyn LLMProvider>, tx: Option<mpsc::Sender<Event>>) -> Self {
         Self {
             llm,
             messages: vec![],
@@ -44,15 +52,21 @@ impl Context {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn publish<M: ActorMessage>(&self, topic: Topic<M>, message: M) -> Result<(), Error> {
+    pub async fn publish<M: ActorMessage>(
+        &self,
+        topic: Topic<M>,
+        message: M,
+    ) -> Result<(), ContextError> {
         self.tx
+            .as_ref()
+            .ok_or(ContextError::EmptyTx)?
             .send(Event::PublishMessage {
                 topic_name: topic.name().to_string(),
                 message: Arc::new(message) as Arc<dyn Any + Send + Sync>,
                 topic_type: topic.type_id(),
             })
             .await
-            .map_err(|e| Error::CustomError(e.to_string()))
+            .map_err(|e| ContextError::EventSendError(e.to_string()))
     }
 
     pub fn with_memory(mut self, memory: Option<Arc<Mutex<Box<dyn MemoryProvider>>>>) -> Self {
@@ -81,8 +95,8 @@ impl Context {
     }
 
     // Getters
-    pub fn llm(&self) -> Arc<dyn LLMProvider> {
-        self.llm.clone()
+    pub fn llm(&self) -> &Arc<dyn LLMProvider> {
+        &self.llm
     }
 
     pub fn messages(&self) -> &[ChatMessage] {
@@ -105,8 +119,8 @@ impl Context {
         self.state.clone()
     }
 
-    pub fn tx(&self) -> mpsc::Sender<Event> {
-        self.tx.clone()
+    pub fn tx(&self) -> Result<mpsc::Sender<Event>, ContextError> {
+        Ok(self.tx.as_ref().ok_or(ContextError::EmptyTx)?.clone())
     }
 
     pub fn stream(&self) -> bool {
@@ -121,13 +135,11 @@ mod tests {
     use autoagents_llm::chat::{ChatMessage, ChatMessageBuilder, ChatRole};
     use autoagents_test_utils::llm::MockLLMProvider;
     use std::sync::Arc;
-    use tokio::sync::mpsc;
 
     #[test]
     fn test_context_creation() {
         let llm = Arc::new(MockLLMProvider);
-        let (tx, _rx) = mpsc::channel(10);
-        let context = Context::new(llm, tx);
+        let context = Context::new(llm, None);
 
         assert!(context.messages.is_empty());
         assert!(context.memory.is_none());
@@ -138,20 +150,18 @@ mod tests {
     #[test]
     fn test_context_with_llm_provider() {
         let llm = Arc::new(MockLLMProvider);
-        let (tx, _rx) = mpsc::channel(10);
-        let context = Context::new(llm.clone(), tx);
+        let context = Context::new(llm.clone(), None);
 
         // Verify the LLM provider is set correctly
         let context_llm = context.llm();
-        assert!(Arc::strong_count(&context_llm) > 0);
+        assert!(Arc::strong_count(context_llm) > 0);
     }
 
     #[test]
     fn test_context_with_memory() {
         let llm = Arc::new(MockLLMProvider);
-        let (tx, _rx) = mpsc::channel(10);
         let memory = Box::new(SlidingWindowMemory::new(5));
-        let context = Context::new(llm, tx).with_memory(Some(Arc::new(Mutex::new(memory))));
+        let context = Context::new(llm, None).with_memory(Some(Arc::new(Mutex::new(memory))));
 
         assert!(context.memory().is_some());
     }
@@ -159,9 +169,8 @@ mod tests {
     #[test]
     fn test_context_with_messages() {
         let llm = Arc::new(MockLLMProvider);
-        let (tx, _rx) = mpsc::channel(10);
         let message = ChatMessage::user().content("Hello".to_string()).build();
-        let context = Context::new(llm, tx).with_messages(vec![message]);
+        let context = Context::new(llm, None).with_messages(vec![message]);
 
         assert_eq!(context.messages().len(), 1);
         assert_eq!(context.messages()[0].role, ChatRole::User);
@@ -171,22 +180,19 @@ mod tests {
     #[test]
     fn test_context_streaming_flag() {
         let llm = Arc::new(MockLLMProvider);
-        let (tx, _rx) = mpsc::channel(10);
-        let context = Context::new(llm, tx).with_stream(true);
-
+        let context = Context::new(llm, None).with_stream(true);
         assert!(context.stream());
     }
 
     #[test]
     fn test_context_fluent_interface() {
         let llm = Arc::new(MockLLMProvider);
-        let (tx, _rx) = mpsc::channel(10);
         let memory = Box::new(SlidingWindowMemory::new(3));
         let message = ChatMessageBuilder::new(ChatRole::System)
             .content("System prompt".to_string())
             .build();
 
-        let context = Context::new(llm, tx)
+        let context = Context::new(llm, None)
             .with_memory(Some(Arc::new(Mutex::new(memory))))
             .with_messages(vec![message])
             .with_stream(true);
