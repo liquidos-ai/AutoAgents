@@ -276,9 +276,7 @@ cargo run --package coding_agent -- --usecase interactive
 
 ---
 
-## 🏗️ Architecture
-
-![AutoAgents Architecture](assets/AutoAgents_Architecture.png)
+## 🏗️ Components 
 
 AutoAgents is built with a modular architecture:
 
