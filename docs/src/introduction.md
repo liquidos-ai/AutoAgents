@@ -52,13 +52,15 @@ Ready to build your first agent? Here's a simple example:
 
 ```rust
 use autoagents::core::agent::memory::SlidingWindowMemory;
-use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT, DirectAgent};
 use autoagents::core::error::Error;
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::LLMProvider;
-use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
+use autoagents::llm::backends::openai::OpenAI;
+use autoagents::llm::builder::LLMBuilder;
+use autoagents_derive::{AgentOutput, ToolInput, agent, tool};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -106,7 +108,7 @@ pub struct MathAgentOutput {
 )]
 #[derive(Default, Clone)]
 pub struct MathAgent {}
-impl ReActExecutor for MathAgent {}
+
 impl From<ReActAgentOutput> for MathAgentOutput {
     fn from(output: ReActAgentOutput) -> Self {
         let resp = output.response;
@@ -128,7 +130,7 @@ impl From<ReActAgentOutput> for MathAgentOutput {
 pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = AgentBuilder::<_, DirectAgent>::new(MathAgent {})
+    let agent = AgentBuilder::<_, DirectAgent>::new(ReActAgent::new(MathAgent {}))
         .llm(llm)
         .memory(sliding_window_memory)
         .build()?;
@@ -137,6 +139,24 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     let result = agent.run(Task::new("What is 1 + 1?")).await?;
     println!("Result: {:?}", result);
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    // Check if API key is set
+    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or("".into());
+
+    // Initialize and configure the LLM client
+    let llm: Arc<OpenAI> = LLMBuilder::<OpenAI>::new()
+        .api_key(api_key) // Set the API key
+        .model("gpt-4o") // Use GPT-4o-mini model
+        .max_tokens(512) // Limit response length
+        .temperature(0.2) // Control response randomness (0.0-1.0)
+        .build()
+        .expect("Failed to build LLM");
+
+    let _ = simple_agent(llm).await?;
     Ok(())
 }
 ```
