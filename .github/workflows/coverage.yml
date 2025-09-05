@@ -4,27 +4,34 @@ on:
   push:
     branches:
       - main
-      - dev
 
 jobs:
   test:
     name: coverage
     runs-on: ubuntu-latest
-    container:
-      image: xd009642/tarpaulin
-      options: --security-opt seccomp=unconfined
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
+
+      - name: Install Rust (via rustup)
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: llvm-tools-preview
+
+      - name: Install Tarpaulin
+        run: cargo install cargo-tarpaulin
 
       - name: Generate code coverage
         run: |
-          apt-get update && apt-get install -y python3-pip && RUSTFLAGS="-C target-cpu=x86-64" cargo tarpaulin --features="full" --verbose --workspace --timeout 120 --out xml
+          cargo tarpaulin --features="full" --verbose --workspace --timeout 120 --out Xml
 
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: true
-          fail_ci_if_error: true # optional (default = false)
+          fail_ci_if_error: true
           files: ./cobertura.xml
