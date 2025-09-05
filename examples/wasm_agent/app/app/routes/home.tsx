@@ -37,7 +37,7 @@ export default function Home() {
     const [loading, setLoading] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState("");
     const [loadingProgress, setLoadingProgress] = useState(0);
-    const [prompt, setPrompt] = useState("");
+    const [prompt, setPrompt] = useState("Can you tell me how to create a python application to go through all the files in one directory where the file's name DOES NOT end with '.json'?");
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [isGenerating, setIsGenerating] = useState(false);
     const [currentStreamingContent, setCurrentStreamingContent] =
@@ -355,6 +355,10 @@ export default function Home() {
 
     // @ts-ignore
     // @ts-ignore
+    // @ts-ignore
+    // @ts-ignore
+    // @ts-ignore
+    // @ts-ignore
     return (
         <div className="min-h-screen bg-gradient-to-br from-zinc-900 via-slate-900 to-zinc-900">
             {/* Background Pattern */}
@@ -469,7 +473,7 @@ export default function Home() {
                                         ))}
                                     </select>
                                     <p className="mt-1 text-xs text-gray-300">
-                                        Size: {MODELS[selectedModel].size}
+                                        Size: {MODELS[selectedModel as keyof typeof MODELS].size}
                                     </p>
                                 </div>
 
@@ -753,7 +757,7 @@ export default function Home() {
                                                                 {message.image && (
                                                                     <div className="mb-3">
                                                                         <img
-                                                                            src={URL.createObjectURL(new Blob([message.image.data], {type: message.image.mimeType}))}
+                                                                            src={URL.createObjectURL(new Blob([new Uint8Array(message.image.data)], {type: message.image.mimeType}))}
                                                                             alt="User uploaded"
                                                                             className="max-w-md rounded-lg border border-zinc-500/30"
                                                                         />

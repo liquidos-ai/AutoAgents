@@ -16,121 +16,52 @@ AutoAgents is a comprehensive framework that allows developers to create AI agen
 - **Remember**: Maintain context and conversation history through flexible memory systems
 - **Collaborate**: Work together in multi-agent environments (coming soon)
 
-## Why Choose AutoAgents?
+---
 
-### 🚀 **Performance First**
-Built in Rust, AutoAgents delivers exceptional performance with:
-- Zero-cost abstractions
-- Memory safety without garbage collection
-- Async/await support for high concurrency
-- Efficient tool execution and memory management
+## ✨ Key Features
 
-### 🔧 **Extensible Architecture**
-- **Modular Design**: Plugin-based architecture for easy customization
-- **Provider Agnostic**: Support for multiple LLM providers (OpenAI, Anthropic, Ollama, and more)
-- **Custom Tools**: Easy integration of external tools and services
-- **Flexible Memory**: Configurable memory backends for different use cases
+### 🤖 **Agent Execution**
 
-### 🎯 **Developer Experience**
-- **Declarative Macros**: Define agents with simple, readable syntax
-- **Type Safety**: Compile-time guarantees with structured outputs
-- **Rich Tooling**: Comprehensive error handling and debugging support
-- **Extensive Documentation**: Clear guides and examples for every feature
+- **Multiple Executors**: ReAct (Reasoning + Acting) and Basic executors with streaming support
+- **Structured Outputs**: Type-safe JSON schema validation and custom output types
+- **Memory Systems**: Configurable memory backends (sliding window, persistent storage)
 
-### 🌐 **Multi-Provider Support**
-AutoAgents supports a wide range of LLM providers out of the box:
+### 🔧 **Tool Integration**
 
-| Provider | Status | Features |
-|----------|--------|----------|
-| OpenAI | ✅ | GPT-4, GPT-3.5, Function Calling |
-| Anthropic | ✅ | Claude 3, Tool Use |
-| Ollama | ✅ | Local Models, Custom Models |
-| Google | ✅ | Gemini Pro, Gemini Flash |
-| Groq | ✅ | Fast Inference |
-| DeepSeek | ✅ | Code-focused Models |
-| xAI | ✅ | Grok Models |
-| Phind | ✅ | Developer-focused |
-| Azure OpenAI | ✅ | Enterprise Integration |
+- **Built-in Tools**: File operations, web scraping, API calls
+- **Custom Tools**: Easy integration with derive macros
+- **WASM Runtime**: Sandboxed tool execution with cross-platform compatibility
 
-## Key Features
+### 🏗️ **Flexible Architecture**
 
-### ReAct Framework
-AutoAgents implements the ReAct (Reasoning and Acting) pattern, allowing agents to:
-1. **Reason** about problems step-by-step
-2. **Act** by calling tools and functions
-3. **Observe** the results and adjust their approach
+- **Provider Agnostic**: Support for OpenAI, Anthropic, Ollama, and local models
+- **Multi-Platform**: Native Rust, WASM for browsers, and server deployments
+- **Multi-Agent**: Type-safe pub/sub communication and agent orchestration
 
-### Structured Outputs
-Define type-safe outputs for your agents using JSON Schema:
-```rust
-#[derive(Serialize, Deserialize, ToolInput, Debug)]
-pub struct WeatherOutput {
-    #[output(description = "Temperature in Celsius")]
-    temperature: f64,
-    #[output(description = "Weather description")]
-    description: String,
-}
-```
+### 🌐 **Deployment Options**
 
-### Tool Integration
-Build powerful agents by connecting them to external tools:
-- File system operations
-- Web scraping and API calls
-- Database interactions
-- Custom business logic
+- **Native**: High-performance server and desktop applications
+- **Browser**: Run agents directly in web browsers via WebAssembly
+- **Edge**: Local inference with ONNX models
 
-### Memory Systems
-Choose from various memory backends:
-- **Sliding Window**: Keep recent conversation history
-- **Persistent**: Long-term memory storage
-- **Custom**: Implement your own memory strategy
-
-## Use Cases
-
-AutoAgents is perfect for building:
-
-### 🤖 **AI Assistants**
-- Customer support chatbots
-- Personal productivity assistants
-- Domain-specific expert systems
-
-### 🛠️ **Development Tools**
-- Code generation and review agents
-- Automated testing assistants
-- Documentation generators
-
-### 📊 **Data Processing**
-- Document analysis and summarization
-- Data extraction and transformation
-- Report generation
-
-### 🔗 **Integration Agents**
-- API orchestration
-- Workflow automation
-- System monitoring and alerting
+---
 
 ## Getting Started
 
 Ready to build your first agent? Here's a simple example:
 
 ```rust
-use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT};
-use autoagents::core::environment::Environment;
+use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT, DirectAgent};
 use autoagents::core::error::Error;
-use autoagents::core::protocol::{Event, TaskResult};
-use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
-use colored::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct AdditionArgs {
@@ -149,6 +80,7 @@ struct Addition {}
 
 impl ToolRuntime for Addition {
     fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        println!("execute tool: {:?}", args);
         let typed_args: AdditionArgs = serde_json::from_value(args)?;
         let result = typed_args.left + typed_args.right;
         Ok(result.into())
@@ -170,85 +102,49 @@ pub struct MathAgentOutput {
     name = "math_agent",
     description = "You are a Math agent",
     tools = [Addition],
-    output = MathAgentOutput
+    output = MathAgentOutput,
 )]
+#[derive(Default, Clone)]
 pub struct MathAgent {}
-
 impl ReActExecutor for MathAgent {}
+impl From<ReActAgentOutput> for MathAgentOutput {
+    fn from(output: ReActAgentOutput) -> Self {
+        let resp = output.response;
+        if output.done && !resp.trim().is_empty() {
+            // Try to parse as structured JSON first
+            if let Ok(value) = serde_json::from_str::<MathAgentOutput>(&resp) {
+                return value;
+            }
+        }
+        // For streaming chunks or unparseable content, create a default response
+        MathAgentOutput {
+            value: 0,
+            explanation: resp,
+            generic: None,
+        }
+    }
+}
 
 pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = MathAgent {};
+    let agent = AgentBuilder::<_, DirectAgent>::new(MathAgent {})
+        .llm(llm)
+        .memory(sliding_window_memory)
+        .build()?;
 
-    let runtime = SingleThreadedRuntime::new(None);
+    println!("Running simple_agent with direct run method");
 
-    let test_topic = Topic::<Task>::new("test");
-
-    let agent_handle = AgentBuilder::new(agent)
-        .with_llm(llm)
-        .runtime(runtime.clone())
-        .subscribe_topic(test_topic.clone())
-        .with_memory(sliding_window_memory)
-        .build()
-        .await?;
-
-    // Create environment and set up event handling
-    let mut environment = Environment::new(None);
-    let _ = environment.register_runtime(runtime.clone()).await;
-
-    let receiver = environment.take_event_receiver(None).await?;
-    handle_events(receiver);
-
-    // Publish message to all the subscribing actors
-    runtime.publish(&Topic::<Task>::new("test"), Task::new("what is 2 + 2?")).await?;
-    // Send a direct message for memory test
-    println!("\n📧 Sending direct message to test memory...");
-    runtime.send_message(Task::new("What was the question I asked?"), agent_handle.addr()).await?;
-
-    let _ = environment.run().await;
+    let result = agent.run(Task::new("What is 1 + 1?")).await?;
+    println!("Result: {:?}", result);
     Ok(())
-}
-
-fn handle_events(event_stream: Option<ReceiverStream<Event>>) {
-    if let Some(mut event_stream) = event_stream {
-        tokio::spawn(async move {
-            while let Some(event) = event_stream.next().await {
-                match event {
-                    Event::TaskComplete { result, .. } => {
-                        match result {
-                            TaskResult::Value(val) => {
-                                let agent_out: ReActAgentOutput =
-                                    serde_json::from_value(val).unwrap();
-                                let math_out: MathAgentOutput =
-                                    serde_json::from_str(&agent_out.response).unwrap();
-                                println!(
-                                    "{}",
-                                    format!(
-                                        "Math Value: {}, Explanation: {}",
-                                        math_out.value, math_out.explanation
-                                    )
-                                        .green()
-                                );
-                            }
-                            _ => {
-                                //
-                            }
-                        }
-                    }
-                    _ => {
-                        //
-                    }
-                }
-            }
-        });
-    }
 }
 ```
 
 ## Community and Support
 
-AutoAgents is developed by the [Liquidos AI](https://liquidos.ai) team and maintained by a growing community of contributors.
+AutoAgents is developed by the [Liquidos AI](https://liquidos.ai) team and maintained by a growing community of
+contributors.
 
 - 📖 **Documentation**: Comprehensive guides and API reference
 - 💬 **Discord**: Join our community at [discord.gg/Ghau8xYn](https://discord.gg/Ghau8xYn)

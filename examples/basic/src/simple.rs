@@ -1,5 +1,5 @@
 use autoagents::core::agent::memory::SlidingWindowMemory;
-use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT, DirectAgent};
 use autoagents::core::error::Error;
@@ -53,7 +53,7 @@ pub struct MathAgentOutput {
 )]
 #[derive(Default, Clone)]
 pub struct MathAgent {}
-impl ReActExecutor for MathAgent {}
+
 impl From<ReActAgentOutput> for MathAgentOutput {
     fn from(output: ReActAgentOutput) -> Self {
         let resp = output.response;
@@ -75,7 +75,7 @@ impl From<ReActAgentOutput> for MathAgentOutput {
 pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = AgentBuilder::<_, DirectAgent>::new(MathAgent {})
+    let agent = AgentBuilder::<_, DirectAgent>::new(ReActAgent::new(MathAgent {}))
         .llm(llm)
         .memory(sliding_window_memory)
         .build()?;

@@ -1,6 +1,6 @@
 use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
-use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentDeriveT};
 use autoagents::core::environment::Environment;
@@ -55,8 +55,6 @@ impl ToolRuntime for Addition {
 #[derive(Clone)]
 pub struct ChatAgent {}
 
-impl ReActExecutor for ChatAgent {}
-
 pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
     println!("🚀 Liquid Edge Local AI Example");
 
@@ -93,7 +91,7 @@ pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
 
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = ChatAgent {};
+    let agent = ReActAgent::new(ChatAgent {});
     let runtime = SingleThreadedRuntime::new(None);
 
     // Create topic for chat agent

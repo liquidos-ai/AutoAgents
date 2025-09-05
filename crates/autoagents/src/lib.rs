@@ -60,7 +60,7 @@ mod tests {
     #[tokio::test]
     async fn test_agent_builder_available() {
         // Test that agent builder types are accessible
-        use crate::core::agent::prebuilt::executor::ReActExecutor;
+        use crate::core::agent::prebuilt::executor::ReActAgent;
         use crate::core::agent::AgentBuilder;
 
         let runtime = SingleThreadedRuntime::new(None);
@@ -88,10 +88,8 @@ mod tests {
             }
         }
 
-        impl ReActExecutor for MockAgent {}
-
         let llm: Arc<MockLLMProvider> = Arc::new(MockLLMProvider {});
-        let builder = AgentBuilder::<_, ActorAgent>::new(MockAgent)
+        let builder = AgentBuilder::<_, ActorAgent>::new(ReActAgent::new(MockAgent))
             .llm(llm)
             .runtime(runtime)
             .build()

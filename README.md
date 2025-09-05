@@ -22,50 +22,35 @@ AutoAgents is a cutting-edge multi-agent framework built in Rust that enables th
 agents powered by Large Language Models (LLMs) and [Ractor](https://github.com/slawlor/ractor). Designed for
 performance, safety, and scalability. AutoAgents provides a robust foundation for building complex AI systems that can
 reason, act, and collaborate. With AutoAgents you can create Cloud Native Agents, Edge Native Agents and Hybrid Models
-as well. It is So extensible
-that other ML Models can be used to create complex pipelines using Actor Framework.
+as well. It is So extensible that other ML Models can be used to create complex pipelines using Actor Framework.
 
 ---
 
 ## ✨ Key Features
 
-### 🔧 **Extensive Tool Integration**
+### 🤖 **Agent Execution**
 
-- **Built-in Tools**: File operations, web scraping, API calls, and more coming soon!
-- **Custom Tools**: Easy integration of external tools and services
-- **Tool Chaining**: Complex workflows through tool composition
+- **Multiple Executors**: ReAct (Reasoning + Acting) and Basic executors with streaming support
+- **Structured Outputs**: Type-safe JSON schema validation and custom output types
+- **Memory Systems**: Configurable memory backends (sliding window, persistent storage)
+
+### 🔧 **Tool Integration**
+
+- **Built-in Tools**: File operations, web scraping, API calls
+- **Custom Tools**: Easy integration with derive macros
+- **WASM Runtime**: Sandboxed tool execution with cross-platform compatibility
 
 ### 🏗️ **Flexible Architecture**
 
-- **Modular Design**: Plugin-based architecture for easy extensibility
-- **Provider Agnostic**: Support for multiple LLM providers
-- **Memory Systems**: Configurable memory backends (sliding window, persistent, etc.)
+- **Provider Agnostic**: Support for OpenAI, Anthropic, Ollama, and local models
+- **Multi-Platform**: Native Rust, WASM for browsers, and server deployments
+- **Multi-Agent**: Type-safe pub/sub communication and agent orchestration
 
-### 📊 **Structured Outputs**
+### 🌐 **Deployment Options**
 
-- **JSON Schema Support**: Type-safe agent responses with automatic validation
-- **Custom Output Types**: Define complex structured outputs for your agents
-- **Serialization**: Built-in support for various data formats
-
-### 🕹️ WASM Runtime for Tool Execution
-
-- **Sandboxed Environment**: Secure and isolated execution of tools using WebAssembly
-- **Cross-Platform Compatibility**: Run tools uniformly across diverse platforms and architectures
-- **Fast Startup & Low Overhead**: Near-native performance with minimal resource consumption
-- **Safe Resource Control**: Limit CPU, memory, and execution time to prevent runaway processes
-- **Extensibility:** Easily add new tools from Hub (Coming Soon!)
-
-### 🎯 **ReAct Framework**
-
-- **Reasoning**: Advanced reasoning capabilities with step-by-step logic
-- **Acting**: Tool execution with intelligent decision making
-- **Observation**: Environmental feedback and adaptation
-
-### 🤖 **Multi-Agent Orchestration**
-
-- **Agent Coordination**: Seamless communication and collaboration between multiple agents
-- **Type Safe Pub/Sub**: Type Safe Rust Native Pub/Sub
-- **Knowledge Sharing**: Shared memory and context between agents (In Roadmap)
+- **Native**: High-performance server and desktop applications
+- **Browser**: Run agents directly in web browsers via WebAssembly
+- **Edge**: Local inference with ONNX models
 
 ---
 

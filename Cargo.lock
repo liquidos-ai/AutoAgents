@@ -4838,9 +4838,12 @@ name = "wasm_agent"
 version = "0.2.2-alpha.0"
 dependencies = [
  "anyhow",
+ "async-stream",
  "async-trait",
  "autoagents",
+ "autoagents-core",
  "autoagents-derive",
+ "autoagents-llm",
  "candle-core",
  "candle-nn",
  "candle-transformers",
@@ -4853,6 +4856,7 @@ dependencies = [
  "serde-wasm-bindgen",
  "serde_json",
  "tokenizers 0.20.4",
+ "tokio",
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",

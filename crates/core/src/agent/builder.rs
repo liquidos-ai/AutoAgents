@@ -24,10 +24,10 @@ use std::sync::Arc;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug)]
-pub struct AgentActor<T: AgentDeriveT, A: AgentType>(pub Arc<BaseAgent<T, A>>);
+pub struct AgentActor<T: AgentDeriveT + AgentExecutor, A: AgentType>(pub Arc<BaseAgent<T, A>>);
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<T: AgentDeriveT, A: AgentType> AgentActor<T, A> {}
+impl<T: AgentDeriveT + AgentExecutor, A: AgentType> AgentActor<T, A> {}
 
 /// Builder for creating BaseAgent instances from AgentDeriveT implementations
 pub struct AgentBuilder<T: AgentDeriveT + AgentExecutor, A: AgentType> {
@@ -142,7 +142,7 @@ where
 
 #[cfg(not(target_arch = "wasm32"))]
 #[async_trait]
-impl<T: AgentDeriveT> Actor for AgentActor<T, ActorAgent>
+impl<T: AgentDeriveT + AgentExecutor> Actor for AgentActor<T, ActorAgent>
 where
     T: Send + Sync + 'static,
     serde_json::Value: From<<T as AgentExecutor>::Output>,

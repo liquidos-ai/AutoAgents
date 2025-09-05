@@ -1,8 +1,12 @@
-// Phi-1.5 WASM Worker - Based on working Phi example
-import init, {PhiModel} from "./pkg/wasm_agent.js";
+// Phi-1.5 WASM Worker with AutoAgents integration
+console.log('Worker: Starting to import WASM modules...');
+import init, {PhiModel, PhiAgentWrapper} from "./pkg/wasm_agent.js";
+
+console.log('Worker: WASM modules imported successfully');
 
 let wasmInitialized = false;
 let currentModel = null;
+let currentAgent = null;
 
 // Initialize WASM when worker starts
 const initializeWASM = async () => {
@@ -144,7 +148,18 @@ const loadModel = async (modelConfig) => {
         const isQuantized = modelConfig.quantized || false;
         currentModel = new PhiModel(weightsArray, tokenizerArray, configArray, isQuantized);
 
-        console.log('Phi model loaded successfully');
+        console.log('Creating agent wrapper...');
+        self.postMessage({type: 'loading_progress', message: 'Creating agent wrapper...'});
+
+        // Create agent from the model
+        try {
+            currentAgent = PhiAgentWrapper.from_phi_model(currentModel);
+        } catch (error) {
+            console.error('Failed to create agent wrapper:', error);
+            throw error;
+        }
+
+        console.log('Phi agent loaded successfully');
         self.postMessage({type: 'model_loaded'});
         return true;
 
@@ -155,10 +170,10 @@ const loadModel = async (modelConfig) => {
     }
 };
 
-// Generate response with proper Phi chat template
+// Generate response using the AutoAgents framework
 const generateResponse = async (data) => {
-    if (!currentModel) {
-        self.postMessage({type: 'error', error: 'No model loaded'});
+    if (!currentAgent) {
+        self.postMessage({type: 'error', error: 'No agent loaded'});
         return;
     }
 
@@ -178,64 +193,41 @@ const generateResponse = async (data) => {
             return;
         }
 
-        // Format prompt using chat template like in the working Phi example
-        const formattedPrompt = `Alice: ${prompt}  
-Bob:`;
-
-        console.log('Initializing Phi with formatted prompt:', formattedPrompt);
-        
-        // Use the exact same parameters as the working Phi example but in object format
-        const initData = {
-            prompt: formattedPrompt,
-            temp: 0.7,
-            top_p: 0.9,
-            repeat_penalty: 1.1,
-            repeat_last_n: 64,
-            seed: 42  // Use regular number, not BigInt for serialization
-        };
-        
-        const firstTokenResult = currentModel.init_with_prompt(initData);
-        const firstToken = firstTokenResult.token;
-
-        let sentence = firstToken;
-        self.postMessage({type: 'token', token: firstToken});
-
-        // Generate subsequent tokens with the exact same flow as working example
-        const maxTokens = 256;
-        let tokensCount = 0;
+        console.log('Getting real-time streaming response from Phi agent...');
         let startTime = performance.now();
+        let tokenCount = 0;
 
-        while (tokensCount < maxTokens) {
-            const tokenResult = await currentModel.next_token();
-            const token = tokenResult.token;
-            
-            // Check for end of text token
-            if (token === "<|endoftext|>") {
-                console.log('End of text token reached');
-                break;
-            }
+        // Create a callback function to handle streaming tokens
+        const tokenCallback = (token) => {
+            console.log('JavaScript callback received token:', token);
+            tokenCount++;
+            const tokensSec = (tokenCount / (performance.now() - startTime)) * 1000;
 
-            if (token) {
-                sentence += token;
-                const tokensSec = ((tokensCount + 1) / (performance.now() - startTime)) * 1000;
-                
-                self.postMessage({
-                    type: 'token', 
-                    token: token,
-                    tokensSec: tokensSec.toFixed(2),
-                    totalTime: performance.now() - startTime
-                });
-                
-                // Small delay for better streaming experience
-                await new Promise(resolve => setTimeout(resolve, 30));
-            }
-            
-            tokensCount++;
+            self.postMessage({
+                type: 'token',
+                token: token,
+                tokensSec: tokensSec.toFixed(2),
+                totalTime: performance.now() - startTime
+            });
+        };
+
+        // Use the streaming method with real token-level streaming
+        console.log('About to call currentAgent.get_response_stream...');
+        try {
+            console.log('Calling get_response_stream with prompt:', prompt.substring(0, 50));
+            const result = await currentAgent.get_response_stream(prompt, tokenCallback);
+            console.log('get_response_stream result:', result);
+            console.log('Real-time streaming completed successfully, total tokens:', tokenCount);
+        } catch (streamError) {
+            console.log('Detailed streaming error:', streamError);
+            console.log('Error type:', typeof streamError);
+            console.log('Error message:', streamError?.message);
+            console.log('Error toString:', streamError?.toString());
         }
 
         // Signal completion
         self.postMessage({type: 'stream_complete'});
-        console.log('Generation completed, total tokens:', tokensCount);
+        console.log('Generation fully completed, total tokens/words processed:', tokenCount);
 
     } catch (error) {
         console.error('Generation error in worker:', error);

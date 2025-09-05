@@ -1,6 +1,6 @@
 /// This example demonstrates Agent Streaming
 use autoagents::core::agent::memory::SlidingWindowMemory;
-use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT, DirectAgent};
 use autoagents::core::error::Error;
@@ -71,14 +71,12 @@ impl From<ReActAgentOutput> for AgentOutput {
 #[derive(Clone)]
 pub struct StreamingAgent {}
 
-impl ReActExecutor for StreamingAgent {}
-
 pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     println!("🌊 Agent Streaming Example");
 
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = StreamingAgent {};
+    let agent = ReActAgent::new(StreamingAgent {});
 
     let agent = AgentBuilder::<_, DirectAgent>::new(agent)
         .llm(llm)

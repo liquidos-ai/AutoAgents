@@ -28,7 +28,7 @@ use futures::Stream;
 /// Core trait that defines agent metadata and behavior
 /// This trait is implemented via the #[agent] macro
 #[async_trait]
-pub trait AgentDeriveT: Send + Sync + 'static + AgentExecutor + Debug {
+pub trait AgentDeriveT: Send + Sync + 'static + Debug {
     /// The output type this agent produces
     type Output: AgentOutputT;
 
@@ -66,7 +66,7 @@ impl AgentType for ActorAgent {
 
 /// Base agent type that wraps an AgentDeriveT implementation with additional runtime components
 #[derive(Clone)]
-pub struct BaseAgent<T: AgentDeriveT, A: AgentType> {
+pub struct BaseAgent<T: AgentDeriveT + AgentExecutor, A: AgentType> {
     /// The inner agent implementation (from macro)
     inner: Arc<T>,
     /// LLM provider for this agent
@@ -82,13 +82,13 @@ pub struct BaseAgent<T: AgentDeriveT, A: AgentType> {
     marker: PhantomData<A>,
 }
 
-impl<T: AgentDeriveT, A: AgentType> Debug for BaseAgent<T, A> {
+impl<T: AgentDeriveT + AgentExecutor, A: AgentType> Debug for BaseAgent<T, A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(format!("A: {} - T: {}", self.inner().name(), A::type_name()).as_str())
     }
 }
 
-impl<T: AgentDeriveT> BaseAgent<T, DirectAgent> {
+impl<T: AgentDeriveT + AgentExecutor> BaseAgent<T, DirectAgent> {
     /// Create a new BaseAgent wrapping an AgentDeriveT implementation without sender
     pub fn new(
         inner: T,
@@ -171,7 +171,7 @@ impl<T: AgentDeriveT> BaseAgent<T, DirectAgent> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<T: AgentDeriveT> BaseAgent<T, ActorAgent> {
+impl<T: AgentDeriveT + AgentExecutor> BaseAgent<T, ActorAgent> {
     /// Create a new BaseAgent wrapping an AgentDeriveT implementation
     pub fn new(
         inner: T,
@@ -281,7 +281,7 @@ impl<T: AgentDeriveT> BaseAgent<T, ActorAgent> {
     }
 }
 
-impl<T: AgentDeriveT, A: AgentType> BaseAgent<T, A> {
+impl<T: AgentDeriveT + AgentExecutor, A: AgentType> BaseAgent<T, A> {
     pub fn inner(&self) -> Arc<T> {
         self.inner.clone()
     }
@@ -330,13 +330,13 @@ impl<T: AgentDeriveT, A: AgentType> BaseAgent<T, A> {
 /// Handle for an agent that includes both the agent and its actor reference
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone)]
-pub struct AgentHandle<T: AgentDeriveT, A: AgentType> {
+pub struct AgentHandle<T: AgentDeriveT + AgentExecutor, A: AgentType> {
     pub agent: Arc<BaseAgent<T, A>>,
     pub actor_ref: ActorRef<Task>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<T: AgentDeriveT, A: AgentType> AgentHandle<T, A> {
+impl<T: AgentDeriveT + AgentExecutor, A: AgentType> AgentHandle<T, A> {
     /// Get the actor reference for direct messaging
     pub fn addr(&self) -> ActorRef<Task> {
         self.actor_ref.clone()
@@ -349,7 +349,7 @@ impl<T: AgentDeriveT, A: AgentType> AgentHandle<T, A> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<T: AgentDeriveT, A: AgentType> Debug for AgentHandle<T, A> {
+impl<T: AgentDeriveT + AgentExecutor, A: AgentType> Debug for AgentHandle<T, A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AgentHandle")
             .field("agent", &self.agent)

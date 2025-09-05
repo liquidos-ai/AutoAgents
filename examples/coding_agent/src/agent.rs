@@ -1,4 +1,3 @@
-use autoagents::core::agent::prebuilt::executor::ReActExecutor;
 use autoagents::core::agent::AgentDeriveT;
 use autoagents::core::tool::ToolT;
 use autoagents_derive::agent;
@@ -65,8 +64,6 @@ Remember: You are a systematic problem solver. Think through each step, use your
 #[derive(Clone)]
 pub struct CodingAgent {}
 
-impl ReActExecutor for CodingAgent {}
-
 #[agent(
     name = "concise_coding_agent",
     description = "You are a concise coding assistant. Use tools to complete tasks efficiently.
@@ -101,5 +98,3 @@ Keep responses under 2 lines unless showing code or results.",
 )]
 #[derive(Clone)]
 pub struct ConciseCodingAgent {}
-
-impl ReActExecutor for ConciseCodingAgent {}

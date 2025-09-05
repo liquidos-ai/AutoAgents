@@ -1,7 +1,7 @@
 use crate::agent::CodingAgent;
 use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
-use autoagents::core::agent::prebuilt::executor::ReActAgentOutput;
+use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::AgentBuilder;
 use autoagents::core::environment::Environment;
@@ -30,7 +30,7 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
     let coding_topic = Topic::<Task>::new(CODING_TASK_TOPIC);
 
     // Create the coding agent
-    let coding_agent = CodingAgent {};
+    let coding_agent = ReActAgent::new(CodingAgent {});
 
     // Build the agent
     let _ = AgentBuilder::new(coding_agent)

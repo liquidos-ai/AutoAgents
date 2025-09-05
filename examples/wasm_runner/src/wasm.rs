@@ -1,6 +1,6 @@
 use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
-use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{ActorAgent, AgentBuilder, AgentDeriveT, AgentOutputT};
 use autoagents::core::environment::Environment;
@@ -77,14 +77,12 @@ pub struct WasmMathAgentOutput {
 #[derive(Clone)]
 pub struct WasmMathAgent {}
 
-impl ReActExecutor for WasmMathAgent {}
-
 pub async fn wasm_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     println!("🚀 WASM Agent Example - Math operations using WebAssembly");
 
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = WasmMathAgent {};
+    let agent = ReActAgent::new(WasmMathAgent {});
     let runtime = SingleThreadedRuntime::new(None);
 
     // Create topic for WASM agent

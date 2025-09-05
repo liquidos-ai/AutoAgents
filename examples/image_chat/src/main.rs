@@ -3,7 +3,7 @@
 //! This example demonstrates how to use AutoAgents with image messages.
 //! It shows how to send images to LLMs that support vision capabilities.
 use autoagents::core::agent::memory::SlidingWindowMemory;
-use autoagents::core::agent::prebuilt::executor::ReActExecutor;
+use autoagents::core::agent::prebuilt::executor::ReActAgent;
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentDeriveT, DirectAgent};
 use autoagents::core::tool::ToolT;
@@ -21,8 +21,6 @@ use tokio::fs;
 #[agent(name = "image_agent", description = "You are an Image analysis agent")]
 #[derive(Default, Clone)]
 pub struct ImageAgent {}
-
-impl ReActExecutor for ImageAgent {}
 
 /// Image Chat Example - Analyze images using LLM vision capabilities
 #[derive(Parser, Debug)]
@@ -86,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
     println!("Response:\n{}", response.text().unwrap_or_default());
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = AgentBuilder::<_, DirectAgent>::new(ImageAgent {})
+    let agent = AgentBuilder::<_, DirectAgent>::new(ReActAgent::new(ImageAgent {}))
         .llm(llm)
         .memory(sliding_window_memory)
         .build()?;

@@ -1,3 +1,4 @@
+/// This module is taken from the Candle Wasm Examples
 use crate::console_log;
 use candle::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
@@ -11,17 +12,17 @@ use wasm_bindgen::prelude::*;
 
 #[derive(Serialize, Deserialize)]
 pub struct PhiTokenOutput {
-    token: String,
+    pub token: String,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct PhiInitInput {
-    prompt: String,
-    temp: f64,
-    top_p: f64,
-    repeat_penalty: f32,
-    repeat_last_n: usize,
-    seed: u64,
+    pub prompt: String,
+    pub temp: f64,
+    pub top_p: f64,
+    pub repeat_penalty: f32,
+    pub repeat_last_n: usize,
+    pub seed: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]

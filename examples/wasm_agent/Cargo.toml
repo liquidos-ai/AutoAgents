@@ -15,7 +15,9 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 wasm-bindgen = { version = "0.2.100", features = ["serde", "serde_json"] }
 autoagents-derive.workspace = true
-autoagents = { workspace = true, default-features = false, features = [] }
+autoagents.workspace = true
+autoagents-core.workspace = true
+autoagents-llm.workspace = true
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -41,6 +43,8 @@ anyhow = "1.0"
 image = "0.24"
 log.workspace = true
 futures = { workspace = true }
+async-stream = "0.3"
+tokio = { version = "1.0", features = ["sync"] }
 serde-wasm-bindgen = "0.6.5"
 
 [profile.release]

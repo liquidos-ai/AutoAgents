@@ -1,6 +1,6 @@
 use crate::agent::executor::AgentExecutor;
 use crate::agent::task::Task;
-use crate::agent::{Context, ExecutorConfig, TurnResult};
+use crate::agent::{AgentDeriveT, Context, ExecutorConfig, TurnResult};
 use crate::protocol::{Event, StreamingTurnResult, SubmissionId};
 use crate::tool::{ToolCallResult, ToolT};
 use async_trait::async_trait;
@@ -11,6 +11,7 @@ use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::Arc;
 use thiserror::Error;
@@ -32,11 +33,11 @@ use crate::agent::executor::memory_helper::MemoryHelper;
 use crate::agent::executor::tool_processor::ToolProcessor;
 
 #[cfg(target_arch = "wasm32")]
-pub type SendError = futures::channel::mpsc::SendError;
+type SendError = futures::channel::mpsc::SendError;
 
 // Platform-specific spawn functions
 #[cfg(not(target_arch = "wasm32"))]
-pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
+fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
     F: std::future::Future + Send + 'static,
     F::Output: Send + 'static,
@@ -45,7 +46,7 @@ where
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn spawn<F>(fut: F)
+fn spawn<F>(fut: F)
 where
     F: std::future::Future<Output = ()> + 'static,
 {
@@ -54,14 +55,14 @@ where
 
 // Platform-specific receiver stream functions
 #[cfg(not(target_arch = "wasm32"))]
-pub fn receiver_stream<T: 'static + Send>(
+fn receiver_stream<T: 'static + Send>(
     rx: tokio::sync::mpsc::Receiver<T>,
 ) -> Pin<Box<dyn Stream<Item = T> + Send>> {
     Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx))
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn receiver_stream<T: 'static + Send>(
+fn receiver_stream<T: 'static + Send>(
     rx: futures::channel::mpsc::Receiver<T>,
 ) -> Pin<Box<dyn Stream<Item = T> + Send>> {
     Box::pin(rx)
@@ -123,9 +124,59 @@ pub enum ReActExecutorError {
     AgentOutputError(String),
 }
 
-/// The ReActExecutor trait for implementing ReAct-style agents
+/// Wrapper type for ReAct executor
+#[derive(Debug)]
+pub struct ReActAgent<T: AgentDeriveT> {
+    inner: Arc<T>,
+}
+
+impl<T: AgentDeriveT> Clone for ReActAgent<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
+impl<T: AgentDeriveT> ReActAgent<T> {
+    pub fn new(inner: T) -> Self {
+        Self {
+            inner: Arc::new(inner),
+        }
+    }
+}
+
+impl<T: AgentDeriveT> Deref for ReActAgent<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+/// Implement AgentDeriveT for the wrapper by delegating to the inner type
 #[async_trait]
-pub trait ReActExecutor: Send + Sync + Clone + 'static {
+impl<T: AgentDeriveT> AgentDeriveT for ReActAgent<T> {
+    type Output = <T as AgentDeriveT>::Output;
+
+    fn description(&self) -> &'static str {
+        self.inner.description()
+    }
+
+    fn output_schema(&self) -> Option<Value> {
+        self.inner.output_schema()
+    }
+
+    fn name(&self) -> &'static str {
+        self.inner.name()
+    }
+
+    fn tools(&self) -> Vec<Box<dyn ToolT>> {
+        self.inner.tools()
+    }
+}
+
+impl<T: AgentDeriveT> ReActAgent<T> {
     /// Process a single turn with the LLM
     async fn process_turn(
         &self,
@@ -230,6 +281,20 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
             done: true,
             tool_calls: vec![],
         }))
+    }
+
+    /// Prepare messages for the current turn
+    async fn prepare_messages(&self, context: &Context) -> Vec<ChatMessage> {
+        let mut messages = vec![ChatMessage {
+            role: ChatRole::System,
+            message_type: MessageType::Text,
+            content: context.config().description.clone(),
+        }];
+
+        let recalled = MemoryHelper::recall_messages(&context.memory()).await;
+        messages.extend(recalled);
+
+        messages
     }
 
     /// Process a streaming turn with tool support
@@ -402,25 +467,11 @@ pub trait ReActExecutor: Send + Sync + Clone + 'static {
 
         Ok(StreamingTurnResult::ToolCallsProcessed(tool_results))
     }
-
-    /// Prepare messages for the current turn
-    async fn prepare_messages(&self, context: &Context) -> Vec<ChatMessage> {
-        let mut messages = vec![ChatMessage {
-            role: ChatRole::System,
-            message_type: MessageType::Text,
-            content: context.config().description.clone(),
-        }];
-
-        let recalled = MemoryHelper::recall_messages(&context.memory()).await;
-        messages.extend(recalled);
-
-        messages
-    }
 }
 
-/// Implementation of AgentExecutor for any type that implements ReActExecutor
+/// Implementation of AgentExecutor for the ReActExecutorWrapper
 #[async_trait]
-impl<T: ReActExecutor> AgentExecutor for T {
+impl<T: AgentDeriveT> AgentExecutor for ReActAgent<T> {
     type Output = ReActAgentOutput;
     type Error = ReActExecutorError;
 
@@ -554,7 +605,7 @@ impl<T: ReActExecutor> AgentExecutor for T {
         let executor = self.clone();
         let context_clone = context.clone();
         let submission_id = task.submission_id;
-        let max_turns = self.config().max_turns;
+        let max_turns = executor.config().max_turns;
 
         // Spawn streaming task
         spawn(async move {
