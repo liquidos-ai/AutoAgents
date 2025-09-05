@@ -7,6 +7,7 @@ on:
     paths:
       - 'crates/**'
       - 'Cargo.toml'
+      - '.github/workflows/coverage.yml'
 
 jobs:
   test:
@@ -33,13 +34,12 @@ jobs:
 
       - name: Generate code coverage
         run: |
-          #cargo tarpaulin --features="full" --verbose --workspace --timeout 120 --out Xml
-          cargo test --features="full" 
+          cargo tarpaulin --features="full" --verbose --workspace --timeout 120 --out Xml
 
-      #- name: Upload to codecov.io
-      #  uses: codecov/codecov-action@v5
-      #  with:
-      #    token: ${{ secrets.CODECOV_TOKEN }}
-      #    verbose: true
-      #    fail_ci_if_error: true
-      #    files: ./cobertura.xml
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: true
+          fail_ci_if_error: true
+          files: ./cobertura.xml
