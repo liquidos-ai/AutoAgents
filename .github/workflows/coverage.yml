@@ -4,12 +4,16 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
 
 jobs:
   test:
     name: coverage
     runs-on: ubuntu-latest
-
+    env:
+      RUSTFLAGS: "-C target-cpu=generic"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -21,17 +25,21 @@ jobs:
           override: true
           components: llvm-tools-preview
 
+      - name: Show CPU info
+        run: lscpu
+
       - name: Install Tarpaulin
         run: cargo install cargo-tarpaulin
 
       - name: Generate code coverage
         run: |
-          cargo tarpaulin --features="full" --verbose --workspace --timeout 120 --out Xml
+          #cargo tarpaulin --features="full" --verbose --workspace --timeout 120 --out Xml
+          cargo test --features="full" 
 
-      - name: Upload to codecov.io
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          verbose: true
-          fail_ci_if_error: true
-          files: ./cobertura.xml
+      #- name: Upload to codecov.io
+      #  uses: codecov/codecov-action@v5
+      #  with:
+      #    token: ${{ secrets.CODECOV_TOKEN }}
+      #    verbose: true
+      #    fail_ci_if_error: true
+      #    files: ./cobertura.xml
