@@ -1,3 +1,5 @@
+mod basic;
 mod react;
 
-pub use react::{ReActAgentOutput, ReActExecutor, ReActExecutorError};
+pub use basic::{BasicAgent, BasicAgentOutput, BasicExecutorError};
+pub use react::{ReActAgent, ReActAgentOutput, ReActExecutorError};

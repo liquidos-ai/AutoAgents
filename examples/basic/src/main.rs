@@ -8,12 +8,14 @@ use autoagents::{
     llm::{backends::openai::OpenAI, builder::LLMBuilder},
 };
 mod actor;
+mod basic;
 mod liquid_edge;
 mod streaming;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum UseCase {
     Simple,
+    Basic,
     Chaining,
     Edge,
     Streaming,
@@ -54,6 +56,7 @@ async fn main() -> Result<(), Error> {
 
     match args.usecase {
         UseCase::Simple => simple::simple_agent(llm).await?,
+        UseCase::Basic => basic::basic_agent(llm).await?,
         UseCase::Chaining => chaining::run(llm).await?,
         UseCase::Edge => liquid_edge::edge_agent(args.device).await?,
         UseCase::Streaming => streaming::run(llm).await?,

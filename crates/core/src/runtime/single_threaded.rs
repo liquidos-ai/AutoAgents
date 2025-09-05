@@ -274,7 +274,7 @@ impl Runtime for SingleThreadedRuntime {
             .await
     }
 
-    async fn tx(&self) -> mpsc::Sender<Event> {
+    fn tx(&self) -> mpsc::Sender<Event> {
         // Create an intercepting sender that routes events through internal processing
         let internal_tx = self.internal_tx.clone();
         let (interceptor_tx, mut interceptor_rx) = mpsc::channel::<Event>(DEFAULT_CHANNEL_BUFFER);
@@ -327,7 +327,7 @@ impl Runtime for SingleThreadedRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::actor::{CloneableMessage, SharedMessage, Topic};
+    use crate::actor::{CloneableMessage, Topic};
     use crate::runtime::{RuntimeConfig, TypedRuntime};
     use ractor::{Actor, ActorProcessingErr, ActorRef};
     use tokio::time::{sleep, Duration};
@@ -340,11 +340,6 @@ mod tests {
 
     impl crate::actor::ActorMessage for TestMessage {}
     impl CloneableMessage for TestMessage {}
-
-    #[derive(Debug)]
-    struct SharedTestMessage {
-        content: String,
-    }
 
     // Test actor
     struct TestActor {
@@ -436,95 +431,6 @@ mod tests {
         assert_eq!(received_msgs.len(), 2);
         assert_eq!(received_msgs[0], "Hello");
         assert_eq!(received_msgs[1], "World");
-
-        // Shutdown
-        runtime.stop().await.unwrap();
-        runtime_task.abort();
-    }
-
-    #[tokio::test]
-    async fn test_publish_subscribe_shared() {
-        let runtime = SingleThreadedRuntime::new(Some(10));
-        let runtime_handle = runtime.clone();
-
-        // Start runtime in background
-        let runtime_task = tokio::spawn(async move { runtime_handle.run().await });
-
-        // Create test actor for shared messages
-        struct SharedActor {
-            received: Arc<Mutex<Vec<String>>>,
-        }
-
-        #[async_trait]
-        impl Actor for SharedActor {
-            type Msg = SharedMessage<SharedTestMessage>;
-            type State = ();
-            type Arguments = Arc<Mutex<Vec<String>>>;
-
-            async fn pre_start(
-                &self,
-                _myself: ActorRef<Self::Msg>,
-                _args: Self::Arguments,
-            ) -> Result<Self::State, ActorProcessingErr> {
-                Ok(())
-            }
-
-            async fn handle(
-                &self,
-                _myself: ActorRef<Self::Msg>,
-                message: Self::Msg,
-                _state: &mut Self::State,
-            ) -> Result<(), ActorProcessingErr> {
-                let mut received = self.received.lock().await;
-                received.push(message.inner().content.clone());
-                Ok(())
-            }
-        }
-
-        let received = Arc::new(Mutex::new(Vec::new()));
-        let (actor_ref, _actor_handle) = Actor::spawn(
-            None,
-            SharedActor {
-                received: received.clone(),
-            },
-            received.clone(),
-        )
-        .await
-        .unwrap();
-
-        // Subscribe to shared topic
-        let topic = Topic::<SharedMessage<SharedTestMessage>>::new("shared_topic");
-        runtime.subscribe_shared(&topic, actor_ref).await.unwrap();
-
-        // Publish shared messages
-        runtime
-            .publish_shared(
-                &topic,
-                SharedTestMessage {
-                    content: "Shared1".to_string(),
-                },
-            )
-            .await
-            .unwrap();
-
-        runtime
-            .publish_shared(
-                &topic,
-                SharedTestMessage {
-                    content: "Shared2".to_string(),
-                },
-            )
-            .await
-            .unwrap();
-
-        // Wait for messages to be processed
-        sleep(Duration::from_millis(100)).await;
-
-        // Verify messages were received
-        let received_msgs = received.lock().await;
-        assert_eq!(received_msgs.len(), 2);
-        assert_eq!(received_msgs[0], "Shared1");
-        assert_eq!(received_msgs[1], "Shared2");
 
         // Shutdown
         runtime.stop().await.unwrap();

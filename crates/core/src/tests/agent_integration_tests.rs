@@ -3,7 +3,7 @@ mod tests {
     use crate::actor::Topic;
     use crate::agent::{memory::SlidingWindowMemory, task::Task, AgentBuilder};
     use crate::environment::Environment;
-    use crate::protocol::{Event, TaskResult};
+    use crate::protocol::Event;
     use crate::runtime::{SingleThreadedRuntime, TypedRuntime};
     use crate::tool::{ToolCallError, ToolRuntime, ToolT};
     use autoagents_test_utils::{
@@ -58,10 +58,10 @@ mod tests {
 
         let agent = MockAgentImpl::new("test_agent", "A test agent");
         let result = AgentBuilder::new(agent)
-            .with_llm(llm)
+            .llm(llm)
             .runtime(runtime.clone())
-            .subscribe_topic(topic.clone())
-            .with_memory(memory)
+            .subscribe(topic.clone())
+            .memory(memory)
             .build()
             .await;
 
@@ -80,10 +80,10 @@ mod tests {
 
         let agent = MockAgentImpl::new("executor_agent", "An agent that executes tasks");
         let _agent_handle = AgentBuilder::new(agent)
-            .with_llm(llm)
+            .llm(llm)
             .runtime(runtime.clone())
-            .subscribe_topic(topic.clone())
-            .with_memory(memory)
+            .subscribe(topic.clone())
+            .memory(memory)
             .build()
             .await
             .expect("Failed to build agent");
@@ -117,11 +117,8 @@ mod tests {
         let result = timeout(Duration::from_secs(3), async {
             while let Some(event) = event_stream.next().await {
                 match event {
-                    Event::TaskComplete {
-                        result: TaskResult::Value(value),
-                        ..
-                    } => {
-                        let output: Result<TestAgentOutput, _> = serde_json::from_value(value);
+                    Event::TaskComplete { result: value, .. } => {
+                        let output: Result<TestAgentOutput, _> = serde_json::from_str(&value);
                         if let Ok(agent_output) = output {
                             return Some(agent_output);
                         }
@@ -151,10 +148,10 @@ mod tests {
 
         let agent = MockAgentImpl::new("streaming_agent", "A streaming agent");
         let result = AgentBuilder::new(agent)
-            .with_llm(llm)
+            .llm(llm)
             .runtime(runtime.clone())
-            .subscribe_topic(topic.clone())
-            .with_memory(memory)
+            .subscribe(topic.clone())
+            .memory(memory)
             .stream(true)
             .build()
             .await;
@@ -172,9 +169,9 @@ mod tests {
 
         let agent = MockAgentImpl::new("failing_agent", "An agent that fails").with_failure(true);
         let _agent_handle = AgentBuilder::new(agent)
-            .with_llm(llm)
+            .llm(llm)
             .runtime(runtime.clone())
-            .subscribe_topic(topic.clone())
+            .subscribe(topic.clone())
             .build()
             .await
             .expect("Failed to build agent");
@@ -208,8 +205,8 @@ mod tests {
         let result = timeout(Duration::from_secs(3), async {
             while let Some(event) = event_stream.next().await {
                 match event {
-                    Event::TaskComplete { result, .. } => {
-                        return Some(result);
+                    Event::TaskError { error, .. } => {
+                        return Some(error);
                     }
                     _ => continue,
                 }
@@ -222,13 +219,8 @@ mod tests {
         env_handle.abort();
 
         assert!(result.is_ok());
-        if let Ok(Some(task_result)) = result {
-            match task_result {
-                TaskResult::Failure(_) => {
-                    // Expected - the agent should fail
-                }
-                _ => panic!("Expected task to fail"),
-            }
+        if let Ok(Some(error_message)) = result {
+            assert!(error_message.contains("Mock execution failed"));
         }
     }
 
@@ -242,11 +234,11 @@ mod tests {
 
         let agent = MockAgentImpl::new("multi_topic_agent", "Multi-topic agent");
         let result = AgentBuilder::new(agent)
-            .with_llm(llm)
+            .llm(llm)
             .runtime(runtime.clone())
-            .subscribe_topic(topic1.clone())
-            .subscribe_topic(topic2.clone())
-            .with_memory(memory)
+            .subscribe(topic1.clone())
+            .subscribe(topic2.clone())
+            .memory(memory)
             .build()
             .await;
 
@@ -276,7 +268,7 @@ mod tests {
         let agent = MockAgentImpl::new("no_llm_agent", "Agent without LLM");
         let result = AgentBuilder::new(agent)
             .runtime(runtime)
-            .subscribe_topic(topic)
+            .subscribe(topic)
             .build()
             .await;
 
@@ -293,8 +285,8 @@ mod tests {
 
         let agent = MockAgentImpl::new("no_runtime_agent", "Agent without runtime");
         let result = AgentBuilder::new(agent)
-            .with_llm(llm)
-            .subscribe_topic(topic)
+            .llm(llm)
+            .subscribe(topic)
             .build()
             .await;
 
@@ -313,10 +305,10 @@ mod tests {
 
         let agent = MockAgentImpl::new("memory_agent", "Agent with memory");
         let agent_handle = AgentBuilder::new(agent)
-            .with_llm(llm)
+            .llm(llm)
             .runtime(runtime)
-            .subscribe_topic(topic)
-            .with_memory(memory)
+            .subscribe(topic)
+            .memory(memory)
             .build()
             .await
             .expect("Failed to build agent");
@@ -333,9 +325,9 @@ mod tests {
 
         let agent = MockAgentImpl::new("tools_agent", "Agent with tools");
         let agent_handle = AgentBuilder::new(agent)
-            .with_llm(llm)
+            .llm(llm)
             .runtime(runtime)
-            .subscribe_topic(topic)
+            .subscribe(topic)
             .build()
             .await
             .expect("Failed to build agent");

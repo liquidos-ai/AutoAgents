@@ -1,25 +1,36 @@
 #[cfg(not(target_arch = "wasm32"))]
 use crate::actor::Topic;
+use crate::agent::base::AgentType;
 use crate::agent::error::AgentBuildError;
 use crate::agent::memory::MemoryProvider;
-#[cfg(target_arch = "wasm32")]
-use crate::agent::runnable::RunnableAgentImpl;
+use crate::agent::state::AgentState;
 use crate::agent::task::Task;
 #[cfg(not(target_arch = "wasm32"))]
-use crate::agent::{AgentActor, AgentHandle};
-use crate::agent::{AgentDeriveT, AgentExecutor, BaseAgent, IntoRunnable};
+use crate::agent::AgentHandle;
+use crate::agent::{ActorAgent, AgentDeriveT, AgentExecutor, BaseAgent, DirectAgent};
 use crate::error::Error;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::runtime::{Runtime, TypedRuntime};
+use async_trait::async_trait;
 use autoagents_llm::LLMProvider;
 #[cfg(target_arch = "wasm32")]
 use futures::SinkExt;
 #[cfg(not(target_arch = "wasm32"))]
 use ractor::Actor;
+#[cfg(not(target_arch = "wasm32"))]
+use ractor::{ActorProcessingErr, ActorRef};
+use std::marker::PhantomData;
 use std::sync::Arc;
 
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug)]
+pub struct AgentActor<T: AgentDeriveT + AgentExecutor, A: AgentType>(pub Arc<BaseAgent<T, A>>);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: AgentDeriveT + AgentExecutor, A: AgentType> AgentActor<T, A> {}
+
 /// Builder for creating BaseAgent instances from AgentDeriveT implementations
-pub struct AgentBuilder<T: AgentDeriveT + AgentExecutor> {
+pub struct AgentBuilder<T: AgentDeriveT + AgentExecutor, A: AgentType> {
     inner: T,
     stream: bool,
     llm: Option<Arc<dyn LLMProvider>>,
@@ -28,9 +39,10 @@ pub struct AgentBuilder<T: AgentDeriveT + AgentExecutor> {
     runtime: Option<Arc<dyn Runtime>>,
     #[cfg(not(target_arch = "wasm32"))]
     subscribed_topics: Vec<Topic<Task>>,
+    marker: PhantomData<A>,
 }
 
-impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
+impl<T: AgentDeriveT + AgentExecutor, A: AgentType> AgentBuilder<T, A> {
     /// Create a new builder with an AgentDeriveT implementation
     pub fn new(inner: T) -> Self {
         Self {
@@ -42,11 +54,12 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
             stream: false,
             #[cfg(not(target_arch = "wasm32"))]
             subscribed_topics: vec![],
+            marker: PhantomData,
         }
     }
 
     /// Set the LLM provider
-    pub fn with_llm(mut self, llm: Arc<dyn LLMProvider>) -> Self {
+    pub fn llm(mut self, llm: Arc<dyn LLMProvider>) -> Self {
         self.llm = Some(llm);
         self
     }
@@ -57,34 +70,58 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
     }
 
     /// Set the memory provider
-    pub fn with_memory(mut self, memory: Box<dyn MemoryProvider>) -> Self {
+    pub fn memory(mut self, memory: Box<dyn MemoryProvider>) -> Self {
         self.memory = Some(memory);
         self
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn subscribe_topic(mut self, topic: Topic<Task>) -> Self {
-        self.subscribed_topics.push(topic);
+    pub fn runtime(mut self, runtime: Arc<dyn Runtime>) -> Self {
+        self.runtime = Some(runtime);
         self
     }
+}
 
-    #[cfg(not(target_arch = "wasm32"))]
+impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T, DirectAgent> {
     /// Build the BaseAgent and return a wrapper that includes the actor reference
-    pub async fn build(self) -> Result<AgentHandle<T>, Error> {
+    #[allow(clippy::result_large_err)]
+    pub fn build(self) -> Result<BaseAgent<T, DirectAgent>, Error> {
+        let llm = self.llm.ok_or(AgentBuildError::BuildFailure(
+            "LLM provider is required".to_string(),
+        ))?;
+        let agent: BaseAgent<T, DirectAgent> =
+            BaseAgent::<T, DirectAgent>::new(self.inner, llm, self.memory, self.stream);
+        Ok(agent)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T, ActorAgent>
+where
+    T: Send + Sync + 'static,
+    serde_json::Value: From<<T as AgentExecutor>::Output>,
+{
+    /// Build the BaseAgent and return a wrapper that includes the actor reference
+    pub async fn build(self) -> Result<AgentHandle<T, ActorAgent>, Error> {
         let llm = self.llm.ok_or(AgentBuildError::BuildFailure(
             "LLM provider is required".to_string(),
         ))?;
         let runtime = self.runtime.ok_or(AgentBuildError::BuildFailure(
             "Runtime should be defined".into(),
         ))?;
-        let tx = runtime.tx().await;
+        let tx = runtime.tx();
 
-        let runnable: Arc<BaseAgent<T>> =
-            BaseAgent::new(self.inner, llm, self.memory, tx, self.stream).into_runnable();
+        let agent: Arc<BaseAgent<T, ActorAgent>> = Arc::new(BaseAgent::<T, ActorAgent>::new(
+            self.inner,
+            llm,
+            self.memory,
+            tx,
+            self.stream,
+        ));
 
         // Create agent actor
-        let agent_actor = AgentActor(runnable.clone());
-        let actor_ref = Actor::spawn(Some(runnable.inner.name().into()), agent_actor, ())
+        let agent_actor = AgentActor(agent.clone());
+        let actor_ref = Actor::spawn(Some(agent_actor.0.name().into()), agent_actor, ())
             .await
             .map_err(AgentBuildError::SpawnError)?
             .0;
@@ -94,44 +131,51 @@ impl<T: AgentDeriveT + AgentExecutor> AgentBuilder<T> {
             runtime.subscribe(&topic, actor_ref.clone()).await?;
         }
 
-        Ok(AgentHandle {
-            agent: runnable,
-            actor_ref,
-        })
+        Ok(AgentHandle { agent, actor_ref })
     }
 
-    #[cfg(target_arch = "wasm32")]
-    pub fn build_runnable(
-        self,
-    ) -> Result<
-        (
-            Arc<RunnableAgentImpl<T>>,
-            futures::channel::mpsc::Receiver<Event>,
-        ),
-        Error,
-    >
-    where
-        Error: From<AgentBuildError>,
-    {
-        // Ensure LLM provider exists
-        let llm = self
-            .llm
-            .ok_or_else(|| AgentBuildError::BuildFailure("LLM provider is required".to_string()))?;
-
-        // Create channel for events
-        let (tx, rx) = futures::channel::mpsc::channel::<Event>(100);
-
-        // Build BaseAgent and convert to runnable
-        let runnable =
-            BaseAgent::new(self.inner, llm, self.memory, tx, self.stream).into_runnable();
-
-        Ok((runnable, rx))
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn runtime(mut self, runtime: Arc<dyn Runtime>) -> Self {
-        self.runtime = Some(runtime);
+    pub fn subscribe(mut self, topic: Topic<Task>) -> Self {
+        self.subscribed_topics.push(topic);
         self
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[async_trait]
+impl<T: AgentDeriveT + AgentExecutor> Actor for AgentActor<T, ActorAgent>
+where
+    T: Send + Sync + 'static,
+    serde_json::Value: From<<T as AgentExecutor>::Output>,
+{
+    type Msg = Task;
+    type State = AgentState;
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: Self::Arguments,
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(AgentState::new())
+    }
+
+    async fn handle(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        let agent = self.0.clone();
+        let task = message;
+
+        //Run agent
+        if agent.stream() {
+            let _ = agent.run_stream(task).await?;
+            Ok(())
+        } else {
+            let _ = agent.run(task).await?;
+            Ok(())
+        }
     }
 }
 
@@ -147,7 +191,7 @@ mod tests {
         let mock_agent = MockAgentImpl::new("topic_agent", "test topic agent");
         let topic = Topic::<Task>::new("test_topic");
 
-        let builder = AgentBuilder::new(mock_agent).subscribe_topic(topic);
+        let builder = AgentBuilder::new(mock_agent).subscribe(topic);
 
         assert_eq!(builder.subscribed_topics.len(), 1);
         assert_eq!(builder.subscribed_topics[0].name(), "test_topic");
@@ -160,8 +204,8 @@ mod tests {
         let topic2 = Topic::<Task>::new("topic2");
 
         let builder = AgentBuilder::new(mock_agent)
-            .subscribe_topic(topic1)
-            .subscribe_topic(topic2);
+            .subscribe(topic1)
+            .subscribe(topic2);
 
         assert_eq!(builder.subscribed_topics.len(), 2);
         assert_eq!(builder.subscribed_topics[0].name(), "topic1");

@@ -1,0 +1,259 @@
+use crate::agent::task::Task;
+use crate::agent::{AgentDeriveT, AgentExecutor, Context, ExecutorConfig};
+use crate::tool::ToolT;
+use async_trait::async_trait;
+use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
+use futures::Stream;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::ops::Deref;
+use std::pin::Pin;
+use std::sync::Arc;
+
+/// Output of the Basic executor
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BasicAgentOutput {
+    pub response: String,
+    pub done: bool,
+}
+
+impl From<BasicAgentOutput> for Value {
+    fn from(output: BasicAgentOutput) -> Self {
+        serde_json::to_value(output).unwrap_or(Value::Null)
+    }
+}
+impl From<BasicAgentOutput> for String {
+    fn from(output: BasicAgentOutput) -> Self {
+        output.response
+    }
+}
+
+/// Error type for Basic executor
+#[derive(Debug, thiserror::Error)]
+pub enum BasicExecutorError {
+    #[error("LLM error: {0}")]
+    LLMError(String),
+
+    #[error("Other error: {0}")]
+    Other(String),
+}
+
+/// Wrapper type for Basic executor
+#[derive(Debug)]
+pub struct BasicAgent<T: AgentDeriveT> {
+    inner: Arc<T>,
+}
+
+impl<T: AgentDeriveT> Clone for BasicAgent<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
+impl<T: AgentDeriveT> BasicAgent<T> {
+    pub fn new(inner: T) -> Self {
+        Self {
+            inner: Arc::new(inner),
+        }
+    }
+}
+
+impl<T: AgentDeriveT> Deref for BasicAgent<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+/// Implement AgentDeriveT for the wrapper by delegating to the inner type
+#[async_trait]
+impl<T: AgentDeriveT> AgentDeriveT for BasicAgent<T> {
+    type Output = <T as AgentDeriveT>::Output;
+
+    fn description(&self) -> &'static str {
+        self.inner.description()
+    }
+
+    fn output_schema(&self) -> Option<Value> {
+        self.inner.output_schema()
+    }
+
+    fn name(&self) -> &'static str {
+        self.inner.name()
+    }
+
+    fn tools(&self) -> Vec<Box<dyn ToolT>> {
+        self.inner.tools()
+    }
+}
+
+/// Implementation of AgentExecutor for the BasicExecutorWrapper
+#[async_trait]
+impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
+    type Output = BasicAgentOutput;
+    type Error = BasicExecutorError;
+
+    fn config(&self) -> ExecutorConfig {
+        ExecutorConfig { max_turns: 1 }
+    }
+
+    async fn execute(
+        &self,
+        task: &Task,
+        context: Arc<Context>,
+    ) -> Result<Self::Output, Self::Error> {
+        let mut messages = vec![ChatMessage {
+            role: ChatRole::System,
+            message_type: MessageType::Text,
+            content: context.config().description.clone(),
+        }];
+
+        let chat_msg = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: task.prompt.clone(),
+        };
+        messages.push(chat_msg);
+        let response = context
+            .llm()
+            .chat(&messages, None, context.config().output_schema.clone())
+            .await
+            .map_err(|e| BasicExecutorError::LLMError(e.to_string()))?;
+        let response_text = response.text().unwrap_or_default();
+        Ok(BasicAgentOutput {
+            response: response_text,
+            done: true,
+        })
+    }
+
+    async fn execute_stream(
+        &self,
+        task: &Task,
+        context: Arc<Context>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>, Self::Error>
+    {
+        use futures::StreamExt;
+
+        let mut messages = vec![ChatMessage {
+            role: ChatRole::System,
+            message_type: MessageType::Text,
+            content: context.config().description.clone(),
+        }];
+
+        let chat_msg = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: task.prompt.clone(),
+        };
+        messages.push(chat_msg);
+
+        let stream = context
+            .llm()
+            .chat_stream_struct(&messages, None, context.config().output_schema.clone())
+            .await
+            .map_err(|e| BasicExecutorError::LLMError(e.to_string()))?;
+
+        let mapped_stream = stream.map(|chunk_result| match chunk_result {
+            Ok(chunk) => {
+                let content = chunk
+                    .choices
+                    .first()
+                    .and_then(|choice| choice.delta.content.as_ref())
+                    .map_or("", |v| v)
+                    .to_string();
+
+                Ok(BasicAgentOutput {
+                    response: content,
+                    done: false,
+                })
+            }
+            Err(e) => Err(BasicExecutorError::LLMError(e.to_string())),
+        });
+
+        Ok(Box::pin(mapped_stream))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use autoagents_test_utils::agent::MockAgentImpl;
+    use autoagents_test_utils::llm::MockLLMProvider;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_basic_agent_creation() {
+        let mock_agent = MockAgentImpl::new("test_agent", "Test agent description");
+        let basic_agent = BasicAgent::new(mock_agent);
+
+        assert_eq!(basic_agent.name(), "test_agent");
+        assert_eq!(basic_agent.description(), "Test agent description");
+    }
+
+    #[test]
+    fn test_basic_agent_clone() {
+        let mock_agent = MockAgentImpl::new("test_agent", "Test agent description");
+        let basic_agent = BasicAgent::new(mock_agent);
+        let cloned_agent = basic_agent.clone();
+
+        assert_eq!(cloned_agent.name(), "test_agent");
+        assert_eq!(cloned_agent.description(), "Test agent description");
+    }
+
+    #[test]
+    fn test_basic_agent_output_conversions() {
+        let output = BasicAgentOutput {
+            response: "Test response".to_string(),
+            done: true,
+        };
+
+        // Test conversion to Value
+        let value: Value = output.clone().into();
+        assert!(value.is_object());
+
+        // Test conversion to String
+        let string: String = output.into();
+        assert_eq!(string, "Test response");
+    }
+
+    #[tokio::test]
+    async fn test_basic_agent_execute() {
+        use crate::agent::task::Task;
+        use crate::agent::{AgentConfig, Context};
+        use crate::protocol::ActorID;
+
+        let mock_agent = MockAgentImpl::new("test_agent", "Test agent description");
+        let basic_agent = BasicAgent::new(mock_agent);
+
+        let llm = Arc::new(MockLLMProvider {});
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "test_agent".to_string(),
+            description: "Test agent description".to_string(),
+            output_schema: None,
+        };
+
+        let context = Context::new(llm, None).with_config(config);
+
+        let context_arc = Arc::new(context);
+        let task = Task::new("Test task");
+        let result = basic_agent.execute(&task, context_arc).await;
+
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output.response, "Mock response");
+        assert!(output.done);
+    }
+
+    #[test]
+    fn test_executor_config() {
+        let mock_agent = MockAgentImpl::new("test_agent", "Test agent description");
+        let basic_agent = BasicAgent::new(mock_agent);
+
+        let config = basic_agent.config();
+        assert_eq!(config.max_turns, 1);
+    }
+}

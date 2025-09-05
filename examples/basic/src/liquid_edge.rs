@@ -1,11 +1,11 @@
 use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
-use autoagents::core::agent::prebuilt::executor::{ReActAgentOutput, ReActExecutor};
+use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentDeriveT};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::protocol::{Event, TaskResult};
+use autoagents::core::protocol::Event;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::backends::liquid_edge::LiquidEdge;
@@ -55,8 +55,6 @@ impl ToolRuntime for Addition {
 #[derive(Clone)]
 pub struct ChatAgent {}
 
-impl ReActExecutor for ChatAgent {}
-
 pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
     println!("🚀 Liquid Edge Local AI Example");
 
@@ -93,17 +91,17 @@ pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
 
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = ChatAgent {};
+    let agent = ReActAgent::new(ChatAgent {});
     let runtime = SingleThreadedRuntime::new(None);
 
     // Create topic for chat agent
     let chat_topic = Topic::<Task>::new("chat");
 
     let _ = AgentBuilder::new(agent)
-        .with_llm(llm)
+        .llm(llm)
         .runtime(runtime.clone())
-        .subscribe_topic(chat_topic.clone())
-        .with_memory(sliding_window_memory)
+        .subscribe(chat_topic.clone())
+        .memory(sliding_window_memory)
         .build()
         .await?;
 
@@ -114,15 +112,14 @@ pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
     let receiver = environment.take_event_receiver(None).await?;
     handle_events(receiver);
 
-    tokio::spawn(async move { environment.run().await });
-
     // Send chat message using the new messaging system
     println!("\n💬 Sending chat message to local AI...");
     let chat_task = Task::new("Hello! What is your name and how can you help me?");
 
     runtime.publish(&chat_topic, chat_task).await?;
 
-    println!("\n✅ Liquid Edge example completed!");
+    let _ = environment.run().await;
+
     Ok(())
 }
 
@@ -144,56 +141,22 @@ fn handle_events(mut event_stream: ReceiverStream<Event>) {
                         .cyan()
                     );
                 }
-                Event::ToolCallRequested {
-                    tool_name,
-                    arguments,
-                    ..
-                } => {
-                    println!(
-                        "{}",
-                        format!(
-                            "🔧 Tool Call Started: {} with args: {}",
-                            tool_name, arguments
-                        )
-                        .yellow()
-                    );
-                }
-                Event::ToolCallCompleted {
-                    tool_name, result, ..
-                } => {
-                    println!(
-                        "{}",
-                        format!(
-                            "✅ Tool Call Completed: {} - Result: {:?}",
-                            tool_name, result
-                        )
-                        .yellow()
-                    );
-                }
-                Event::TaskComplete { result, .. } => match result {
-                    TaskResult::Value(val) => {
-                        match serde_json::from_value::<ReActAgentOutput>(val) {
-                            Ok(agent_out) => {
-                                println!(
-                                    "{}",
-                                    format!("🤖 Local AI Response: {}", agent_out.response).green()
-                                );
-                            }
-                            Err(e) => {
-                                println!(
-                                    "{}",
-                                    format!("❌ Failed to parse agent output: {}", e).red()
-                                );
-                            }
+                Event::TaskComplete { result, .. } => {
+                    match serde_json::from_str::<ReActAgentOutput>(&result) {
+                        Ok(agent_out) => {
+                            println!(
+                                "{}",
+                                format!("🤖 Local AI Response: {}", agent_out.response).green()
+                            );
+                        }
+                        Err(e) => {
+                            println!(
+                                "{}",
+                                format!("❌ Failed to parse agent output: {}", e).red()
+                            );
                         }
                     }
-                    TaskResult::Failure(e) => {
-                        println!("{}", format!("❌ Task failed: {}", e).red());
-                    }
-                    _ => {
-                        println!("🚫 Task aborted");
-                    }
-                },
+                }
                 Event::TurnStarted {
                     turn_number,
                     max_turns,

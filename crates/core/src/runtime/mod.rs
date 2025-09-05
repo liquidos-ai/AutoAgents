@@ -1,4 +1,4 @@
-use crate::actor::{AnyActor, CloneableMessage, SharedMessage, Transport};
+use crate::actor::{AnyActor, CloneableMessage, Transport};
 use crate::protocol::{Event, RuntimeID};
 use async_trait::async_trait;
 use ractor::ActorRef;
@@ -64,7 +64,7 @@ pub trait Runtime: Send + Sync {
     ) -> Result<(), RuntimeError>;
 
     //Local event processing event handler, This is passed to the agent handler and agents emit events using this, The runtime is responsible to move it to the parent environment
-    async fn tx(&self) -> mpsc::Sender<Event>;
+    fn tx(&self) -> mpsc::Sender<Event>;
     async fn transport(&self) -> Arc<dyn Transport>;
     async fn take_event_receiver(&self) -> Option<ReceiverStream<Event>>;
     async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -98,33 +98,6 @@ pub trait TypedRuntime: Runtime {
     ) -> Result<(), RuntimeError> {
         addr.cast(message)
             .map_err(|e| RuntimeError::SendMessage(e.to_string()))
-    }
-
-    async fn subscribe_shared<M>(
-        &self,
-        topic: &Topic<SharedMessage<M>>,
-        actor: ActorRef<SharedMessage<M>>,
-    ) -> Result<(), RuntimeError>
-    where
-        M: Send + Sync + 'static,
-    {
-        let arc_actor = Arc::new(actor) as Arc<dyn AnyActor>;
-        self.subscribe_any(topic.name(), TypeId::of::<SharedMessage<M>>(), arc_actor)
-            .await
-    }
-
-    async fn publish_shared<M>(
-        &self,
-        topic: &Topic<SharedMessage<M>>,
-        message: M,
-    ) -> Result<(), RuntimeError>
-    where
-        M: Send + Sync + 'static,
-    {
-        let shared_msg = SharedMessage::new(message);
-        let arc_msg = Arc::new(shared_msg) as Arc<dyn Any + Send + Sync>;
-        self.publish_any(topic.name(), TypeId::of::<SharedMessage<M>>(), arc_msg)
-            .await
     }
 }
 
