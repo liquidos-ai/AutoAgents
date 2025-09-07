@@ -22,7 +22,9 @@ AutoAgents is a cutting-edge multi-agent framework built in Rust that enables th
 agents powered by Large Language Models (LLMs) and [Ractor](https://github.com/slawlor/ractor). Designed for
 performance, safety, and scalability. AutoAgents provides a robust foundation for building complex AI systems that can
 reason, act, and collaborate. With AutoAgents you can create Cloud Native Agents, Edge Native Agents and Hybrid Models
-as well. It is So extensible that other ML Models can be used to create complex pipelines using Actor Framework.
+as well. It is built with a modular architecture with swappable components, Memory layer, Executors can be easily
+swapped without much rework.
+With our native WASM compilation support, You can depoloy the agent orchestration directly to Web Browser.
 
 ---
 
@@ -219,7 +221,7 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     println!("Running simple_agent with direct run method");
 
-    let result = agent.run(Task::new("What is 1 + 1?")).await?;
+    let result = agent_handle.agent.run(Task::new("What is 1 + 1?")).await?;
     println!("Result: {:?}", result);
     Ok(())
 }

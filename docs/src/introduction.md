@@ -139,7 +139,7 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     println!("Running simple_agent with direct run method");
 
-    let result = agent.run(Task::new("What is 1 + 1?")).await?;
+    let result = agent_handle.agent.run(Task::new("What is 1 + 1?")).await?;
     println!("Result: {:?}", result);
     Ok(())
 }
