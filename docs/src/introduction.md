@@ -60,7 +60,7 @@ use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::LLMProvider;
 use autoagents::llm::backends::openai::OpenAI;
 use autoagents::llm::builder::LLMBuilder;
-use autoagents_derive::{AgentOutput, ToolInput, agent, tool};
+use autoagents_derive::{agent, tool, AgentHooks, AgentOutput, ToolInput};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -106,8 +106,9 @@ pub struct MathAgentOutput {
     tools = [Addition],
     output = MathAgentOutput,
 )]
-#[derive(Default, Clone)]
+#[derive(Default, Clone, AgentHooks)]
 pub struct MathAgent {}
+
 
 impl From<ReActAgentOutput> for MathAgentOutput {
     fn from(output: ReActAgentOutput) -> Self {
@@ -130,10 +131,11 @@ impl From<ReActAgentOutput> for MathAgentOutput {
 pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = AgentBuilder::<_, DirectAgent>::new(ReActAgent::new(MathAgent {}))
+    let agent_handle = AgentBuilder::<_, DirectAgent>::new(ReActAgent::new(MathAgent {}))
         .llm(llm)
         .memory(sliding_window_memory)
-        .build()?;
+        .build()
+        .await?;
 
     println!("Running simple_agent with direct run method");
 

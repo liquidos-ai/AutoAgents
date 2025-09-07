@@ -25,6 +25,13 @@ export OPENAI_API_KEY=your_openai_api_key_here
 cargo run --package basic-example -- --usecase chaining
 ```
 
+### Add hooks to agents
+
+```sh
+export OPENAI_API_KEY=your_openai_api_key_here
+cargo run --package basic-example -- --usecase hooks
+```
+
 ### Generic Actors
 
 ```sh
