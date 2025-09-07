@@ -21,7 +21,7 @@ exclude = ["examples/wasm_tool"]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.2-alpha.0"
+version = "0.2.3"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Agent Framework for Building Autonomous Agents"
@@ -30,10 +30,10 @@ keywords = ["agents", "llm"]
 categories = []
 
 [workspace.dependencies]
-autoagents = { path = "crates/autoagents", version = "0.2.2-alpha.0" }
-autoagents-llm = { path = "crates/llm", version = "0.2.2-alpha.0" }
-autoagents-derive = { path = "crates/derive", version = "0.2.2-alpha.0" }
-autoagents-core = { path = "crates/core", version = "0.2.2-alpha.0" }
+autoagents = { path = "crates/autoagents", version = "0.2.3" }
+autoagents-llm = { path = "crates/llm", version = "0.2.3" }
+autoagents-derive = { path = "crates/derive", version = "0.2.3" }
+autoagents-core = { path = "crates/core", version = "0.2.3" }
 autoagents-test-utils = { path = "crates/test_utils" }
 liquid-edge = { path = "crates/liquid-edge" }
 syn = { version = "2.0.98", features = ["full"] }
