@@ -863,9 +863,13 @@ impl CompletionProvider for OpenAI {
         _req: &CompletionRequest,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<CompletionResponse, LLMError> {
-        Ok(CompletionResponse {
-            text: "OpenAI completion not implemented.".into(),
-        })
+        if self.api_key.is_empty() {
+            return Err(LLMError::AuthError("Missing OpenAI API key".into()));
+        }
+        // For now, return a not implemented error instead of a fake success
+        Err(LLMError::ProviderError(
+            "OpenAI completion not implemented yet".into(),
+        ))
     }
 }
 
@@ -962,6 +966,9 @@ impl ModelsProvider for OpenAI {
         &self,
         _request: Option<&ModelListRequest>,
     ) -> Result<Box<dyn ModelListResponse>, LLMError> {
+        if self.api_key.is_empty() {
+            return Err(LLMError::AuthError("Missing OpenAI API key".into()));
+        }
         let url = self
             .base_url
             .join("models")

@@ -4,6 +4,8 @@
 //! and score their responses using custom evaluation functions.
 
 mod parallel;
+#[cfg(test)]
+mod parallel_tests;
 
 use crate::{chat::ChatMessage, error::LLMError, LLMProvider};
 

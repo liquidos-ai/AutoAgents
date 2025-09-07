@@ -191,12 +191,12 @@ dependencies = [
 name = "autoagents-core"
 version = "0.2.2-alpha.0"
 dependencies = [
- "async-stream",
  "async-trait",
  "autoagents-llm",
  "autoagents-test-utils",
- "chrono",
  "futures",
+ "futures-core",
+ "futures-util",
  "getrandom 0.3.3",
  "log",
  "ractor",
@@ -260,13 +260,13 @@ dependencies = [
 name = "autoagents-test-utils"
 version = "0.2.2-alpha.0"
 dependencies = [
- "async-trait",
- "autoagents-core",
+ "autoagents",
+ "autoagents-derive",
  "autoagents-llm",
+ "futures",
  "serde",
  "serde_json",
  "thiserror 2.0.16",
- "tokio",
 ]
 
 [[package]]
@@ -312,28 +312,16 @@ checksum = "55248b47b0caf0546f7988906588779981c43bb1bc9d0c44087278f80cdb44ba"
 name = "basic-example"
 version = "0.2.0-alpha.0"
 dependencies = [
- "async-trait",
  "autoagents",
  "autoagents-derive",
  "clap",
  "colored",
- "futures",
  "liquid-edge",
  "serde",
  "serde_json",
- "thiserror 2.0.16",
  "tokio",
  "tokio-stream",
  "uuid",
-]
-
-[[package]]
-name = "bincode"
-version = "1.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
-dependencies = [
- "serde",
 ]
 
 [[package]]
@@ -399,16 +387,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "bstr"
-version = "1.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "234113d19d0d7d613b40e86fb654acf958910802bcceab913a4f9e7cda03b1a4"
-dependencies = [
- "memchr",
- "serde",
 ]
 
 [[package]]
@@ -543,10 +521,8 @@ checksum = "c469d952047f47f91b68d1cba3f10d63c11d73e4636f24f08daf0278abf01c4d"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
- "js-sys",
  "num-traits",
  "serde",
- "wasm-bindgen",
  "windows-link 0.1.3",
 ]
 
@@ -603,25 +579,17 @@ dependencies = [
 name = "coding_agent"
 version = "0.2.0-alpha.0"
 dependencies = [
- "async-trait",
  "autoagents",
  "autoagents-derive",
  "clap",
  "colored",
- "futures",
  "glob",
- "ignore",
  "regex",
- "reqwest",
  "serde",
  "serde_json",
- "syntect",
  "termimad",
  "tokio",
  "tokio-stream",
- "ureq",
- "urlencoding",
- "uuid",
  "walkdir",
 ]
 
@@ -1903,19 +1871,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
-name = "globset"
-version = "0.4.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54a1028dfc5f5df5da8a56a73e6c153c9a9708ec57232470703592a3f18e49f5"
-dependencies = [
- "aho-corasick",
- "bstr",
- "log",
- "regex-automata",
- "regex-syntax",
-]
-
-[[package]]
 name = "h2"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2240,22 +2195,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ignore"
-version = "0.4.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d89fd380afde86567dfba715db065673989d6253f42b88179abd3eae47bda4b"
-dependencies = [
- "crossbeam-deque",
- "globset",
- "log",
- "memchr",
- "regex-automata",
- "same-file",
- "walkdir",
- "winapi-util",
-]
-
-[[package]]
 name = "image"
 version = "0.24.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2281,10 +2220,8 @@ dependencies = [
  "autoagents",
  "autoagents-derive",
  "clap",
- "serde",
  "serde_json",
  "tokio",
- "tokio-stream",
 ]
 
 [[package]]
@@ -2523,12 +2460,6 @@ dependencies = [
  "libc",
  "redox_syscall",
 ]
-
-[[package]]
-name = "linked-hash-map"
-version = "0.5.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
 
 [[package]]
 name = "linux-raw-sys"
@@ -3074,19 +3005,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
-name = "plist"
-version = "1.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3af6b589e163c5a788fab00ce0c0366f6efbb9959c2f9874b224936af7fce7e1"
-dependencies = [
- "base64 0.22.1",
- "indexmap",
- "quick-xml",
- "serde",
- "time",
-]
-
-[[package]]
 name = "png"
 version = "0.17.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3224,15 +3142,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f6d64c71eb498fe9eae14ce4ec935c555749aef511cca85b5568910d6e48001"
 dependencies = [
  "bytemuck",
-]
-
-[[package]]
-name = "quick-xml"
-version = "0.38.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42a232e7487fc2ef313d96dde7948e7a3c05101870d8985e4fd8d26aedd27b89"
-dependencies = [
- "memchr",
 ]
 
 [[package]]
@@ -3979,28 +3888,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "syntect"
-version = "5.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "874dcfa363995604333cf947ae9f751ca3af4522c60886774c4963943b4746b1"
-dependencies = [
- "bincode",
- "bitflags 1.3.2",
- "flate2",
- "fnv",
- "once_cell",
- "onig",
- "plist",
- "regex-syntax",
- "serde",
- "serde_derive",
- "serde_json",
- "thiserror 1.0.69",
- "walkdir",
- "yaml-rust",
 ]
 
 [[package]]
@@ -4841,7 +4728,6 @@ version = "0.2.2-alpha.0"
 dependencies = [
  "anyhow",
  "async-stream",
- "async-trait",
  "autoagents",
  "autoagents-core",
  "autoagents-derive",
@@ -4858,7 +4744,6 @@ dependencies = [
  "serde-wasm-bindgen",
  "serde_json",
  "tokenizers 0.20.4",
- "tokio",
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -5573,15 +5458,6 @@ checksum = "af3a19837351dc82ba89f8a125e22a3c475f05aba604acc023d62b2739ae2909"
 dependencies = [
  "libc",
  "rustix",
-]
-
-[[package]]
-name = "yaml-rust"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56c1936c4cc7a1c9ab21a1ebb602eb942ba868cbd44a99cb7cdc5892335e1c85"
-dependencies = [
- "linked-hash-map",
 ]
 
 [[package]]

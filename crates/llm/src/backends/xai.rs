@@ -538,9 +538,12 @@ impl CompletionProvider for XAI {
         _req: &CompletionRequest,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<CompletionResponse, LLMError> {
-        Ok(CompletionResponse {
-            text: "X.AI completion not implemented.".into(),
-        })
+        if self.api_key.is_empty() {
+            return Err(LLMError::AuthError("Missing X.AI API key".into()));
+        }
+        Err(LLMError::ProviderError(
+            "X.AI completion not implemented yet".into(),
+        ))
     }
 }
 
@@ -580,7 +583,17 @@ impl EmbeddingProvider for XAI {
 }
 
 #[async_trait]
-impl ModelsProvider for XAI {}
+impl ModelsProvider for XAI {
+    async fn list_models(
+        &self,
+        _request: Option<&crate::models::ModelListRequest>,
+    ) -> Result<Box<dyn crate::models::ModelListResponse>, LLMError> {
+        if self.api_key.is_empty() {
+            return Err(LLMError::AuthError("Missing X.AI API key".into()));
+        }
+        Err(LLMError::ProviderError("List Models not supported".into()))
+    }
+}
 
 impl LLMProvider for XAI {}
 

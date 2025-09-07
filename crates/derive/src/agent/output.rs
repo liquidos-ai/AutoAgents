@@ -69,7 +69,7 @@ impl OutputParser {
         let schema_literal = LitStr::new(&serialized_data, struct_ident.span());
 
         let expanded = quote! {
-            impl AgentOutputT for #struct_ident {
+            impl autoagents::core::agent::AgentOutputT for #struct_ident {
                 fn output_schema() -> &'static str {
                     #schema_literal
                 }

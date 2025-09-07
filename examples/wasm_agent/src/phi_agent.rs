@@ -7,14 +7,15 @@ use autoagents_core::agent::{
     ExecutorConfig,
 };
 use autoagents_core::error::Error;
-use autoagents_derive::agent;
+use autoagents_derive::{agent, AgentHooks};
 use autoagents_llm::chat::{ChatMessage, ChatProvider, ChatRole, MessageType};
 use autoagents_llm::LLMProvider;
 use futures::{Stream, StreamExt};
 use std::pin::Pin;
 // Removed unused tool imports
-use async_trait::async_trait;
+use autoagents::async_trait;
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
+use autoagents_core::agent::prebuilt::executor::{BasicAgent, ReActAgent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -25,77 +26,32 @@ use wasm_bindgen::prelude::*;
     name = "phi_chat_agent",
     description = "A conversational chat agent powered by Phi-1.5 model"
 )]
-#[derive(Default, Clone)]
+#[derive(Default, Clone, AgentHooks)]
 pub struct PhiChatAgent {}
-
-#[async_trait]
-impl AgentExecutor for PhiChatAgent {
-    type Output = String;
-    type Error = Error;
-
-    fn config(&self) -> ExecutorConfig {
-        ExecutorConfig { max_turns: 10 }
-    }
-
-    async fn execute(
-        &self,
-        task: &Task,
-        context: Arc<Context>,
-    ) -> Result<Self::Output, Self::Error> {
-        unimplemented!()
-    }
-
-    async fn execute_stream(
-        &self,
-        task: &Task,
-        context: Arc<Context>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>, Self::Error>
-    {
-        let mut messages = vec![ChatMessage {
-            role: ChatRole::System,
-            message_type: MessageType::Text,
-            content: context.config().description.clone(),
-        }];
-
-        let chat_msg = ChatMessage {
-            role: ChatRole::User,
-            message_type: MessageType::Text,
-            content: task.prompt.clone(),
-        };
-        messages.push(chat_msg);
-
-        let llm_stream = context
-            .llm()
-            .chat_stream(&messages, None, context.config().output_schema.clone())
-            .await
-            .map_err(|e| Error::LLMError(e))?;
-
-        // Convert LLMError to Error in the stream
-        let mapped_stream = llm_stream.map(|result| result.map_err(|e| Error::LLMError(e)));
-
-        Ok(Box::pin(mapped_stream))
-    }
-}
 
 /// Agent wrapper that provides a simple interface for chat interactions
 #[wasm_bindgen]
 pub struct PhiAgentWrapper {
-    agent: BaseAgent<PhiChatAgent, DirectAgent>,
+    agent: BaseAgent<BasicAgent<PhiChatAgent>, DirectAgent>,
 }
 
 impl PhiAgentWrapper {
     /// Create a new Phi agent with the given model (non-WASM)
-    pub fn new(phi_llm_provider: PhiLLMProvider) -> Result<PhiAgentWrapper, JsError> {
+    pub async fn new(phi_llm_provider: PhiLLMProvider) -> Result<PhiAgentWrapper, JsError> {
         let llm: Arc<dyn LLMProvider> = Arc::new(phi_llm_provider);
         let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-        let agent = AgentBuilder::<_, DirectAgent>::new(PhiChatAgent::default())
-            .llm(llm)
-            .memory(sliding_window_memory)
-            .build()
-            .map_err(|e| JsError::new(&e.to_string()))?;
+        let agent_handle =
+            AgentBuilder::<_, DirectAgent>::new(BasicAgent::new(PhiChatAgent::default()))
+                .llm(llm)
+                .memory(sliding_window_memory)
+                .build()
+                .await
+                .map_err(|e| JsError::new(&e.to_string()))?;
 
-        Ok(PhiAgentWrapper { agent })
+        Ok(PhiAgentWrapper {
+            agent: agent_handle.agent,
+        })
     }
 }
 
@@ -159,8 +115,8 @@ impl PhiAgentWrapper {
     }
 
     /// Create a new Phi agent from a PhiModel (WASM-friendly factory function)
-    pub fn from_phi_model(phi_model: PhiModel) -> Result<PhiAgentWrapper, JsError> {
+    pub async fn from_phi_model(phi_model: PhiModel) -> Result<PhiAgentWrapper, JsError> {
         let llm_provider = PhiLLMProvider::new(phi_model);
-        Self::new(llm_provider)
+        Self::new(llm_provider).await
     }
 }

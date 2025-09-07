@@ -1,9 +1,9 @@
-use async_trait::async_trait;
+use crate::utils::handle_events;
+use autoagents::async_trait;
 use autoagents::core::actor::{ActorMessage, CloneableMessage, Topic};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::protocol::ActorID;
-use autoagents::core::protocol::Event;
 use autoagents::core::ractor::concurrency::sleep;
 use autoagents::core::ractor::{Actor, ActorProcessingErr, ActorRef};
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
@@ -11,7 +11,6 @@ use autoagents::llm::LLMProvider;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use uuid::Uuid;
 
 /// Simple message type for basic actor communication
@@ -139,29 +138,4 @@ pub async fn run(_llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     println!("\n✅ All messages sent successfully!");
 
     Ok(())
-}
-
-fn handle_events(mut event_stream: ReceiverStream<Event>) {
-    tokio::spawn(async move {
-        while let Some(event) = event_stream.next().await {
-            match event {
-                Event::TaskStarted {
-                    actor_id,
-                    task_description,
-                    ..
-                } => {
-                    println!(
-                        "🎯 Task Started - Actor: {:?}, Task: {}",
-                        actor_id, task_description
-                    );
-                }
-                Event::TaskComplete { result, .. } => {
-                    println!("✅ Task Completed: {:?}", result);
-                }
-                _ => {
-                    // Ignore other events for this example
-                }
-            }
-        }
-    });
 }

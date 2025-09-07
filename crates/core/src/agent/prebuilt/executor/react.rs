@@ -17,56 +17,21 @@ use std::sync::Arc;
 use thiserror::Error;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use tokio::sync::mpsc;
-#[cfg(not(target_arch = "wasm32"))]
 pub use tokio::sync::mpsc::error::SendError;
 
-#[cfg(target_arch = "wasm32")]
-pub use futures::channel::mpsc;
 #[cfg(target_arch = "wasm32")]
 pub use futures::lock::Mutex;
 #[cfg(target_arch = "wasm32")]
 use futures::SinkExt;
+#[cfg(target_arch = "wasm32")]
+type SendError = futures::channel::mpsc::SendError;
 
 use crate::agent::executor::event_helper::EventHelper;
 use crate::agent::executor::memory_helper::MemoryHelper;
 use crate::agent::executor::tool_processor::ToolProcessor;
-
-#[cfg(target_arch = "wasm32")]
-type SendError = futures::channel::mpsc::SendError;
-
-// Platform-specific spawn functions
-#[cfg(not(target_arch = "wasm32"))]
-fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
-where
-    F: std::future::Future + Send + 'static,
-    F::Output: Send + 'static,
-{
-    tokio::spawn(fut)
-}
-
-#[cfg(target_arch = "wasm32")]
-fn spawn<F>(fut: F)
-where
-    F: std::future::Future<Output = ()> + 'static,
-{
-    wasm_bindgen_futures::spawn_local(fut)
-}
-
-// Platform-specific receiver stream functions
-#[cfg(not(target_arch = "wasm32"))]
-fn receiver_stream<T: 'static + Send>(
-    rx: tokio::sync::mpsc::Receiver<T>,
-) -> Pin<Box<dyn Stream<Item = T> + Send>> {
-    Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx))
-}
-
-#[cfg(target_arch = "wasm32")]
-fn receiver_stream<T: 'static + Send>(
-    rx: futures::channel::mpsc::Receiver<T>,
-) -> Pin<Box<dyn Stream<Item = T> + Send>> {
-    Box::pin(rx)
-}
+use crate::agent::hooks::{AgentHooks, HookOutcome};
+use crate::channel::{channel, Sender};
+use crate::utils::{receiver_into_stream, spawn_future};
 
 /// Output of the ReAct-style agent
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,7 +141,52 @@ impl<T: AgentDeriveT> AgentDeriveT for ReActAgent<T> {
     }
 }
 
-impl<T: AgentDeriveT> ReActAgent<T> {
+#[async_trait]
+impl<T> AgentHooks for ReActAgent<T>
+where
+    T: AgentDeriveT + AgentHooks + Send + Sync + 'static,
+{
+    async fn on_agent_create(&self) {
+        self.inner.on_agent_create().await
+    }
+
+    async fn on_run_start(&self, task: &Task, ctx: &Context) -> HookOutcome {
+        self.inner.on_run_start(task, ctx).await
+    }
+
+    async fn on_run_complete(&self, task: &Task, result: &Self::Output, ctx: &Context) {
+        self.inner.on_run_complete(task, result, ctx).await
+    }
+
+    async fn on_turn_start(&self, turn_index: usize, ctx: &Context) {
+        self.inner.on_turn_start(turn_index, ctx).await
+    }
+
+    async fn on_turn_complete(&self, turn_index: usize, ctx: &Context) {
+        self.inner.on_turn_complete(turn_index, ctx).await
+    }
+
+    async fn on_tool_call(&self, tool_call: &ToolCall, ctx: &Context) -> HookOutcome {
+        self.inner.on_tool_call(tool_call, ctx).await
+    }
+
+    async fn on_tool_start(&self, tool_call: &ToolCall, ctx: &Context) {
+        self.inner.on_tool_start(tool_call, ctx).await
+    }
+
+    async fn on_tool_result(&self, tool_call: &ToolCall, result: &ToolCallResult, ctx: &Context) {
+        self.inner.on_tool_result(tool_call, result, ctx).await
+    }
+
+    async fn on_tool_error(&self, tool_call: &ToolCall, err: Value, ctx: &Context) {
+        self.inner.on_tool_error(tool_call, err, ctx).await
+    }
+    async fn on_agent_shutdown(&self) {
+        self.inner.on_agent_shutdown().await
+    }
+}
+
+impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
     /// Process a single turn with the LLM
     async fn process_turn(
         &self,
@@ -230,8 +240,16 @@ impl<T: AgentDeriveT> ReActAgent<T> {
         let tx_event = context.tx().ok();
 
         // Process tool calls
-        let tool_results =
-            ToolProcessor::process_tool_calls(tools, tool_calls.clone(), tx_event).await;
+        let mut tool_results = Vec::new();
+        for call in &tool_calls {
+            if let Some(result) = ToolProcessor::process_single_tool_call_with_hooks(
+                self, context, tools, call, &tx_event,
+            )
+            .await
+            {
+                tool_results.push(result);
+            }
+        }
 
         // Store in memory
         MemoryHelper::store_tool_interaction(
@@ -302,7 +320,7 @@ impl<T: AgentDeriveT> ReActAgent<T> {
         &self,
         context: &Context,
         tools: &[Box<dyn ToolT>],
-        tx: &mut mpsc::Sender<Result<ReActAgentOutput, ReActExecutorError>>,
+        tx: &mut Sender<Result<ReActAgentOutput, ReActExecutorError>>,
         submission_id: SubmissionId,
     ) -> Result<StreamingTurnResult, ReActExecutorError> {
         let messages = self.prepare_messages(context).await;
@@ -471,7 +489,7 @@ impl<T: AgentDeriveT> ReActAgent<T> {
 
 /// Implementation of AgentExecutor for the ReActExecutorWrapper
 #[async_trait]
-impl<T: AgentDeriveT> AgentExecutor for ReActAgent<T> {
+impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
     type Output = ReActAgentOutput;
     type Error = ReActExecutorError;
 
@@ -524,6 +542,9 @@ impl<T: AgentDeriveT> AgentExecutor for ReActAgent<T> {
             let tools = context.tools();
             EventHelper::send_turn_started(&tx_event, turn_num, max_turns).await;
 
+            //Run Hook
+            self.on_turn_start(turn_num, &context).await;
+
             match self.process_turn(&context, tools).await? {
                 TurnResult::Complete(result) => {
                     if !accumulated_tool_calls.is_empty() {
@@ -534,6 +555,8 @@ impl<T: AgentDeriveT> AgentExecutor for ReActAgent<T> {
                         });
                     }
                     EventHelper::send_turn_completed(&tx_event, turn_num, false).await;
+                    //Run Hook
+                    self.on_turn_complete(turn_num, &context).await;
                     return Ok(result);
                 }
                 TurnResult::Continue(Some(partial_result)) => {
@@ -599,7 +622,7 @@ impl<T: AgentDeriveT> AgentExecutor for ReActAgent<T> {
         .await;
 
         // Create channel for streaming
-        let (mut tx, rx) = mpsc::channel::<Result<ReActAgentOutput, ReActExecutorError>>(100);
+        let (mut tx, rx) = channel::<Result<ReActAgentOutput, ReActExecutorError>>(100);
 
         // Clone necessary components
         let executor = self.clone();
@@ -608,7 +631,7 @@ impl<T: AgentDeriveT> AgentExecutor for ReActAgent<T> {
         let max_turns = executor.config().max_turns;
 
         // Spawn streaming task
-        spawn(async move {
+        spawn_future(async move {
             let mut accumulated_tool_calls = Vec::new();
             let mut final_response = String::new();
             let tools = context_clone.tools();
@@ -661,7 +684,7 @@ impl<T: AgentDeriveT> AgentExecutor for ReActAgent<T> {
                 .await;
         });
 
-        Ok(receiver_stream(rx))
+        Ok(receiver_into_stream(rx))
     }
 }
 

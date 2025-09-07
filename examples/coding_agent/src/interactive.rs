@@ -8,12 +8,13 @@ use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::protocol::Event;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
+use autoagents::core::utils::BoxEventStream;
 use autoagents::llm::LLMProvider;
 use colored::*;
 use std::io::{self, Write};
 use std::sync::Arc;
 use termimad::MadSkin;
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
+use tokio_stream::StreamExt;
 
 const CODING_TASK_TOPIC: &str = "coding_task";
 
@@ -104,7 +105,7 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
     Ok(())
 }
 
-fn handle_events(mut event_stream: ReceiverStream<Event>) {
+fn handle_events(mut event_stream: BoxEventStream<Event>) {
     tokio::spawn(async move {
         while let Some(event) = event_stream.next().await {
             match event {

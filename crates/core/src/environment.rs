@@ -2,10 +2,10 @@ use crate::error::Error;
 use crate::protocol::{Event, RuntimeID};
 use crate::runtime::manager::RuntimeManager;
 use crate::runtime::{Runtime, RuntimeError};
+use crate::utils::BoxEventStream;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tokio_stream::wrappers::ReceiverStream;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EnvironmentError {
@@ -90,7 +90,7 @@ impl Environment {
     pub async fn take_event_receiver(
         &mut self,
         runtime_id: Option<RuntimeID>,
-    ) -> Result<ReceiverStream<Event>, EnvironmentError> {
+    ) -> Result<BoxEventStream<Event>, EnvironmentError> {
         if let Ok(runtime) = self.get_runtime_or_default(runtime_id).await {
             runtime
                 .take_event_receiver()

@@ -18,18 +18,21 @@ mod builder;
 mod context;
 mod executor;
 // mod runnable;
+mod actor;
+pub(crate) mod constants;
+mod direct;
+mod hooks;
 mod state;
 
+pub use actor::ActorAgent;
 #[cfg(not(target_arch = "wasm32"))]
-pub use base::AgentHandle;
-pub use base::{ActorAgent, AgentDeriveT, BaseAgent, DirectAgent};
+pub use actor::ActorAgentHandle;
+pub use base::{AgentDeriveT, BaseAgent};
 pub use builder::AgentBuilder;
 pub use context::{Context, ContextError};
+pub use direct::DirectAgent;
 pub use executor::{
     event_helper::EventHelper, memory_helper::MemoryHelper, tool_processor::ToolProcessor,
     AgentExecutor, ExecutorConfig, TurnResult,
 };
-
-// #[cfg(not(target_arch = "wasm32"))]
-// pub use runnable::AgentActor;
-// pub use runnable::{IntoRunnable, RunnableAgent, RunnableAgentImpl};
+pub use hooks::{AgentHooks, HookOutcome};

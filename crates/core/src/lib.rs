@@ -10,9 +10,11 @@ pub mod runtime;
 pub mod agent;
 
 // Common modules available on all platforms
+mod channel;
 pub mod error;
 pub mod protocol;
 pub mod tool;
+pub mod utils;
 
 #[cfg(test)]
 mod tests;

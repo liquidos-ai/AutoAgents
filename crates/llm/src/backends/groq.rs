@@ -22,6 +22,7 @@ pub enum GroqModel {
     #[default]
     Llama33_70B,
     KimiK2,
+    Mixtral8x7B,
 }
 
 impl From<GroqModel> for String {
@@ -29,6 +30,7 @@ impl From<GroqModel> for String {
         match model {
             GroqModel::Llama33_70B => "llama-3.3-70b-versatile".to_string(),
             GroqModel::KimiK2 => "moonshotai/kimi-k2-instruct".to_string(),
+            GroqModel::Mixtral8x7B => "mixtral-8x7b-32768".to_string(),
         }
     }
 }
@@ -38,6 +40,7 @@ impl From<String> for GroqModel {
         match model.as_str() {
             "moonshotai/kimi-k2-instruct" => GroqModel::KimiK2,
             "llama-3.3-70b-versatile" => GroqModel::Llama33_70B,
+            "mixtral-8x7b-32768" => GroqModel::Mixtral8x7B,
             _ => GroqModel::Llama33_70B, // Default to Llama if unknown
         }
     }
@@ -232,9 +235,12 @@ impl CompletionProvider for Groq {
         _req: &CompletionRequest,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<CompletionResponse, LLMError> {
-        Ok(CompletionResponse {
-            text: "Groq completion not implemented.".into(),
-        })
+        if self.api_key.is_empty() {
+            return Err(LLMError::AuthError("Missing Groq API key".into()));
+        }
+        Err(LLMError::ProviderError(
+            "Groq completion not implemented yet".into(),
+        ))
     }
 }
 
@@ -248,7 +254,17 @@ impl EmbeddingProvider for Groq {
 }
 
 #[async_trait]
-impl ModelsProvider for Groq {}
+impl ModelsProvider for Groq {
+    async fn list_models(
+        &self,
+        _request: Option<&crate::models::ModelListRequest>,
+    ) -> Result<Box<dyn crate::models::ModelListResponse>, LLMError> {
+        if self.api_key.is_empty() {
+            return Err(LLMError::AuthError("Missing Groq API key".into()));
+        }
+        Err(LLMError::ProviderError("List Models not supported".into()))
+    }
+}
 
 impl LLMProvider for Groq {}
 

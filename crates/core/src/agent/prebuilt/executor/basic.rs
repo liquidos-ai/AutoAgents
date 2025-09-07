@@ -1,8 +1,10 @@
+use crate::agent::hooks::HookOutcome;
 use crate::agent::task::Task;
-use crate::agent::{AgentDeriveT, AgentExecutor, Context, ExecutorConfig};
-use crate::tool::ToolT;
+use crate::agent::{AgentDeriveT, AgentExecutor, AgentHooks, Context, ExecutorConfig};
+use crate::tool::{ToolCallResult, ToolT};
 use async_trait::async_trait;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
+use autoagents_llm::ToolCall;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -87,6 +89,51 @@ impl<T: AgentDeriveT> AgentDeriveT for BasicAgent<T> {
 
     fn tools(&self) -> Vec<Box<dyn ToolT>> {
         self.inner.tools()
+    }
+}
+
+#[async_trait]
+impl<T> AgentHooks for BasicAgent<T>
+where
+    T: AgentDeriveT + AgentHooks + Send + Sync + 'static,
+{
+    async fn on_agent_create(&self) {
+        self.inner.on_agent_create().await
+    }
+
+    async fn on_run_start(&self, task: &Task, ctx: &Context) -> HookOutcome {
+        self.inner.on_run_start(task, ctx).await
+    }
+
+    async fn on_run_complete(&self, task: &Task, result: &Self::Output, ctx: &Context) {
+        self.inner.on_run_complete(task, result, ctx).await
+    }
+
+    async fn on_turn_start(&self, turn_index: usize, ctx: &Context) {
+        self.inner.on_turn_start(turn_index, ctx).await
+    }
+
+    async fn on_turn_complete(&self, turn_index: usize, ctx: &Context) {
+        self.inner.on_turn_complete(turn_index, ctx).await
+    }
+
+    async fn on_tool_call(&self, tool_call: &ToolCall, ctx: &Context) -> HookOutcome {
+        self.inner.on_tool_call(tool_call, ctx).await
+    }
+
+    async fn on_tool_start(&self, tool_call: &ToolCall, ctx: &Context) {
+        self.inner.on_tool_start(tool_call, ctx).await
+    }
+
+    async fn on_tool_result(&self, tool_call: &ToolCall, result: &ToolCallResult, ctx: &Context) {
+        self.inner.on_tool_result(tool_call, result, ctx).await
+    }
+
+    async fn on_tool_error(&self, tool_call: &ToolCall, err: Value, ctx: &Context) {
+        self.inner.on_tool_error(tool_call, err, ctx).await
+    }
+    async fn on_agent_shutdown(&self) {
+        self.inner.on_agent_shutdown().await
     }
 }
 
@@ -180,7 +227,8 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use autoagents_test_utils::agent::MockAgentImpl;
+    use crate::agent::AgentDeriveT;
+    use crate::tests::agent::MockAgentImpl;
     use autoagents_test_utils::llm::MockLLMProvider;
     use std::sync::Arc;
 

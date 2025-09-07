@@ -24,7 +24,7 @@ impl ToolParser {
         let expanded = quote! {
             #input_struct
 
-            impl ToolT for #struct_name {
+            impl autoagents::core::tool::ToolT for #struct_name {
                 fn name(&self) -> &'static str {
                     #tool_name_literal
                 }

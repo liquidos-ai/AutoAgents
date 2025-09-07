@@ -1,13 +1,15 @@
 use crate::phi_provider::{PhiInitInput, PhiModel, PhiTokenOutput};
-use async_trait::async_trait;
+use autoagents::async_trait;
 use autoagents_llm::chat::{
-    ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StructuredOutputFormat, Tool,
+    ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StreamResponse,
+    StructuredOutputFormat, Tool,
 };
 use autoagents_llm::completion::{CompletionProvider, CompletionRequest, CompletionResponse};
 use autoagents_llm::embedding::EmbeddingProvider;
 use autoagents_llm::error::LLMError;
 use autoagents_llm::models::ModelsProvider;
 use autoagents_llm::LLMProvider;
+use autoagents_llm::{chat::StreamChoice, chat::StreamDelta};
 use futures::stream::{Stream, StreamExt};
 use std::any::Any;
 use std::pin::Pin;
@@ -89,12 +91,13 @@ impl ChatProvider for PhiLLMProvider {
         unimplemented!()
     }
 
-    async fn chat_stream(
+    async fn chat_stream_struct(
         &self,
         messages: &[ChatMessage],
         _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError> {
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>, LLMError>
+    {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // For non-WASM targets, return an error since this example is WASM-only
@@ -169,7 +172,17 @@ impl ChatProvider for PhiLLMProvider {
                 };
 
                 crate::console_log!("Yielding first token: '{}'", first_token.token);
-                yield Ok(first_token.token);
+                // yield Ok(first_token.token);
+
+                yield Ok(StreamResponse {
+                        choices: vec![StreamChoice {
+                            delta: StreamDelta {
+                                content: Some(first_token.token),
+                                tool_calls: None,
+                            },
+                        }],
+                        usage: None,
+                    });
 
                 // Yield control to allow other tasks to run (WASM-specific)
                 wasm_bindgen_futures::JsFuture::from(
@@ -204,7 +217,17 @@ impl ChatProvider for PhiLLMProvider {
                     }
 
                     crate::console_log!("Yielding token {}: '{}'", i + 1, token.token);
-                    yield Ok(token.token);
+                    // yield Ok(token.token);
+
+                    yield Ok(StreamResponse {
+                        choices: vec![StreamChoice {
+                            delta: StreamDelta {
+                                content: Some(token.token),
+                                 tool_calls: None,
+                            },
+                        }],
+                        usage: None,
+                    });
 
                     // Yield control to allow other tasks to run after each token (WASM-specific)
                     wasm_bindgen_futures::JsFuture::from(

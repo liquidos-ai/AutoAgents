@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 #[cfg(target_arch = "wasm32")]
 use futures::channel::mpsc;
 
+use crate::agent::{AgentHooks, Context, HookOutcome};
 #[cfg(target_arch = "wasm32")]
 use futures::SinkExt;
 
@@ -32,8 +33,55 @@ impl ToolProcessor {
         results
     }
 
+    /// Process a single tool call (with hooks)
+    pub(crate) async fn process_single_tool_call_with_hooks<H: AgentHooks>(
+        hooks: &H,
+        context: &Context,
+        tools: &[Box<dyn ToolT>],
+        call: &ToolCall,
+        tx_event: &Option<mpsc::Sender<Event>>,
+    ) -> Option<ToolCallResult> {
+        // Run hook before execution
+        match hooks.on_tool_call(call, context).await {
+            HookOutcome::Abort => {
+                return None; // skip execution
+            }
+            HookOutcome::Continue => {}
+        }
+
+        let tool_name = call.function.name.clone();
+        let tool_args = call.function.arguments.clone();
+
+        // Send tool call requested event
+        Self::send_event(
+            tx_event,
+            Event::ToolCallRequested {
+                id: call.id.clone(),
+                tool_name: tool_name.clone(),
+                arguments: tool_args.clone(),
+            },
+        )
+        .await;
+
+        //Run the tool start hook
+        hooks.on_tool_start(call, context).await;
+
+        let result = Self::process_single_tool_call(tools, call, tx_event).await;
+
+        //Run on tool result hook
+        if result.success {
+            hooks.on_tool_result(call, &result, context).await;
+        } else {
+            hooks
+                .on_tool_error(call, result.result.clone(), context)
+                .await;
+        }
+
+        Some(result)
+    }
+
     /// Process a single tool call
-    async fn process_single_tool_call(
+    pub(crate) async fn process_single_tool_call(
         tools: &[Box<dyn ToolT>],
         call: &ToolCall,
         tx_event: &Option<mpsc::Sender<Event>>,

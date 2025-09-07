@@ -1,6 +1,6 @@
 use autoagents::core::agent::AgentDeriveT;
 use autoagents::core::tool::ToolT;
-use autoagents_derive::agent;
+use autoagents_derive::{agent, AgentHooks};
 use serde_json::Value;
 
 use crate::tools::{
@@ -61,7 +61,7 @@ Remember: You are a systematic problem solver. Think through each step, use your
         AnalyzeCodeTool
     ],
 )]
-#[derive(Clone)]
+#[derive(Clone, AgentHooks)]
 pub struct CodingAgent {}
 
 #[agent(

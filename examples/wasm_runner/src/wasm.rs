@@ -2,19 +2,20 @@ use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{ActorAgent, AgentBuilder, AgentDeriveT, AgentOutputT};
+use autoagents::core::agent::{ActorAgent, AgentBuilder, AgentOutputT};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::protocol::Event;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT, WasmRuntime};
+use autoagents::core::utils::BoxEventStream;
 use autoagents::llm::LLMProvider;
-use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
+use autoagents_derive::{agent, tool, AgentHooks, AgentOutput, ToolInput};
 use colored::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
+use tokio_stream::StreamExt;
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct AdditionArgs {
@@ -68,13 +69,30 @@ pub struct WasmMathAgentOutput {
     explanation: String,
 }
 
+impl From<ReActAgentOutput> for WasmMathAgentOutput {
+    fn from(output: ReActAgentOutput) -> Self {
+        let resp = output.response;
+        if output.done && !resp.trim().is_empty() {
+            // Try to parse as structured JSON first
+            if let Ok(value) = serde_json::from_str::<WasmMathAgentOutput>(&resp) {
+                return value;
+            }
+        }
+        // For streaming chunks or unparseable content, create a default response
+        WasmMathAgentOutput {
+            value: 0,
+            explanation: resp,
+        }
+    }
+}
+
 #[agent(
     name = "wasm_math_agent",
     description = "You are a Math agent that uses WebAssembly (WASM) tools for computations. You demonstrate the power of running secure, sandboxed code through WASM.",
     tools = [WasmAddition],
     output = WasmMathAgentOutput
 )]
-#[derive(Clone)]
+#[derive(Clone, AgentHooks)]
 pub struct WasmMathAgent {}
 
 pub async fn wasm_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
@@ -134,7 +152,7 @@ pub async fn wasm_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     Ok(())
 }
 
-fn handle_events(mut event_stream: ReceiverStream<Event>) {
+fn handle_events(mut event_stream: BoxEventStream<Event>) {
     tokio::spawn(async move {
         while let Some(event) = event_stream.next().await {
             match event {

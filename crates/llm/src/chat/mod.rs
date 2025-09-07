@@ -65,6 +65,7 @@ pub enum MessageType {
 }
 
 /// The type of reasoning effort for a message in a chat conversation.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ReasoningEffort {
     /// Low reasoning effort
     Low,

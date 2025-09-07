@@ -1,29 +1,28 @@
+use crate::utils::handle_events;
 /// This example demonstrates Agent Chaining using the runtime architecture
-use async_trait::async_trait;
+use autoagents::async_trait;
 use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{
-    ActorAgent, AgentBuilder, AgentDeriveT, AgentExecutor, Context, EventHelper, ExecutorConfig,
+    ActorAgent, AgentBuilder, AgentExecutor, Context, EventHelper, ExecutorConfig,
 };
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::protocol::Event;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::ToolT;
 use autoagents::llm::chat::{ChatMessage, ChatRole, MessageType};
 use autoagents::llm::LLMProvider;
-use autoagents_derive::agent;
-use colored::*;
+use autoagents_derive::{agent, AgentHooks};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 
 #[agent(
     name = "agent_1",
     description = "You are a math geek and expert in linear algebra",
     tools = [],
 )]
+#[derive(AgentHooks)]
 pub struct Agent1 {}
 
 #[agent(
@@ -31,6 +30,7 @@ pub struct Agent1 {}
     description = "You are a math professor in linear algebra, Your goal is to review the given content if correct",
     tools = [],
 )]
+#[derive(AgentHooks)]
 pub struct Agent2 {}
 
 #[async_trait]
@@ -181,24 +181,4 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         }
     }
     Ok(())
-}
-
-fn handle_events(mut event_stream: ReceiverStream<Event>) {
-    tokio::spawn(async move {
-        while let Some(event) = event_stream.next().await {
-            match event {
-                Event::TaskComplete { result, .. } => {
-                    println!("{}", format!("Task Complete: {}", result).green());
-                }
-                Event::TaskStarted {
-                    task_description, ..
-                } => {
-                    println!("{}", format!("Task started: {}", task_description).blue());
-                }
-                _ => {
-                    //
-                }
-            }
-        }
-    });
 }
