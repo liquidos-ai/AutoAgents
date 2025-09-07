@@ -9,8 +9,10 @@ use autoagents::{
 };
 mod actor;
 mod basic;
+mod hooks;
 mod liquid_edge;
 mod streaming;
+mod utils;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum UseCase {
@@ -20,6 +22,7 @@ enum UseCase {
     Edge,
     Streaming,
     Actor,
+    Hooks,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -61,6 +64,7 @@ async fn main() -> Result<(), Error> {
         UseCase::Edge => liquid_edge::edge_agent(args.device).await?,
         UseCase::Streaming => streaming::run(llm).await?,
         UseCase::Actor => actor::run(llm).await?,
+        UseCase::Hooks => hooks::hooks_agent(llm).await?,
     }
 
     Ok(())

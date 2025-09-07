@@ -1,4 +1,4 @@
-use async_trait::async_trait;
+use autoagents::async_trait;
 use autoagents_llm::{
     chat::{ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},

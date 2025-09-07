@@ -34,8 +34,8 @@ futures = { workspace = true }
 regex = { workspace = true }
 log = { workspace = true, features = ["std"] }
 wasmtime = { workspace = true, optional = true }
-chrono = { version = "0.4", features = ["serde"] }
-async-stream = "0.3.6"
+futures-core = "0.3.31"
+futures-util = "0.3.31"
 
 # Non-WASM dependencies (only when not targeting wasm32)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

@@ -199,9 +199,12 @@ impl CompletionProvider for DeepSeek {
         _req: &CompletionRequest,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<CompletionResponse, LLMError> {
-        Ok(CompletionResponse {
-            text: "DeepSeek completion not implemented.".into(),
-        })
+        if self.api_key.is_empty() {
+            return Err(LLMError::AuthError("Missing DeepSeek API key".into()));
+        }
+        Err(LLMError::ProviderError(
+            "DeepSeek completion not implemented yet".into(),
+        ))
     }
 }
 

@@ -24,3 +24,6 @@ checkpoints
 
 usls
 demo_models
+.aider*
+build_rs_cov.profraw
+cobertura.xml

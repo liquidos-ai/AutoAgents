@@ -1,11 +1,12 @@
+use crate::utils::handle_events;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT, DirectAgent};
+use autoagents::core::agent::{AgentBuilder, AgentOutputT, DirectAgent};
 use autoagents::core::error::Error;
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::LLMProvider;
-use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
+use autoagents_derive::{agent, tool, AgentHooks, AgentOutput, ToolInput};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -51,7 +52,7 @@ pub struct MathAgentOutput {
     tools = [Addition],
     output = MathAgentOutput,
 )]
-#[derive(Default, Clone)]
+#[derive(Default, Clone, AgentHooks)]
 pub struct MathAgent {}
 
 impl From<ReActAgentOutput> for MathAgentOutput {
@@ -75,14 +76,18 @@ impl From<ReActAgentOutput> for MathAgentOutput {
 pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = AgentBuilder::<_, DirectAgent>::new(ReActAgent::new(MathAgent {}))
+    let agent_handle = AgentBuilder::<_, DirectAgent>::new(ReActAgent::new(MathAgent {}))
         .llm(llm)
         .memory(sliding_window_memory)
-        .build()?;
+        .build()
+        .await?;
 
     println!("Running simple_agent with direct run method");
 
-    let result = agent.run(Task::new("What is 1 + 1?")).await?;
+    //Handle Events sent from the executor, This is good for updating UI based on the events
+    handle_events(agent_handle.rx);
+
+    let result = agent_handle.agent.run(Task::new("What is 1 + 1?")).await?;
     println!("Result: {:?}", result);
     Ok(())
 }

@@ -74,6 +74,7 @@ impl Phind {
         system: Option<String>,
         top_p: Option<f32>,
         top_k: Option<u32>,
+        api_base_url: Option<String>,
     ) -> Self {
         let mut builder = Client::builder();
         if let Some(sec) = timeout_seconds {
@@ -87,7 +88,8 @@ impl Phind {
             timeout_seconds,
             top_p,
             top_k,
-            api_base_url: "https://https.extension.phind.com/agent/".to_string(),
+            api_base_url: api_base_url
+                .unwrap_or_else(|| "https://extension.phind.com/agent/".to_string()),
             client: builder.build().expect("Failed to build reqwest Client"),
         }
     }
@@ -299,6 +301,7 @@ impl LLMBuilder<Phind> {
             self.system,
             self.top_p,
             self.top_k,
+            self.base_url,
         );
 
         Ok(Arc::new(phind))

@@ -1,5 +1,7 @@
 use super::{Runtime, RuntimeError};
+use crate::agent::constants::DEFAULT_CHANNEL_BUFFER;
 use crate::protocol::InternalEvent;
+use crate::utils::{receiver_into_stream, BoxEventStream};
 use crate::{
     actor::{AnyActor, Transport},
     error::Error,
@@ -16,10 +18,8 @@ use std::{
     },
 };
 use tokio::sync::{mpsc, Mutex, Notify, RwLock};
-use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 
-const DEFAULT_CHANNEL_BUFFER: usize = 100;
 const DEFAULT_INTERNAL_BUFFER: usize = 1000;
 
 /// Topic subscription entry storing type information and actor references
@@ -295,12 +295,9 @@ impl Runtime for SingleThreadedRuntime {
         Arc::clone(&self.transport)
     }
 
-    async fn take_event_receiver(&self) -> Option<ReceiverStream<Event>> {
-        self.external_rx
-            .lock()
-            .await
-            .take()
-            .map(ReceiverStream::new)
+    async fn take_event_receiver(&self) -> Option<BoxEventStream<Event>> {
+        let mut guard = self.external_rx.lock().await;
+        guard.take().map(receiver_into_stream)
     }
 
     async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

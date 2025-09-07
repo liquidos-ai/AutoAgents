@@ -42,6 +42,10 @@ pub enum RunnableAgentError {
     #[error("EmptyTx")]
     EmptyTx,
 
+    /// Abort the Execution
+    #[error("Abort the execution")]
+    Abort,
+
     /// Generic error wrapper for any std::error::Error
     #[error(transparent)]
     Other(#[from] Box<dyn std::error::Error + Send + Sync>),

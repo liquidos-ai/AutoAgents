@@ -5,21 +5,21 @@
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::ReActAgent;
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT, DirectAgent};
+use autoagents::core::agent::{AgentBuilder, DirectAgent};
 use autoagents::core::tool::ToolT;
 use autoagents::llm::{
     backends::openai::OpenAI,
     builder::LLMBuilder,
     chat::{ChatMessage, ChatProvider, ImageMime},
 };
-use autoagents_derive::agent;
+use autoagents_derive::{agent, AgentHooks};
 use clap::Parser;
 use serde_json::Value;
 use std::path::PathBuf;
 use tokio::fs;
 
 #[agent(name = "image_agent", description = "You are an Image analysis agent")]
-#[derive(Default, Clone)]
+#[derive(Default, Clone, AgentHooks)]
 pub struct ImageAgent {}
 
 /// Image Chat Example - Analyze images using LLM vision capabilities
@@ -84,13 +84,15 @@ async fn main() -> anyhow::Result<()> {
     println!("Response:\n{}", response.text().unwrap_or_default());
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent = AgentBuilder::<_, DirectAgent>::new(ReActAgent::new(ImageAgent {}))
+    let agent_handle = AgentBuilder::<_, DirectAgent>::new(ReActAgent::new(ImageAgent {}))
         .llm(llm)
         .memory(sliding_window_memory)
-        .build()?;
+        .build()
+        .await?;
 
     println!("Running agent with image");
-    let agent_result = agent
+    let agent_result = agent_handle
+        .agent
         .run(Task::new_with_image(
             "What do you see in this image?",
             ImageMime::JPEG,

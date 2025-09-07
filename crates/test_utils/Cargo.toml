@@ -10,10 +10,10 @@ categories.workspace = true
 publish = false
 
 [dependencies]
-autoagents-core.workspace = true
-autoagents-llm.workspace = true
-async-trait = { workspace = true }
+autoagents = { path = "../autoagents" }
+autoagents-derive = { path = "../derive" }
+autoagents-llm = { path = "../llm" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+futures = { workspace = true }

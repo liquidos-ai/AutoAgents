@@ -1,11 +1,11 @@
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::BasicAgent;
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT, DirectAgent};
+use autoagents::core::agent::{AgentBuilder, DirectAgent};
 use autoagents::core::error::Error;
 use autoagents::core::tool::ToolT;
 use autoagents::llm::LLMProvider;
-use autoagents_derive::agent;
+use autoagents_derive::{agent, AgentHooks};
 use serde_json::Value;
 use std::sync::Arc;
 #[agent(
@@ -13,20 +13,24 @@ use std::sync::Arc;
     description = "You are a Math agent",
     tools = [],
 )]
-#[derive(Default, Clone)]
+#[derive(Default, Clone, AgentHooks)]
 pub struct MathAgent {}
 
 pub async fn basic_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
     let agent = BasicAgent::new(MathAgent {});
-    let agent = AgentBuilder::<_, DirectAgent>::new(agent)
+    let agent_handle = AgentBuilder::<_, DirectAgent>::new(agent)
         .llm(llm)
         .memory(sliding_window_memory)
-        .build()?;
+        .build()
+        .await?;
 
     println!("Running basic agent with direct run method");
-    let result = agent.run(Task::new("What is 20 + 10?")).await?;
+    let result = agent_handle
+        .agent
+        .run(Task::new("What is 20 + 10?"))
+        .await?;
     println!("Result: {:?}", result);
     Ok(())
 }

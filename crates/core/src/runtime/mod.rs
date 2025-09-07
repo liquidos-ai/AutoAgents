@@ -8,11 +8,11 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::SendError;
 use tokio::task::JoinError;
-use tokio_stream::wrappers::ReceiverStream;
 
 pub(crate) mod manager;
 mod single_threaded;
 use crate::actor::Topic;
+use crate::utils::BoxEventStream;
 pub use single_threaded::SingleThreadedRuntime;
 
 /// Configuration for runtime instances
@@ -66,7 +66,7 @@ pub trait Runtime: Send + Sync {
     //Local event processing event handler, This is passed to the agent handler and agents emit events using this, The runtime is responsible to move it to the parent environment
     fn tx(&self) -> mpsc::Sender<Event>;
     async fn transport(&self) -> Arc<dyn Transport>;
-    async fn take_event_receiver(&self) -> Option<ReceiverStream<Event>>;
+    async fn take_event_receiver(&self) -> Option<BoxEventStream<Event>>;
     async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }

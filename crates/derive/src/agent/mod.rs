@@ -140,7 +140,7 @@ impl AgentParser {
         let expanded = quote! {
             #input_struct
 
-            impl AgentDeriveT for #struct_name {
+            impl autoagents::core::agent::AgentDeriveT for #struct_name {
                 type Output = #quoted_output_type;
 
                 fn name(&self) -> &'static str {

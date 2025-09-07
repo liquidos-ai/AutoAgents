@@ -37,6 +37,7 @@ use std::sync::Arc;
 ///
 /// This struct holds the configuration and state needed to make requests to the Gemini API.
 /// It implements the [`ChatProvider`], [`CompletionProvider`], and [`EmbeddingProvider`] traits.
+#[derive(Debug)]
 pub struct Google {
     /// API key for authentication with Google's API
     pub api_key: String,

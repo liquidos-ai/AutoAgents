@@ -2,11 +2,11 @@
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT, AgentOutputT, DirectAgent};
+use autoagents::core::agent::{AgentBuilder, AgentOutputT, DirectAgent};
 use autoagents::core::error::Error;
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::LLMProvider;
-use autoagents_derive::{agent, tool, AgentOutput, ToolInput};
+use autoagents_derive::{agent, tool, AgentHooks, AgentOutput, ToolInput};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -68,7 +68,7 @@ impl From<ReActAgentOutput> for AgentOutput {
     tools = [Addition]
     output = AgentOutput
 )]
-#[derive(Clone)]
+#[derive(Clone, AgentHooks)]
 pub struct StreamingAgent {}
 
 pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
@@ -78,16 +78,17 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     let agent = ReActAgent::new(StreamingAgent {});
 
-    let agent = AgentBuilder::<_, DirectAgent>::new(agent)
+    let agent_handle = AgentBuilder::<_, DirectAgent>::new(agent)
         .llm(llm)
         .stream(true) // Enable streaming for this agent
         .memory(sliding_window_memory)
-        .build()?;
+        .build()
+        .await?;
 
     let task = Task::new("What is 2 + 2?");
 
     // Process the stream directly
-    let mut stream = agent.run_stream(task).await?;
+    let mut stream = agent_handle.agent.run_stream(task).await?;
     println!("🔄 Processing stream tokens...\n");
 
     while let Some(result) = stream.next().await {

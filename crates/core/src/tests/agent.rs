@@ -1,13 +1,14 @@
-use std::sync::Arc;
-use autoagents::core::agent::{AgentDeriveT, AgentExecutor, AgentOutputT, Context, ExecutorConfig};
-use autoagents::core::agent::AgentHooks;
-use autoagents::core::agent::task::Task;
-use autoagents::core::tool::ToolT;
-use autoagents::async_trait;
+#![allow(dead_code)]
+use crate::agent::task::Task;
+use crate::agent::{
+    AgentDeriveT, AgentExecutor, AgentHooks, AgentOutputT, Context, ExecutorConfig,
+};
+use crate::tool::ToolT;
+use async_trait::async_trait;
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use futures::Stream;
-use autoagents_derive::AgentOutput;
+use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TestError {
@@ -15,10 +16,30 @@ pub enum TestError {
     TestError(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, AgentOutput)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestAgentOutput {
-    #[output(description = "The result")]
     pub result: String,
+}
+
+impl AgentOutputT for TestAgentOutput {
+    fn output_schema() -> &'static str {
+        r#"{"type":"object","properties":{"result":{"type":"string"}},"required":["result"]}"#
+    }
+
+    fn structured_output_format() -> Value {
+        serde_json::json!({
+            "name": "TestAgentOutput",
+            "description": "Test agent output schema",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "result": {"type": "string"}
+                },
+                "required": ["result"]
+            },
+            "strict": true
+        })
+    }
 }
 
 impl From<TestAgentOutput> for Value {
@@ -97,7 +118,7 @@ impl AgentExecutor for MockAgentImpl {
         _task: &Task,
         _context: Arc<Context>,
     ) -> Result<
-        std::pin::Pin<Box<dyn Stream<Item=Result<Self::Output, Self::Error>> + Send>>,
+        std::pin::Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>,
         Self::Error,
     > {
         unimplemented!()

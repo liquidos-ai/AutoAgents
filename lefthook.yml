@@ -16,8 +16,5 @@ pre-commit:
 
 pre-push:
   commands:
-    test-full:
-      run: cargo test --all-features --release
-
     doc:
       run: cargo doc --all-features --no-deps

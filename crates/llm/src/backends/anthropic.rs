@@ -572,7 +572,13 @@ impl CompletionProvider for Anthropic {
         _req: &CompletionRequest,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<CompletionResponse, LLMError> {
-        unimplemented!()
+        if self.api_key.is_empty() {
+            return Err(LLMError::AuthError("Missing Anthropic API key".into()));
+        }
+        // Anthropic completion API is not implemented yet
+        Err(LLMError::ProviderError(
+            "Anthropic completion not implemented yet".into(),
+        ))
     }
 }
 
@@ -635,18 +641,7 @@ impl ModelsProvider for Anthropic {
         &self,
         _request: Option<&ModelListRequest>,
     ) -> Result<Box<dyn ModelListResponse>, LLMError> {
-        let resp = self
-            .client
-            .get("https://api.anthropic.com/v1/models")
-            .header("x-api-key", &self.api_key)
-            .header("Content-Type", "application/json")
-            .header("anthropic-version", "2023-06-01")
-            .send()
-            .await?;
-
-        let result: AnthropicModelListResponse = resp.json().await?;
-
-        Ok(Box::new(result))
+        Err(LLMError::ProviderError("List Models not supported".into()))
     }
 }
 

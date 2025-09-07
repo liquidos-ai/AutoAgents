@@ -153,7 +153,7 @@ const loadModel = async (modelConfig) => {
 
         // Create agent from the model
         try {
-            currentAgent = PhiAgentWrapper.from_phi_model(currentModel);
+            currentAgent = await PhiAgentWrapper.from_phi_model(currentModel);
         } catch (error) {
             console.error('Failed to create agent wrapper:', error);
             throw error;

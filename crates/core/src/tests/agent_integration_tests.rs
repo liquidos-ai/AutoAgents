@@ -5,11 +5,9 @@ mod tests {
     use crate::environment::Environment;
     use crate::protocol::Event;
     use crate::runtime::{SingleThreadedRuntime, TypedRuntime};
+    use crate::tests::agent::{MockAgentImpl, MockTool, TestAgentOutput};
     use crate::tool::{ToolCallError, ToolRuntime, ToolT};
-    use autoagents_test_utils::{
-        agent::{MockAgentImpl, MockTool, TestAgentOutput},
-        llm::MockLLMProvider,
-    };
+    use autoagents_test_utils::llm::MockLLMProvider;
     use serde_json::Value;
     use std::sync::Arc;
     use tokio::time::{timeout, Duration};

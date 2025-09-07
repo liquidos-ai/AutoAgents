@@ -1,16 +1,18 @@
+use crate::EdgeDevice;
 use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, AgentDeriveT};
+use autoagents::core::agent::AgentBuilder;
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::protocol::Event;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
+use autoagents::core::utils::BoxEventStream;
 use autoagents::llm::backends::liquid_edge::LiquidEdge;
 use autoagents::llm::builder::LLMBuilder;
-use autoagents_derive::{agent, tool, ToolInput};
+use autoagents_derive::{agent, tool, AgentHooks, ToolInput};
 use colored::*;
 use liquid_edge::cpu;
 use liquid_edge::device::cuda_default;
@@ -19,9 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
 use std::sync::Arc;
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
-
-use crate::EdgeDevice;
+use tokio_stream::StreamExt;
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct AdditionArgs {
@@ -52,7 +52,7 @@ impl ToolRuntime for Addition {
     description = "You are ChatBOT, a helpful, friendly, and knowledgeable AI assistant. Your name is ChatBOT.",
     tools = []
 )]
-#[derive(Clone)]
+#[derive(Clone, AgentHooks)]
 pub struct ChatAgent {}
 
 pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
@@ -123,7 +123,7 @@ pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
     Ok(())
 }
 
-fn handle_events(mut event_stream: ReceiverStream<Event>) {
+fn handle_events(mut event_stream: BoxEventStream<Event>) {
     tokio::spawn(async move {
         while let Some(event) = event_stream.next().await {
             match event {
