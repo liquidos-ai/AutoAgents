@@ -35,7 +35,7 @@ autoagents-llm = { path = "crates/llm", version = "0.2.3" }
 autoagents-derive = { path = "crates/derive", version = "0.2.3" }
 autoagents-core = { path = "crates/core", version = "0.2.3" }
 autoagents-test-utils = { path = "crates/test_utils" }
-liquid-edge = { path = "crates/liquid-edge" }
+liquid-edge = { path = "crates/liquid-edge", version = "0.2.3" }
 syn = { version = "2.0.98", features = ["full"] }
 tokio = { version = "1.43.0", features = ["full"] }
 async-trait = "0.1.86"
