@@ -1155,6 +1155,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "design_patterns"
+version = "0.2.3"
+dependencies = [
+ "anyhow",
+ "autoagents",
+ "autoagents-derive",
+ "clap",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

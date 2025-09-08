@@ -1,6 +1,7 @@
 use super::{Runtime, RuntimeError};
 use crate::protocol::RuntimeID;
 use futures::future::try_join_all;
+use log::error;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
@@ -34,6 +35,19 @@ impl RuntimeManager {
             .collect::<Vec<_>>();
         // Await all in parallel and propagate the first error
         let _ = try_join_all(tasks).await.map_err(RuntimeError::JoinError)?;
+        Ok(())
+    }
+
+    /// Spawn all runtimes and return immediately without waiting for completion
+    pub async fn run_background(&self) -> Result<(), RuntimeError> {
+        let runtimes = self.runtimes.read().await;
+        let _ = runtimes.values().cloned().map(|runtime| {
+            tokio::spawn(async move {
+                if let Err(err) = runtime.run().await {
+                    error!("Runtime {} failed: {:?}", runtime.id(), err);
+                }
+            });
+        });
         Ok(())
     }
 

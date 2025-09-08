@@ -1,0 +1,18 @@
+[package]
+name = "design_patterns"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+autoagents = { workspace = true, features = ["openai", "logging"] }
+autoagents-derive = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+serde_json = { workspace = true }
+anyhow = { version = "1.0.99" }
+clap = { workspace = true }
+tokio-stream = { workspace = true }
