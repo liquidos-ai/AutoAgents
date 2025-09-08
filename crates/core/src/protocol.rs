@@ -32,18 +32,22 @@ pub enum Event {
     TaskStarted {
         sub_id: SubmissionId,
         actor_id: ActorID,
+        actor_name: String,
         task_description: String,
     },
 
     /// A task has been completed
     TaskComplete {
         sub_id: SubmissionId,
+        actor_id: ActorID,
+        actor_name: String,
         result: String,
     },
 
     /// A task encountered an error
     TaskError {
         sub_id: SubmissionId,
+        actor_id: ActorID,
         error: String,
     },
 
@@ -155,6 +159,7 @@ mod tests {
         let event = Event::TaskStarted {
             sub_id: Uuid::new_v4(),
             actor_id: Default::default(),
+            actor_name: String::from("test"),
             task_description: "Started task".to_string(),
         };
 

@@ -146,6 +146,8 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
                 #[cfg(not(target_arch = "wasm32"))]
                 tx.send(Event::TaskComplete {
                     sub_id: submission_id,
+                    actor_id: self.id,
+                    actor_name: self.name().to_string(),
                     result: serde_json::to_string_pretty(&value)
                         .map_err(|e| RunnableAgentError::ExecutorError(e.to_string()))?,
                 })
@@ -166,6 +168,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
                 #[cfg(not(target_arch = "wasm32"))]
                 tx.send(Event::TaskError {
                     sub_id: submission_id,
+                    actor_id: self.id,
                     error: e.to_string(),
                 })
                 .await

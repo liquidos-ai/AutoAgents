@@ -530,6 +530,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
             task.submission_id,
             context.config().id,
             task.prompt.clone(),
+            context.config().name.clone(),
         )
         .await;
 
@@ -570,8 +571,14 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
         }
 
         if !final_response.is_empty() || !accumulated_tool_calls.is_empty() {
-            EventHelper::send_task_completed(&tx_event, task.submission_id, final_response.clone())
-                .await;
+            EventHelper::send_task_completed(
+                &tx_event,
+                task.submission_id,
+                context.config().id,
+                final_response.clone(),
+                context.config().name.clone(),
+            )
+            .await;
             Ok(ReActAgentOutput {
                 response: final_response,
                 done: true,
@@ -618,6 +625,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
             task.submission_id,
             context.config().id,
             task.prompt.clone(),
+            context.config().name.clone(),
         )
         .await;
 

@@ -1,6 +1,5 @@
 use clap::{Parser, ValueEnum};
 use std::sync::Arc;
-mod chaining;
 mod simple;
 use autoagents::{
     core::error::Error,
@@ -19,7 +18,6 @@ mod utils;
 enum UseCase {
     Simple,
     Basic,
-    Chaining,
     Edge,
     Streaming,
     Actor,
@@ -69,7 +67,6 @@ async fn main() -> Result<(), Error> {
     match args.usecase {
         UseCase::Simple => simple::simple_agent(llm).await?,
         UseCase::Basic => basic::basic_agent(llm).await?,
-        UseCase::Chaining => chaining::run(llm).await?,
         UseCase::Edge => liquid_edge::edge_agent(args.device).await?,
         UseCase::Streaming => streaming::run(llm).await?,
         UseCase::Actor => actor::run(llm).await?,

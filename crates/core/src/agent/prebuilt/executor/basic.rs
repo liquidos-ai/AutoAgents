@@ -1,6 +1,6 @@
 use crate::agent::hooks::HookOutcome;
 use crate::agent::task::Task;
-use crate::agent::{AgentDeriveT, AgentExecutor, AgentHooks, Context, ExecutorConfig};
+use crate::agent::{AgentDeriveT, AgentExecutor, AgentHooks, Context, EventHelper, ExecutorConfig};
 use crate::tool::{ToolCallResult, ToolT};
 use async_trait::async_trait;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
@@ -152,6 +152,16 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
         task: &Task,
         context: Arc<Context>,
     ) -> Result<Self::Output, Self::Error> {
+        let tx_event = context.tx().ok();
+        EventHelper::send_task_started(
+            &tx_event,
+            task.submission_id,
+            context.config().id,
+            task.prompt.clone(),
+            context.config().name.clone(),
+        )
+        .await;
+
         let mut messages = vec![ChatMessage {
             role: ChatRole::System,
             message_type: MessageType::Text,
@@ -183,6 +193,16 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>, Self::Error>
     {
         use futures::StreamExt;
+
+        let tx_event = context.tx().ok();
+        EventHelper::send_task_started(
+            &tx_event,
+            task.submission_id,
+            context.config().id,
+            task.prompt.clone(),
+            context.config().name.clone(),
+        )
+        .await;
 
         let mut messages = vec![ChatMessage {
             role: ChatRole::System,

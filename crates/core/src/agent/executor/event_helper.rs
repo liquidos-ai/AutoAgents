@@ -28,6 +28,7 @@ impl EventHelper {
         tx: &Option<mpsc::Sender<Event>>,
         sub_id: SubmissionId,
         actor_id: ActorID,
+        actor_name: String,
         task_description: String,
     ) {
         Self::send(
@@ -35,6 +36,7 @@ impl EventHelper {
             Event::TaskStarted {
                 sub_id,
                 actor_id,
+                actor_name,
                 task_description,
             },
         )
@@ -45,9 +47,20 @@ impl EventHelper {
     pub async fn send_task_completed(
         tx: &Option<mpsc::Sender<Event>>,
         sub_id: SubmissionId,
+        actor_id: ActorID,
+        actor_name: String,
         result: String,
     ) {
-        Self::send(tx, Event::TaskComplete { sub_id, result }).await;
+        Self::send(
+            tx,
+            Event::TaskComplete {
+                sub_id,
+                result,
+                actor_id,
+                actor_name,
+            },
+        )
+        .await;
     }
 
     /// Send turn started event
