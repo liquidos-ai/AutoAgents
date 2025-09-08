@@ -11,6 +11,7 @@ mod actor;
 mod basic;
 mod hooks;
 mod liquid_edge;
+mod manual_tool_agent;
 mod streaming;
 mod utils;
 
@@ -23,6 +24,7 @@ enum UseCase {
     Streaming,
     Actor,
     Hooks,
+    ManualToolAgent,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -35,10 +37,17 @@ enum EdgeDevice {
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(short, long, help = "usecase")]
+    #[arg(short, long, help = "use case")]
     usecase: UseCase,
     #[arg(short, long, help = "device", default_value = "cpu")]
     device: EdgeDevice,
+    #[arg(
+        short,
+        long,
+        help = "The Mode for the manual tool agent example",
+        default_value = "addition"
+    )]
+    mode: String,
 }
 
 #[tokio::main]
@@ -65,6 +74,7 @@ async fn main() -> Result<(), Error> {
         UseCase::Streaming => streaming::run(llm).await?,
         UseCase::Actor => actor::run(llm).await?,
         UseCase::Hooks => hooks::hooks_agent(llm).await?,
+        UseCase::ManualToolAgent => manual_tool_agent::run_agent(llm, &args.mode).await?,
     }
 
     Ok(())

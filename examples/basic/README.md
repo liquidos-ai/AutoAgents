@@ -32,6 +32,15 @@ export OPENAI_API_KEY=your_openai_api_key_here
 cargo run --package basic-example -- --usecase hooks
 ```
 
+### Create Agents and Tools without Macro
+
+This is useful when dynamic tool and agent instantiation is required
+
+```sh
+export OPENAI_API_KEY=your_openai_api_key_here
+cargo run --package basic-example -- --usecase manual-tool-agent
+```
+
 ### Generic Actors
 
 ```sh
