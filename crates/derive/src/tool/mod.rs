@@ -31,9 +31,6 @@ impl ToolParser {
                 fn description(&self) -> &'static str {
                     #tool_description
                 }
-                fn run(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
-                    Ok(self.execute(args)?)
-                }
                 fn args_schema(&self) -> serde_json::Value {
                     // Get the JSON schema string from the input type
                     let params_str = <#args_type as ToolInputT>::io_schema();

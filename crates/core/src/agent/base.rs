@@ -35,6 +35,7 @@ pub trait AgentDeriveT: Send + Sync + 'static + Debug {
     /// Get the agent's description
     fn description(&self) -> &'static str;
 
+    // If you provide None then its taken as String output
     fn output_schema(&self) -> Option<Value>;
 
     /// Get the agent's name

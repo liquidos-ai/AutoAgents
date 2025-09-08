@@ -119,7 +119,7 @@ impl ToolProcessor {
     /// Execute a tool and return the result
     fn execute_tool(tool: &dyn ToolT, tool_name: &str, tool_args: &str) -> ToolCallResult {
         match serde_json::from_str::<Value>(tool_args) {
-            Ok(parsed_args) => match tool.run(parsed_args) {
+            Ok(parsed_args) => match tool.execute(parsed_args) {
                 Ok(output) => ToolCallResult {
                     tool_name: tool_name.to_string(),
                     success: true,

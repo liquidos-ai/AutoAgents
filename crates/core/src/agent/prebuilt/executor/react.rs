@@ -2,7 +2,7 @@ use crate::agent::executor::AgentExecutor;
 use crate::agent::task::Task;
 use crate::agent::{AgentDeriveT, Context, ExecutorConfig, TurnResult};
 use crate::protocol::{Event, StreamingTurnResult, SubmissionId};
-use crate::tool::{ToolCallResult, ToolT};
+use crate::tool::{to_llm_tool, ToolCallResult, ToolT};
 use async_trait::async_trait;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, StreamChoice, Tool};
 use autoagents_llm::error::LLMError;
@@ -214,7 +214,7 @@ impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
     ) -> Result<Box<dyn autoagents_llm::chat::ChatResponse>, ReActExecutorError> {
         let llm = context.llm();
         let agent_config = context.config();
-        let tools_serialized: Vec<Tool> = tools.iter().map(Tool::from).collect();
+        let tools_serialized: Vec<Tool> = tools.iter().map(to_llm_tool).collect();
 
         llm.chat(
             messages,
@@ -379,7 +379,7 @@ impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
     > {
         let llm = context.llm();
         let agent_config = context.config();
-        let tools_serialized: Vec<Tool> = tools.iter().map(Tool::from).collect();
+        let tools_serialized: Vec<Tool> = tools.iter().map(to_llm_tool).collect();
 
         llm.chat_stream_struct(
             messages,

@@ -2,6 +2,7 @@ use autoagents_llm::chat::{FunctionTool, Tool};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Debug;
+use std::sync::Arc;
 mod runtime;
 pub use runtime::ToolRuntime;
 
@@ -32,26 +33,65 @@ pub trait ToolT: Send + Sync + Debug + ToolRuntime {
     fn description(&self) -> &'static str;
     /// Return a description of the expected arguments.
     fn args_schema(&self) -> Value;
-    /// Run the tool with the given arguments (in JSON) and return the result (in JSON).
-    fn run(&self, args: Value) -> Result<Value, ToolCallError> {
-        self.execute(args)
-    }
 }
 
 pub trait ToolInputT {
     fn io_schema() -> &'static str;
 }
 
-impl From<&Box<dyn ToolT>> for Tool {
-    fn from(tool: &Box<dyn ToolT>) -> Self {
-        Tool {
-            tool_type: "function".to_string(),
-            function: FunctionTool {
-                name: tool.name().to_string(),
-                description: tool.description().to_string(),
-                parameters: tool.args_schema(),
-            },
-        }
+/// A wrapper that allows Arc<dyn ToolT> to be used as Box<dyn ToolT>
+/// This is useful for sharing tools across multiple agents without cloning
+#[derive(Debug)]
+pub struct SharedTool {
+    inner: Arc<dyn ToolT>,
+}
+
+impl SharedTool {
+    /// Create a new SharedTool from an Arc<dyn ToolT>
+    pub fn new(tool: Arc<dyn ToolT>) -> Self {
+        Self { inner: tool }
+    }
+}
+
+impl ToolRuntime for SharedTool {
+    fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        self.inner.execute(args)
+    }
+}
+
+impl ToolT for SharedTool {
+    fn name(&self) -> &'static str {
+        self.inner.name()
+    }
+
+    fn description(&self) -> &'static str {
+        self.inner.description()
+    }
+
+    fn args_schema(&self) -> Value {
+        self.inner.args_schema()
+    }
+}
+
+/// Helper function to convert Vec<Arc<dyn ToolT>> to Vec<Box<dyn ToolT>>
+/// This is useful when implementing AgentDeriveT::tools() with shared tools
+pub fn shared_tools_to_boxes(tools: &[Arc<dyn ToolT>]) -> Vec<Box<dyn ToolT>> {
+    tools
+        .iter()
+        .map(|t| Box::new(SharedTool::new(Arc::clone(t))) as Box<dyn ToolT>)
+        .collect()
+}
+
+/// Convert a ToolT trait object to an LLM Tool
+#[allow(clippy::borrowed_box)]
+pub fn to_llm_tool(tool: &Box<dyn ToolT>) -> Tool {
+    Tool {
+        tool_type: "function".to_string(),
+        function: FunctionTool {
+            name: tool.name().to_string(),
+            description: tool.description().to_string(),
+            parameters: tool.args_schema(),
+        },
     }
 }
 
@@ -207,7 +247,7 @@ mod tests {
             "value": 42
         });
 
-        let result = tool.run(input);
+        let result = tool.execute(input);
         assert!(result.is_ok());
 
         let output = result.unwrap();
@@ -223,7 +263,7 @@ mod tests {
             "value": 42
         });
 
-        let result = tool.run(input);
+        let result = tool.execute(input);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -238,7 +278,7 @@ mod tests {
             "invalid_field": "test"
         });
 
-        let result = tool.run(input);
+        let result = tool.execute(input);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ToolCallError::SerdeError(_)));
     }
@@ -252,7 +292,7 @@ mod tests {
             "extra_field": "ignored"
         });
 
-        let result = tool.run(input);
+        let result = tool.execute(input);
         assert!(result.is_ok());
 
         let output = result.unwrap();
@@ -314,7 +354,7 @@ mod tests {
         let mock_tool = MockTool::new("convert_tool", "Conversion test");
         let boxed_tool: Box<dyn ToolT> = Box::new(mock_tool);
 
-        let tool: Tool = (&boxed_tool).into();
+        let tool: Tool = to_llm_tool(&boxed_tool);
         assert_eq!(tool.tool_type, "function");
         assert_eq!(tool.function.name, "convert_tool");
         assert_eq!(tool.function.description, "Conversion test");
@@ -326,7 +366,7 @@ mod tests {
         let mock_tool = MockTool::new("schema_tool", "Schema preservation test");
         let boxed_tool: Box<dyn ToolT> = Box::new(mock_tool);
 
-        let tool: Tool = (&boxed_tool).into();
+        let tool: Tool = to_llm_tool(&boxed_tool);
         let schema = &tool.function.parameters;
 
         assert_eq!(schema["type"], "object");
@@ -363,7 +403,7 @@ mod tests {
         ];
 
         for input in inputs {
-            let result = tool.run(input.clone());
+            let result = tool.execute(input.clone());
             assert!(result.is_ok());
 
             let output = result.unwrap();
