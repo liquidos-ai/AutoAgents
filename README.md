@@ -256,28 +256,17 @@ Explore our comprehensive examples to get started quickly:
 Demonstrates various examples like Simple Agent with Tools, Very Basic Agent, Edge Agent, Chaining, Actor Based Model,
 Streaming and Adding Agent Hooks.
 
-```bash
-export OPENAI_API_KEY="your-api-key"
-cargo run --package basic-example -- --usecase simple
-```
+### [Design Patterns](examples/design_patterns/)
+
+Demonstrates various design patterns like Chaining, Planning, Routing, Parallel and Reflection.
 
 ### [WASM Tool Execution](examples/wasm_runner/)
 
 A simple agent which can run tools in WASM runtime.
 
-```bash
-export OPENAI_API_KEY="your-api-key"
-cargo run --package wasm-runner
-```
-
 ### [Coding Agent](examples/coding_agent/)
 
 A sophisticated ReAct-based coding agent with file manipulation capabilities.
-
-```bash
-export OPENAI_API_KEY="your-api-key"
-cargo run --package coding_agent -- --usecase interactive
-```
 
 ### [Wasm Agent](examples/wasm_agent/)
 
