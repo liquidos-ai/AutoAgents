@@ -260,6 +260,10 @@ Streaming and Adding Agent Hooks.
 
 Demonstrates various design patterns like Chaining, Planning, Routing, Parallel and Reflection.
 
+### [Providers](examples/providers/)
+
+Contains examples demonstrating how to use different LLM providers with AutoAgents.
+
 ### [WASM Tool Execution](examples/wasm_runner/)
 
 A simple agent which can run tools in WASM runtime.

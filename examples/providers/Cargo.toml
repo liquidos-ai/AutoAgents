@@ -1,5 +1,5 @@
 [package]
-name = "design_patterns"
+name = "providers"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,10 +10,11 @@ categories.workspace = true
 publish = false
 
 [dependencies]
-autoagents = { workspace = true, features = ["openai", "logging"] }
+autoagents = { workspace = true, features = ["openai", "anthropic", "ollama", "groq", "openrouter", "logging"] }
 autoagents-derive = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
 anyhow = { version = "1.0.99" }
 clap = { workspace = true }
 tokio-stream = { workspace = true }
+serde = { version = "1.0.219", features = ["derive"] }

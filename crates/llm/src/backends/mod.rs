@@ -27,3 +27,6 @@ pub mod azure_openai;
 
 #[cfg(feature = "liquid_edge")]
 pub mod liquid_edge;
+
+#[cfg(feature = "openrouter")]
+pub mod openrouter;

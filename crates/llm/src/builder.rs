@@ -35,6 +35,8 @@ pub enum LLMBackend {
     Groq,
     /// Azure OpenAI API provider
     AzureOpenAI,
+    /// OpenRouter API provider for various models
+    OpenRouter,
 }
 
 /// Implements string parsing for LLMBackend enum.
@@ -77,6 +79,7 @@ impl std::str::FromStr for LLMBackend {
             "google" => Ok(LLMBackend::Google),
             "groq" => Ok(LLMBackend::Groq),
             "azure-openai" => Ok(LLMBackend::AzureOpenAI),
+            "openrouter" => Ok(LLMBackend::OpenRouter),
             _ => Err(LLMError::InvalidRequest(format!(
                 "Unknown LLM backend: {s}"
             ))),
@@ -140,6 +143,9 @@ pub struct LLMBuilder<L: LLMProvider> {
     /// Voice
     #[allow(dead_code)]
     pub(crate) voice: Option<String>,
+    /// Whether to normalize response format
+    #[allow(dead_code)]
+    pub(crate) normalize_response: Option<bool>,
 }
 
 impl<L: LLMProvider> Default for LLMBuilder<L> {
@@ -171,6 +177,7 @@ impl<L: LLMProvider> Default for LLMBuilder<L> {
             api_version: None,
             deployment_id: None,
             voice: None,
+            normalize_response: None,
         }
     }
 }

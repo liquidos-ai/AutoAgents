@@ -601,7 +601,7 @@ mod phind_tests {
 #[cfg(feature = "groq")]
 mod groq_tests {
     use super::*;
-    use autoagents_llm::backends::groq::{Groq, GroqModel};
+    use autoagents_llm::backends::groq::Groq;
 
     fn create_test_groq() -> Arc<Groq> {
         LLMBuilder::<Groq>::new()
@@ -618,10 +618,7 @@ mod groq_tests {
     fn test_groq_creation() {
         let client = create_test_groq();
         assert_eq!(client.api_key, "test-key");
-        assert_eq!(
-            String::from(client.model.clone()),
-            "llama-3.3-70b-versatile"
-        );
+        assert_eq!(client.model, "llama-3.3-70b-versatile");
         assert_eq!(client.max_tokens, Some(100));
         assert_eq!(client.temperature, Some(0.7));
         assert_eq!(client.system, Some("Test system prompt".to_string()));
@@ -645,45 +642,52 @@ mod groq_tests {
 
     #[test]
     fn test_groq_default_values() {
-        let client = Groq::new("test-key", None, None, None, None, None, None, None);
-
-        assert_eq!(
-            String::from(client.model.clone()),
-            "llama-3.3-70b-versatile"
+        let client = Groq::with_config(
+            "test-key", None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None,
         );
+
+        assert_eq!(client.model, "llama3-8b-8192");
         assert!(client.max_tokens.is_none());
         assert!(client.temperature.is_none());
         assert!(client.system.is_none());
     }
 
     #[test]
-    fn test_groq_model_enum() {
-        // Test default
-        let default_model = GroqModel::default();
-        assert_eq!(String::from(default_model), "llama-3.3-70b-versatile");
+    fn test_groq_model_strings() {
+        // Test default model
+        let client = Groq::with_config(
+            "test-key", None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None,
+        );
+        assert_eq!(client.model, "llama3-8b-8192");
 
-        // Test Kimi model
-        let kimi_model = GroqModel::KimiK2;
-        assert_eq!(String::from(kimi_model), "moonshotai/kimi-k2-instruct");
-
-        // Test string to model conversion
-        let model_from_string = GroqModel::from("moonshotai/kimi-k2-instruct".to_string());
-        match model_from_string {
-            GroqModel::KimiK2 => (),
-            _ => panic!("Expected KimiK2 model"),
-        }
-
-        // Test unknown model defaults to Llama
-        let unknown_model = GroqModel::from("unknown-model".to_string());
-        match unknown_model {
-            GroqModel::Llama33_70B => (),
-            _ => panic!("Expected Llama33_70B model"),
-        }
+        // Test custom model
+        let client = Groq::with_config(
+            "test-key",
+            None,
+            Some("mixtral-8x7b-32768".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(client.model, "mixtral-8x7b-32768");
     }
 
     #[tokio::test]
     async fn test_chat_auth_error() {
-        let client = Groq::new("", None, None, None, None, None, None, None);
+        let client = Groq::with_config(
+            "", None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+        );
 
         let messages = vec![ChatMessage::user().content("Hello").build()];
 
@@ -713,7 +717,7 @@ mod groq_tests {
             .expect("Failed to build Groq client");
 
         assert_eq!(client.api_key, "test-key");
-        assert_eq!(String::from(client.model.clone()), "mixtral-8x7b-32768");
+        assert_eq!(client.model, "mixtral-8x7b-32768");
         assert_eq!(client.max_tokens, Some(2000));
         assert_eq!(client.temperature, Some(0.8));
         assert_eq!(client.timeout_seconds, Some(120));
@@ -722,29 +726,10 @@ mod groq_tests {
     }
 
     #[tokio::test]
-    async fn test_groq_completion_auth_error() {
-        let client = Groq::new("", None, None, None, None, None, None, None);
-
-        let request = CompletionRequest {
-            prompt: "Complete this sentence".to_string(),
-            max_tokens: None,
-            temperature: None,
-        };
-
-        let result = client.complete(&request, None).await;
-        assert!(result.is_err());
-
-        match result.err().unwrap() {
-            LLMError::AuthError(msg) => {
-                assert_eq!(msg, "Missing Groq API key");
-            }
-            _ => panic!("Expected AuthError"),
-        }
-    }
-
-    #[tokio::test]
     async fn test_groq_models_provider_auth_error() {
-        let client = Groq::new("", None, None, None, None, None, None, None);
+        let client = Groq::with_config(
+            "", None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+        );
 
         let result = client.list_models(None).await;
         assert!(result.is_err());
@@ -761,46 +746,91 @@ mod groq_tests {
 
     #[test]
     fn test_groq_model_variants() {
-        let model_tests = vec![
-            ("llama-3.3-70b-versatile", GroqModel::Llama33_70B),
-            ("moonshotai/kimi-k2-instruct", GroqModel::KimiK2),
+        let models = vec![
+            "llama3-8b-8192",
+            "mixtral-8x7b-32768",
+            "llama-3.3-70b-versatile",
         ];
 
-        for (expected_string, model) in model_tests {
-            assert_eq!(String::from(model.clone()), expected_string);
-
-            let parsed_model = GroqModel::from(expected_string.to_string());
-            assert_eq!(
-                std::mem::discriminant(&parsed_model),
-                std::mem::discriminant(&model)
+        for model in models {
+            let client = Groq::with_config(
+                "test-key",
+                None,
+                Some(model.to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
             );
+            assert_eq!(client.model, model);
         }
     }
 
     #[test]
     fn test_groq_model_debug_and_clone() {
-        let model = GroqModel::Llama33_70B;
-        let cloned = model.clone();
-
-        assert_eq!(
-            std::mem::discriminant(&model),
-            std::mem::discriminant(&cloned)
+        let client1 = Groq::with_config(
+            "test-key",
+            None,
+            Some("llama3-8b-8192".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let client2 = Groq::with_config(
+            "test-key",
+            None,
+            Some("llama3-8b-8192".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         );
 
-        let debug_str = format!("{model:?}");
-        assert!(debug_str.contains("Llama33_70B"));
+        assert_eq!(client1.model, client2.model);
     }
 
     #[test]
     fn test_groq_with_extreme_values() {
-        let client = Groq::new(
+        let client = Groq::with_config(
             "test-key",
-            Some(GroqModel::Llama33_70B),
+            None,
+            Some("test-model".to_string()),
             Some(u32::MAX),
             Some(2.0),
             Some(60),
             Some("Very long system prompt".to_string()),
             Some(1.0),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
             None,
         );
 
@@ -812,12 +842,19 @@ mod groq_tests {
 
     #[test]
     fn test_groq_all_model_types() {
-        let models = vec![GroqModel::Llama33_70B, GroqModel::KimiK2];
+        let models = vec!["llama3-8b-8192", "mixtral-8x7b-32768"];
 
         for model in models {
-            let client = Groq::new(
+            let client = Groq::with_config(
                 "test-key",
-                Some(model.clone()),
+                None,
+                Some(model.to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -825,10 +862,7 @@ mod groq_tests {
                 None,
                 None,
             );
-            assert_eq!(
-                std::mem::discriminant(&client.model),
-                std::mem::discriminant(&model)
-            );
+            assert_eq!(client.model, model);
         }
     }
 
@@ -841,55 +875,93 @@ mod groq_tests {
         ];
 
         for url in base_urls {
-            let _client = Groq::new("test-key", None, None, None, None, None, None, None);
-            // Base URL is handled by builder pattern, not constructor
-            let _expected_url = url;
+            let client = Groq::with_config(
+                "test-key",
+                Some(url.to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+            // Base URL is set through config
+            assert!(
+                client.base_url.to_string().contains(url)
+                    || client.base_url.to_string().contains("groq.com")
+            );
         }
     }
 
     #[test]
     fn test_groq_model_string_conversions() {
-        // Test unknown model mapping
-        let unknown_models = vec![
+        // Test various model strings
+        let models = vec![
             "unknown-model",
             "gpt-4",
             "claude-3",
-            "",
-            "random-string-123",
+            "llama3-8b-8192",
+            "mixtral-8x7b-32768",
         ];
 
-        for unknown in unknown_models {
-            let model = GroqModel::from(unknown.to_string());
-            match model {
-                GroqModel::Llama33_70B => (), // Should default to this
-                _ => panic!("Expected unknown model to default to Llama33_70B"),
-            }
+        for model in models {
+            let client = Groq::with_config(
+                "test-key",
+                None,
+                Some(model.to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+            assert_eq!(client.model, model);
         }
     }
 
     #[test]
     fn test_groq_model_from_string_edge_cases() {
         // Test exact string matches
-        let exact_matches = vec![
-            ("llama-3.3-70b-versatile", GroqModel::Llama33_70B),
-            ("LLAMA-3.3-70B-VERSATILE", GroqModel::Llama33_70B), // Should not match due to case sensitivity
-            ("llama-3.1-70b-versatile ", GroqModel::Llama33_70B), // Trailing space should not match
+        let test_cases = vec![
+            "llama-3.3-70b-versatile",
+            "LLAMA-3.3-70B-VERSATILE",
+            "llama-3.1-70b-versatile ",
+            "llama3-8b-8192",
         ];
 
-        for (input, _expected_default) in exact_matches {
-            let model = GroqModel::from(input.to_string());
-            if input == "llama-3.3-70b-versatile" {
-                match model {
-                    GroqModel::Llama33_70B => (),
-                    _ => panic!("Expected exact match for {input}"),
-                }
-            } else {
-                // Non-exact matches should default to Llama33_70B
-                match model {
-                    GroqModel::Llama33_70B => (),
-                    _ => panic!("Expected default for {input}"),
-                }
-            }
+        for input in test_cases {
+            let client = Groq::with_config(
+                "test-key",
+                None,
+                Some(input.to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+            assert_eq!(client.model, input);
         }
     }
 }

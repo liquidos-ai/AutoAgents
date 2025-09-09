@@ -1,6 +1,6 @@
-//! Groq API client implementation for chat functionality.
+//! OpenRouter API client implementation for chat functionality.
 //!
-//! This module provides integration with Groq's LLM models through their API.
+//! This module provides integration with OpenRouter's LLM models through their API.
 
 use crate::builder::LLMBuilder;
 use crate::{
@@ -16,36 +16,22 @@ use crate::{
 use async_trait::async_trait;
 use std::sync::Arc;
 
-/// Groq configuration for the generic provider
-pub struct GroqConfig;
+/// OpenRouter configuration for the generic provider
+pub struct OpenRouterConfig;
 
-impl OpenAIProviderConfig for GroqConfig {
-    const PROVIDER_NAME: &'static str = "Groq";
-    const DEFAULT_BASE_URL: &'static str = "https://api.groq.com/openai/v1/";
-    const DEFAULT_MODEL: &'static str = "llama3-8b-8192";
+impl OpenAIProviderConfig for OpenRouterConfig {
+    const PROVIDER_NAME: &'static str = "OpenRouter";
+    const DEFAULT_BASE_URL: &'static str = "https://openrouter.ai/api/v1/";
+    const DEFAULT_MODEL: &'static str = "moonshotai/kimi-k2:free";
     const SUPPORTS_REASONING_EFFORT: bool = false;
     const SUPPORTS_STRUCTURED_OUTPUT: bool = true;
     const SUPPORTS_PARALLEL_TOOL_CALLS: bool = false;
 }
 
-pub type Groq = OpenAICompatibleProvider<GroqConfig>;
+pub type OpenRouter = OpenAICompatibleProvider<OpenRouterConfig>;
 
-// TODO: for groq usage goes in .x_groq.usage...
-// /// Streaming response structures
-// #[derive(Deserialize, Debug)]
-// pub struct GroqChatStreamChunk {
-//     pub choices: Vec<ChatStreamChoice>,
-//     pub x_groq: Option<GroqMetadata>,
-// }
-
-// /// Streaming response structures
-// #[derive(Deserialize, Debug)]
-// pub struct GroqMetadata {
-//     pub usage: Option<Usage>,
-// }
-
-impl Groq {
-    /// Creates a new Groq client with the specified configuration.
+impl OpenRouter {
+    /// Creates a new OpenRouter client with the specified configuration.
     #[allow(clippy::too_many_arguments)]
     pub fn with_config(
         api_key: impl Into<String>,
@@ -64,7 +50,7 @@ impl Groq {
         parallel_tool_calls: Option<bool>,
         normalize_response: Option<bool>,
     ) -> Self {
-        OpenAICompatibleProvider::<GroqConfig>::new(
+        OpenAICompatibleProvider::<OpenRouterConfig>::new(
             api_key,
             base_url,
             model,
@@ -76,32 +62,32 @@ impl Groq {
             top_k,
             tool_choice,
             reasoning_effort,
-            None, // voice - not supported by Groq
+            None, // voice - not supported by OpenRouter
             parallel_tool_calls,
             normalize_response,
-            None, // embedding_encoding_format - not supported by Groq
-            None, // embedding_dimensions - not supported by Groq
+            None, // embedding_encoding_format - not supported by OpenRouter
+            None, // embedding_dimensions - not supported by OpenRouter
         )
     }
 }
 
-impl LLMProvider for Groq {}
+impl LLMProvider for OpenRouter {}
 
 #[async_trait]
-impl CompletionProvider for Groq {
+impl CompletionProvider for OpenRouter {
     async fn complete(
         &self,
         _req: &CompletionRequest,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<CompletionResponse, LLMError> {
         Ok(CompletionResponse {
-            text: "Groq completion not implemented.".into(),
+            text: "OpenRouter completion not implemented.".into(),
         })
     }
 }
 
 #[async_trait]
-impl EmbeddingProvider for Groq {
+impl EmbeddingProvider for OpenRouter {
     async fn embed(&self, _text: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
         Err(LLMError::ProviderError(
             "Embedding not supported".to_string(),
@@ -110,16 +96,18 @@ impl EmbeddingProvider for Groq {
 }
 
 #[async_trait]
-impl ModelsProvider for Groq {
+impl ModelsProvider for OpenRouter {
     async fn list_models(
         &self,
         _request: Option<&ModelListRequest>,
     ) -> Result<Box<dyn ModelListResponse>, LLMError> {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing Groq API key".to_string()));
+            return Err(LLMError::AuthError(
+                "Missing OpenRouter API key".to_string(),
+            ));
         }
 
-        let url = format!("{}/models", GroqConfig::DEFAULT_BASE_URL);
+        let url = format!("{}/models", OpenRouterConfig::DEFAULT_BASE_URL);
 
         let resp = self
             .client
@@ -131,19 +119,19 @@ impl ModelsProvider for Groq {
 
         let result = StandardModelListResponse {
             inner: resp.json().await?,
-            backend: LLMBackend::Groq,
+            backend: LLMBackend::OpenRouter,
         };
         Ok(Box::new(result))
     }
 }
 
-impl LLMBuilder<Groq> {
-    pub fn build(self) -> Result<Arc<Groq>, LLMError> {
-        let api_key = self
-            .api_key
-            .ok_or_else(|| LLMError::InvalidRequest("No API key provided for Groq".to_string()))?;
+impl LLMBuilder<OpenRouter> {
+    pub fn build(self) -> Result<Arc<OpenRouter>, LLMError> {
+        let api_key = self.api_key.ok_or_else(|| {
+            LLMError::InvalidRequest("No API key provided for OpenRouter".to_string())
+        })?;
 
-        let groq = Groq::with_config(
+        let openrouter = OpenRouter::with_config(
             api_key,
             self.base_url,
             self.model,
@@ -161,6 +149,6 @@ impl LLMBuilder<Groq> {
             self.normalize_response,
         );
 
-        Ok(Arc::new(groq))
+        Ok(Arc::new(openrouter))
     }
 }

@@ -20,6 +20,7 @@ full = [
     "google",
     "groq",
     "azure_openai",
+    "openrouter",
     "liquid_edge",
 ]
 openai = []
@@ -31,6 +32,7 @@ phind = []
 google = []
 groq = []
 azure_openai = []
+openrouter = []
 liquid_edge = ["dep:liquid-edge", "dep:tokenizers", "dep:rand", "dep:minijinja"]
 
 [dependencies]
