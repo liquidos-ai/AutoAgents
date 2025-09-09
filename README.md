@@ -63,6 +63,7 @@ AutoAgents supports a wide range of LLM providers, allowing you to choose the be
 |-----------------------|--------|
 | **LiquidEdge (ONNX)** | ✅      |
 | **OpenAI**            | ✅      |
+| **OpenRouter**        | ✅      |
 | **Anthropic**         | ✅      |
 | **Ollama**            | ✅      |
 | **DeepSeek**          | ✅      |
