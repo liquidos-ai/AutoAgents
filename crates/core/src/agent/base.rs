@@ -51,7 +51,7 @@ pub trait AgentType: 'static + Send + Sync {
 
 /// Base agent type that wraps an AgentDeriveT implementation with additional runtime components
 #[derive(Clone)]
-pub struct BaseAgent<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> {
+pub struct BaseAgent<T: AgentDeriveT + AgentExecutor + AgentHooks + Send + Sync, A: AgentType> {
     /// The inner agent implementation (from macro)
     pub(crate) inner: Arc<T>,
     /// LLM provider for this agent

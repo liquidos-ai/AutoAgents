@@ -34,7 +34,7 @@ impl AgentType for ActorAgent {
 /// Handle for an agent that includes both the agent and its actor reference
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone)]
-pub struct ActorAgentHandle<T: AgentDeriveT + AgentExecutor + AgentHooks> {
+pub struct ActorAgentHandle<T: AgentDeriveT + AgentExecutor + AgentHooks + Send + Sync> {
     pub agent: Arc<BaseAgent<T, ActorAgent>>,
     pub actor_ref: ActorRef<Task>,
 }

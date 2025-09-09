@@ -21,7 +21,7 @@ impl AgentType for DirectAgent {
 }
 
 /// Handle for an agent that includes both the agent and its actor reference
-pub struct DirectAgentHandle<T: AgentDeriveT + AgentExecutor + AgentHooks> {
+pub struct DirectAgentHandle<T: AgentDeriveT + AgentExecutor + AgentHooks + Send + Sync> {
     pub agent: BaseAgent<T, DirectAgent>,
     pub rx: BoxEventStream<Event>,
 }
