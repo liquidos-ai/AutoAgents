@@ -3100,6 +3100,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "providers"
+version = "0.2.3"
+dependencies = [
+ "anyhow",
+ "autoagents",
+ "autoagents-derive",
+ "clap",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "pulley-interpreter"
 version = "36.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

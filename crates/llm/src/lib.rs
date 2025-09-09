@@ -43,6 +43,8 @@ pub mod secret_store;
 /// Listing models support
 pub mod models;
 
+pub mod providers;
+
 /// Core trait that all LLM providers must implement, combining chat, completion
 /// and embedding capabilities into a unified interface
 pub trait LLMProvider:
@@ -76,6 +78,11 @@ pub struct FunctionCall {
     pub name: String,
     /// The arguments to pass to the function, typically serialized as a JSON string.
     pub arguments: String,
+}
+
+/// Default value for call_type field in ToolCall
+pub fn default_call_type() -> String {
+    "function".to_string()
 }
 
 #[cfg(test)]

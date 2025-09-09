@@ -63,6 +63,7 @@ AutoAgents supports a wide range of LLM providers, allowing you to choose the be
 |-----------------------|--------|
 | **LiquidEdge (ONNX)** | ✅      |
 | **OpenAI**            | ✅      |
+| **OpenRouter**        | ✅      |
 | **Anthropic**         | ✅      |
 | **Ollama**            | ✅      |
 | **DeepSeek**          | ✅      |
@@ -259,6 +260,10 @@ Streaming and Adding Agent Hooks.
 ### [Design Patterns](examples/design_patterns/)
 
 Demonstrates various design patterns like Chaining, Planning, Routing, Parallel and Reflection.
+
+### [Providers](examples/providers/)
+
+Contains examples demonstrating how to use different LLM providers with AutoAgents.
 
 ### [WASM Tool Execution](examples/wasm_runner/)
 
