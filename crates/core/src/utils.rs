@@ -16,7 +16,7 @@ pub use futures::channel::mpsc::{channel, Receiver, Sender};
 // Unified boxed stream type
 // -----------------------------
 #[cfg(not(target_arch = "wasm32"))]
-pub type BoxEventStream<T> = Pin<Box<dyn Stream<Item = T> + Send>>;
+pub type BoxEventStream<T> = Pin<Box<dyn Stream<Item = T> + Send + Sync>>;
 
 #[cfg(target_arch = "wasm32")]
 pub type BoxEventStream<T> = Pin<Box<dyn Stream<Item = T> + Send>>;

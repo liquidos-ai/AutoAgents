@@ -53,7 +53,7 @@ pub async fn run() -> Result<(), Error> {
     // Initialize and configure the LLM client
     let llm: Arc<Groq> = LLMBuilder::<Groq>::new()
         .api_key(api_key) // Set the API key
-        .model("openai/gpt-oss-20b") // Use Llama openai/gpt-oss-20b with structured output support
+        .model("openai/gpt-oss-20b") // Use openai/gpt-oss-20b with structured output support
         .max_tokens(512) // Limit response length
         .temperature(0.2) // Control response randomness (0.0-1.0)
         .build()
