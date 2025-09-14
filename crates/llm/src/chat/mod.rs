@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use crate::{error::LLMError, ToolCall};
 use async_trait::async_trait;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use crate::{error::LLMError, ToolCall};
+use strum_macros::Display;
 
 /// Role of a participant in a chat conversation.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Display)]
 pub enum ChatRole {
     /// System
     System,

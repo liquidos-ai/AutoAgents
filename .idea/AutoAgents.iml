@@ -18,6 +18,8 @@
       <sourceFolder url="file://$MODULE_DIR$/examples/image_chat/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/design_patterns/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/providers/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/burn/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/burn/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/examples/wasm_tool/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/examples/voice_agent/target" />
