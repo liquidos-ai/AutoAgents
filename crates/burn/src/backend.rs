@@ -1,7 +1,7 @@
 pub type ElemType = f32;
 pub const DTYPE_NAME: &str = "f32";
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "webgpu"))]
 pub mod burn_backend_types {
     use super::*;
     use burn::backend::wgpu::{WebGpu, WgpuDevice};

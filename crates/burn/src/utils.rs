@@ -1,6 +1,14 @@
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use std::pin::Pin;
-use tokio::sync::mpsc::Receiver;
+
+// -----------------------------
+// Channel aliases
+// -----------------------------
+#[cfg(not(target_arch = "wasm32"))]
+pub use tokio::sync::mpsc::{channel, Receiver, Sender};
+
+#[cfg(target_arch = "wasm32")]
+pub use futures::channel::mpsc::{channel, Receiver, Sender};
 
 // -----------------------------
 // Unified boxed stream type
@@ -42,3 +50,20 @@ where
 {
     wasm_bindgen_futures::spawn_local(fut)
 }
+
+// Platform-specific imports
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+
+use autoagents_llm::chat::StreamResponse;
+use autoagents_llm::error::LLMError;
+#[cfg(target_arch = "wasm32")]
+use futures::channel::mpsc::{unbounded as unbounded_channel, UnboundedReceiver, UnboundedSender};
+
+pub type Tx = Sender<Result<StreamResponse, LLMError>>;
+pub type Rx = Receiver<Result<StreamResponse, LLMError>>;
+
+#[cfg(target_arch = "wasm32")]
+pub type CustomMutex<T> = futures::lock::Mutex<T>;
+#[cfg(not(target_arch = "wasm32"))]
+pub type CustomMutex<T> = tokio::sync::Mutex<T>;

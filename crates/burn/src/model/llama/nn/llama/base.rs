@@ -231,7 +231,7 @@ impl LlamaConfig {
     }
 
     /// Load pre-trained TinyLlama-1.1B Chat v1.0 model with [SentenciePiece](https://github.com/google/sentencepiece) tokenizer.
-    #[cfg(feature = "tiny")]
+    #[cfg(all(feature = "tiny", not(target_arch = "wasm32")))]
     pub fn load_tiny_llama<B: Backend>(
         checkpoint: &str,
         tokenizer_path: &str,
@@ -252,12 +252,50 @@ impl LlamaConfig {
         Ok(llama)
     }
 
+    /// Load pre-trained TinyLlama model from bytes for WASM targets.
+    #[cfg(all(feature = "tiny", target_arch = "wasm32"))]
+    pub fn load_tiny_llama_from_bytes<B: Backend>(
+        checkpoint_bytes: &[u8],
+        tokenizer_bytes: &[u8],
+        max_seq_len: usize,
+        device: &Device<B>,
+    ) -> Result<Llama<B, SentencePieceTokenizer>, String> {
+        use crate::model::llama::nn::transformer::TransformerRecord;
+        use burn::record::{NamedMpkBytesRecorder, Recorder};
+
+        let tokenizer = SentencePieceTokenizer::from_bytes(tokenizer_bytes)
+            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+
+        let llama = Self::tiny_llama("")
+            .with_max_seq_len(max_seq_len)
+            .init_with_tokenizer::<B, SentencePieceTokenizer>(tokenizer, device)?;
+
+        let recorder = NamedMpkBytesRecorder::<HalfPrecisionSettings>::new();
+        let record: TransformerRecord<B> = recorder
+            .load(checkpoint_bytes.to_vec(), device)
+            .map_err(|err| format!("Failed to load pre-trained Llama model.\nError: {err}"))?;
+
+        let mut llama = llama;
+        llama.model = llama.model.load_record(record);
+
+        Ok(llama)
+    }
+
     /// Initialize a new [Llama](Llama) module.
     pub fn init<B: Backend, T: Tokenizer>(
         &self,
         device: &Device<B>,
     ) -> Result<Llama<B, T>, String> {
         let tokenizer = T::new(&self.tokenizer)?;
+        self.init_with_tokenizer(tokenizer, device)
+    }
+
+    /// Initialize a new [Llama](Llama) module with a pre-created tokenizer.
+    pub fn init_with_tokenizer<B: Backend, T: Tokenizer>(
+        &self,
+        tokenizer: T,
+        device: &Device<B>,
+    ) -> Result<Llama<B, T>, String> {
         let num_key_value_heads = self.num_key_value_heads.unwrap_or(self.num_attention_heads);
         let config = TransformerConfig::new(
             self.vocab_size,

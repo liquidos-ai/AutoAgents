@@ -1,309 +1,24 @@
+use crate::backend::burn_backend_types::InferenceBackend;
+use crate::model::llama::chat::{GenerationConfig, LlamaChat};
+use crate::model::llama::tokenizer::Tokenizer;
+use crate::model::llama::{Llama, LlamaConfig};
+use crate::utils::CustomMutex;
+use autoagents_llm::error::LLMError;
+use burn::prelude::Backend;
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use std::pin::Pin;
-// use crate::backend::burn_backend_types::InferenceBackend;
-use crate::backend::burn_backend_types::InferenceBackend;
-use crate::model::llama::{
-    generation::{GenerationError, Sampler, TopP},
-    tokenizer::SentencePieceTokenizer,
-    Llama, LlamaConfig, TinyLlamaVersion,
-};
-use crate::utils::spawn_future;
-use autoagents_llm::chat::{
-    ChatMessage, ChatProvider, ChatResponse, StreamResponse, StructuredOutputFormat, Tool,
-};
-use autoagents_llm::completion::{CompletionProvider, CompletionRequest, CompletionResponse};
-use autoagents_llm::embedding::EmbeddingProvider;
-use autoagents_llm::error::LLMError;
-use autoagents_llm::models::ModelsProvider;
-use autoagents_llm::{async_trait, LLMProvider};
-use burn::backend::NdArray;
-use burn::prelude::Backend;
-use futures::Stream;
-use rand::Rng;
-use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
-
-/// TinyLlama model wrapper for LLM provider
-pub struct TinyLlama<B: Backend> {
-    llama: Arc<tokio::sync::Mutex<Llama<InferenceBackend, SentencePieceTokenizer>>>,
-    config: GenerationConfig,
-    marker: PhantomData<B>,
-}
-
-#[derive(Clone, Debug)]
-pub struct GenerationConfig {
-    pub max_tokens: usize,
-    pub temperature: f64,
-    pub top_p: f64,
-    pub seed: u64,
-}
-
-impl Default for GenerationConfig {
-    fn default() -> Self {
-        Self {
-            max_tokens: 256,
-            temperature: 0.7,
-            top_p: 0.9,
-            seed: 42,
-        }
-    }
-}
-
-#[async_trait]
-impl<B: Backend> CompletionProvider for TinyLlama<B> {
-    async fn complete(
-        &self,
-        req: &CompletionRequest,
-        _json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<CompletionResponse, LLMError> {
-        let mut llama = self.llama.lock().await;
-        llama.reset();
-
-        let temperature = req
-            .temperature
-            .map(|t| t as f64)
-            .unwrap_or(self.config.temperature);
-        let max_tokens = req
-            .max_tokens
-            .map(|t| t as usize)
-            .unwrap_or(self.config.max_tokens);
-
-        let mut sampler = if temperature > 0.0 {
-            crate::model::llama::generation::Sampler::TopP(
-                crate::model::llama::generation::TopP::new(self.config.top_p, self.config.seed),
-            )
-        } else {
-            crate::model::llama::generation::Sampler::Argmax
-        };
-
-        let result = llama
-            .generate(&req.prompt, max_tokens, temperature, &mut sampler)
-            .map_err(|e| LLMError::Generic(format!("Generation error: {:?}", e)))?;
-
-        Ok(CompletionResponse {
-            text: result.result,
-        })
-    }
-}
-
-#[async_trait]
-impl<B: Backend> ChatProvider for TinyLlama<B> {
-    async fn chat(
-        &self,
-        messages: &[ChatMessage],
-        _tools: Option<&[Tool]>,
-        _json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        // Format messages into TinyLlama chat format
-        let mut prompt = String::new();
-        for message in messages {
-            prompt.push_str(&format!("<|{}|>\n{}</s>\n", message.role, message.content));
-        }
-        prompt.push_str("<|assistant|>\n");
-
-        let mut llama = self.llama.lock().await;
-        llama.reset();
-
-        let mut sampler = if self.config.temperature > 0.0 {
-            crate::model::llama::generation::Sampler::TopP(
-                crate::model::llama::generation::TopP::new(self.config.top_p, self.config.seed),
-            )
-        } else {
-            crate::model::llama::generation::Sampler::Argmax
-        };
-
-        let result = llama
-            .generate(
-                &prompt,
-                self.config.max_tokens,
-                self.config.temperature,
-                &mut sampler,
-            )
-            .map_err(|e| LLMError::Generic(format!("Generation error: {:?}", e)))?;
-
-        Ok(Box::new(SimpleChatResponse {
-            content: result.result,
-            tokens_used: result.tokens,
-        }))
-    }
-
-    async fn chat_stream(
-        &self,
-        messages: &[ChatMessage],
-        tools: Option<&[Tool]>,
-        json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError> {
-        use futures::stream::StreamExt;
-
-        // Reuse chat_stream_struct and extract content from StreamResponse
-        let struct_stream = self
-            .chat_stream_struct(messages, tools, json_schema)
-            .await?;
-
-        let content_stream = struct_stream.filter_map(|result| async move {
-            match result {
-                Ok(stream_response) => {
-                    // Extract content from the first choice's delta
-                    if let Some(choice) = stream_response.choices.first() {
-                        if let Some(content) = &choice.delta.content {
-                            return Some(Ok(content.clone()));
-                        }
-                    }
-                    // Skip chunks without content (like final usage chunks)
-                    None
-                }
-                Err(e) => Some(Err(e)),
-            }
-        });
-
-        Ok(Box::pin(content_stream))
-    }
-
-    async fn chat_stream_struct(
-        &self,
-        messages: &[ChatMessage],
-        _tools: Option<&[Tool]>,
-        _json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>, LLMError>
-    {
-        use autoagents_llm::chat::{StreamChoice, StreamDelta};
-        use futures::stream::{self, StreamExt};
-        use tokio::sync::mpsc;
-
-        // Format messages into TinyLlama chat format
-        let mut prompt = String::new();
-        for message in messages {
-            prompt.push_str(&format!("<|{}>\n{}</s>\n", message.role, message.content));
-        }
-        prompt.push_str("<|assistant|>\n");
-
-        let llama = self.llama.clone();
-        let config = self.config.clone();
-
-        let (tx, mut rx) = mpsc::unbounded_channel::<Result<StreamResponse, LLMError>>();
-
-        // Spawn generation task
-        spawn_future(async move {
-            let mut llama_lock = llama.lock().await;
-            llama_lock.reset();
-
-            let mut sampler = if config.temperature > 0.0 {
-                crate::model::llama::generation::Sampler::TopP(
-                    crate::model::llama::generation::TopP::new(config.top_p, config.seed),
-                )
-            } else {
-                crate::model::llama::generation::Sampler::Argmax
-            };
-
-            let mut total_tokens = 0;
-            let result = llama_lock.generate_stream(
-                &prompt,
-                config.max_tokens,
-                config.temperature,
-                &mut sampler,
-                |_token_id, decoded_text| {
-                    // Send each piece of decoded text through the channel as StreamResponse
-                    if !decoded_text.is_empty() {
-                        total_tokens += 1;
-                        let stream_response = StreamResponse {
-                            choices: vec![StreamChoice {
-                                delta: StreamDelta {
-                                    content: Some(decoded_text),
-                                    tool_calls: None,
-                                },
-                            }],
-                            usage: None,
-                        };
-                        let _ = tx.send(Ok(stream_response));
-                    }
-                    true // Continue generation
-                },
-            );
-
-            match result {
-                Ok(_) => {
-                    // Send final response with usage information
-                    let final_response = StreamResponse {
-                        choices: vec![],
-                        usage: Some(autoagents_llm::chat::Usage {
-                            prompt_tokens: 0,
-                            completion_tokens: total_tokens as u32,
-                            total_tokens: total_tokens as u32,
-                            completion_tokens_details: None,
-                            prompt_tokens_details: None,
-                        }),
-                    };
-                    let _ = tx.send(Ok(final_response));
-                }
-                Err(e) => {
-                    let _ = tx.send(Err(LLMError::Generic(format!("Generation error: {:?}", e))));
-                }
-            }
-        });
-
-        // Convert the receiver into a stream
-        let stream = stream::unfold(rx, |mut rx| async move {
-            match rx.recv().await {
-                Some(item) => Some((item, rx)),
-                None => None,
-            }
-        });
-
-        Ok(Box::pin(stream))
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SimpleChatResponse {
-    content: String,
-    tokens_used: usize,
-}
-
-impl ChatResponse for SimpleChatResponse {
-    fn text(&self) -> Option<String> {
-        Some(self.content.clone())
-    }
-
-    fn tool_calls(&self) -> Option<Vec<autoagents_llm::ToolCall>> {
-        None
-    }
-
-    fn usage(&self) -> Option<autoagents_llm::chat::Usage> {
-        Some(autoagents_llm::chat::Usage {
-            prompt_tokens: 0,
-            completion_tokens: self.tokens_used as u32,
-            total_tokens: self.tokens_used as u32,
-            completion_tokens_details: None,
-            prompt_tokens_details: None,
-        })
-    }
-}
-
-impl std::fmt::Display for SimpleChatResponse {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.content)
-    }
-}
-
-#[async_trait]
-impl<B: Backend> EmbeddingProvider for TinyLlama<B> {
-    async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-        Err(LLMError::Generic(
-            "Embeddings not implemented for TinyLlama".to_string(),
-        ))
-    }
-}
-
-impl<B: Backend> ModelsProvider for TinyLlama<B> {}
-
-impl<B: Backend> LLMProvider for TinyLlama<B> {}
+use std::sync::Arc;
 
 pub struct ModelConfig {
     pub model_path: PathBuf,
     pub tokenizer_path: PathBuf,
     pub max_seq_len: usize,
     pub generation_config: GenerationConfig,
+    pub import: bool,
+    #[cfg(target_arch = "wasm32")]
+    pub model_bytes: Option<Vec<u8>>,
+    #[cfg(target_arch = "wasm32")]
+    pub tokenizer_bytes: Option<Vec<u8>>,
 }
 
 impl Default for ModelConfig {
@@ -313,28 +28,33 @@ impl Default for ModelConfig {
             tokenizer_path: PathBuf::from("models/tokenizer.model"),
             max_seq_len: 512,
             generation_config: GenerationConfig::default(),
+            import: false,
+            #[cfg(target_arch = "wasm32")]
+            model_bytes: None,
+            #[cfg(target_arch = "wasm32")]
+            tokenizer_bytes: None,
         }
     }
 }
 
-pub struct TinyLlamaBuilder<T> {
+pub struct TinyLlamaBuilder {
     config: ModelConfig,
-    _phantom: PhantomData<T>,
 }
 
-impl TinyLlamaBuilder<TinyLlama<InferenceBackend>> {
+impl TinyLlamaBuilder {
     pub fn new() -> Self {
         Self {
             config: ModelConfig::default(),
-            _phantom: std::marker::PhantomData,
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn model_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.config.model_path = path.into();
         self
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn tokenizer_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.config.tokenizer_path = path.into();
         self
@@ -355,7 +75,26 @@ impl TinyLlamaBuilder<TinyLlama<InferenceBackend>> {
         self
     }
 
-    pub fn build(self) -> Result<Arc<TinyLlama<InferenceBackend>>, LLMError> {
+    pub fn with_model_bytes(mut self, bytes: Vec<u8>) -> Self {
+        #[cfg(all(feature = "import", target_arch = "wasm32"))]
+        {
+            self.config.model_bytes = Some(bytes);
+            self.config.import = true;
+            self
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            panic!("Model weights is supported only in wasm32");
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn with_tokenizer_bytes(mut self, bytes: Vec<u8>) -> Self {
+        self.config.tokenizer_bytes = Some(bytes);
+        self
+    }
+
+    pub fn build(self) -> Result<Arc<LlamaChat<InferenceBackend>>, LLMError> {
         use crate::backend::burn_backend_types::INFERENCE_DEVICE;
 
         let device = INFERENCE_DEVICE;
@@ -373,16 +112,102 @@ impl TinyLlamaBuilder<TinyLlama<InferenceBackend>> {
             .to_str()
             .ok_or_else(|| LLMError::Generic("Invalid tokenizer path".to_string()))?;
 
-        let llama = LlamaConfig::load_tiny_llama::<InferenceBackend>(
-            model_path,
-            tokenizer_path,
-            self.config.max_seq_len,
-            &device,
-        )
-        .map_err(|e| LLMError::Generic(format!("Failed to load model: {}", e)))?;
+        let llama: Llama<InferenceBackend, _> = {
+            #[cfg(all(feature = "import", target_arch = "wasm32"))]
+            {
+                if self.config.import {
+                    use crate::model::llama::tokenizer::SentencePieceTokenizer;
 
-        Ok(Arc::new(TinyLlama {
-            llama: Arc::new(tokio::sync::Mutex::new(llama)),
+                    let model_bytes = self.config.model_bytes.ok_or_else(|| {
+                        LLMError::Generic("Model bytes required for WASM import".to_string())
+                    })?;
+                    let tokenizer_bytes = self.config.tokenizer_bytes.ok_or_else(|| {
+                        LLMError::Generic("Tokenizer bytes required for WASM".to_string())
+                    })?;
+
+                    let tokenizer =
+                        SentencePieceTokenizer::from_bytes(&tokenizer_bytes).map_err(|e| {
+                            LLMError::Generic(format!("Failed to load tokenizer: {}", e))
+                        })?;
+
+                    let config =
+                        LlamaConfig::tiny_llama("").with_max_seq_len(self.config.max_seq_len);
+
+                    config
+                        .load_pretrained_with_tokenizer(&model_bytes, tokenizer, &device)
+                        .map_err(|e| LLMError::Generic(format!("Failed to load model: {}", e)))?
+                } else {
+                    let model_bytes = self.config.model_bytes.ok_or_else(|| {
+                        LLMError::Generic("Model bytes required for WASM".to_string())
+                    })?;
+                    let tokenizer_bytes = self.config.tokenizer_bytes.ok_or_else(|| {
+                        LLMError::Generic("Tokenizer bytes required for WASM".to_string())
+                    })?;
+
+                    LlamaConfig::load_tiny_llama_from_bytes::<InferenceBackend>(
+                        &model_bytes,
+                        &tokenizer_bytes,
+                        self.config.max_seq_len,
+                        &device,
+                    )
+                    .map_err(|e| LLMError::Generic(format!("Failed to load model: {}", e)))?
+                }
+            }
+
+            #[cfg(all(feature = "import", not(target_arch = "wasm32")))]
+            {
+                if self.config.import {
+                    let config = LlamaConfig::tiny_llama(tokenizer_path)
+                        .with_max_seq_len(self.config.max_seq_len);
+                    config
+                        .load_pretrained::<InferenceBackend, _>(model_path, &device)
+                        .map_err(|e| LLMError::Generic(format!("Failed to load model: {}", e)))?
+                } else {
+                    LlamaConfig::load_tiny_llama::<InferenceBackend>(
+                        model_path,
+                        tokenizer_path,
+                        self.config.max_seq_len,
+                        &device,
+                    )
+                    .map_err(|e| LLMError::Generic(format!("Failed to load model: {}", e)))?
+                }
+            }
+
+            #[cfg(not(feature = "import"))]
+            {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    LlamaConfig::load_tiny_llama::<InferenceBackend>(
+                        model_path,
+                        tokenizer_path,
+                        self.config.max_seq_len,
+                        &device,
+                    )
+                    .map_err(|e| LLMError::Generic(format!("Failed to load model: {}", e)))?
+                }
+
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let model_bytes = self.config.model_bytes.ok_or_else(|| {
+                        LLMError::Generic("Model bytes required for WASM".to_string())
+                    })?;
+                    let tokenizer_bytes = self.config.tokenizer_bytes.ok_or_else(|| {
+                        LLMError::Generic("Tokenizer bytes required for WASM".to_string())
+                    })?;
+
+                    LlamaConfig::load_tiny_llama_from_bytes::<InferenceBackend>(
+                        &model_bytes,
+                        &tokenizer_bytes,
+                        self.config.max_seq_len,
+                        &device,
+                    )
+                    .map_err(|e| LLMError::Generic(format!("Failed to load model: {}", e)))?
+                }
+            }
+        };
+
+        Ok(Arc::new(LlamaChat {
+            llama: Arc::new(CustomMutex::new(llama)),
             config: self.config.generation_config,
             marker: PhantomData,
         }))

@@ -2,13 +2,13 @@
 pub mod attention;
 
 /// Feed-forward transformation network module.
-pub mod fftn;
+pub(crate) mod fftn;
 
 /// Transformer module.
-pub mod transformer;
+pub(crate) mod transformer;
 
 /// Positional encoding module.
-pub mod pos_encoding;
+pub(crate) mod pos_encoding;
 
 /// Llama architecture.
 pub mod llama;

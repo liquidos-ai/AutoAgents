@@ -56,3 +56,52 @@ impl<T: Tokenizer> StreamingDecoder<T> {
         }
     }
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod stream_sender {
+    use autoagents_llm::chat::StreamResponse;
+    use autoagents_llm::error::LLMError;
+    pub use tokio::sync::mpsc::{channel, Receiver, Sender};
+
+    #[derive(Clone)]
+    pub struct StreamSender {
+        inner: Sender<Result<StreamResponse, LLMError>>,
+    }
+
+    impl StreamSender {
+        pub fn new() -> (Self, Receiver<Result<StreamResponse, LLMError>>) {
+            let (tx, rx) = channel(100);
+            (Self { inner: tx }, rx)
+        }
+
+        pub async fn send(&self, msg: Result<StreamResponse, LLMError>) {
+            let _ = self.inner.send(msg).await;
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod stream_sender {
+    use autoagents_llm::chat::StreamResponse;
+    use autoagents_llm::error::LLMError;
+    pub use futures::channel::mpsc::{channel, Receiver, Sender};
+    use futures::SinkExt;
+
+    #[derive(Clone)]
+    pub struct StreamSender {
+        inner: Sender<Result<StreamResponse, LLMError>>,
+    }
+
+    impl StreamSender {
+        pub fn new() -> (Self, Receiver<Result<StreamResponse, LLMError>>) {
+            let (tx, rx) = channel(100);
+            (Self { inner: tx }, rx)
+        }
+
+        pub async fn send(&self, msg: Result<StreamResponse, LLMError>) {
+            // Futures mpsc requires async send
+            let mut inner = self.inner.clone();
+            let _ = inner.send(msg).await;
+        }
+    }
+}

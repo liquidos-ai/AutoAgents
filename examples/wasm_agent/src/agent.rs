@@ -24,40 +24,49 @@ use wasm_bindgen::prelude::*;
 
 /// A simple chat agent that uses the Phi model for text generation
 #[agent(
-    name = "phi_chat_agent",
+    name = "tiny_llama_chat_agent",
     description = "A conversational chat agent powered by Phi-1.5 model"
 )]
 #[derive(Default, Clone, AgentHooks)]
-pub struct PhiChatAgent {}
+pub struct TInyLLamaChatAgent {}
 
 /// Agent wrapper that provides a simple interface for chat interactions
 #[wasm_bindgen]
-pub struct PhiAgentWrapper {
-    agent: BaseAgent<BasicAgent<PhiChatAgent>, DirectAgent>,
+pub struct TInyLLamaChatWrapper {
+    agent: BaseAgent<BasicAgent<TInyLLamaChatAgent>, DirectAgent>,
 }
 
-impl PhiAgentWrapper {
+impl TInyLLamaChatWrapper {
     /// Create a new Phi agent with the given model (non-WASM)
-    pub async fn new(phi_llm_provider: PhiLLMProvider) -> Result<PhiAgentWrapper, JsError> {
-        let llm: Arc<dyn LLMProvider> = Arc::new(phi_llm_provider);
+    pub async fn new() -> Result<TInyLLamaChatWrapper, JsError> {
+        let llm = TinyLlamaBuilder::new()
+            .with_model_bytes(vec![])
+            .max_seq_len(512)
+            .temperature(0.7)
+            .max_tokens(256)
+            .build()
+            .expect("Failed to build LLM");
+
         let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
         let agent_handle =
-            AgentBuilder::<_, DirectAgent>::new(BasicAgent::new(PhiChatAgent::default()))
+            AgentBuilder::<_, DirectAgent>::new(BasicAgent::new(TInyLLamaChatAgent::default()))
                 .llm(llm)
                 .memory(sliding_window_memory)
                 .build()
                 .await
                 .map_err(|e| JsError::new(&e.to_string()))?;
 
-        Ok(PhiAgentWrapper {
+        println!("Finished Model Loading!");
+
+        Ok(TInyLLamaChatWrapper {
             agent: agent_handle.agent,
         })
     }
 }
 
 #[wasm_bindgen]
-impl PhiAgentWrapper {
+impl TInyLLamaChatWrapper {
     /// Get a streaming response as individual tokens using LLM provider streaming
     pub async fn get_response_stream(
         &self,
@@ -113,11 +122,5 @@ impl PhiAgentWrapper {
 
         console_log!("Token generation completed successfully");
         Ok(())
-    }
-
-    /// Create a new Phi agent from a PhiModel (WASM-friendly factory function)
-    pub async fn from_phi_model(phi_model: PhiModel) -> Result<PhiAgentWrapper, JsError> {
-        let llm_provider = PhiLLMProvider::new(phi_model);
-        Self::new(llm_provider).await
     }
 }

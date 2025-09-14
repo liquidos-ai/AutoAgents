@@ -1,12 +1,14 @@
-use burn::{prelude::*, record::HalfPrecisionSettings};
-use burn_import::pytorch::{LoadArgs, PyTorchFileRecorder};
-
-use crate::{nn::transformer::TransformerRecord, tokenizer::Tokenizer};
-
 use super::{Llama, LlamaConfig};
+use crate::model::llama::nn::transformer::TransformerRecord;
+use crate::model::llama::tokenizer::Tokenizer;
+use burn::record::Recorder;
+use burn::{prelude::*, record::HalfPrecisionSettings};
+#[cfg(not(target_arch = "wasm32"))]
+use burn_import::pytorch::{LoadArgs, PyTorchFileRecorder};
 
 impl LlamaConfig {
     /// Load pre-trained Llama checkpoint.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load_pretrained<B: Backend, T: Tokenizer>(
         &self,
         checkpoint: &str,
@@ -127,7 +129,66 @@ impl LlamaConfig {
         }
 
         llama.model = llama.model.load_record(record);
-        println!("Llama record loaded");
+
+        Ok(llama)
+    }
+
+    /// Load pre-trained Llama checkpoint for WASM targets.
+    #[cfg(target_arch = "wasm32")]
+    pub fn load_pretrained_with_tokenizer<B: Backend, T: Tokenizer>(
+        &self,
+        checkpoint_bytes: &[u8],
+        tokenizer: T,
+        device: &Device<B>,
+    ) -> Result<Llama<B, T>, String> {
+        use burn::record::NamedMpkBytesRecorder;
+
+        let mut llama = self.init_with_tokenizer(tokenizer, device)?;
+
+        // Load the model weights from bytes
+        let recorder = NamedMpkBytesRecorder::<HalfPrecisionSettings>::new();
+        let record: TransformerRecord<B> = recorder
+            .load(checkpoint_bytes.to_vec(), device)
+            .map_err(|e| format!("Failed to load model from bytes: {}", e))?;
+
+        // Apply TinyLlama-specific weight permutations if needed
+        let record = if cfg!(feature = "tiny") {
+            let n_heads = self.num_attention_heads;
+            let n_kv_heads = self.num_key_value_heads.unwrap_or(n_heads);
+            let wk_dim = self.d_model * n_kv_heads / n_heads;
+            let permute = |w: Tensor<B, 2>, n_heads: usize, dim1: usize, dim2: usize| {
+                let w = w
+                    .reshape([dim1, n_heads, 2, dim2 / n_heads / 2])
+                    .swap_dims(2, 3)
+                    .reshape([dim1, dim2]);
+                w
+            };
+
+            TransformerRecord {
+                layers: record
+                    .layers
+                    .into_iter()
+                    .map(|mut layer| {
+                        layer.attention.wq.weight = layer
+                            .attention
+                            .wq
+                            .weight
+                            .map(|w| permute(w, n_heads, self.d_model, self.d_model));
+                        layer.attention.wk.weight = layer
+                            .attention
+                            .wk
+                            .weight
+                            .map(|w| permute(w, n_kv_heads, self.d_model, wk_dim));
+                        layer
+                    })
+                    .collect::<Vec<_>>(),
+                ..record
+            }
+        } else {
+            record
+        };
+
+        llama.model = llama.model.load_record(record);
 
         Ok(llama)
     }

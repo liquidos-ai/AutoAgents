@@ -1,6 +1,7 @@
 #![allow(dead_code, unused_variables, unused_imports)]
 use wasm_bindgen::prelude::*;
 
+mod agent;
 pub mod phi_agent;
 pub mod phi_llm_provider;
 pub mod phi_provider;

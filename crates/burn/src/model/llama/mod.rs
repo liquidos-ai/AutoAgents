@@ -6,11 +6,12 @@ pub mod nn;
 /// Text generation components.
 pub mod generation;
 
+pub mod chat;
 #[cfg(feature = "tiny")]
 mod tiny;
 
 #[cfg(feature = "tiny")]
-pub use tiny::{TinyLlama, TinyLlamaBuilder};
+pub use tiny::TinyLlamaBuilder;
 
 pub use nn::llama::*;
 
