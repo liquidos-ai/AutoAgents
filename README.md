@@ -75,11 +75,11 @@ AutoAgents supports a wide range of LLM providers, allowing you to choose the be
 
 ### Local Providers
 
-| Provider   | Status |
-|------------|--------|
-| **Burn**   | ✅      |
-| **Onnx**   | ✅      |
-| **Ollama** | ✅      |
+| Provider   | Status          |
+|------------|-----------------|
+| **Burn**   | ⚠️ Experimental |
+| **Onnx**   | ⚠️ Experimental |
+| **Ollama** | ✅               |
 
 *Provider support is actively expanding based on community needs.*
 

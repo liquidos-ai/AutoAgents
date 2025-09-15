@@ -1,17 +1,19 @@
-# Liquid Edge - High-Performance Edge Inference Runtime
+# Onnx-ort - High-Performance Edge Inference Runtime
 
-Liquid Edge is a production-ready inference runtime designed specifically for edge computing environments. It provides high-performance LLM inference with multiple backend support, comprehensive tokenization capabilities, and optimized memory management.
+---
 
-## 🚀 Features
+### ⚠️ Experimental Feature Notice
 
-- **🎯 Multiple Backends**: ONNX Runtime support with more backends planned
-- **⚡ High Performance**: Optimized for edge devices with minimal latency
-- **🔄 Async Support**: Full async/await support for non-blocking inference
-- **💬 Chat Templates**: Jinja2 template support for conversational AI
-- **📊 Comprehensive Monitoring**: Built-in metrics and performance tracking
-- **🛡️ Production Ready**: Robust error handling and logging
-- **🔧 Flexible Configuration**: Feature flags for customized builds
+**Disclaimer:** This project is currently in an **experimental** phase and is under active development. Features, APIs,
+and internal logic are subject to change without notice. Stability and performance are not yet guaranteed.
 
+We welcome feedback and contributions, but please use with caution in production environments. Expect breaking changes
+and incomplete functionality as we iterate and improve the inference engine.
+---
+
+Onnx-Ort is a inference runtime designed specifically for edge computing environments. It provides
+high-performance LLM inference with multiple backend support, comprehensive tokenization capabilities, and optimized
+memory management with AutoAgents LLM Provider Support.
 
 ```sh
 pipx install "optimum[onnxruntime]"
