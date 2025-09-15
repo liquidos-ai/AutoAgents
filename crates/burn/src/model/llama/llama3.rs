@@ -147,7 +147,7 @@ impl Llama3Builder {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn with_tokenizer_bytes(self, bytes: Vec<u8>) -> Self {
+    pub fn with_tokenizer_bytes(mut self, bytes: Vec<u8>) -> Self {
         self.config.tokenizer_bytes = Some(bytes);
         self
     }
