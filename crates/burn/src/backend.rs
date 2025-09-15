@@ -1,5 +1,22 @@
-pub type ElemType = f32;
-pub const DTYPE_NAME: &str = "f32";
+mod elems {
+    cfg_if::cfg_if! {
+        // NOTE: f16/bf16 is not always supported on wgpu depending on the hardware
+        // https://github.com/gfx-rs/wgpu/issues/7468
+        if #[cfg(all(feature = "f16", any(feature = "cuda", feature = "wgpu", feature = "vulkan", feature = "metal", feature = "rocm")))]{
+            pub type ElemType = burn::tensor::f16;
+            pub const DTYPE_NAME: &str = "f16";
+        }
+        else if #[cfg(all(feature = "f16", any(feature = "cuda", feature = "metal", feature = "wgpu", feature = "vulkan", feature = "rocm")))]{
+            pub type ElemType = burn::tensor::bf16;
+            pub const DTYPE_NAME: &str = "bf16";
+        } else {
+            pub type ElemType = f32;
+            pub const DTYPE_NAME: &str = "f32";
+        }
+    }
+}
+
+pub use elems::*;
 
 #[cfg(all(target_arch = "wasm32", feature = "webgpu"))]
 pub mod burn_backend_types {
@@ -53,6 +70,21 @@ pub mod burn_backend_types {
     pub const INFERENCE_DEVICE: std::sync::LazyLock<RocmDevice> =
         std::sync::LazyLock::new(|| RocmDevice::default());
     pub const NAME: &str = "rocm";
+}
+
+#[cfg(any(feature = "wgpu", feature = "vulkan", feature = "metal"))]
+pub mod burn_backend_types {
+    use super::*;
+    use burn::backend::wgpu::{Wgpu, WgpuDevice};
+    pub type InferenceBackend = Wgpu<ElemType>;
+    pub type InferenceDevice = WgpuDevice;
+    pub const INFERENCE_DEVICE: InferenceDevice = WgpuDevice::DefaultDevice;
+    #[cfg(all(feature = "wgpu", not(feature = "vulkan"), not(feature = "metal")))]
+    pub const NAME: &str = "wgpu";
+    #[cfg(feature = "vulkan")]
+    pub const NAME: &str = "vulkan";
+    #[cfg(feature = "metal")]
+    pub const NAME: &str = "metal";
 }
 
 #[cfg(all(

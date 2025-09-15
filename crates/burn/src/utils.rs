@@ -1,4 +1,6 @@
-use futures::Stream;
+use futures_core::Stream;
+#[cfg(target_arch = "wasm32")]
+use futures_util::stream::StreamExt;
 use std::pin::Pin;
 
 // -----------------------------

@@ -15,6 +15,7 @@ autoagents = { workspace = true, features = [] }
 autoagents-burn = { workspace = true, default-features = false, features = [
     "tiny",
     "llama3",
+    "f16",
     "cuda",
     "pretrained"
 ] }

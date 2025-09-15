@@ -24,8 +24,16 @@ rocm = [
     "burn/rocm",
     "burn/default",
 ]
-candle-metal = ["burn/candle", "burn/metal"]
+metal = ["burn/metal"]
+wgpu = ["burn/wgpu", "burn/default"]
+vulkan = ["burn/vulkan", "burn/default"]
+candle-metal = ["burn/candle", "burn/metal", "burn/candle-metal"]
 candle-cpu = ["burn/candle"]
+
+# Element type
+f16 = []
+bf16 = []
+f32 = []
 
 # Utils
 import = ["burn-import", "burn-import/pytorch"]
@@ -67,6 +75,9 @@ serde = { workspace = true, default-features = false, features = [
 ] }
 dirs = { workspace = true, optional = true }
 log = { workspace = true, features = ["std"] }
+cfg-if = { version = "1.0.1" }
+futures-core = "0.3.31"
+futures-util = "0.3.31"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio-stream.workspace = true
