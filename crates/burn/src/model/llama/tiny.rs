@@ -1,15 +1,16 @@
 use crate::backend::burn_backend_types::InferenceBackend;
 use crate::model::llama::chat::{GenerationConfig, LlamaChat};
-use crate::model::llama::tokenizer::Tokenizer;
-use crate::model::llama::{Llama, LlamaConfig};
+use crate::model::llama::pretrained::{ModelMeta, Pretrained};
+use crate::model::llama::tokenizer::SentencePieceTokenizer;
+use crate::model::llama::{Llama, LlamaConfig, TinyLlamaVersion};
 use crate::utils::CustomMutex;
 use autoagents_llm::error::LLMError;
-use burn::prelude::Backend;
+use log::info;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-pub struct ModelConfig {
+pub struct TinyLLamaModelConfig {
     pub model_path: PathBuf,
     pub tokenizer_path: PathBuf,
     pub max_seq_len: usize,
@@ -21,7 +22,7 @@ pub struct ModelConfig {
     pub tokenizer_bytes: Option<Vec<u8>>,
 }
 
-impl Default for ModelConfig {
+impl Default for TinyLLamaModelConfig {
     fn default() -> Self {
         Self {
             model_path: PathBuf::from("models/tinyllama.mpk"),
@@ -38,13 +39,13 @@ impl Default for ModelConfig {
 }
 
 pub struct TinyLlamaBuilder {
-    config: ModelConfig,
+    config: TinyLLamaModelConfig,
 }
 
 impl TinyLlamaBuilder {
     pub fn new() -> Self {
         Self {
-            config: ModelConfig::default(),
+            config: TinyLLamaModelConfig::default(),
         }
     }
 
@@ -88,18 +89,58 @@ impl TinyLlamaBuilder {
         }
     }
 
-    #[cfg(target_arch = "wasm32")]
     pub fn with_tokenizer_bytes(mut self, bytes: Vec<u8>) -> Self {
-        self.config.tokenizer_bytes = Some(bytes);
-        self
+        #[cfg(all(feature = "import", target_arch = "wasm32"))]
+        {
+            self.config.tokenizer_bytes = Some(bytes);
+            self
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            panic!("Tokenizer bytes is supported only in wasm32");
+        }
     }
 
-    pub fn build(self) -> Result<Arc<LlamaChat<InferenceBackend>>, LLMError> {
+    #[cfg(feature = "pretrained")]
+    pub async fn build_from_pretrained(
+        self,
+    ) -> Result<Arc<LlamaChat<InferenceBackend, SentencePieceTokenizer>>, LLMError> {
         use crate::backend::burn_backend_types::INFERENCE_DEVICE;
 
         let device = INFERENCE_DEVICE;
 
-        println!("using device {}", crate::backend::burn_backend_types::NAME);
+        info!(
+            "Burn using device {}",
+            crate::backend::burn_backend_types::NAME
+        );
+
+        // Use tokio::task::spawn_blocking to run the blocking pretrained loading in a separate thread
+        let max_seq_len = self.config.max_seq_len;
+        let llama = tokio::task::spawn_blocking(move || {
+            LlamaConfig::tiny_llama_pretrained::<InferenceBackend>(max_seq_len, &device)
+        })
+        .await
+        .map_err(|e| LLMError::Generic(format!("Task join error: {}", e)))?
+        .map_err(|e| LLMError::Generic(format!("Failed to load model: {}", e)))?;
+
+        Ok(Arc::new(LlamaChat {
+            llama: Arc::new(CustomMutex::new(llama)),
+            config: self.config.generation_config,
+            marker: PhantomData,
+        }))
+    }
+
+    pub fn build(
+        self,
+    ) -> Result<Arc<LlamaChat<InferenceBackend, SentencePieceTokenizer>>, LLMError> {
+        use crate::backend::burn_backend_types::INFERENCE_DEVICE;
+
+        let device = INFERENCE_DEVICE;
+
+        info!(
+            "Burn using device {}",
+            crate::backend::burn_backend_types::NAME
+        );
 
         let model_path = self
             .config

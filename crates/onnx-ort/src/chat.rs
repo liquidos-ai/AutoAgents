@@ -1,9 +1,13 @@
-//! LiquidEdge backend implementation for local model inference.
+//! autoagents-onnx backend implementation for local model inference.
 //!
-//! This backend uses the liquid-edge inference runtime to run LLM models locally.
+//! This backend uses the autoagents-onnx inference runtime to run LLM models locally.
 //! It handles tokenization, text generation, and sampling specifically for LLMs.
 
-use crate::{
+use crate::{Device, EdgeError, InferenceInput, InferenceRuntime, Model};
+use async_trait::async_trait;
+use autoagents_llm::chat::Tool;
+use autoagents_llm::models::{ModelListRequest, ModelListResponse};
+use autoagents_llm::{
     builder::LLMBuilder,
     chat::{
         ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StructuredOutputFormat,
@@ -14,16 +18,14 @@ use crate::{
     models::ModelsProvider,
     LLMProvider, ToolCall,
 };
-use async_trait::async_trait;
-use liquid_edge::{EdgeError, InferenceInput, InferenceRuntime};
 use minijinja::{context, Environment};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{path::Path, sync::Arc};
 use tokenizers::Tokenizer;
 
-/// LiquidEdge backend for local LLM inference
-pub struct LiquidEdge {
+/// autoagents-onnx backend for local LLM inference
+pub struct OnnxEdge {
     inference_runtime: tokio::sync::Mutex<InferenceRuntime>,
     tokenizer: Tokenizer,
     model_config: ModelConfig,
@@ -66,11 +68,11 @@ impl Default for GenerationConfig {
 
 /// Response wrapper for LiquidEdge chat responses
 #[derive(Debug)]
-pub struct LiquidEdgeResponse {
+pub struct EdgeResponse {
     text: String,
 }
 
-impl ChatResponse for LiquidEdgeResponse {
+impl ChatResponse for EdgeResponse {
     fn text(&self) -> Option<String> {
         Some(self.text.clone())
     }
@@ -80,17 +82,17 @@ impl ChatResponse for LiquidEdgeResponse {
     }
 }
 
-impl std::fmt::Display for LiquidEdgeResponse {
+impl std::fmt::Display for EdgeResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.text)
     }
 }
 
-impl LiquidEdge {
+impl OnnxEdge {
     /// Create a new LiquidEdge instance from a model with a specific device
     pub async fn from_model_with_device(
-        model: Box<dyn liquid_edge::Model>,
-        device: liquid_edge::Device,
+        model: Box<dyn Model>,
+        device: Device,
         _model_name: String,
         max_tokens: Option<u32>,
         temperature: Option<f32>,
@@ -117,7 +119,7 @@ impl LiquidEdge {
 
     /// Create a new LiquidEdge instance from a model (uses CPU device by default)
     pub async fn from_model(
-        model: Box<dyn liquid_edge::Model>,
+        model: Box<dyn Model>,
         _model_name: String,
         max_tokens: Option<u32>,
         temperature: Option<f32>,
@@ -518,11 +520,11 @@ impl LiquidEdge {
 }
 
 #[async_trait]
-impl ChatProvider for LiquidEdge {
+impl ChatProvider for OnnxEdge {
     async fn chat(
         &self,
         messages: &[ChatMessage],
-        _tools: Option<&[crate::chat::Tool]>,
+        _tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         let mut modified_messages = messages.to_vec();
@@ -560,7 +562,7 @@ impl ChatProvider for LiquidEdge {
         let response_text = self.generate_text(&prompt, generation_config).await?;
         let cleaned_response = response_text.trim().to_string();
 
-        Ok(Box::new(LiquidEdgeResponse {
+        Ok(Box::new(EdgeResponse {
             text: if cleaned_response.is_empty() {
                 "I'm here to help! What would you like to know?".to_string()
             } else {
@@ -571,7 +573,7 @@ impl ChatProvider for LiquidEdge {
 }
 
 #[async_trait]
-impl CompletionProvider for LiquidEdge {
+impl CompletionProvider for OnnxEdge {
     async fn complete(
         &self,
         req: &CompletionRequest,
@@ -590,7 +592,7 @@ impl CompletionProvider for LiquidEdge {
 }
 
 #[async_trait]
-impl EmbeddingProvider for LiquidEdge {
+impl EmbeddingProvider for OnnxEdge {
     async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
         Err(LLMError::ProviderError(
             "Embedding not supported by LiquidEdge backend".to_string(),
@@ -599,31 +601,71 @@ impl EmbeddingProvider for LiquidEdge {
 }
 
 #[async_trait]
-impl ModelsProvider for LiquidEdge {
+impl ModelsProvider for OnnxEdge {
     async fn list_models(
         &self,
-        _request: Option<&crate::models::ModelListRequest>,
-    ) -> Result<Box<dyn crate::models::ModelListResponse>, LLMError> {
+        _request: Option<&ModelListRequest>,
+    ) -> Result<Box<dyn ModelListResponse>, LLMError> {
         Err(LLMError::ProviderError(
             "Model listing not supported by LiquidEdge backend".to_string(),
         ))
     }
 }
 
-impl LLMProvider for LiquidEdge {}
+impl LLMProvider for OnnxEdge {}
 
-impl LLMBuilder<LiquidEdge> {
-    pub async fn build(self) -> Result<Arc<LiquidEdge>, LLMError> {
-        let model_name = self
-            .model
-            .unwrap_or_else(|| "liquid-edge-model".to_string());
+#[derive(Debug, Default)]
+pub struct LiquidEdgeBuilder {
+    model: Option<Box<dyn Model>>,
+    device: Option<Device>,
+    max_tokens: Option<u32>,
+    temperature: Option<f32>,
+    top_p: Option<f32>,
+    system: Option<String>,
+}
 
-        let liquid_edge = if let Some(edge_model) = self.edge_model {
-            if let Some(device) = self.edge_device {
-                LiquidEdge::from_model_with_device(
-                    edge_model,
+impl LiquidEdgeBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn model(mut self, model: Box<dyn Model>) -> Self {
+        self.model = Some(model);
+        self
+    }
+
+    pub fn device(mut self, device: Device) -> Self {
+        self.device = Some(device);
+        self
+    }
+
+    pub fn max_tokens(mut self, max_tokens: u32) -> Self {
+        self.max_tokens = Some(max_tokens);
+        self
+    }
+
+    pub fn temperature(mut self, temperature: f32) -> Self {
+        self.temperature = Some(temperature);
+        self
+    }
+
+    pub fn top_p(mut self, top_p: f32) -> Self {
+        self.top_p = Some(top_p);
+        self
+    }
+
+    pub fn system(mut self, system: &str) -> Self {
+        self.system = Some(system.to_string());
+        self
+    }
+
+    pub async fn build(self) -> Result<Arc<OnnxEdge>, LLMError> {
+        let liquid_edge = if let Some(model) = self.model {
+            if let Some(device) = self.device {
+                OnnxEdge::from_model_with_device(
+                    model,
                     device,
-                    model_name,
+                    "onnx-ort-model".to_string(),
                     self.max_tokens,
                     self.temperature,
                     self.top_p,
@@ -631,9 +673,9 @@ impl LLMBuilder<LiquidEdge> {
                 )
                 .await?
             } else {
-                LiquidEdge::from_model(
-                    edge_model,
-                    model_name,
+                OnnxEdge::from_model(
+                    model,
+                    "onnx-ort-model".to_string(),
                     self.max_tokens,
                     self.temperature,
                     self.top_p,

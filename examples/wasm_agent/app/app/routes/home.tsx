@@ -5,10 +5,10 @@ import type {Route} from "./+types/home";
 
 export function meta({}: Route.MetaArgs) {
     return [
-        {title: "AutoAgents Phi-1.5 Demo"},
+        {title: "AutoAgents Phi & Llama Demo"},
         {
             name: "description",
-            content: "AutoAgents with Phi-1.5 Text Generation Model in WASM",
+            content: "AutoAgents with Phi-1.5 and Llama3.2 Text Generation Models in WASM",
         },
     ];
 }
@@ -16,7 +16,6 @@ export function meta({}: Route.MetaArgs) {
 interface ModelFiles {
     weights: Uint8Array;
     tokenizer: Uint8Array;
-    config: Uint8Array;
 }
 
 interface ChatMessage {
@@ -50,8 +49,10 @@ export default function Home() {
     const [cacheStatus, setCacheStatus] = useState<string>("");
     const [selectedImage, setSelectedImage] = useState<File | null>(null);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [webGPUAvailable, setWebGPUAvailable] = useState<boolean | null>(null);
+    const [showToaster, setShowToaster] = useState(false);
 
-    // Model configurations - Only Phi 1.5 model
+    // Model configurations - Phi and Llama models
     const MODELS = {
         phi_1_5_q4k: {
             name: "Phi-1.5 Q4_0 (Text Generation)",
@@ -65,12 +66,25 @@ export default function Home() {
             modelType: "phi",
             isVisionModel: false,
         },
+        llama3_2_1b_q4: {
+            name: "Llama3.2-1B-Instruct-Q4 (Text Generation)",
+            base_url: "https://huggingface.co/tracel-ai/llama-3.2-1b-instruct-q4fb32-burn/resolve/main/",
+            model: "model.mpk",
+            tokenizer: "tokenizer.model",
+            quantized: true,
+            seq_len: 2048,
+            size: "700 MB",
+            modelType: "llama3",
+            isVisionModel: false,
+        },
     };
 
     // @ts-ignore
     const MODEL_URLS = MODELS[selectedModel];
 
     useEffect(() => {
+        // Check WebGPU availability
+        checkWebGPUAvailability();
         initializeWorker();
         return () => {
             // Cleanup worker on unmount
@@ -86,6 +100,43 @@ export default function Home() {
             checkCacheStatus();
         }
     }, [worker, wasmInitialized]);
+
+    // Show toaster when WebGPU availability is determined
+    useEffect(() => {
+        if (webGPUAvailable === false) {
+            setShowToaster(true);
+            // Auto-hide toaster after 10 seconds
+            const timer = setTimeout(() => {
+                setShowToaster(false);
+            }, 10000);
+            return () => clearTimeout(timer);
+        }
+    }, [webGPUAvailable]);
+
+    const checkWebGPUAvailability = async () => {
+        try {
+            if (!navigator.gpu) {
+                console.warn("WebGPU is not supported in this browser");
+                setWebGPUAvailable(false);
+                return false;
+            }
+
+            const adapter = await navigator.gpu.requestAdapter();
+            if (!adapter) {
+                console.warn("No WebGPU adapter found");
+                setWebGPUAvailable(false);
+                return false;
+            }
+
+            console.log("WebGPU is available");
+            setWebGPUAvailable(true);
+            return true;
+        } catch (error) {
+            console.error("Error checking WebGPU availability:", error);
+            setWebGPUAvailable(false);
+            return false;
+        }
+    };
 
     const initializeWorker = async () => {
         try {
@@ -360,39 +411,70 @@ export default function Home() {
     // @ts-ignore
     // @ts-ignore
     return (
-        <div className="min-h-screen bg-gradient-to-br from-zinc-900 via-slate-900 to-zinc-900">
+        <div className="min-h-screen h-screen bg-gradient-to-br from-zinc-900 via-slate-900 to-zinc-900 overflow-hidden">
             {/* Background Pattern */}
             <div
                 className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cg%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.05%22%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%2230%22%20r%3D%221%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] opacity-50"></div>
 
-            <div className="relative min-h-screen flex flex-col">
+            {/* WebGPU Warning Toaster */}
+            {showToaster && webGPUAvailable === false && (
+                <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 animate-slide-in-from-top">
+                    <div className="backdrop-blur-xl bg-amber-600/90 text-white px-6 py-4 rounded-2xl shadow-2xl border border-amber-500/50 max-w-md mx-4">
+                        <div className="flex items-start space-x-3">
+                            <div className="flex-shrink-0 mt-0.5">
+                                <svg className="w-6 h-6 text-amber-200" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                            </div>
+                            <div className="flex-1">
+                                <h3 className="text-sm font-semibold text-amber-50 mb-1">
+                                    WebGPU Not Available
+                                </h3>
+                                <p className="text-xs text-amber-100">
+                                    WebGPU is not supported in your browser. The model will run on CPU which may be slower. For best performance, use Chrome, Edge, or another WebGPU-enabled browser.
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setShowToaster(false)}
+                                className="flex-shrink-0 ml-2 text-amber-200 hover:text-white transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <div className="relative h-full flex flex-col">
                 {/* Navigation Header */}
                 <nav className="backdrop-blur-xl bg-zinc-900/80 border-b border-zinc-700/60">
-                    <div className="w-full mx-auto px-6 py-4">
+                    <div className="w-full mx-auto px-4 sm:px-6 py-3 sm:py-4">
                         <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-4">
+                            <div className="flex items-center space-x-2 sm:space-x-4">
                                 <img
                                     src="/logo.png"
                                     alt="AutoAgents Logo"
-                                    className="w-8 h-8 rounded-lg"
+                                    className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg"
                                 />
                                 <div>
-                                    <h1 className="text-xl font-bold text-white">AutoAgents</h1>
-                                    <p className="text-xs text-gray-300">Agentic AI Platform</p>
+                                    <h1 className="text-lg sm:text-xl font-bold text-white">AutoAgents</h1>
+                                    <p className="text-xs text-gray-300 hidden sm:block">Agentic AI Platform</p>
                                 </div>
                             </div>
-                            <div className="flex items-center space-x-3">
-                                <div className="flex items-center space-x-2 text-xs text-gray-300">
+                            <div className="flex items-center space-x-2 sm:space-x-3">
+                                <div className="flex items-center space-x-1 sm:space-x-2 text-xs text-gray-300">
                   <span
                       className={`w-2 h-2 rounded-full ${wasmInitialized ? "bg-green-400" : "bg-red-400"}`}
                   ></span>
-                                    <span>Runtime</span>
+                                    <span className="hidden sm:inline">Runtime</span>
                                 </div>
-                                <div className="flex items-center space-x-2 text-xs text-gray-300">
+                                <div className="flex items-center space-x-1 sm:space-x-2 text-xs text-gray-300">
                   <span
                       className={`w-2 h-2 rounded-full ${tokenStreamer ? "bg-green-400" : "bg-amber-400"}`}
                   ></span>
-                                    <span>Agent</span>
+                                    <span className="hidden sm:inline">Agent</span>
                                 </div>
                             </div>
                         </div>
@@ -400,11 +482,11 @@ export default function Home() {
                 </nav>
 
                 {/* Main Content Area */}
-                <div className="flex-1 mx-auto px-6 py-6 flex gap-6 h-full w-full">
+                <div className="flex-1 mx-auto px-4 sm:px-6 py-4 sm:py-6 flex flex-col lg:flex-row gap-4 lg:gap-6 w-full overflow-hidden">
                     {/* Left Sidebar - Agent Configuration */}
-                    <div className="w-80 flex-shrink-0 h-full">
+                    <div className="w-full lg:w-80 lg:flex-shrink-0 h-auto lg:h-full">
                         <div
-                            className="backdrop-blur-xl bg-zinc-800/60 rounded-2xl border border-zinc-600/50 p-6 h-full">
+                            className="backdrop-blur-xl bg-zinc-800/60 rounded-2xl border border-zinc-600/50 p-4 sm:p-6 h-auto lg:h-full">
                             <div className="mb-6">
                                 <div className="mb-3">
                                     <div
@@ -556,12 +638,12 @@ export default function Home() {
                     </div>
 
                     {/* Right Side - Chat Interface */}
-                    <div className="flex-1 flex flex-col">
+                    <div className="flex-1 flex flex-col min-h-0">
                         {/* Loading Progress */}
                         {loading && (
                             <div className="mb-4">
                                 <div
-                                    className="backdrop-blur-xl bg-purple-500/25 rounded-2xl border border-purple-400/50 p-4">
+                                    className="backdrop-blur-xl bg-purple-500/25 rounded-2xl border border-purple-400/50 p-3 sm:p-4">
                                     <div className="flex items-center space-x-3">
                                         <div className="flex-shrink-0">
                                             <div className="w-8 h-8 relative">
@@ -600,7 +682,7 @@ export default function Home() {
                         {error && (
                             <div className="mb-4">
                                 <div
-                                    className="backdrop-blur-xl bg-red-500/25 rounded-2xl border border-red-400/50 p-4">
+                                    className="backdrop-blur-xl bg-red-500/25 rounded-2xl border border-red-400/50 p-3 sm:p-4">
                                     <div className="flex items-center space-x-3">
                                         <div
                                             className="w-8 h-8 bg-red-500/20 rounded-full flex items-center justify-center">
@@ -628,11 +710,11 @@ export default function Home() {
                         )}
 
                         {/* Main Chat Interface */}
-                        <div className="flex-1 flex flex-col">
+                        <div className="flex-1 flex flex-col min-h-0">
                             <div
                                 className="backdrop-blur-xl bg-zinc-800/50 rounded-2xl border border-zinc-600/50 h-full flex flex-col">
                                 {/* Chat Header */}
-                                <div className="flex justify-between items-center p-6 border-b border-zinc-600/50">
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 sm:p-6 border-b border-zinc-600/50 gap-3 sm:gap-0">
                                     <div className="flex items-center space-x-3">
                                         <div
                                             className="w-10 h-10 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full flex items-center justify-center">
@@ -645,15 +727,15 @@ export default function Home() {
                                             </svg>
                                         </div>
                                         <div>
-                                            <h3 className="text-lg font-semibold text-white">
-                                                Phi-1.5 Text Agent
+                                            <h3 className="text-base sm:text-lg font-semibold text-white">
+                                                {MODELS[selectedModel as keyof typeof MODELS].name} Agent
                                             </h3>
                                             <p className="text-xs text-gray-300">
                                                 {isGenerating
                                                     ? "Generating text response..."
                                                     : tokenStreamer
                                                         ? "Ready for text generation"
-                                                        : "Select and initialize the text model"}
+                                                        : "Select and initialize the model"}
                                             </p>
                                         </div>
                                     </div>
@@ -672,7 +754,7 @@ export default function Home() {
                                 <div className="flex-1 overflow-y-auto">
                                     {chatMessages.length === 0 ? (
                                         <div
-                                            className="flex flex-col items-center justify-center h-full text-center p-12">
+                                            className="flex flex-col items-center justify-center h-full text-center p-6 sm:p-12">
                                             <div
                                                 className="w-20 h-20 mb-6 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center backdrop-blur-xl border border-white/10">
                                                 <svg
@@ -704,17 +786,17 @@ export default function Home() {
                                             )}
                                         </div>
                                     ) : (
-                                        <div className="space-y-6 p-6">
+                                        <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
                                             {chatMessages.map((message, index) => (
                                                 <div
                                                     key={index}
                                                     className={`group ${message.role === "assistant" ? "ml-0" : "mr-0"}`}
                                                 >
                                                     <div
-                                                        className={`flex items-start space-x-4 ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}
+                                                        className={`flex items-start space-x-2 sm:space-x-4 ${message.role === "user" ? "flex-row-reverse space-x-reverse" : ""}`}
                                                     >
                                                         <div
-                                                            className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium ${
+                                                            className={`flex-shrink-0 w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-sm font-medium ${
                                                                 message.role === "user"
                                                                     ? "bg-gradient-to-r from-green-500 to-emerald-500 text-white"
                                                                     : "bg-gradient-to-r from-blue-500 to-cyan-500 text-white"
@@ -722,7 +804,7 @@ export default function Home() {
                                                         >
                                                             {message.role === "user" ? (
                                                                 <svg
-                                                                    className="w-5 h-5"
+                                                                    className="w-4 h-4 sm:w-5 sm:h-5"
                                                                     fill="currentColor"
                                                                     viewBox="0 0 20 20"
                                                                 >
@@ -734,7 +816,7 @@ export default function Home() {
                                                                 </svg>
                                                             ) : (
                                                                 <svg
-                                                                    className="w-5 h-5"
+                                                                    className="w-4 h-4 sm:w-5 sm:h-5"
                                                                     fill="currentColor"
                                                                     viewBox="0 0 20 20"
                                                                 >
@@ -747,7 +829,7 @@ export default function Home() {
                                                             className={`flex-1 min-w-0 ${message.role === "user" ? "text-right" : ""}`}
                                                         >
                                                             <div
-                                                                className={`inline-block max-w-3xl p-4 rounded-2xl ${
+                                                                className={`inline-block w-full sm:max-w-3xl p-3 sm:p-4 rounded-2xl ${
                                                                     message.role === "user"
                                                                         ? "bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 ml-auto"
                                                                         : "bg-white/5 border border-white/10"
@@ -759,7 +841,7 @@ export default function Home() {
                                                                         <img
                                                                             src={URL.createObjectURL(new Blob([new Uint8Array(message.image.data)], {type: message.image.mimeType}))}
                                                                             alt="User uploaded"
-                                                                            className="max-w-md rounded-lg border border-zinc-500/30"
+                                                                            className="max-w-full sm:max-w-md rounded-lg border border-zinc-500/30"
                                                                         />
                                                                     </div>
                                                                 )}
@@ -788,7 +870,7 @@ export default function Home() {
                                     {isGenerating &&
                                         chatMessages.length > 0 &&
                                         !chatMessages[chatMessages.length - 1].isStreaming && (
-                                            <div className="p-6">
+                                            <div className="p-4 sm:p-6">
                                                 <div className="flex items-start space-x-4">
                                                     <div
                                                         className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white flex items-center justify-center">
@@ -840,10 +922,10 @@ export default function Home() {
                                 </div>
 
                                 {/* Chat Input */}
-                                <div className="p-6 border-t border-zinc-600/50 items-center">
+                                <div className="p-4 sm:p-6 border-t border-zinc-600/50 items-center">
                                     <div className="relative">
 
-                                        <div className="flex items-end space-x-4 justify-center">
+                                        <div className="flex items-end space-x-2 sm:space-x-4 justify-center">
                                             <div className="flex-1 relative items-center">
                         <textarea
                             value={prompt}
@@ -860,7 +942,7 @@ export default function Home() {
                                     : "Initialize the text model first"
                             }
                             disabled={!tokenStreamer || isGenerating}
-                            className="w-full px-6 py-4 items-centerbg-zinc-700/80 border border-zinc-500/50 rounded-2xl text-white placeholder-zinc-300 focus:outline-none focus:ring-2 focus:ring-purple-400/60 focus:border-transparent resize-none text-sm backdrop-blur-xl min-h-[56px] max-h-32"
+                            className="w-full px-4 sm:px-6 py-3 sm:py-4 bg-zinc-700/80 border border-zinc-500/50 rounded-2xl text-white placeholder-zinc-300 focus:outline-none focus:ring-2 focus:ring-purple-400/60 focus:border-transparent resize-none text-sm backdrop-blur-xl min-h-[48px] sm:min-h-[56px] max-h-32"
                             rows={1}
                         />
                                             </div>
@@ -870,11 +952,11 @@ export default function Home() {
                                                 disabled={
                                                     !tokenStreamer || !prompt.trim() || isGenerating
                                                 }
-                                                className="flex-shrink-0 w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-600 disabled:to-gray-600 text-white rounded-xl transition-all duration-200 flex items-center justify-center group"
+                                                className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-600 disabled:to-gray-600 text-white rounded-xl transition-all duration-200 flex items-center justify-center group"
                                             >
                                                 {isGenerating ? (
                                                     <svg
-                                                        className="w-5 h-5 animate-spin"
+                                                        className="w-4 h-4 sm:w-5 sm:h-5 animate-spin"
                                                         fill="none"
                                                         viewBox="0 0 24 24"
                                                     >
@@ -894,7 +976,7 @@ export default function Home() {
                                                     </svg>
                                                 ) : (
                                                     <svg
-                                                        className="w-5 h-5 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform"
+                                                        className="w-4 h-4 sm:w-5 sm:h-5 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform"
                                                         fill="none"
                                                         stroke="currentColor"
                                                         viewBox="0 0 24 24"
@@ -909,9 +991,9 @@ export default function Home() {
                                                 )}
                                             </button>
                                         </div>
-                                        <div className="flex items-center justify-between mt-3 text-xs text-gray-300">
-                                            <span>Text generation • Press Enter to send, Shift+Enter for new line</span>
-                                            <span>Powered by Phi-1.5 + AutoAgents + WASM</span>
+                                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mt-3 text-xs text-gray-300 gap-1 sm:gap-0">
+                                            <span className="text-xs">Text generation • Press Enter to send, Shift+Enter for new line</span>
+                                            <span className="text-xs">Powered by {MODELS[selectedModel as keyof typeof MODELS].name} + AutoAgents + WASM</span>
                                         </div>
                                     </div>
                                 </div>

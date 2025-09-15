@@ -1,7 +1,7 @@
-//! Model abstraction layer for liquid-edge
+//! Model abstraction layer for autoagents-onnx
 //!
 //! This module provides abstractions for different types of models that can be
-//! loaded and used with the liquid-edge inference runtime.
+//! loaded and used with the autoagents-onnx inference runtime.
 
 use crate::error::EdgeResult;
 use serde_json::Value;

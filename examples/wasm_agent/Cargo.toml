@@ -1,21 +1,18 @@
 [package]
 name = "wasm_agent"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description.workspace = true
-repository.workspace = true
-keywords.workspace = true
-categories.workspace = true
+version = "0.1.0"
+edition = "2021"
+publish = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+test = false
 
 
 [dependencies]
 wasm-bindgen = { version = "0.2.100", features = ["serde", "serde_json"] }
 autoagents-burn = { workspace = true, default-features = false, features = [
-    "tiny",
+    "llama3",
     "webgpu",
     "import"
 ] }

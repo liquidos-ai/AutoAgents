@@ -1,4 +1,4 @@
-pub trait Tokenizer: Send + Sync + Clone {
+pub trait Tokenizer: Send + Sync + Clone + 'static {
     /// Load the tokenizer from the provided path.
     fn new(tokenizer_path: &str) -> Result<Self, String>
     where

@@ -131,6 +131,11 @@ impl ModelMeta for LlamaVersion {
                 model: "https://huggingface.co/tracel-ai/llama-3.2-1b-instruct-burn/resolve/main/model.mpk?download=true",
                 tokenizer: "https://huggingface.co/tracel-ai/llama-3.2-1b-instruct-burn/resolve/main/tokenizer.model?download=true",
             },
+            Self::Llama321bInstructQ4FB32 => Pretrained {
+                name: "Llama-3.2-1B-Instruct-Q4",
+                model: "https://huggingface.co/tracel-ai/llama-3.2-1b-instruct-q4fb32-burn/resolve/main/model.mpk?download=true",
+                tokenizer: "https://huggingface.co/tracel-ai/llama-3.2-1b-instruct-q4fb32-burn/resolve/main/tokenizer.model?download=true",
+            },
         }
     }
 }
@@ -268,6 +273,36 @@ impl LlamaConfig {
             .map_err(|err| format!("Could not download tokenizer.\nError: {err}"))?;
 
         Self::load_llama3_8b(
+            checkpoint.to_str().unwrap(),
+            tokenizer.to_str().unwrap(),
+            max_seq_len,
+            device,
+        )
+    }
+
+    /// Load pre-trained Llama-3.2-3B-Instruct model with [Tiktoken](https://github.com/openai/tiktoken) tokenizer.
+    ///
+    /// # Arguments
+    /// - `max_seq_len` - The maximum sequence length for input text.
+    /// - `device` - The device to load the model on.
+    #[cfg(feature = "llama3")]
+    pub fn llama3_2_1b_pretrained_q4<B: Backend>(
+        max_seq_len: usize,
+        device: &Device<B>,
+    ) -> Result<Llama<B, Tiktoken>, String> {
+        // Llama-3.2 models support context length up to 128K tokens.
+        check_context_length(max_seq_len, 128 * 1024);
+
+        // Download checkpoint and tokenizer
+        let model = LlamaVersion::Llama321bInstructQ4FB32.pretrained();
+        let checkpoint = model
+            .download_weights()
+            .map_err(|err| format!("Could not download weights.\nError: {err}"))?;
+        let tokenizer = model
+            .download_tokenizer()
+            .map_err(|err| format!("Could not download tokenizer.\nError: {err}"))?;
+
+        Self::load_llama3_2_1b(
             checkpoint.to_str().unwrap(),
             tokenizer.to_str().unwrap(),
             max_seq_len,

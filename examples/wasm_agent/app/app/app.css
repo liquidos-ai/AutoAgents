@@ -13,3 +13,19 @@ body {
     color-scheme: dark;
   }
 }
+
+/* Toaster animations */
+@keyframes slide-in-from-top {
+  from {
+    transform: translateX(-50%) translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-from-top {
+  animation: slide-in-from-top 0.3s ease-out;
+}

@@ -1,54 +1,84 @@
-use autoagents::core::agent::memory::SlidingWindowMemory;
-use autoagents::core::agent::prebuilt::executor::BasicAgent;
-use autoagents::core::agent::task::Task;
-use autoagents::core::agent::{AgentBuilder, DirectAgent};
 use autoagents::core::error::Error;
-use autoagents_burn::model::llama::TinyLlamaBuilder;
-use autoagents_derive::{agent, AgentHooks};
-use serde_json::Value;
-use tokio_stream::StreamExt;
+use autoagents::init_logging;
+use clap::{Parser, Subcommand};
 
-#[agent(name = "math_agent", description = "You are a Math agent")]
-#[derive(Default, Clone, AgentHooks)]
-pub struct MathAgent {}
+mod commands;
+use commands::{run_fromfile, run_pretrained};
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+#[command(name = "autoagents-burn-example")]
+#[command(about = "AutoAgents Burn example with TinyLlama model")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Run with local model files
+    FromFile {
+        /// Model type to use
+        #[arg(long, default_value = "tiny")]
+        model: Model,
+
+        /// Path to the model file
+        #[arg(
+            short,
+            long,
+            default_value = "./examples/burn/model/TinyLlama-1.1B/model.mpk"
+        )]
+        model_path: String,
+
+        /// Path to the tokenizer file
+        #[arg(
+            short,
+            long,
+            default_value = "./examples/burn/model/TinyLlama-1.1B/tokenizer.json"
+        )]
+        tokenizer_path: String,
+
+        /// Prompt to send to the agent
+        #[arg(short, long, default_value = "Tell me a poem?")]
+        prompt: String,
+    },
+    /// Run with pretrained model (downloads automatically)
+    Pretrained {
+        /// Model type to use
+        #[arg(long, default_value = "tiny")]
+        model: Model,
+
+        /// Prompt to send to the agent
+        #[arg(short, long, default_value = "Tell me a poem?")]
+        prompt: String,
+    },
+}
+
+#[derive(clap::ValueEnum, Clone, Debug)]
+enum Model {
+    /// TinyLlama-1.1B model
+    Tiny,
+    /// Llama3-2-3B model
+    Llama3,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // Build TinyLlama model
-    let llm = TinyLlamaBuilder::new()
-        .model_path("./examples/burn/model/TinyLlama-1.1B/model.mpk") // Path to your model file
-        .tokenizer_path("./examples/burn/model/TinyLlama-1.1B/tokenizer.json") // Path to your tokenizer file
-        .max_seq_len(512)
-        .temperature(0.7)
-        .max_tokens(256)
-        .build()
-        .expect("Failed to build LLM");
+    init_logging();
 
-    println!("Finished Model Loading!");
+    let cli = Cli::parse();
 
-    let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
-
-    let agent = BasicAgent::new(MathAgent {});
-    let agent_handle = AgentBuilder::<_, DirectAgent>::new(agent)
-        .llm(llm)
-        .memory(sliding_window_memory)
-        .build()
-        .await?;
-
-    println!("Running basic agent with direct run method");
-    let mut stream = agent_handle
-        .agent
-        .run_stream(Task::new("Tell me a poem?"))
-        .await?;
-
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(output) => {
-                println!("{}", format!("🌊 Streaming Response: {}", output));
-            }
-            _ => {
-                //
-            }
+    match cli.command {
+        Commands::FromFile {
+            model,
+            model_path,
+            tokenizer_path,
+            prompt,
+        } => {
+            run_fromfile(model, model_path, tokenizer_path, prompt).await?;
+        }
+        Commands::Pretrained { model, prompt } => {
+            run_pretrained(model, prompt).await?;
         }
     }
 

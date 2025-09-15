@@ -59,19 +59,27 @@ With our native WASM compilation support, You can depoloy the agent orchestratio
 
 AutoAgents supports a wide range of LLM providers, allowing you to choose the best fit for your use case:
 
-| Provider              | Status |
-|-----------------------|--------|
-| **LiquidEdge (ONNX)** | ✅      |
-| **OpenAI**            | ✅      |
-| **OpenRouter**        | ✅      |
-| **Anthropic**         | ✅      |
-| **Ollama**            | ✅      |
-| **DeepSeek**          | ✅      |
-| **xAI**               | ✅      |
-| **Phind**             | ✅      |
-| **Groq**              | ✅      |
-| **Google**            | ✅      |
-| **Azure OpenAI**      | ✅      |
+### Cloud Providers
+
+| Provider         | Status |
+|------------------|--------|
+| **OpenAI**       | ✅      |
+| **OpenRouter**   | ✅      |
+| **Anthropic**    | ✅      |
+| **DeepSeek**     | ✅      |
+| **xAI**          | ✅      |
+| **Phind**        | ✅      |
+| **Groq**         | ✅      |
+| **Google**       | ✅      |
+| **Azure OpenAI** | ✅      |
+
+### Local Providers
+
+| Provider   | Status |
+|------------|--------|
+| **Burn**   | ✅      |
+| **Onnx**   | ✅      |
+| **Ollama** | ✅      |
 
 *Provider support is actively expanding based on community needs.*
 
@@ -289,7 +297,8 @@ AutoAgents/
 │   ├── autoagents/     # Main library entry point
 │   ├── core/           # Core agent framework
 │   ├── llm/            # LLM provider implementations
-│   ├── liquid-edge/    # Edge Runtime Implementation
+│   ├── burn/           # LLM provider implementations using Burn
+│   ├── onnx-ort/       # Edge Runtime Implementation using Onnx (previous Liquid-edge)
 │   └── derive/         # Procedural macros
 ├── examples/           # Example implementations
 ```
@@ -313,7 +322,7 @@ For development setup instructions, see the [Installation](#-installation) secti
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run all tests --
 cargo test --all-features
 
 # Run tests with coverage (requires cargo-tarpaulin)

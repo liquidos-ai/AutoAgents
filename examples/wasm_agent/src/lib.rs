@@ -1,11 +1,13 @@
 #![allow(dead_code, unused_variables, unused_imports)]
 use wasm_bindgen::prelude::*;
 
+// Models available in WASM
 mod agent;
 pub mod phi_agent;
 pub mod phi_llm_provider;
 pub mod phi_provider;
 
+pub use agent::{LLamaChatWrapper, LlamaChatAgent};
 pub use phi_agent::{PhiAgentWrapper, PhiChatAgent};
 pub use phi_llm_provider::PhiLLMProvider;
 pub use phi_provider::PhiModel;

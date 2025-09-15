@@ -10,58 +10,67 @@ categories.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+# For now until stable release is used
+test = false
 
 [features]
-default = ["tiny"]
-import = ["burn-import/pytorch"]
+default = []
+
+# Backends
 ndarray = ["burn/ndarray"]
 webgpu = ["burn/webgpu"]
 cuda = ["burn/cuda", "burn/default"]
-pretrained = ["burn/network", "dep:dirs"]
-tiny = []
-llama3 = ["tiktoken-rs"]
+rocm = [
+    "burn/rocm",
+    "burn/default",
+]
+candle-metal = ["burn/candle", "burn/metal"]
+candle-cpu = ["burn/candle"]
 
+# Utils
+import = ["burn-import", "burn-import/pytorch"]
+pretrained = ["burn/network", "dep:dirs"]
+
+# Models
+tiny = ["dep:tokenizers"]
+llama3 = ["dep:tiktoken-rs", "dep:rustc-hash", "dep:base64"]
+
+# Test specific features
 test-non-default = []
 test-ndarray = ["burn/ndarray"]
 
 [dependencies]
 autoagents-llm.workspace = true
+
+# Burn Related Imports
 burn = { git = "https://github.com/tracel-ai/burn", features = [
     "std",
     "ndarray"
 ], default-features = false, rev = "c56f5ab2046c7dbc28e642c0a08624c4ec290106" }
-burn-common = { git = "https://github.com/tracel-ai/burn", features = [
-    "std",
-], default-features = false, rev = "c56f5ab2046c7dbc28e642c0a08624c4ec290106" }
 burn-import = { git = "https://github.com/tracel-ai/burn", optional = true, default-features = false, rev = "c56f5ab2046c7dbc28e642c0a08624c4ec290106" }
-
-serde = { version = "1.0.192", default-features = false, features = [
-    "derive",
-    "alloc",
-] }
-
-dirs = { workspace = true, optional = true }
-
 
 # Tiktoken tokenizer (llama 3)
 tiktoken-rs = { version = "0.7.0", optional = true }
-base64 = { version = "0.22" }
-rustc-hash = { version = "2.1.1" }
+base64 = { workspace = true, optional = true }
+rustc-hash = { version = "1.1.0", optional = true }
 
 # SentencePiece tokenizer (tiny llama / llama 2)
-tokenizers = { version = "0.22.0", default-features = false, features = [
+tokenizers = { version = "0.22.0", default-features = false, optional = true, features = [
     "unstable_wasm",
 ] }
 
 rand = { workspace = true }
 futures = { workspace = true }
-cfg-if = "1.0.3"
-wasm-bindgen-futures = "0.4.51"
+serde = { workspace = true, default-features = false, features = [
+    "derive",
+    "alloc",
+] }
+dirs = { workspace = true, optional = true }
+log = { workspace = true, features = ["std"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio-stream.workspace = true
 tokio = { workspace = true }
-
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"

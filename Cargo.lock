@@ -258,14 +258,13 @@ dependencies = [
  "autoagents-llm",
  "base64 0.22.1",
  "burn",
- "burn-common",
  "burn-import",
- "cfg-if",
  "dirs",
  "futures",
  "getrandom 0.3.3",
+ "log",
  "rand 0.9.2",
- "rustc-hash 2.1.1",
+ "rustc-hash 1.1.0",
  "serde",
  "tiktoken-rs",
  "tokenizers 0.22.0",
@@ -278,11 +277,12 @@ dependencies = [
 
 [[package]]
 name = "autoagents-burn-example"
-version = "0.2.3"
+version = "0.1.0"
 dependencies = [
  "autoagents",
  "autoagents-burn",
  "autoagents-derive",
+ "clap",
  "serde_json",
  "tokio",
  "tokio-stream",
@@ -336,11 +336,7 @@ dependencies = [
  "either",
  "futures",
  "getrandom 0.3.3",
- "liquid-edge",
  "log",
- "minijinja",
- "rand 0.9.2",
- "regex",
  "reqwest",
  "serde",
  "serde-wasm-bindgen",
@@ -349,10 +345,35 @@ dependencies = [
  "strum_macros 0.27.2",
  "tempfile",
  "thiserror 2.0.16",
- "tokenizers 0.22.0",
  "tokio",
  "tokio-stream",
  "ureq 3.1.0",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
+name = "autoagents-onnx"
+version = "0.2.3"
+dependencies = [
+ "async-trait",
+ "autoagents-llm",
+ "chrono",
+ "getrandom 0.3.3",
+ "log",
+ "minijinja",
+ "ndarray",
+ "num_cpus",
+ "ort",
+ "rand 0.9.2",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.16",
+ "tokenizers 0.22.0",
+ "tokio",
+ "tokio-test",
  "wasm-bindgen",
  "wasm-bindgen-futures",
 ]
@@ -495,9 +516,9 @@ version = "0.2.0-alpha.0"
 dependencies = [
  "autoagents",
  "autoagents-derive",
+ "autoagents-onnx",
  "clap",
  "colored",
- "liquid-edge",
  "serde",
  "serde_json",
  "tokio",
@@ -2324,6 +2345,7 @@ dependencies = [
  "cfg_aliases",
  "cubecl-common",
  "cubecl-core",
+ "cubecl-cpp",
  "cubecl-runtime",
  "derive-new",
  "derive_more",
@@ -4401,9 +4423,9 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "lebe"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03087c2bad5e1034e8cace5926dec053fb3790248370865f5117a7d0213354c8"
+checksum = "7a79a3332a6609480d7d0c9eab957bca6b455b91bb84e66d19f5ff66294b85b8"
 
 [[package]]
 name = "libbz2-rs-sys"
@@ -4506,28 +4528,6 @@ name = "linux-raw-sys"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd945864f07fe9f5371a27ad7b52a172b4b499999f1d97574c9fa68373937e12"
-
-[[package]]
-name = "liquid-edge"
-version = "0.2.3"
-dependencies = [
- "async-trait",
- "chrono",
- "getrandom 0.3.3",
- "log",
- "ndarray",
- "num_cpus",
- "ort",
- "rand 0.9.2",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.16",
- "tokio",
- "tokio-test",
- "wasm-bindgen",
- "wasm-bindgen-futures",
-]
 
 [[package]]
 name = "litemap"
@@ -5296,9 +5296,9 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "ordered-float"
-version = "4.6.0"
+version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bb71e1b3fa6ca1c61f383464aaf2bb0e2f8e772a1f01d486832464de363b951"
+checksum = "e2c1f9f56e534ac6a9b8a4600bdf0f530fb393b5f393e7b4d03489c3cf0c3f01"
 dependencies = [
  "num-traits",
 ]
@@ -6520,10 +6520,11 @@ checksum = "1bc711410fbe7399f390ca1c3b60ad0f53f80e95c5eb935e52268a0e2cd49acc"
 
 [[package]]
 name = "serde"
-version = "1.0.219"
+version = "1.0.223"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
+checksum = "a505d71960adde88e293da5cb5eda57093379f64e61cf77bf0e6a63af07a7bac"
 dependencies = [
+ "serde_core",
  "serde_derive",
 ]
 
@@ -6540,18 +6541,28 @@ dependencies = [
 
 [[package]]
 name = "serde_bytes"
-version = "0.11.17"
+version = "0.11.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8437fd221bde2d4ca316d61b90e337e9e702b3820b87d63caa9ba6c02bd06d96"
+checksum = "fe07b5d88710e3b807c16a06ccbc9dfecd5fff6a4d2745c59e3e26774f10de6a"
 dependencies = [
  "serde",
+ "serde_core",
+]
+
+[[package]]
+name = "serde_core"
+version = "1.0.223"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20f57cbd357666aa7b3ac84a90b4ea328f1d4ddb6772b430caa5d9e1309bb9e9"
+dependencies = [
+ "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.219"
+version = "1.0.223"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b0276cf7f2c73365f7157c8123c21cd9a50fbbd844757af28ca1f5925fc2a00"
+checksum = "3d428d07faf17e306e699ec1e91996e5a165ba5d6bce5b5155173e91a8a01a56"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6572,12 +6583,13 @@ dependencies = [
 
 [[package]]
 name = "serde_path_to_error"
-version = "0.1.17"
+version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59fab13f937fa393d08645bf3a84bdfe86e296747b506ada67bb15f10f218b2a"
+checksum = "a30a8abed938137c7183c173848e3c9b3517f5e038226849a4ecc9b21a4b4e2a"
 dependencies = [
  "itoa",
  "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -8185,7 +8197,7 @@ dependencies = [
 
 [[package]]
 name = "wasm_agent"
-version = "0.2.3"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-stream",

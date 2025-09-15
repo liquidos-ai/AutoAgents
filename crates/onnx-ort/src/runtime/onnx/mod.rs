@@ -1,4 +1,4 @@
-//! ONNX Runtime backend for liquid-edge inference
+//! ONNX Runtime backend for onnx inference
 
 use crate::error::{EdgeError, EdgeResult};
 use crate::runtime::{InferenceInput, InferenceOutput, RuntimeBackend};

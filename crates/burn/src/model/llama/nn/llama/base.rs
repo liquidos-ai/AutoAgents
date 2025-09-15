@@ -2,10 +2,14 @@ use std::time::Instant;
 
 use burn::{
     config::Config,
-    module::Module,
+    module::{Module, Quantizer},
     nn::RotaryEncodingConfig,
     record::{FileRecorder, HalfPrecisionSettings, RecorderError},
-    tensor::{backend::Backend, Device, Int, Shape, Tensor, TensorData},
+    tensor::{
+        backend::Backend,
+        quantization::{Calibration, QuantScheme},
+        Device, Int, Shape, Tensor, TensorData,
+    },
 };
 
 use super::super::super::{
@@ -33,6 +37,8 @@ pub enum LlamaVersion {
     #[default]
     /// Llama-3.2-1B-Instruct.
     Llama321bInstruct,
+    /// Llama-3.2-1B-Instruct 4-bit quantized with block size 32.
+    Llama321bInstructQ4FB32,
 }
 
 /// Tiny Llama model variants to load.
@@ -281,6 +287,122 @@ impl LlamaConfig {
         Ok(llama)
     }
 
+    /// Load pre-trained Llama-3-8B model from bytes for WASM targets.
+    #[cfg(all(feature = "llama3", target_arch = "wasm32"))]
+    pub fn load_llama3_8b_from_bytes<B: Backend>(
+        checkpoint_bytes: &[u8],
+        tokenizer_bytes: &[u8],
+        max_seq_len: usize,
+        device: &Device<B>,
+    ) -> Result<Llama<B, Tiktoken>, String> {
+        use crate::model::llama::nn::transformer::TransformerRecord;
+        use burn::record::{NamedMpkBytesRecorder, Recorder};
+
+        let tokenizer = Tiktoken::from_bytes(tokenizer_bytes)
+            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+
+        let llama = Self::llama3_8b("")
+            .with_max_seq_len(max_seq_len)
+            .init_with_tokenizer::<B, Tiktoken>(tokenizer, device)?;
+
+        let recorder = NamedMpkBytesRecorder::<HalfPrecisionSettings>::new();
+        let record: TransformerRecord<B> = recorder
+            .load(checkpoint_bytes.to_vec(), device)
+            .map_err(|err| format!("Failed to load pre-trained Llama model.\nError: {err}"))?;
+
+        let mut llama = llama;
+        llama.model = llama.model.load_record(record);
+
+        Ok(llama)
+    }
+
+    /// Load pre-trained Llama-3.1-8B model from bytes for WASM targets.
+    #[cfg(all(feature = "llama3", target_arch = "wasm32"))]
+    pub fn load_llama3_1_8b_from_bytes<B: Backend>(
+        checkpoint_bytes: &[u8],
+        tokenizer_bytes: &[u8],
+        max_seq_len: usize,
+        device: &Device<B>,
+    ) -> Result<Llama<B, Tiktoken>, String> {
+        use crate::model::llama::nn::transformer::TransformerRecord;
+        use burn::record::{NamedMpkBytesRecorder, Recorder};
+
+        let tokenizer = Tiktoken::from_bytes(tokenizer_bytes)
+            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+
+        let llama = Self::llama3_1_8b("")
+            .with_max_seq_len(max_seq_len)
+            .init_with_tokenizer::<B, Tiktoken>(tokenizer, device)?;
+
+        let recorder = NamedMpkBytesRecorder::<HalfPrecisionSettings>::new();
+        let record: TransformerRecord<B> = recorder
+            .load(checkpoint_bytes.to_vec(), device)
+            .map_err(|err| format!("Failed to load pre-trained Llama model.\nError: {err}"))?;
+
+        let mut llama = llama;
+        llama.model = llama.model.load_record(record);
+
+        Ok(llama)
+    }
+
+    /// Load pre-trained Llama-3.2-3B model from bytes for WASM targets.
+    #[cfg(all(feature = "llama3", target_arch = "wasm32"))]
+    pub fn load_llama3_2_3b_from_bytes<B: Backend>(
+        checkpoint_bytes: &[u8],
+        tokenizer_bytes: &[u8],
+        max_seq_len: usize,
+        device: &Device<B>,
+    ) -> Result<Llama<B, Tiktoken>, String> {
+        use crate::model::llama::nn::transformer::TransformerRecord;
+        use burn::record::{NamedMpkBytesRecorder, Recorder};
+
+        let tokenizer = Tiktoken::from_bytes(tokenizer_bytes)
+            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+
+        let llama = Self::llama3_2_3b("")
+            .with_max_seq_len(max_seq_len)
+            .init_with_tokenizer::<B, Tiktoken>(tokenizer, device)?;
+
+        let recorder = NamedMpkBytesRecorder::<HalfPrecisionSettings>::new();
+        let record: TransformerRecord<B> = recorder
+            .load(checkpoint_bytes.to_vec(), device)
+            .map_err(|err| format!("Failed to load pre-trained Llama model.\nError: {err}"))?;
+
+        let mut llama = llama;
+        llama.model = llama.model.load_record(record);
+
+        Ok(llama)
+    }
+
+    /// Load pre-trained Llama-3.2-1B model from bytes for WASM targets.
+    #[cfg(all(feature = "llama3", target_arch = "wasm32"))]
+    pub fn load_llama3_2_1b_from_bytes<B: Backend>(
+        checkpoint_bytes: &[u8],
+        tokenizer_bytes: &[u8],
+        max_seq_len: usize,
+        device: &Device<B>,
+    ) -> Result<Llama<B, Tiktoken>, String> {
+        use crate::model::llama::nn::transformer::TransformerRecord;
+        use burn::record::{NamedMpkBytesRecorder, Recorder};
+
+        let tokenizer = Tiktoken::from_bytes(tokenizer_bytes)
+            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+
+        let llama = Self::llama3_2_1b("")
+            .with_max_seq_len(max_seq_len)
+            .init_with_tokenizer::<B, Tiktoken>(tokenizer, device)?;
+
+        let recorder = NamedMpkBytesRecorder::<HalfPrecisionSettings>::new();
+        let record: TransformerRecord<B> = recorder
+            .load(checkpoint_bytes.to_vec(), device)
+            .map_err(|err| format!("Failed to load pre-trained Llama model.\nError: {err}"))?;
+
+        let mut llama = llama;
+        llama.model = llama.model.load_record(record);
+
+        Ok(llama)
+    }
+
     /// Initialize a new [Llama](Llama) module.
     pub fn init<B: Backend, T: Tokenizer>(
         &self,
@@ -387,5 +509,31 @@ impl<B: Backend, T: Tokenizer> Llama<B, T> {
     /// Reset the model state (used between generations)
     pub fn reset(&mut self) {
         self.cache.reset()
+    }
+
+    /// Quantize the model weights.
+    pub fn quantize(mut self, scheme: QuantScheme) -> Self {
+        let calibration = Calibration::MinMax;
+        let mut quantizer = Quantizer {
+            calibration,
+            scheme,
+        };
+        let device = &self.model.devices()[0];
+
+        // TODO: improve module mapper usage for quantization (currently, this leads to additional memory usage)
+        // self.model = self.model.quantize_weights(&mut quantizer);
+
+        // Quantizing by layer reduces the peak memory usage
+        let mut layers = Vec::with_capacity(self.model.layers.len());
+        for layer in self.model.layers.drain(..) {
+            layers.push(layer.quantize_weights(&mut quantizer));
+        }
+        self.model.layers = layers;
+        B::memory_cleanup(device);
+
+        self.model.tok_embeddings = self.model.tok_embeddings.quantize_weights(&mut quantizer);
+        self.model.output = self.model.output.quantize_weights(&mut quantizer);
+
+        self
     }
 }

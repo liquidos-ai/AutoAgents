@@ -1,5 +1,3 @@
-use crate::phi_llm_provider::PhiLLMProvider;
-use crate::phi_provider::PhiModel;
 use autoagents_core::agent::memory::SlidingWindowMemory;
 use autoagents_core::agent::task::Task;
 use autoagents_core::agent::{
@@ -15,58 +13,74 @@ use std::pin::Pin;
 // Removed unused tool imports
 use autoagents::async_trait;
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
-use autoagents_burn::model::llama::TinyLlamaBuilder;
+use autoagents_burn::model::llama::Llama3Builder;
 use autoagents_core::agent::prebuilt::executor::{BasicAgent, ReActAgent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
-/// A simple chat agent that uses the Phi model for text generation
+/// A simple chat agent that uses the Llama3 model for text generation
 #[agent(
-    name = "tiny_llama_chat_agent",
-    description = "A conversational chat agent powered by Phi-1.5 model"
+    name = "llama_chat_agent",
+    description = "A conversational chat agent powered by Llama3.2-1B-Instruct-Q4 model"
 )]
 #[derive(Default, Clone, AgentHooks)]
-pub struct TInyLLamaChatAgent {}
+pub struct LlamaChatAgent {}
 
 /// Agent wrapper that provides a simple interface for chat interactions
 #[wasm_bindgen]
-pub struct TInyLLamaChatWrapper {
-    agent: BaseAgent<BasicAgent<TInyLLamaChatAgent>, DirectAgent>,
+pub struct LLamaChatWrapper {
+    agent: BaseAgent<BasicAgent<LlamaChatAgent>, DirectAgent>,
 }
 
-impl TInyLLamaChatWrapper {
-    /// Create a new Phi agent with the given model (non-WASM)
-    pub async fn new() -> Result<TInyLLamaChatWrapper, JsError> {
-        let llm = TinyLlamaBuilder::new()
-            .with_model_bytes(vec![])
+impl LLamaChatWrapper {
+    /// Create a new Llama3 agent with the given model weights and tokenizer bytes
+    async fn create_internal(
+        weights: Vec<u8>,
+        tokenizer: Vec<u8>,
+    ) -> Result<LLamaChatWrapper, JsError> {
+        let llm = Llama3Builder::new()
+            .llama3_2_1b_q4()
+            .with_model_bytes(weights)
+            .with_tokenizer_bytes(tokenizer)
             .max_seq_len(512)
             .temperature(0.7)
             .max_tokens(256)
-            .build()
-            .expect("Failed to build LLM");
+            .build_from_bytes()
+            .map_err(|e| JsError::new(&format!("Failed to build LLM: {}", e)))?;
 
         let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
         let agent_handle =
-            AgentBuilder::<_, DirectAgent>::new(BasicAgent::new(TInyLLamaChatAgent::default()))
+            AgentBuilder::<_, DirectAgent>::new(BasicAgent::new(LlamaChatAgent::default()))
                 .llm(llm)
                 .memory(sliding_window_memory)
                 .build()
                 .await
                 .map_err(|e| JsError::new(&e.to_string()))?;
 
-        println!("Finished Model Loading!");
+        println!("Finished Llama3 Model Loading!");
 
-        Ok(TInyLLamaChatWrapper {
+        Ok(LLamaChatWrapper {
             agent: agent_handle.agent,
         })
     }
 }
 
 #[wasm_bindgen]
-impl TInyLLamaChatWrapper {
+impl LLamaChatWrapper {
+    /// Create a new Llama3 agent with the given model weights and tokenizer bytes
+    #[wasm_bindgen]
+    pub async fn create(
+        weights: js_sys::Uint8Array,
+        tokenizer: js_sys::Uint8Array,
+    ) -> Result<LLamaChatWrapper, JsError> {
+        let weights_vec = weights.to_vec();
+        let tokenizer_vec = tokenizer.to_vec();
+        Self::create_internal(weights_vec, tokenizer_vec).await
+    }
+
     /// Get a streaming response as individual tokens using LLM provider streaming
     pub async fn get_response_stream(
         &self,

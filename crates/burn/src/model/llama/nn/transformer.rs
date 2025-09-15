@@ -74,11 +74,11 @@ impl TransformerConfig {
 /// Llama decoder-only transformer.
 #[derive(Module, Debug)]
 pub struct Transformer<B: Backend> {
-    tok_embeddings: Embedding<B>,
-    layers: Vec<TransformerBlock<B>>,
-    norm: RmsNorm<B>,
+    pub(crate) tok_embeddings: Embedding<B>,
+    pub(crate) layers: Vec<TransformerBlock<B>>,
+    pub(crate) norm: RmsNorm<B>,
     // NOTE: Starting with Llama 3.2, the weights of the output layer are tied with the embedding
-    output: Linear<B>,
+    pub(crate) output: Linear<B>,
 }
 
 #[derive(Clone, Debug)]

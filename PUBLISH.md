@@ -14,13 +14,13 @@ cargo publish
 ```
 
 ```shell
-cd ../liquid-edge
+cd ../llm
 cargo publish --dry-run
 cargo publish
 ```
 
 ```shell
-cd ../llm
+cd ../onnx-ort
 cargo publish --dry-run
 cargo publish
 ```

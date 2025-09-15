@@ -1,6 +1,6 @@
 use crate::backend::burn_backend_types::InferenceBackend;
 use crate::model::llama::generation::{stream_sender, Sampler, TopP};
-use crate::model::llama::tokenizer::SentencePieceTokenizer;
+use crate::model::llama::tokenizer::Tokenizer;
 use crate::model::llama::Llama;
 use crate::utils::{receiver_into_stream, spawn_future, CustomMutex, Rx, Tx};
 use autoagents_llm::chat::{
@@ -20,8 +20,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 /// Llama model wrapper for LLM provider
-pub struct LlamaChat<B: Backend> {
-    pub(crate) llama: Arc<CustomMutex<Llama<InferenceBackend, SentencePieceTokenizer>>>,
+pub struct LlamaChat<B: Backend, T: Tokenizer> {
+    pub(crate) llama: Arc<CustomMutex<Llama<InferenceBackend, T>>>,
     pub(crate) config: GenerationConfig,
     pub(crate) marker: PhantomData<B>,
 }
@@ -46,7 +46,7 @@ impl Default for GenerationConfig {
 }
 
 #[async_trait]
-impl<B: Backend> CompletionProvider for LlamaChat<B> {
+impl<B: Backend, T: Tokenizer> CompletionProvider for LlamaChat<B, T> {
     async fn complete(
         &self,
         req: &CompletionRequest,
@@ -81,7 +81,7 @@ impl<B: Backend> CompletionProvider for LlamaChat<B> {
 }
 
 #[async_trait]
-impl<B: Backend> ChatProvider for LlamaChat<B> {
+impl<B: Backend, T: Tokenizer> ChatProvider for LlamaChat<B, T> {
     async fn chat(
         &self,
         messages: &[ChatMessage],
@@ -272,7 +272,7 @@ impl std::fmt::Display for SimpleChatResponse {
 }
 
 #[async_trait]
-impl<B: Backend> EmbeddingProvider for LlamaChat<B> {
+impl<B: Backend, T: Tokenizer> EmbeddingProvider for LlamaChat<B, T> {
     async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
         Err(LLMError::Generic(
             "Embeddings not implemented for TinyLlama".to_string(),
@@ -280,6 +280,6 @@ impl<B: Backend> EmbeddingProvider for LlamaChat<B> {
     }
 }
 
-impl<B: Backend> ModelsProvider for LlamaChat<B> {}
+impl<B: Backend, T: Tokenizer> ModelsProvider for LlamaChat<B, T> {}
 
-impl<B: Backend> LLMProvider for LlamaChat<B> {}
+impl<B: Backend, T: Tokenizer> LLMProvider for LlamaChat<B, T> {}

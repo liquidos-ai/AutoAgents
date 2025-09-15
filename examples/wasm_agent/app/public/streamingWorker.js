@@ -1,6 +1,6 @@
-// Phi-1.5 WASM Worker with AutoAgents integration
+// Phi and Llama WASM Worker with AutoAgents integration
 console.log('Worker: Starting to import WASM modules...');
-import init, {PhiModel, PhiAgentWrapper} from "./pkg/wasm_agent.js";
+import init, {LLamaChatWrapper, PhiModel, PhiAgentWrapper} from "./pkg/wasm_agent.js";
 
 console.log('Worker: WASM modules imported successfully');
 
@@ -12,6 +12,11 @@ let currentAgent = null;
 const initializeWASM = async () => {
     try {
         console.log('Worker initialization started');
+
+        // Test cache API during initialization
+        console.log('Testing cache API during worker initialization...');
+        isCacheAvailable();
+
         await init();
         wasmInitialized = true;
         console.log('WASM initialized in worker successfully');
@@ -22,27 +27,59 @@ const initializeWASM = async () => {
     }
 };
 
+// Check if cache API is available
+const isCacheAvailable = () => {
+    try {
+        console.log('Checking cache API availability:');
+        console.log('- typeof caches:', typeof caches);
+        console.log('- caches:', caches);
+        console.log('- caches !== null:', caches !== null);
+        console.log('- typeof caches.open:', typeof caches?.open);
+
+        const result = typeof caches !== 'undefined' &&
+                      caches !== null &&
+                      typeof caches.open === 'function';
+
+        console.log('- Final cache available result:', result);
+        return result;
+    } catch (e) {
+        console.warn('Cache API check failed:', e);
+        return false;
+    }
+};
+
 // Download a file with caching and progress tracking
 const downloadFile = async (url, description) => {
-    const cacheName = "phi-model-cache";
+    const cacheName = "wasm-model-cache";
+    const cacheAvailable = isCacheAvailable();
+
+    console.log('Cache API available:', cacheAvailable);
 
     try {
-        // Try to get from cache first
-        const cache = await caches.open(cacheName);
-        const cachedResponse = await cache.match(url);
+        // Try to get from cache first (if cache API is available)
+        if (cacheAvailable) {
+            try {
+                const cache = await caches.open(cacheName);
+                const cachedResponse = await cache.match(url);
 
-        if (cachedResponse) {
-            console.log(`Loading ${description} from cache:`, url);
-            self.postMessage({type: 'loading_progress', message: `Loading ${description} from cache...`});
+                if (cachedResponse) {
+                    console.log(`Loading ${description} from cache:`, url);
+                    self.postMessage({type: 'loading_progress', message: `Loading ${description} from cache...`});
 
-            if (cachedResponse.ok) {
-                const data = await cachedResponse.arrayBuffer();
-                console.log(`Cached ${description} size:`, data.byteLength);
-                return data;
-            } else {
-                console.warn('Cached response not ok, removing from cache:', url);
-                await cache.delete(url);
+                    if (cachedResponse.ok) {
+                        const data = await cachedResponse.arrayBuffer();
+                        console.log(`Cached ${description} size:`, data.byteLength);
+                        return data;
+                    } else {
+                        console.warn('Cached response not ok, removing from cache:', url);
+                        await cache.delete(url);
+                    }
+                }
+            } catch (cacheError) {
+                console.warn('Cache API error, falling back to direct download:', cacheError);
             }
+        } else {
+            console.log('Cache API not available, downloading directly');
         }
 
         // Download if not in cache
@@ -97,20 +134,25 @@ const downloadFile = async (url, description) => {
 
         console.log(`Downloaded ${description}: ${result.length} bytes`);
 
-        // Cache the successful response
-        try {
-            const responseForCache = new Response(result.buffer, {
-                status: 200,
-                statusText: 'OK',
-                headers: new Headers({
-                    'Content-Type': 'application/octet-stream',
-                    'Content-Length': result.length.toString()
-                })
-            });
-            await cache.put(url, responseForCache);
-            console.log(`Cached ${description} successfully`);
-        } catch (cacheError) {
-            console.warn(`Failed to cache ${description}:`, cacheError);
+        // Cache the successful response (if cache API is available)
+        if (cacheAvailable) {
+            try {
+                const cache = await caches.open(cacheName);
+                const responseForCache = new Response(result.buffer, {
+                    status: 200,
+                    statusText: 'OK',
+                    headers: new Headers({
+                        'Content-Type': 'application/octet-stream',
+                        'Content-Length': result.length.toString()
+                    })
+                });
+                await cache.put(url, responseForCache);
+                console.log(`Cached ${description} successfully`);
+            } catch (cacheError) {
+                console.warn(`Failed to cache ${description}:`, cacheError);
+            }
+        } else {
+            console.log('Cache API not available, skipping cache storage');
         }
 
         return result.buffer;
@@ -121,45 +163,74 @@ const downloadFile = async (url, description) => {
     }
 };
 
-// Load Phi model
+// Load model (Phi or Llama)
 const loadModel = async (modelConfig) => {
     try {
-        console.log('Loading Phi model in worker:', modelConfig);
-        self.postMessage({type: 'loading_progress', message: 'Starting Phi model load...'});
+        const modelType = modelConfig.modelType;
+        console.log(`Loading ${modelType} model in worker:`, modelConfig);
+        self.postMessage({type: 'loading_progress', message: `Starting ${modelType} model load...`});
 
-        // Download Phi model files
+        // Download model files
         const weightsUrl = `${modelConfig.base_url}${modelConfig.model}`;
         const tokenizerUrl = `${modelConfig.base_url}${modelConfig.tokenizer}`;
-        const configUrl = `${modelConfig.base_url}${modelConfig.config}`;
 
-        const [weightsBuffer, tokenizerBuffer, configBuffer] = await Promise.all([
-            downloadFile(weightsUrl, 'Phi model weights'),
-            downloadFile(tokenizerUrl, 'Phi tokenizer'),
-            downloadFile(configUrl, 'Phi config')
-        ]);
+        let weightsBuffer, tokenizerBuffer, configBuffer;
+
+        if (modelType === 'phi') {
+            // Phi needs config file as well
+            const configUrl = `${modelConfig.base_url}${modelConfig.config}`;
+            [weightsBuffer, tokenizerBuffer, configBuffer] = await Promise.all([
+                downloadFile(weightsUrl, `${modelType} model weights`),
+                downloadFile(tokenizerUrl, `${modelType} tokenizer`),
+                downloadFile(configUrl, `${modelType} config`)
+            ]);
+        } else {
+            // Llama doesn't need config file
+            [weightsBuffer, tokenizerBuffer] = await Promise.all([
+                downloadFile(weightsUrl, `${modelType} model weights`),
+                downloadFile(tokenizerUrl, `${modelType} tokenizer`)
+            ]);
+        }
 
         const weightsArray = new Uint8Array(weightsBuffer);
         const tokenizerArray = new Uint8Array(tokenizerBuffer);
-        const configArray = new Uint8Array(configBuffer);
+        const configArray = configBuffer ? new Uint8Array(configBuffer) : null;
 
-        console.log('Initializing Phi model with weights:', weightsArray.length, 'tokenizer:', tokenizerArray.length, 'config:', configArray.length);
-        self.postMessage({type: 'loading_progress', message: 'Initializing Phi model...'});
+        console.log(`Initializing ${modelType} model with weights:`, weightsArray.length, 'tokenizer:', tokenizerArray.length);
+        if (configArray) {
+            console.log('Config:', configArray.length);
+        }
+        self.postMessage({type: 'loading_progress', message: `Initializing ${modelType} model...`});
 
-        const isQuantized = modelConfig.quantized || false;
-        currentModel = new PhiModel(weightsArray, tokenizerArray, configArray, isQuantized);
+        console.log(`Creating ${modelType} agent wrapper...`);
+        self.postMessage({type: 'loading_progress', message: `Creating ${modelType} agent wrapper...`});
 
-        console.log('Creating agent wrapper...');
-        self.postMessage({type: 'loading_progress', message: 'Creating agent wrapper...'});
-
-        // Create agent from the model
+        // Create agent based on model type
         try {
-            currentAgent = await PhiAgentWrapper.from_phi_model(currentModel);
+            if (modelType === 'phi') {
+                // Create Phi model and agent
+                // PhiModel.load expects: weights, tokenizer, config, quantized
+                const phiModel = await PhiModel.load(
+                    weightsArray,
+                    tokenizerArray,
+                    configArray,
+                    modelConfig.quantized
+                );
+                currentAgent = await PhiAgentWrapper.from_phi_model(phiModel);
+                console.log('Phi agent loaded successfully');
+            } else if (modelType === 'llama3') {
+                // Create Llama agent
+                currentAgent = await LLamaChatWrapper.create(weightsArray, tokenizerArray);
+                console.log('Llama3 agent loaded successfully');
+            } else {
+                throw new Error(`Unknown model type: ${modelType}`);
+            }
         } catch (error) {
-            console.error('Failed to create agent wrapper:', error);
+            console.error(`Failed to create ${modelType} agent wrapper:`, error);
             throw error;
         }
 
-        console.log('Phi agent loaded successfully');
+        console.log(`${modelType} agent loaded successfully`);
         self.postMessage({type: 'model_loaded'});
         return true;
 
@@ -181,7 +252,7 @@ const generateResponse = async (data) => {
         const {prompt, image} = data;
         console.log(`Starting generation for prompt: ${prompt}`);
 
-        // Check if image was provided (Phi doesn't support images)
+        // Check if image was provided (neither Phi nor Llama3 support images in text mode)
         if (image && image.data) {
             const response = "I'm a text generation model and can't analyze images. Please ask me text-based questions!";
             const words = response.split(' ');
@@ -193,7 +264,7 @@ const generateResponse = async (data) => {
             return;
         }
 
-        console.log('Getting real-time streaming response from Phi agent...');
+        console.log('Getting real-time streaming response from agent...');
         let startTime = performance.now();
         let tokenCount = 0;
 
@@ -237,8 +308,17 @@ const generateResponse = async (data) => {
 
 // Cache management functions
 const checkCacheStatus = async () => {
+    const cacheAvailable = isCacheAvailable();
+
+    console.log('checkCacheStatus - Cache API available:', cacheAvailable);
+
+    if (!cacheAvailable) {
+        self.postMessage({type: 'cache_status', status: "Cache API not available"});
+        return;
+    }
+
     try {
-        const cacheName = "phi-model-cache";
+        const cacheName = "wasm-model-cache";
         const cache = await caches.open(cacheName);
         const keys = await cache.keys();
 
@@ -260,8 +340,17 @@ const checkCacheStatus = async () => {
 };
 
 const clearCache = async () => {
+    const cacheAvailable = isCacheAvailable();
+
+    console.log('clearCache - Cache API available:', cacheAvailable);
+
+    if (!cacheAvailable) {
+        self.postMessage({type: 'cache_status', status: "Cache API not available"});
+        return;
+    }
+
     try {
-        const cacheName = "phi-model-cache";
+        const cacheName = "wasm-model-cache";
         const cache = await caches.open(cacheName);
         const keys = await cache.keys();
         await Promise.all(keys.map(key => cache.delete(key)));
@@ -309,4 +398,4 @@ self.onmessage = async (event) => {
     }
 };
 
-console.log('Phi WASM worker initialized');
+console.log('WASM worker initialized for Phi and Llama models');

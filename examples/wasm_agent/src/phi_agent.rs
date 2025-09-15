@@ -15,7 +15,6 @@ use std::pin::Pin;
 // Removed unused tool imports
 use autoagents::async_trait;
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
-use autoagents_burn::model::llama::TinyLlamaBuilder;
 use autoagents_core::agent::prebuilt::executor::{BasicAgent, ReActAgent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

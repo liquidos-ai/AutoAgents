@@ -1,25 +1,29 @@
 [package]
 name = "autoagents-burn-example"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description.workspace = true
-repository.workspace = true
-keywords.workspace = true
-categories.workspace = true
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "autoagents-burn-example"
+path = "src/main.rs"
+test = false
 
 [dependencies]
 autoagents-derive.workspace = true
 autoagents = { workspace = true, features = [] }
 autoagents-burn = { workspace = true, default-features = false, features = [
     "tiny",
-    "cuda"
+    "llama3",
+    "cuda",
+    "pretrained"
 ] }
+clap = { workspace = true }
 serde_json = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio-stream.workspace = true
-tokio = { workspace = true, version = "1.47.1", features = [
+tokio = { workspace = true, features = [
     "rt",
     "rt-multi-thread",
     "macros",

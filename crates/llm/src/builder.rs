@@ -99,23 +99,17 @@ pub struct LLMBuilder<L: LLMProvider> {
     /// Base URL for API requests (primarily for self-hosted instances)
     pub(crate) base_url: Option<String>,
     /// Model identifier/name to use
-    pub(crate) model: Option<String>,
-    /// Model abstraction for edge inference backends
-    #[cfg(feature = "liquid_edge")]
-    pub(crate) edge_model: Option<Box<dyn liquid_edge::Model>>,
-    /// Device for edge inference backends
-    #[cfg(feature = "liquid_edge")]
-    pub(crate) edge_device: Option<liquid_edge::Device>,
+    pub model: Option<String>,
     /// Maximum tokens to generate in responses
-    pub(crate) max_tokens: Option<u32>,
+    pub max_tokens: Option<u32>,
     /// Temperature parameter for controlling response randomness (0.0-1.0)
-    pub(crate) temperature: Option<f32>,
+    pub temperature: Option<f32>,
     /// System prompt/context to guide model behavior
-    pub(crate) system: Option<String>,
+    pub system: Option<String>,
     /// Request timeout duration in seconds
     pub(crate) timeout_seconds: Option<u64>,
     /// Top-p (nucleus) sampling parameter
-    pub(crate) top_p: Option<f32>,
+    pub top_p: Option<f32>,
     /// Top-k sampling parameter
     pub(crate) top_k: Option<u32>,
     /// Format specification for embedding outputs
@@ -155,10 +149,6 @@ impl<L: LLMProvider> Default for LLMBuilder<L> {
             api_key: None,
             base_url: None,
             model: None,
-            #[cfg(feature = "liquid_edge")]
-            edge_model: None,
-            #[cfg(feature = "liquid_edge")]
-            edge_device: None,
             max_tokens: None,
             temperature: None,
             system: None,
@@ -203,21 +193,6 @@ impl<L: LLMProvider> LLMBuilder<L> {
     /// Sets the model identifier to use.
     pub fn model(mut self, model: impl Into<String>) -> Self {
         self.model = Some(model.into());
-        self
-    }
-
-    /// Sets the edge model for local inference backends.
-    /// This method accepts any type that implements the Model trait.
-    #[cfg(feature = "liquid_edge")]
-    pub fn with_model<M: liquid_edge::Model + 'static>(mut self, model: M) -> Self {
-        self.edge_model = Some(Box::new(model));
-        self
-    }
-
-    /// Sets the device for edge inference backends.
-    #[cfg(feature = "liquid_edge")]
-    pub fn with_device(mut self, device: liquid_edge::Device) -> Self {
-        self.edge_device = Some(device);
         self
     }
 
