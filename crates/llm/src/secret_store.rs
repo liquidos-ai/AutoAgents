@@ -612,11 +612,11 @@ mod tests {
             self.secrets.contains_key(key)
         }
 
-        fn keys(&self) -> std::collections::hash_map::Keys<String, String> {
+        fn keys(&self) -> std::collections::hash_map::Keys<'_, String, String> {
             self.secrets.keys()
         }
 
-        fn values(&self) -> std::collections::hash_map::Values<String, String> {
+        fn values(&self) -> std::collections::hash_map::Values<'_, String, String> {
             self.secrets.values()
         }
 

@@ -87,7 +87,6 @@ pub mod burn_backend_types {
     pub const NAME: &str = "metal";
 }
 
-
 #[cfg(all(
     feature = "cuda",
     not(feature = "ndarray"),
