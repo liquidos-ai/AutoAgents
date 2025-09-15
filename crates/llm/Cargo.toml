@@ -21,7 +21,6 @@ full = [
     "groq",
     "azure_openai",
     "openrouter",
-    "liquid_edge",
 ]
 openai = []
 anthropic = []
@@ -33,10 +32,8 @@ google = []
 groq = []
 azure_openai = []
 openrouter = []
-liquid_edge = ["dep:liquid-edge", "dep:tokenizers", "dep:rand", "dep:minijinja"]
 
 [dependencies]
-liquid-edge = { workspace = true, optional = true, features = ["default"] }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -46,10 +43,6 @@ thiserror = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }
 chrono = { workspace = true }
-tokenizers = { workspace = true, optional = true }
-rand = { workspace = true, optional = true }
-minijinja = { workspace = true, optional = true }
-regex = { workspace = true }
 base64 = { workspace = true }
 either = { workspace = true }
 

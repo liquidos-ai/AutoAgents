@@ -1,11 +1,11 @@
-//! Error types for liquid-edge runtime
+//! Error types for autoagents-onnx runtime
 
 use thiserror::Error;
 
-/// Result type for liquid-edge operations
+/// Result type for autoagents-onnx operations
 pub type EdgeResult<T> = Result<T, EdgeError>;
 
-/// Main error type for liquid-edge runtime
+/// Main error type for autoagents-onnx runtime
 #[derive(Error, Debug)]
 pub enum EdgeError {
     #[error("Model error: {0}")]

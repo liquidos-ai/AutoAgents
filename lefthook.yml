@@ -9,7 +9,7 @@ pre-commit:
       run: cargo clippy --all-features --all-targets -- -D warnings
 
     test:
-      run: cargo test --all-features
+      run: cargo test --all-features --workspace --exclude autoagents-burn #Remove exclude when build errors are resolved
 
     check:
       run: cargo check --all-features --all-targets

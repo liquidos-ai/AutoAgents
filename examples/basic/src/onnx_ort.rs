@@ -10,13 +10,12 @@ use autoagents::core::protocol::Event;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::core::utils::BoxEventStream;
-use autoagents::llm::backends::liquid_edge::LiquidEdge;
-use autoagents::llm::builder::LLMBuilder;
 use autoagents_derive::{agent, tool, AgentHooks, ToolInput};
+use autoagents_onnx::chat::{LiquidEdgeBuilder, OnnxEdge};
+use autoagents_onnx::cpu;
+use autoagents_onnx::device::cuda_default;
+use autoagents_onnx::runtime::onnx::onnx_model;
 use colored::*;
-use liquid_edge::cpu;
-use liquid_edge::device::cuda_default;
-use liquid_edge::runtime::onnx::onnx_model;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
@@ -56,7 +55,7 @@ impl ToolRuntime for Addition {
 pub struct ChatAgent {}
 
 pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
-    println!("🚀 Liquid Edge Local AI Example");
+    println!("🚀 Onnx ORT Edge Local AI Example");
 
     // Create ONNX model abstraction
     let model_path = Path::new("./demo_models/tinyllama");
@@ -77,12 +76,13 @@ pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
         EdgeDevice::CPU => cpu(),
         EdgeDevice::CUDA => cuda_default(),
     };
-    println!("🔧 Using device: {}", device);
+
+    println!("Using Device: {device}");
 
     // Initialize and configure the LLM client with device
-    let llm: Arc<LiquidEdge> = LLMBuilder::<LiquidEdge>::new()
-        .with_model(model)
-        .with_device(device)
+    let llm: Arc<OnnxEdge> = LiquidEdgeBuilder::new()
+        .model(Box::new(model))
+        .device(device)
         .max_tokens(100) // Limit response length for faster testing
         .temperature(0.7) // Control response randomness (0.0-1.0)
         .build()

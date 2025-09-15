@@ -45,6 +45,9 @@ pub mod models;
 
 pub mod providers;
 
+//Re-export for convenience
+pub use async_trait::async_trait;
+
 /// Core trait that all LLM providers must implement, combining chat, completion
 /// and embedding capabilities into a unified interface
 pub trait LLMProvider:

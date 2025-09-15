@@ -6,7 +6,6 @@ use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::ReActAgent;
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, DirectAgent};
-use autoagents::core::tool::ToolT;
 use autoagents::llm::{
     backends::openai::OpenAI,
     builder::LLMBuilder,

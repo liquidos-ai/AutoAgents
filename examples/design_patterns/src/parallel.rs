@@ -8,7 +8,6 @@ use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::protocol::{Event, SubmissionId};
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
-use autoagents::core::tool::ToolT;
 use autoagents::core::utils::BoxEventStream;
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, AgentHooks};

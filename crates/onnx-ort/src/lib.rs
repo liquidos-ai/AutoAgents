@@ -8,6 +8,8 @@ pub mod error;
 pub mod model;
 pub mod runtime;
 
+pub mod chat;
+
 // Re-exports
 pub use device::{cpu, cpu_with_threads, cuda, cuda_default, Device};
 

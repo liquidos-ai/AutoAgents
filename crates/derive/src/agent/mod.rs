@@ -153,10 +153,10 @@ impl AgentParser {
                     #agent_description
                 }
 
-                fn tools(&self) -> Vec<Box<dyn ToolT>> {
+                fn tools(&self) -> Vec<Box<dyn autoagents::core::tool::ToolT>> {
                     vec![
                         #(
-                            Box::new(#tool_idents{}) as Box<dyn ToolT>
+                            Box::new(#tool_idents{}) as Box<dyn autoagents::core::tool::ToolT>
                         ),*
                     ]
                 }
