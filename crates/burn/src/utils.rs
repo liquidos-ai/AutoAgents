@@ -1,11 +1,11 @@
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use std::pin::Pin;
 
 // -----------------------------
 // Channel aliases
 // -----------------------------
 #[cfg(not(target_arch = "wasm32"))]
-pub use tokio::sync::mpsc::{channel, Receiver, Sender};
+pub use tokio::sync::mpsc::Receiver;
 
 #[cfg(target_arch = "wasm32")]
 pub use futures::channel::mpsc::{channel, Receiver, Sender};
@@ -52,16 +52,9 @@ where
 }
 
 // Platform-specific imports
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use autoagents_llm::chat::StreamResponse;
-use autoagents_llm::error::LLMError;
 #[cfg(target_arch = "wasm32")]
-use futures::channel::mpsc::{unbounded as unbounded_channel, UnboundedReceiver, UnboundedSender};
-
-pub type Tx = Sender<Result<StreamResponse, LLMError>>;
-pub type Rx = Receiver<Result<StreamResponse, LLMError>>;
+use futures::channel::mpsc::unbounded as unbounded_channel;
 
 #[cfg(target_arch = "wasm32")]
 pub type CustomMutex<T> = futures::lock::Mutex<T>;

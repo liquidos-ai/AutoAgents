@@ -21,7 +21,7 @@ pub enum Llama3Model {
     /// Llama-3.2-1B-Instruct model
     Llama3_2_1B,
     /// Llama-3.2-1B-Instruct quantized model
-    Llama3_2_1B_Q4,
+    Llama3_2_1bQ4,
 }
 
 impl Default for Llama3Model {
@@ -130,7 +130,7 @@ impl Llama3Builder {
 
     /// Convenience method to set Llama-3.2-1B quantized model
     pub fn llama3_2_1b_q4(mut self) -> Self {
-        self.config.model_variant = Llama3Model::Llama3_2_1B_Q4;
+        self.config.model_variant = Llama3Model::Llama3_2_1bQ4;
         self
     }
 
@@ -142,18 +142,18 @@ impl Llama3Builder {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_model_bytes(mut self, _bytes: Vec<u8>) -> Self {
+    pub fn with_model_bytes(self, _bytes: Vec<u8>) -> Self {
         panic!("Model bytes is supported only in wasm32");
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn with_tokenizer_bytes(mut self, bytes: Vec<u8>) -> Self {
+    pub fn with_tokenizer_bytes(self, bytes: Vec<u8>) -> Self {
         self.config.tokenizer_bytes = Some(bytes);
         self
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_tokenizer_bytes(mut self, _bytes: Vec<u8>) -> Self {
+    pub fn with_tokenizer_bytes(self, _bytes: Vec<u8>) -> Self {
         panic!("Tokenizer bytes is supported only in wasm32");
     }
 
@@ -191,7 +191,7 @@ impl Llama3Builder {
             Llama3Model::Llama3_2_1B => {
                 LlamaConfig::llama3_2_1b_pretrained::<InferenceBackend>(max_seq_len, &device)
             }
-            Llama3Model::Llama3_2_1B_Q4 => {
+            Llama3Model::Llama3_2_1bQ4 => {
                 LlamaConfig::llama3_2_1b_pretrained_q4::<InferenceBackend>(max_seq_len, &device)
             }
         })
@@ -265,7 +265,7 @@ impl Llama3Builder {
                 &device,
             )
             .map_err(|e| LLMError::Generic(format!("Failed to load Llama3.2-1B model: {}", e)))?,
-            Llama3Model::Llama3_2_1B_Q4 => {
+            Llama3Model::Llama3_2_1bQ4 => {
                 // For quantized model, use the same loader as the 1B model
                 // The quantization is handled in the model files themselves
                 LlamaConfig::load_llama3_2_1b::<InferenceBackend>(
@@ -354,7 +354,7 @@ impl Llama3Builder {
                         LLMError::Generic(format!("Failed to load Llama3.2-1B from bytes: {}", e))
                     })?
                 }
-                Llama3Model::Llama3_2_1B_Q4 => LlamaConfig::load_llama3_2_1b_from_bytes::<
+                Llama3Model::Llama3_2_1bQ4 => LlamaConfig::load_llama3_2_1b_from_bytes::<
                     InferenceBackend,
                 >(
                     &model_bytes,

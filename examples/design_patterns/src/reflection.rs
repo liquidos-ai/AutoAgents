@@ -7,7 +7,6 @@ use autoagents::core::agent::{ActorAgent, AgentBuilder, AgentHooks, Context};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
-use autoagents::core::tool::ToolT;
 use autoagents::llm::LLMProvider;
 use autoagents_derive::agent;
 use serde_json::Value;

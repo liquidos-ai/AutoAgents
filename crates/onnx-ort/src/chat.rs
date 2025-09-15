@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use autoagents_llm::chat::Tool;
 use autoagents_llm::models::{ModelListRequest, ModelListResponse};
 use autoagents_llm::{
-    builder::LLMBuilder,
     chat::{
         ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StructuredOutputFormat,
     },

@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Common Commands
 
 ### Building and Testing
+
 ```bash
 # Build entire workspace
 cargo build --release
@@ -26,6 +27,7 @@ cargo run --package wasm-runner
 ```
 
 ### Code Quality (Automated via LeftHook)
+
 ```bash
 # Format code
 cargo fmt
@@ -44,6 +46,7 @@ lefthook run pre-commit
 ```
 
 ### Running Single Tests
+
 ```bash
 # Run specific test by name
 cargo test test_name --all-features
@@ -61,35 +64,45 @@ AutoAgents is a multi-agent framework built in Rust using a modular workspace ar
 
 ### Core Components
 
-**Agent System**: The framework uses a trait-based agent system where agents implement `AgentDeriveT` and can be enhanced with executors like `ReActExecutor`. Agents are built using `AgentBuilder` and can have structured outputs via `AgentOutputT`.
+**Agent System**: The framework uses a trait-based agent system where agents implement `AgentDeriveT` and can be
+enhanced with executors like `ReActExecutor`. Agents are built using `AgentBuilder` and can have structured outputs via
+`AgentOutputT`.
 
-**Runtime Management**: The system uses a `Runtime` trait with implementations like `SingleThreadedRuntime`. Runtimes manage agent lifecycle, message passing, and event handling through pub/sub topics.
+**Runtime Management**: The system uses a `Runtime` trait with implementations like `SingleThreadedRuntime`. Runtimes
+manage agent lifecycle, message passing, and event handling through pub/sub topics.
 
-**Environment**: The `Environment` struct orchestrates multiple runtimes and provides the execution context. It manages the working directory and coordinates between different runtime instances.
+**Environment**: The `Environment` struct orchestrates multiple runtimes and provides the execution context. It manages
+the working directory and coordinates between different runtime instances.
 
-**Memory Systems**: Pluggable memory providers implementing `MemoryProvider` trait, with `SlidingWindowMemory` as the default implementation for conversation history management.
+**Memory Systems**: Pluggable memory providers implementing `MemoryProvider` trait, with `SlidingWindowMemory` as the
+default implementation for conversation history management.
 
-**Tool System**: Tools implement the `ToolT` trait and can be executed in different contexts, including WebAssembly runtimes for sandboxed execution. Tools are integrated via derive macros.
+**Tool System**: Tools implement the `ToolT` trait and can be executed in different contexts, including WebAssembly
+runtimes for sandboxed execution. Tools are integrated via derive macros.
 
-**LLM Integration**: Provider-agnostic LLM support through the `llm` crate with backends for OpenAI, Anthropic, Ollama, and others. Uses feature flags for conditional compilation.
+**LLM Integration**: Provider-agnostic LLM support through the `llm` crate with backends for OpenAI, Anthropic, Ollama,
+and others. Uses feature flags for conditional compilation.
 
 ### Key Patterns
 
-**Event-Driven Architecture**: Communication happens through `Event` types with `TaskResult` outcomes. The system uses tokio streams for async event handling.
+**Event-Driven Architecture**: Communication happens through `Event` types with `TaskResult` outcomes. The system uses
+tokio streams for async event handling.
 
 **Builder Pattern**: Most components use builder patterns for configuration (e.g., `AgentBuilder`, `LLMBuilder`).
 
 **Feature Gates**: LLM providers and capabilities are feature-gated (e.g., `openai`, `anthropic`, `wasm`, `full`).
 
-**Derive Macros**: The `autoagents-derive` crate provides procedural macros for `#[agent]`, `#[tool]`, `#[AgentOutput]`, and `#[ToolInput]` to reduce boilerplate.
+**Derive Macros**: The `autoagents-derive` crate provides procedural macros for `#[agent]`, `#[tool]`, `#[AgentOutput]`,
+and `#[ToolInput]` to reduce boilerplate.
 
 ### Workspace Structure
 
 - `crates/autoagents`: Main library entry point with re-exports
-- `crates/core`: Core agent framework with runtime, memory, and tool systems  
+- `crates/core`: Core agent framework with runtime, memory, and tool systems
 - `crates/llm`: LLM provider implementations and chat/completion APIs
 - `crates/derive`: Procedural macros for agents and tools
-- `crates/liquid-edge`: Edge runtime for local LLM inference
+- `crates/onnx-ort`: Edge runtime using ONNX for local LLM inference
 - `examples/`: Reference implementations including basic agents, coding agents, and WASM tool execution
 
-The framework supports both local (ONNX via liquid-edge) and remote LLM providers, with WASM-based tool execution for security and cross-platform compatibility.
+The framework supports both local (ONNX, Burn, Ollama) and remote LLM providers, with WASM-based tool execution for
+security and cross-platform compatibility.

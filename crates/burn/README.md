@@ -11,4 +11,4 @@ Currently, the Burn Team is optimizing the Quantization support. Once we have th
 compilation for SLM's.
 
 The code in this is taken from Burn-Lm (https://github.com/tracel-ai/burn-lm) and repurpsed to work with wasm-builds.
-Later is Burn Team supports native WASSM Build we should replace the models.
+Later when Burn Team supports native WASM Build we should replace the models with Burn-LM.

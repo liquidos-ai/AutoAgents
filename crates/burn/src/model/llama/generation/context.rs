@@ -4,7 +4,7 @@ use burn::prelude::Backend;
 use burn::tensor::{Int, Tensor};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    mpsc::{Receiver, Sender},
+    mpsc::Sender,
     Arc, Mutex,
 };
 

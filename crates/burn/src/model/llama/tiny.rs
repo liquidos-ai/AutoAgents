@@ -1,8 +1,7 @@
 use crate::backend::burn_backend_types::InferenceBackend;
 use crate::model::llama::chat::{GenerationConfig, LlamaChat};
-use crate::model::llama::pretrained::{ModelMeta, Pretrained};
 use crate::model::llama::tokenizer::SentencePieceTokenizer;
-use crate::model::llama::{Llama, LlamaConfig, TinyLlamaVersion};
+use crate::model::llama::{Llama, LlamaConfig};
 use crate::utils::CustomMutex;
 use autoagents_llm::error::LLMError;
 use log::info;
@@ -15,6 +14,7 @@ pub struct TinyLLamaModelConfig {
     pub tokenizer_path: PathBuf,
     pub max_seq_len: usize,
     pub generation_config: GenerationConfig,
+    #[allow(dead_code)]
     pub import: bool,
     #[cfg(target_arch = "wasm32")]
     pub model_bytes: Option<Vec<u8>>,
@@ -76,7 +76,7 @@ impl TinyLlamaBuilder {
         self
     }
 
-    pub fn with_model_bytes(mut self, bytes: Vec<u8>) -> Self {
+    pub fn with_model_bytes(self, _bytes: Vec<u8>) -> Self {
         #[cfg(all(feature = "import", target_arch = "wasm32"))]
         {
             self.config.model_bytes = Some(bytes);
@@ -89,7 +89,7 @@ impl TinyLlamaBuilder {
         }
     }
 
-    pub fn with_tokenizer_bytes(mut self, bytes: Vec<u8>) -> Self {
+    pub fn with_tokenizer_bytes(self, _bytes: Vec<u8>) -> Self {
         #[cfg(all(feature = "import", target_arch = "wasm32"))]
         {
             self.config.tokenizer_bytes = Some(bytes);

@@ -3,7 +3,6 @@ use autoagents::core::agent::prebuilt::executor::BasicAgent;
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, DirectAgent};
 use autoagents::core::error::Error;
-use autoagents::core::tool::ToolT;
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, AgentHooks};
 use serde_json::Value;

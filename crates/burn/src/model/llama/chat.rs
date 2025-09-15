@@ -2,7 +2,7 @@ use crate::backend::burn_backend_types::InferenceBackend;
 use crate::model::llama::generation::{stream_sender, Sampler, TopP};
 use crate::model::llama::tokenizer::Tokenizer;
 use crate::model::llama::Llama;
-use crate::utils::{receiver_into_stream, spawn_future, CustomMutex, Rx, Tx};
+use crate::utils::{receiver_into_stream, spawn_future, CustomMutex};
 use autoagents_llm::chat::{
     ChatMessage, ChatProvider, ChatResponse, StreamChoice, StreamDelta, StreamResponse,
     StructuredOutputFormat, Tool,
@@ -13,7 +13,7 @@ use autoagents_llm::error::LLMError;
 use autoagents_llm::models::ModelsProvider;
 use autoagents_llm::{async_trait, LLMProvider};
 use burn::prelude::Backend;
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::pin::Pin;
@@ -168,7 +168,7 @@ impl<B: Backend, T: Tokenizer> ChatProvider for LlamaChat<B, T> {
         let llama = self.llama.clone();
         let config = self.config.clone();
 
-        let (tx, mut rx) = stream_sender::StreamSender::new();
+        let (tx, rx) = stream_sender::StreamSender::new();
 
         // Spawn generation task
         spawn_future(async move {
@@ -181,7 +181,7 @@ impl<B: Backend, T: Tokenizer> ChatProvider for LlamaChat<B, T> {
                 Sampler::Argmax
             };
 
-            let mut total_tokens = 0;
+            let total_tokens = 0;
 
             let result = llama_lock.generate_stream(
                 &prompt,

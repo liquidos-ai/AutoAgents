@@ -298,7 +298,7 @@ AutoAgents/
 │   ├── core/           # Core agent framework
 │   ├── llm/            # LLM provider implementations
 │   ├── burn/           # LLM provider implementations using Burn
-│   ├── onnx-ort/       # Edge Runtime Implementation using Onnx (previous Liquid-edge)
+│   ├── onnx-ort/       # Edge Runtime Implementation using Onnx
 │   └── derive/         # Procedural macros
 ├── examples/           # Example implementations
 ```
@@ -336,7 +336,7 @@ This project uses LeftHook for Git hooks management. The hooks will automaticall
 
 - Format code with `cargo fmt --check`
 - Run linting with `cargo clippy -- -D warnings`
-- Execute tests with `cargo test --features full`
+- Execute tests with `cargo test --all-features --workspace --exclude autoagents-burn`
 
 ### Contributing
 

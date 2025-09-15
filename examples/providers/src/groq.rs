@@ -3,7 +3,6 @@ use autoagents::core::agent::prebuilt::executor::{BasicAgent, BasicAgentOutput};
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentOutputT, DirectAgent};
 use autoagents::core::error::Error;
-use autoagents::core::tool::ToolT;
 use autoagents::llm::backends::groq::Groq;
 use autoagents::llm::builder::LLMBuilder;
 use autoagents_derive::{agent, AgentHooks, AgentOutput};

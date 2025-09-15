@@ -39,7 +39,7 @@ autoagents-derive = { path = "crates/derive", version = "0.2.3" }
 autoagents-core = { path = "crates/core", version = "0.2.3" }
 autoagents-test-utils = { path = "crates/test_utils" }
 autoagents-onnx = { path = "crates/onnx-ort", version = "0.2.3" }
-autoagents-burn = { path = "crates/burn", version = "0.2.3" }
+autoagents-burn = { path = "crates/burn", version = "0.2.3", default-features = false }
 
 syn = { version = "2.0.98", features = ["full"] }
 tokio = { version = "1.43.0", features = ["full"] }
