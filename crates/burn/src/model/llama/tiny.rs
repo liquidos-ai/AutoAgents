@@ -1,5 +1,5 @@
 use crate::backend::burn_backend_types::InferenceBackend;
-use crate::model::llama::chat::{GenerationConfig, LlamaChat};
+use crate::model::llama::chat::{GenerationConfig, LLamaModel, LlamaChat};
 use crate::model::llama::tokenizer::SentencePieceTokenizer;
 use crate::model::llama::{Llama, LlamaConfig};
 use crate::utils::CustomMutex;
@@ -127,6 +127,7 @@ impl TinyLlamaBuilder {
             llama: Arc::new(CustomMutex::new(llama)),
             config: self.config.generation_config,
             marker: PhantomData,
+            model: LLamaModel::TinyLLama,
         }))
     }
 
@@ -251,6 +252,7 @@ impl TinyLlamaBuilder {
             llama: Arc::new(CustomMutex::new(llama)),
             config: self.config.generation_config,
             marker: PhantomData,
+            model: LLamaModel::TinyLLama,
         }))
     }
 }

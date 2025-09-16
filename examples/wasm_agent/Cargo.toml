@@ -13,7 +13,7 @@ test = false
 wasm-bindgen = { version = "0.2.100", features = ["serde", "serde_json"] }
 autoagents-burn = { workspace = true, default-features = false, features = [
     "llama3",
-    "webgpu",
+    "wgpu",
     "import"
 ] }
 autoagents-derive.workspace = true

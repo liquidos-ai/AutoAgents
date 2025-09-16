@@ -4,9 +4,7 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine};
-use rustc_hash::FxHasher;
-use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
+use rustc_hash::FxHashMap as HashMap;
 use tiktoken_rs::CoreBPE;
 
 use super::Tokenizer;
@@ -32,7 +30,7 @@ const SPECIAL_TOKENS: [&str; 11] = [
 ];
 const PATTERN: &str = r#"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"#;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Tiktoken {
     bpe: CoreBPE,
     bos_token_id: usize,
@@ -41,28 +39,11 @@ pub struct Tiktoken {
     eom_token_id: usize,
 }
 
-impl std::fmt::Debug for Tiktoken {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Tiktoken")
-            .field("bos_token_id", &self.bos_token_id)
-            .field("eos_token_id", &self.eos_token_id)
-            .field("eot_token_id", &self.eot_token_id)
-            .field("eom_token_id", &self.eom_token_id)
-            .finish()
-    }
-}
-
 impl Tiktoken {
-    /// Load the tokenizer from bytes (for WASM targets)
-    #[cfg(target_arch = "wasm32")]
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        use std::io::Cursor;
+        let mut mergeable_ranks: HashMap<Vec<u8>, usize> = HashMap::default();
 
-        let mut mergeable_ranks: HashMap<Vec<u8>, u32, BuildHasherDefault<FxHasher>> =
-            HashMap::with_hasher(BuildHasherDefault::<FxHasher>::default());
-
-        let cursor = Cursor::new(bytes);
-        for line in BufReader::new(cursor).lines() {
+        for line in BufReader::new(bytes).lines() {
             let line = match line {
                 Ok(val) => val,
                 Err(err) => return Err(err.to_string()),
@@ -74,7 +55,7 @@ impl Tiktoken {
             let rank = parts
                 .next()
                 .ok_or("Missing rank")?
-                .parse::<u32>()
+                .parse::<usize>()
                 .map_err(|e| e.to_string())?;
 
             mergeable_ranks.insert(token, rank);
@@ -94,13 +75,13 @@ impl Tiktoken {
         let special_tokens = special_tokens
             .into_iter()
             .enumerate()
-            .map(|(i, s)| (s, (i + num_base_tokens) as u32))
-            .collect::<HashMap<String, u32, BuildHasherDefault<FxHasher>>>();
+            .map(|(i, s)| (s, i + num_base_tokens))
+            .collect::<HashMap<String, usize>>();
 
-        let bos_token_id = special_tokens[BOS_TOKEN] as usize;
-        let eos_token_id = special_tokens[EOS_TOKEN] as usize;
-        let eot_token_id = special_tokens[EOT_TOKEN] as usize;
-        let eom_token_id = special_tokens[EOM_TOKEN] as usize;
+        let bos_token_id = special_tokens[BOS_TOKEN];
+        let eos_token_id = special_tokens[EOS_TOKEN];
+        let eot_token_id = special_tokens[EOT_TOKEN];
+        let eom_token_id = special_tokens[EOM_TOKEN];
 
         let bpe =
             CoreBPE::new(mergeable_ranks, special_tokens, PATTERN).map_err(|e| e.to_string())?;
@@ -118,8 +99,7 @@ impl Tokenizer for Tiktoken {
     /// Load the [Tiktoken](https://github.com/openai/tiktoken) tokenizer.
     fn new(tiktoken_bpe_file: &str) -> Result<Self, String> {
         let file = File::open(tiktoken_bpe_file).map_err(|e| e.to_string())?;
-        let mut mergeable_ranks: HashMap<Vec<u8>, u32, BuildHasherDefault<FxHasher>> =
-            HashMap::with_hasher(BuildHasherDefault::<FxHasher>::default());
+        let mut mergeable_ranks: HashMap<Vec<u8>, usize> = HashMap::default();
 
         for line in BufReader::new(file).lines() {
             let line = match line {
@@ -133,7 +113,7 @@ impl Tokenizer for Tiktoken {
             let rank = parts
                 .next()
                 .ok_or("Missing rank")?
-                .parse::<u32>()
+                .parse::<usize>()
                 .map_err(|e| e.to_string())?;
 
             mergeable_ranks.insert(token, rank);
@@ -153,13 +133,13 @@ impl Tokenizer for Tiktoken {
         let special_tokens = special_tokens
             .into_iter()
             .enumerate()
-            .map(|(i, s)| (s, (i + num_base_tokens) as u32))
-            .collect::<HashMap<String, u32, BuildHasherDefault<FxHasher>>>();
+            .map(|(i, s)| (s, i + num_base_tokens))
+            .collect::<HashMap<String, usize>>();
 
-        let bos_token_id = special_tokens[BOS_TOKEN] as usize;
-        let eos_token_id = special_tokens[EOS_TOKEN] as usize;
-        let eot_token_id = special_tokens[EOT_TOKEN] as usize;
-        let eom_token_id = special_tokens[EOM_TOKEN] as usize;
+        let bos_token_id = special_tokens[BOS_TOKEN];
+        let eos_token_id = special_tokens[EOS_TOKEN];
+        let eot_token_id = special_tokens[EOT_TOKEN];
+        let eom_token_id = special_tokens[EOM_TOKEN];
 
         let bpe =
             CoreBPE::new(mergeable_ranks, special_tokens, PATTERN).map_err(|e| e.to_string())?;
@@ -173,28 +153,21 @@ impl Tokenizer for Tiktoken {
     }
 
     fn encode(&self, text: &str, bos: bool, eos: bool) -> Vec<u32> {
-        let bos_token: Vec<u32> = if bos {
-            vec![self.bos_token_id as u32]
-        } else {
-            vec![]
-        };
-        let eos_token: Vec<u32> = if eos {
-            vec![self.eos_token_id as u32]
-        } else {
-            vec![]
-        };
+        let bos_token = if bos { vec![self.bos_token_id] } else { vec![] };
+        let eos_token = if eos { vec![self.eos_token_id] } else { vec![] };
 
-        let tokens: Vec<u32> = self.bpe.encode_with_special_tokens(text);
+        let tokens = self.bpe.encode_with_special_tokens(text);
 
         [bos_token, tokens, eos_token]
             .into_iter()
             .flat_map(|t| t.into_iter())
+            .map(|t| t as u32)
             .collect()
     }
 
     fn decode(&self, tokens: &[u32]) -> String {
         self.bpe
-            .decode(tokens.to_vec())
+            .decode(tokens.iter().map(|&t| t as usize).collect())
             .expect("Should decode tokens")
     }
 

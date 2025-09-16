@@ -19,11 +19,17 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 
+pub(crate) enum LLamaModel {
+    TinyLLama,
+    Llama3,
+}
+
 /// Llama model wrapper for LLM provider
 pub struct LlamaChat<B: Backend, T: Tokenizer> {
     pub(crate) llama: Arc<CustomMutex<Llama<InferenceBackend, T>>>,
     pub(crate) config: GenerationConfig,
     pub(crate) marker: PhantomData<B>,
+    pub(crate) model: LLamaModel,
 }
 
 #[derive(Clone, Debug)]
@@ -41,6 +47,35 @@ impl Default for GenerationConfig {
             temperature: 0.7,
             top_p: 0.9,
             seed: 42,
+        }
+    }
+}
+
+impl<B: Backend, T: Tokenizer> LlamaChat<B, T> {
+    fn prompt(&self, messages: &[ChatMessage]) -> Result<String, LLMError> {
+        match self.model {
+            LLamaModel::Llama3 => {
+                let mut prompt: Vec<String> = vec![];
+                for message in messages {
+                    prompt.push(format!(
+                        "<|start_header_id|>{}<|end_header_id|>\n\n{}<|eot_id|>",
+                        message.role.to_string().to_lowercase(),
+                        message.content
+                    ));
+                }
+                let mut prompt = prompt.join("");
+                prompt.push_str("<|start_header_id|>assistant<|end_header_id|>\n\n");
+                Ok(prompt)
+            }
+            LLamaModel::TinyLLama => {
+                let mut prompt: Vec<String> = vec![];
+                for message in messages {
+                    prompt.push(format!("<|{}|>\n{}</s>\n", message.role, message.content));
+                }
+                let mut prompt = prompt.join("\n");
+                prompt.push_str("<|assistant|>\n");
+                Ok(prompt)
+            }
         }
     }
 }
@@ -71,7 +106,8 @@ impl<B: Backend, T: Tokenizer> CompletionProvider for LlamaChat<B, T> {
         };
 
         let result = llama
-            .generate(&req.prompt, max_tokens, temperature, &mut sampler)
+            .generate(&req.prompt, max_tokens, temperature, &mut sampler, None)
+            .await
             .map_err(|e| LLMError::Generic(format!("Generation error: {:?}", e)))?;
 
         Ok(CompletionResponse {
@@ -88,12 +124,8 @@ impl<B: Backend, T: Tokenizer> ChatProvider for LlamaChat<B, T> {
         _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        // Format messages into TinyLlama chat format
-        let mut prompt = String::new();
-        for message in messages {
-            prompt.push_str(&format!("<|{}|>\n{}</s>\n", message.role, message.content));
-        }
-        prompt.push_str("<|assistant|>\n");
+        // Format messages into chat format
+        let prompt = self.prompt(messages)?;
 
         let mut llama = self.llama.lock().await;
         llama.reset();
@@ -110,7 +142,9 @@ impl<B: Backend, T: Tokenizer> ChatProvider for LlamaChat<B, T> {
                 self.config.max_tokens,
                 self.config.temperature,
                 &mut sampler,
+                None,
             )
+            .await
             .map_err(|e| LLMError::Generic(format!("Generation error: {:?}", e)))?;
 
         Ok(Box::new(SimpleChatResponse {
@@ -158,12 +192,8 @@ impl<B: Backend, T: Tokenizer> ChatProvider for LlamaChat<B, T> {
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>, LLMError>
     {
-        // Format messages into TinyLlama chat format
-        let mut prompt = String::new();
-        for message in messages {
-            prompt.push_str(&format!("<|{}>\n{}</s>\n", message.role, message.content));
-        }
-        prompt.push_str("<|assistant|>\n");
+        // Format messages into Llama chat format
+        let prompt = self.prompt(messages)?;
 
         let llama = self.llama.clone();
         let config = self.config.clone();
@@ -183,36 +213,15 @@ impl<B: Backend, T: Tokenizer> ChatProvider for LlamaChat<B, T> {
 
             let total_tokens = 0;
 
-            let result = llama_lock.generate_stream(
-                &prompt,
-                config.max_tokens,
-                config.temperature,
-                &mut sampler,
-                |_, decoded_text| {
-                    let tx = tx.clone();
-                    let decoded = decoded_text.to_string();
-
-                    // Platform-agnostic task spawn
-                    spawn_future(async move {
-                        if !decoded.is_empty() {
-                            let response = StreamResponse {
-                                choices: vec![StreamChoice {
-                                    delta: StreamDelta {
-                                        content: Some(decoded),
-                                        tool_calls: None,
-                                    },
-                                }],
-                                usage: None,
-                            };
-                            tx.send(Ok(response)).await;
-                        }
-                    });
-
-                    true
-                },
-            );
-
-            let tx = tx.clone();
+            let result = llama_lock
+                .generate(
+                    &prompt,
+                    config.max_tokens,
+                    config.temperature,
+                    &mut sampler,
+                    Some(tx.clone()),
+                )
+                .await;
 
             match result {
                 Ok(_) => {

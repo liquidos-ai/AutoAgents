@@ -1,12 +1,19 @@
 use super::super::tokenizer::Tokenizer;
+use crate::model::llama::generation::stream_sender::StreamSender;
 use crate::model::llama::generation::streaming::StreamingDecoder;
+use crate::utils::spawn_future;
+use autoagents_llm::chat::{StreamChoice, StreamDelta, StreamResponse};
 use burn::prelude::Backend;
 use burn::tensor::{Int, Tensor};
+use futures_util::SinkExt;
+use log::error;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    mpsc::Sender,
-    Arc, Mutex,
+    Arc,
 };
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
+use tokio::sync::Mutex;
 
 #[derive(Clone)]
 /// The text generation context, used to check when a stop token has been reached.
@@ -21,12 +28,13 @@ pub struct GenerationContext<B: Backend> {
 
 impl<B: Backend> GenerationContext<B> {
     /// Create a new generation context.
-    pub fn new<T: Tokenizer + 'static>(
+    pub async fn new<T: Tokenizer + 'static>(
         max_sample_len: usize,
         tokenizer: T,
         device: &B::Device,
+        emitter: Option<StreamSender>,
     ) -> Self {
-        let (sender, receiver) = std::sync::mpsc::channel::<Tensor<B, 1, Int>>();
+        let (sender, mut receiver) = mpsc::channel::<Tensor<B, 1, Int>>(100);
         let stop = Arc::new(AtomicBool::new(false));
         let num_generated = Arc::new(AtomicUsize::new(0));
         let generated_text = Arc::new(Mutex::new(String::new()));
@@ -36,17 +44,18 @@ impl<B: Backend> GenerationContext<B> {
             stop.clone(),
             num_generated.clone(),
             generated_text.clone(),
+            emitter,
         );
 
-        std::thread::spawn(move || {
-            for tokens in receiver.iter() {
+        spawn_future(async move {
+            while let Some(tokens) = receiver.recv().await {
                 let tokens = tokens
                     .into_data()
                     .convert::<u32>()
                     .into_vec::<u32>()
                     .unwrap();
 
-                generation.process(tokens);
+                generation.process(tokens).await;
             }
         });
 
@@ -69,11 +78,13 @@ impl<B: Backend> GenerationContext<B> {
     }
 
     /// Update the state with newly generated tokens.
-    pub fn update(&mut self, tokens: Tensor<B, 1, Int>) {
+    pub async fn update(&mut self, tokens: Tensor<B, 1, Int>) {
         self.append(tokens.clone());
 
         if !self.should_stop() {
-            let _ = self.sender.send(tokens);
+            if let Err(e) = self.sender.send(tokens).await {
+                error!("error sending update: {:?}", e.to_string());
+            }
         }
     }
 
@@ -88,8 +99,8 @@ impl<B: Backend> GenerationContext<B> {
     }
 
     /// Returns the generated text.
-    pub fn get_generated_text(&self) -> String {
-        self.generated_text.lock().unwrap().clone()
+    pub async fn get_generated_text(&self) -> String {
+        self.generated_text.lock().await.clone()
     }
 }
 
@@ -100,6 +111,7 @@ struct TokenGeneration<T: Tokenizer> {
     num_tokens_generated: Arc<AtomicUsize>,
     num_generated: usize,
     generated_text: Arc<Mutex<String>>,
+    emitter: Option<StreamSender>,
 }
 
 impl<T: Tokenizer> TokenGeneration<T> {
@@ -108,6 +120,7 @@ impl<T: Tokenizer> TokenGeneration<T> {
         stop: Arc<AtomicBool>,
         num_tokens_generated: Arc<AtomicUsize>,
         generated_text: Arc<Mutex<String>>,
+        emitter: Option<StreamSender>,
     ) -> Self {
         Self {
             stop_tokens: tokenizer.stop_ids(),
@@ -116,10 +129,11 @@ impl<T: Tokenizer> TokenGeneration<T> {
             num_tokens_generated,
             num_generated: 0,
             generated_text,
+            emitter,
         }
     }
 
-    fn process(&mut self, tokens: Vec<u32>) {
+    async fn process(&mut self, tokens: Vec<u32>) {
         let mut finished = false;
         let mut generated = Vec::new();
 
@@ -137,8 +151,21 @@ impl<T: Tokenizer> TokenGeneration<T> {
 
         if !generated.is_empty() {
             if let Some(text) = self.decoder.push_tokens(&generated) {
-                let mut gen_text = self.generated_text.lock().unwrap();
+                let mut gen_text = self.generated_text.lock().await;
                 gen_text.push_str(&text);
+                let response = StreamResponse {
+                    choices: vec![StreamChoice {
+                        delta: StreamDelta {
+                            content: Some(text),
+                            tool_calls: None,
+                        },
+                    }],
+                    usage: None,
+                };
+                if let Some(emitter) = self.emitter.as_ref() {
+                    emitter.send(Ok(response)).await;
+                    tokio::task::yield_now().await;
+                }
             }
         }
 
