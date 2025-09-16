@@ -1,13 +1,18 @@
 use crate::backend::burn_backend_types::InferenceBackend;
 use crate::model::llama::chat::{GenerationConfig, LLamaModel, LlamaChat};
-use crate::model::llama::tokenizer::{SentencePieceTokenizer, Tiktoken};
 use crate::model::llama::{Llama, LlamaConfig};
-use crate::utils::CustomMutex;
+use crate::utils::{spawn_blocking, CustomMutex};
 use autoagents_llm::error::LLMError;
 use log::info;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+#[cfg(feature = "llama3")]
+use crate::model::llama::tokenizer::Tiktoken;
+
+#[cfg(feature = "tiny")]
+use crate::model::llama::tokenizer::SentencePieceTokenizer;
 
 /// Supported Llama3 model variants
 #[derive(Debug, Clone, Copy)]
@@ -178,7 +183,7 @@ impl Llama3Builder {
         let max_seq_len = self.config.max_seq_len;
         let model_variant = self.config.model_variant;
 
-        let llama = tokio::task::spawn_blocking(move || match model_variant {
+        let llama = spawn_blocking(move || match model_variant {
             Llama3Model::Llama3_8B => {
                 LlamaConfig::llama3_8b_pretrained::<InferenceBackend>(max_seq_len, &device)
             }
@@ -196,7 +201,7 @@ impl Llama3Builder {
             }
         })
         .await
-        .map_err(|e| LLMError::Generic(format!("Task join error: {}", e)))?
+        .map_err(|e| LLMError::Generic(e))?
         .map_err(|e| LLMError::Generic(format!("Failed to load model: {}", e)))?;
 
         Ok(Arc::new(LlamaChat {
@@ -237,7 +242,7 @@ impl Llama3Builder {
         let max_seq_len = self.config.max_seq_len;
 
         // Move owned values into spawn_blocking
-        let llama = tokio::task::spawn_blocking(move || {
+        let llama = spawn_blocking(move || {
             LlamaConfig::load_llama3_2_1b_from_bytes::<InferenceBackend>(
                 &model_path,
                 &tokenizer_path,
@@ -246,7 +251,7 @@ impl Llama3Builder {
             )
         })
         .await
-        .map_err(|e| LLMError::Generic(format!("Task join error: {}", e)))?
+        .map_err(|e| LLMError::Generic(e))?
         .map_err(|e| LLMError::Generic(format!("Failed to load model: {}", e)))?;
 
         Ok(Arc::new(LlamaChat {
@@ -267,13 +272,6 @@ impl Llama3Builder {
             "Building Llama3 model variant: {:?}",
             self.config.model_variant
         );
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            if self.config.import {
-                return self.build_from_bytes();
-            }
-        }
 
         let model_path = self
             .config
@@ -339,14 +337,17 @@ impl Llama3Builder {
         }))
     }
 
-    pub fn build_from_bytes_wasm(
+    pub async fn build_from_bytes_wasm(
         self,
     ) -> Result<Arc<LlamaChat<InferenceBackend, Tiktoken>>, LLMError> {
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(all(target_arch = "wasm32", feature = "webgpu"))]
         {
+            use crate::backend::burn_backend_types::init_setup;
             use crate::backend::burn_backend_types::INFERENCE_DEVICE;
 
             let device = INFERENCE_DEVICE;
+
+            // let _ = init_setup().await;
 
             info!("Building Llama3 model from bytes for WASM");
             info!("Model variant: {:?}", self.config.model_variant);

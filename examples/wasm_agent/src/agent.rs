@@ -47,7 +47,8 @@ impl LLamaChatWrapper {
             .max_seq_len(512)
             .temperature(0.7)
             .max_tokens(256)
-            .build_from_bytes()
+            .build_from_bytes_wasm()
+            .await
             .map_err(|e| JsError::new(&format!("Failed to build LLM: {}", e)))?;
 
         let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));

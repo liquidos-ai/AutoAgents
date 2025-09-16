@@ -1,7 +1,7 @@
 use super::super::tokenizer::Tokenizer;
 use crate::model::llama::generation::stream_sender::StreamSender;
 use crate::model::llama::generation::streaming::StreamingDecoder;
-use crate::utils::spawn_future;
+use crate::utils::{spawn_future, CustomMutex};
 use autoagents_llm::chat::{StreamChoice, StreamDelta, StreamResponse};
 use burn::prelude::Backend;
 use burn::tensor::{Int, Tensor};
@@ -11,9 +11,16 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
+
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::mpsc;
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::mpsc::Sender;
-use tokio::sync::Mutex;
+
+#[cfg(target_arch = "wasm32")]
+use futures::channel::mpsc;
+#[cfg(target_arch = "wasm32")]
+use futures::channel::mpsc::{unbounded, UnboundedSender as Sender};
 
 #[derive(Clone)]
 /// The text generation context, used to check when a stop token has been reached.
@@ -23,7 +30,7 @@ pub struct GenerationContext<B: Backend> {
     stop: Arc<AtomicBool>,
     num_generated: Arc<AtomicUsize>,
     sender: Sender<Tensor<B, 1, Int>>,
-    generated_text: Arc<Mutex<String>>,
+    generated_text: Arc<CustomMutex<String>>,
 }
 
 impl<B: Backend> GenerationContext<B> {
@@ -34,10 +41,14 @@ impl<B: Backend> GenerationContext<B> {
         device: &B::Device,
         emitter: Option<StreamSender>,
     ) -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
         let (sender, mut receiver) = mpsc::channel::<Tensor<B, 1, Int>>(100);
+        #[cfg(target_arch = "wasm32")]
+        let (sender, mut receiver) = unbounded::<Tensor<B, 1, Int>>();
+
         let stop = Arc::new(AtomicBool::new(false));
         let num_generated = Arc::new(AtomicUsize::new(0));
-        let generated_text = Arc::new(Mutex::new(String::new()));
+        let generated_text = Arc::new(CustomMutex::new(String::new()));
 
         let mut generation = TokenGeneration::new(
             tokenizer,
@@ -48,6 +59,7 @@ impl<B: Backend> GenerationContext<B> {
         );
 
         spawn_future(async move {
+            #[cfg(not(target_arch = "wasm32"))]
             while let Some(tokens) = receiver.recv().await {
                 let tokens = tokens
                     .into_data()
@@ -56,6 +68,20 @@ impl<B: Backend> GenerationContext<B> {
                     .unwrap();
 
                 generation.process(tokens).await;
+            }
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                use futures::StreamExt;
+                while let Some(tokens) = receiver.next().await {
+                    let tokens = tokens
+                        .into_data()
+                        .convert::<u32>()
+                        .into_vec::<u32>()
+                        .unwrap();
+
+                    generation.process(tokens).await;
+                }
             }
         });
 
@@ -82,8 +108,17 @@ impl<B: Backend> GenerationContext<B> {
         self.append(tokens.clone());
 
         if !self.should_stop() {
-            if let Err(e) = self.sender.send(tokens).await {
-                error!("error sending update: {:?}", e.to_string());
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if let Err(e) = self.sender.send(tokens).await {
+                    error!("error sending update: {:?}", e.to_string());
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                if let Err(e) = self.sender.unbounded_send(tokens) {
+                    error!("error sending update: {:?}", e.to_string());
+                }
             }
         }
     }
@@ -110,7 +145,7 @@ struct TokenGeneration<T: Tokenizer> {
     stop: Arc<AtomicBool>,
     num_tokens_generated: Arc<AtomicUsize>,
     num_generated: usize,
-    generated_text: Arc<Mutex<String>>,
+    generated_text: Arc<CustomMutex<String>>,
     emitter: Option<StreamSender>,
 }
 
@@ -119,7 +154,7 @@ impl<T: Tokenizer> TokenGeneration<T> {
         tokenizer: T,
         stop: Arc<AtomicBool>,
         num_tokens_generated: Arc<AtomicUsize>,
-        generated_text: Arc<Mutex<String>>,
+        generated_text: Arc<CustomMutex<String>>,
         emitter: Option<StreamSender>,
     ) -> Self {
         Self {
@@ -164,7 +199,13 @@ impl<T: Tokenizer> TokenGeneration<T> {
                 };
                 if let Some(emitter) = self.emitter.as_ref() {
                     emitter.send(Ok(response)).await;
+                    #[cfg(not(target_arch = "wasm32"))]
                     tokio::task::yield_now().await;
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        use futures_util::future::FutureExt;
+                        futures_util::future::ready(()).then(|_| async {}).await;
+                    }
                 }
             }
         }

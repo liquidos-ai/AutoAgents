@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AutoAgents Llama3.2 Rust/WASM</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@200;300;400&family=Source+Sans+3:wght@100;200;300;400;500;600;700;800;900&display=swap");
+      html,
+      body {
+        font-family: "Source Sans 3", sans-serif;
+      }
+      code,
+      output,
+      select,
+      pre {
+        font-family: "Source Code Pro", monospace;
+      }
+    </style>
+    <style type="text/tailwindcss">
+      .link {
+        @apply underline hover:text-blue-500 hover:no-underline;
+      }
+    </style>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      // Llama model configuration
+      const LLAMA_MODEL = {
+        name: "Llama3.2-1B-Instruct-Q4",
+        base_url: "https://huggingface.co/tracel-ai/llama-3.2-1b-instruct-q4fb32-burn/resolve/main/",
+        model: "model.mpk",
+        tokenizer: "tokenizer.model",
+        size: "700 MB",
+      };
+
+      // Chat messages storage
+      let chatMessages = [];
+      let isGenerating = false;
+
+      const llamaWorker = new Worker("./llamaWorker.js", {
+        type: "module",
+      });
+
+      // Add message to chat
+      function addMessage(role, content, isStreaming = false) {
+        const message = {
+          role: role, // 'user' or 'assistant'
+          content: content,
+          timestamp: new Date(),
+          isStreaming: isStreaming
+        };
+        chatMessages.push(message);
+        renderChat();
+        return message;
+      }
+
+      // Update the last assistant message (for streaming)
+      function updateLastMessage(content) {
+        if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'assistant') {
+          chatMessages[chatMessages.length - 1].content = content;
+          chatMessages[chatMessages.length - 1].isStreaming = true;
+          renderChat();
+        }
+      }
+
+      // Complete the last message (end streaming)
+      function completeLastMessage() {
+        if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'assistant') {
+          chatMessages[chatMessages.length - 1].isStreaming = false;
+          renderChat();
+        }
+      }
+
+      // Render chat messages
+      function renderChat() {
+        const chatContainer = document.querySelector("#chat-messages");
+        chatContainer.innerHTML = "";
+
+        chatMessages.forEach((message, index) => {
+          const messageDiv = document.createElement("div");
+          messageDiv.className = `mb-4 ${message.role === 'user' ? 'text-right' : 'text-left'}`;
+
+          const bubble = document.createElement("div");
+          bubble.className = `inline-block max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+            message.role === 'user'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-200 text-gray-800'
+          }`;
+
+          const content = document.createElement("div");
+          content.className = "whitespace-pre-wrap text-sm";
+          content.textContent = message.content;
+
+          // Add cursor for streaming messages
+          if (message.isStreaming) {
+            const cursor = document.createElement("span");
+            cursor.className = "inline-block w-2 h-4 bg-gray-600 ml-1 animate-pulse";
+            content.appendChild(cursor);
+          }
+
+          bubble.appendChild(content);
+
+          // Add timestamp
+          const timestamp = document.createElement("div");
+          timestamp.className = `text-xs text-gray-500 mt-1 ${message.role === 'user' ? 'text-right' : 'text-left'}`;
+          timestamp.textContent = message.timestamp.toLocaleTimeString();
+
+          messageDiv.appendChild(bubble);
+          messageDiv.appendChild(timestamp);
+          chatContainer.appendChild(messageDiv);
+        });
+
+        // Auto scroll to bottom
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+
+      // Send message function
+      async function sendMessage() {
+        const input = document.querySelector("#message-input");
+        const prompt = input.value.trim();
+
+        if (!prompt || isGenerating) return;
+
+        // Add user message
+        addMessage('user', prompt);
+
+        // Clear input
+        input.value = "";
+
+        // Add loading assistant message
+        const assistantMessage = addMessage('assistant', 'Thinking...', true);
+        isGenerating = true;
+        updateUI();
+
+        const weightsURL = LLAMA_MODEL.base_url + LLAMA_MODEL.model;
+        const tokenizerURL = LLAMA_MODEL.base_url + LLAMA_MODEL.tokenizer;
+
+        try {
+          await new Promise((resolve, reject) => {
+            let assistantResponse = "";
+
+            llamaWorker.postMessage({
+              weightsURL,
+              tokenizerURL,
+              prompt,
+              command: "start",
+            });
+
+            const handleMessage = (event) => {
+              const { status, error, sentence, token } = event.data;
+
+              if (error) {
+                updateLastMessage("Sorry, I encountered an error: " + error);
+                completeLastMessage();
+                llamaWorker.removeEventListener("message", handleMessage);
+                reject(new Error(error));
+                return;
+              }
+
+              switch (status) {
+                case "loading":
+                  updateLastMessage("Loading model...");
+                  break;
+                case "generating":
+                  assistantResponse = sentence || assistantResponse + (token || "");
+                  updateLastMessage(assistantResponse);
+                  break;
+                case "complete":
+                case "aborted":
+                  completeLastMessage();
+                  llamaWorker.removeEventListener("message", handleMessage);
+                  resolve();
+                  break;
+              }
+            };
+
+            llamaWorker.addEventListener("message", handleMessage);
+          });
+        } catch (error) {
+          console.error("Generation error:", error);
+        } finally {
+          isGenerating = false;
+          updateUI();
+        }
+      }
+
+      // Update UI based on state
+      function updateUI() {
+        const sendButton = document.querySelector("#send-button");
+        const input = document.querySelector("#message-input");
+
+        if (isGenerating) {
+          sendButton.textContent = "Generating...";
+          sendButton.disabled = true;
+          input.disabled = true;
+        } else {
+          sendButton.textContent = "Send";
+          sendButton.disabled = false;
+          input.disabled = false;
+        }
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        updateUI();
+
+        // Handle form submission
+        const form = document.querySelector("#chat-form");
+        form.addEventListener("submit", (e) => {
+          e.preventDefault();
+          sendMessage();
+        });
+
+        // Handle Enter key in input
+        const input = document.querySelector("#message-input");
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+          }
+        });
+
+        // Handle clear chat button
+        const clearBtn = document.querySelector("#clear-chat");
+        clearBtn.addEventListener("click", () => {
+          chatMessages = [];
+          renderChat();
+        });
+      });
+    </script>
+  </head>
+  <body class="h-screen bg-gray-50 flex flex-col">
+    <!-- Header -->
+    <header class="bg-white border-b border-gray-200 px-4 py-3">
+      <div class="max-w-4xl mx-auto flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <span class="text-2xl">🦙</span>
+          <div>
+            <h1 class="text-lg font-bold text-gray-900">AutoAgents Llama3.2</h1>
+            <p class="text-xs text-gray-500">Rust/WASM Chat Demo</p>
+          </div>
+        </div>
+        <button
+          id="clear-chat"
+          class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-md hover:bg-gray-50"
+        >
+          Clear Chat
+        </button>
+      </div>
+    </header>
+
+    <!-- Info Banner -->
+    <div class="bg-blue-50 border-b border-blue-200 px-4 py-2">
+      <div class="max-w-4xl mx-auto">
+        <p class="text-xs text-blue-700">
+          <b>Note:</b> First run downloads and caches the model (~700MB).
+          Powered by <a href="https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct" class="underline" target="_blank">Llama3.2-1B</a>
+          + <a href="https://github.com/tracel-ai/burn" class="underline" target="_blank">Burn</a> + WebAssembly
+        </p>
+      </div>
+    </div>
+
+    <!-- Chat Messages -->
+    <main class="flex-1 overflow-hidden">
+      <div class="max-w-4xl mx-auto h-full flex flex-col">
+        <div
+          id="chat-messages"
+          class="flex-1 overflow-y-auto p-4 space-y-4"
+        >
+          <!-- Messages will be rendered here -->
+          <div class="text-center text-gray-500 mt-8">
+            <div class="text-4xl mb-2">💬</div>
+            <p>Start a conversation with Llama3.2!</p>
+            <p class="text-sm text-gray-400 mt-1">Type a message below to begin</p>
+          </div>
+        </div>
+
+        <!-- Chat Input -->
+        <div class="border-t border-gray-200 bg-white p-4">
+          <form id="chat-form" class="flex items-end space-x-3">
+            <div class="flex-1">
+              <textarea
+                id="message-input"
+                placeholder="Type your message here... (Enter to send, Shift+Enter for new line)"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                rows="1"
+                style="min-height: 40px; max-height: 120px;"
+                oninput="this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 120) + 'px';"
+              ></textarea>
+            </div>
+            <button
+              id="send-button"
+              type="submit"
+              class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              Send
+            </button>
+          </form>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

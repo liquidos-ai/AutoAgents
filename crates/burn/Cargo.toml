@@ -48,6 +48,7 @@ ndarray-blas-openblas = ["ndarray", "burn/openblas"]
 wgpu = ["burn/wgpu", "burn/default", "selected-backend"]
 vulkan = ["burn/vulkan", "burn/default", "selected-backend"]
 wgpu-cpu = ["burn/wgpu", "burn/default", "selected-backend"]
+webgpu = ["burn/webgpu", "burn/default", "selected-backend"]
 
 f16 = []
 bf16 = []
@@ -72,11 +73,11 @@ autoagents-llm.workspace = true
 burn = { git = "https://github.com/tracel-ai/burn", features = [
     "std",
     "ndarray"
-], default-features = false, rev = "c56f5ab2046c7dbc28e642c0a08624c4ec290106" }
+], default-features = false }
 burn-common = { git = "https://github.com/tracel-ai/burn", features = [
     "std",
-], default-features = false, rev = "c56f5ab2046c7dbc28e642c0a08624c4ec290106" }
-burn-import = { git = "https://github.com/tracel-ai/burn", optional = true, default-features = false, rev = "c56f5ab2046c7dbc28e642c0a08624c4ec290106" }
+], default-features = false }
+burn-import = { git = "https://github.com/tracel-ai/burn", optional = true, default-features = false }
 
 # Tiktoken tokenizer (llama 3)
 tiktoken-rs = { version = "0.5", optional = true }

@@ -139,6 +139,20 @@ pub mod burn_backend_types {
     pub const NAME: &str = "metal";
 }
 
+#[cfg(feature = "webgpu")]
+pub mod burn_backend_types {
+    use super::*;
+    use burn::backend::wgpu::{graphics::AutoGraphicsApi, init_setup_async, Wgpu, WgpuDevice};
+    pub type InferenceBackend = Wgpu<ElemType>;
+    pub type InferenceDevice = WgpuDevice;
+    pub const INFERENCE_DEVICE: InferenceDevice = WgpuDevice::DefaultDevice;
+    pub const NAME: &str = "webgpu";
+
+    pub async fn init_setup() {
+        init_setup_async::<AutoGraphicsApi>(&WgpuDevice::default(), Default::default()).await;
+    }
+}
+
 #[cfg(feature = "wgpu-cpu")]
 pub mod burn_backend_types {
     use super::*;
