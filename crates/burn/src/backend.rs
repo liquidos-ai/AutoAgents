@@ -19,7 +19,6 @@ mod elems {
 pub use elems::*;
 
 // Candle --------------------------------------------------------------------
-
 #[cfg(any(feature = "candle-accelerate", feature = "candle-cpu"))]
 pub mod burn_backend_types {
     use super::*;
@@ -143,7 +142,7 @@ pub mod burn_backend_types {
 pub mod burn_backend_types {
     use super::*;
     use burn::backend::wgpu::WebGpu;
-    use burn::backend::wgpu::{graphics::AutoGraphicsApi, init_setup_async, Wgpu, WgpuDevice};
+    use burn::backend::wgpu::{graphics::AutoGraphicsApi, init_setup_async, WgpuDevice};
 
     pub type InferenceBackend = WebGpu<ElemType>;
     pub type InferenceDevice = WgpuDevice;

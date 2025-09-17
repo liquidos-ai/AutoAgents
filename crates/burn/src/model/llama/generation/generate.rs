@@ -1,9 +1,6 @@
-use std::time::Instant;
-
 use super::super::{tokenizer::Tokenizer, Llama};
 use super::{GenerationContext, Sampler};
 use crate::model::llama::generation::stream_sender::StreamSender;
-use autoagents_llm::error::LLMError;
 use burn::{prelude::*, tensor::activation::softmax};
 
 pub(crate) fn temperature_scaled_softmax<B: Backend>(

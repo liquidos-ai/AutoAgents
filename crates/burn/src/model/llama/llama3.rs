@@ -1,5 +1,6 @@
 use crate::backend::burn_backend_types::InferenceBackend;
 use crate::model::llama::chat::{GenerationConfig, LLamaModel, LlamaChat};
+use crate::model::llama::tokenizer::Tiktoken;
 use crate::model::llama::{Llama, LlamaConfig};
 use crate::utils::{spawn_blocking, CustomMutex};
 use autoagents_llm::error::LLMError;
@@ -7,12 +8,6 @@ use log::info;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
-
-#[cfg(feature = "llama3")]
-use crate::model::llama::tokenizer::Tiktoken;
-
-#[cfg(feature = "tiny")]
-use crate::model::llama::tokenizer::SentencePieceTokenizer;
 
 /// Supported Llama3 model variants
 #[derive(Debug, Clone, Copy)]

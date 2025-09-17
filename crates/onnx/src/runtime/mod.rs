@@ -1,14 +1,20 @@
-//! Generic inference runtime for edge computing
+//! Onnx inference runtime for edge computing
 //!
 //! This module provides a generic interface for running inference on various
 //! deep learning models using different backends.
 
 use crate::error::{EdgeError, EdgeResult};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
-#[cfg(all(feature = "onnx", not(target_arch = "wasm32")))]
-pub mod onnx;
+pub mod inference;
+use inference::OnnxBackend;
+use inference::OnnxModel;
+
+/// Convenience function to create an ONNX model
+pub fn onnx_model<P: AsRef<Path>>(path: P) -> EdgeResult<OnnxModel> {
+    OnnxModel::from_directory(path)
+}
 
 /// Generic input for inference operations
 #[derive(Debug, Clone, Default)]
@@ -30,24 +36,9 @@ pub struct InferenceOutput {
     pub metadata: HashMap<String, Value>,
 }
 
-/// Generic inference runtime trait
-pub trait RuntimeBackend: Send + Sync {
-    /// Run inference with the given inputs
-    fn infer(&mut self, input: InferenceInput) -> EdgeResult<InferenceOutput>;
-
-    /// Get model information
-    fn model_info(&self) -> HashMap<String, Value>;
-
-    /// Check if the runtime is ready for inference
-    fn is_ready(&self) -> bool;
-
-    /// Get backend-specific metadata
-    fn backend_info(&self) -> HashMap<String, Value>;
-}
-
 /// Main inference runtime that manages different backends
 pub struct InferenceRuntime {
-    backend: Box<dyn RuntimeBackend>,
+    backend: OnnxBackend,
     runtime_metadata: HashMap<String, Value>,
 }
 
@@ -58,24 +49,7 @@ impl InferenceRuntime {
         device: crate::Device,
     ) -> EdgeResult<Self> {
         let backend_type = model.model_type().to_string();
-
-        let backend: Box<dyn RuntimeBackend> = match backend_type.as_str() {
-            #[cfg(all(feature = "onnx", not(target_arch = "wasm32")))]
-            "onnx" => {
-                let backend = onnx::OnnxBackend::from_model_with_device(model, device)?;
-                Box::new(backend)
-            }
-            #[cfg(target_arch = "wasm32")]
-            "onnx" => {
-                let backend = wasm::WasmBackend::from_model_with_device(model, device)?;
-                Box::new(backend)
-            }
-            _ => {
-                return Err(EdgeError::runtime(format!(
-                    "Unsupported model type: {backend_type}"
-                )));
-            }
-        };
+        let backend = OnnxBackend::from_model_with_device(model, device)?;
 
         let mut runtime_metadata = HashMap::new();
         runtime_metadata.insert("backend_type".to_string(), Value::String(backend_type));
@@ -91,13 +65,9 @@ impl InferenceRuntime {
         })
     }
 
-    /// Create a new inference runtime from a model (uses CPU device by default, WebGPU on WASM)
+    /// Create a new inference runtime from a model (uses CPU device by default)
     pub async fn from_model(model: Box<dyn crate::Model>) -> EdgeResult<Self> {
-        #[cfg(target_arch = "wasm32")]
-        let device = crate::device::webgpu();
-        #[cfg(not(target_arch = "wasm32"))]
         let device = crate::device::cpu();
-
         Self::from_model_with_device(model, device).await
     }
 

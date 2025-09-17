@@ -4,8 +4,7 @@ use crate::model::llama::tokenizer::Tokenizer;
 use crate::model::llama::Llama;
 use crate::utils::{receiver_into_stream, spawn_future, CustomMutex};
 use autoagents_llm::chat::{
-    ChatMessage, ChatProvider, ChatResponse, StreamChoice, StreamDelta, StreamResponse,
-    StructuredOutputFormat, Tool,
+    ChatMessage, ChatProvider, ChatResponse, StreamResponse, StructuredOutputFormat, Tool,
 };
 use autoagents_llm::completion::{CompletionProvider, CompletionRequest, CompletionResponse};
 use autoagents_llm::embedding::EmbeddingProvider;

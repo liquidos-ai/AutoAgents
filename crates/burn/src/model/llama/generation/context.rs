@@ -5,6 +5,7 @@ use crate::utils::{spawn_future, CustomMutex};
 use autoagents_llm::chat::{StreamChoice, StreamDelta, StreamResponse};
 use burn::prelude::Backend;
 use burn::tensor::{Int, Tensor};
+#[cfg(target_arch = "wasm32")]
 use futures_util::SinkExt;
 use log::error;
 use std::sync::{

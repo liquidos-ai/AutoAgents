@@ -77,7 +77,10 @@ impl LLamaChatWrapper {
         weights: js_sys::Uint8Array,
         tokenizer: js_sys::Uint8Array,
     ) -> Result<LLamaChatWrapper, JsError> {
-        crate::init_wasm();
+        #[cfg(target_arch = "wasm32")]
+        {
+            crate::init_wasm();
+        }
         let weights_vec = weights.to_vec();
         let tokenizer_vec = tokenizer.to_vec();
         Self::create_internal(weights_vec, tokenizer_vec).await
