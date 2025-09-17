@@ -18,7 +18,7 @@ pub struct GenerationOutput {
     /// The number of generated tokens.
     pub tokens: usize,
     /// The time it took to produce the output tokens (generation + decoding).
-    pub time: std::time::Duration,
+    // pub time: std::time::Duration,
     pub result: String,
 }
 
@@ -60,7 +60,7 @@ impl<B: Backend, T: Tokenizer + 'static> Llama<B, T> {
         state.append(input_tokens);
 
         let mut input_pos = Tensor::<B, 1, Int>::arange(0..prompt_len as i64, &self.device);
-        let now = Instant::now();
+        // let now = Instant::now();
 
         for _ in 0..sample_len {
             if state.should_stop() {
@@ -92,7 +92,7 @@ impl<B: Backend, T: Tokenizer + 'static> Llama<B, T> {
                 next_token_logits = temperature_scaled_softmax(next_token_logits, temperature);
             };
 
-            let next_token = sampler.sample(next_token_logits).squeeze(0);
+            let next_token = sampler.sample(next_token_logits).await.squeeze(0);
             // Update with the new generated token
             state.update(next_token).await;
 
@@ -108,7 +108,7 @@ impl<B: Backend, T: Tokenizer + 'static> Llama<B, T> {
 
         Ok(GenerationOutput {
             tokens: num_tokens,
-            time: now.elapsed(),
+            // time: now.elapsed(),
             result: generated_text,
         })
     }

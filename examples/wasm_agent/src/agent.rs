@@ -44,9 +44,9 @@ impl LLamaChatWrapper {
             .llama3_2_1b_q4()
             .with_model_bytes(weights)
             .with_tokenizer_bytes(tokenizer)
-            .max_seq_len(512)
-            .temperature(0.7)
-            .max_tokens(256)
+            .max_seq_len(50)
+            .temperature(0.0)
+            .max_tokens(10)
             .build_from_bytes_wasm()
             .await
             .map_err(|e| JsError::new(&format!("Failed to build LLM: {}", e)))?;
@@ -77,6 +77,7 @@ impl LLamaChatWrapper {
         weights: js_sys::Uint8Array,
         tokenizer: js_sys::Uint8Array,
     ) -> Result<LLamaChatWrapper, JsError> {
+        crate::init_wasm();
         let weights_vec = weights.to_vec();
         let tokenizer_vec = tokenizer.to_vec();
         Self::create_internal(weights_vec, tokenizer_vec).await

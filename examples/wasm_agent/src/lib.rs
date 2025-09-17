@@ -22,3 +22,12 @@ extern "C" {
 macro_rules! console_log {
     ($($t:tt)*) => ($crate::log(&format_args!($($t)*).to_string()))
 }
+
+#[cfg(target_arch = "wasm32")]
+pub fn init_wasm() {
+    // Show panic messages & backtraces in the browser console
+    console_error_panic_hook::set_once();
+
+    // Optional: route log::info!/error!/debug! to browser console
+    console_log::init_with_level(log::Level::Debug).ok();
+}

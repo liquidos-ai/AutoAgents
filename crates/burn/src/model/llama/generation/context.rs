@@ -74,11 +74,15 @@ impl<B: Backend> GenerationContext<B> {
             {
                 use futures::StreamExt;
                 while let Some(tokens) = receiver.next().await {
-                    let tokens = tokens
-                        .into_data()
-                        .convert::<u32>()
-                        .into_vec::<u32>()
-                        .unwrap();
+                    let data = tokens.into_data_async().await;
+                    // Convert to Vec<u32>
+                    let tokens = match data.convert::<u32>().into_vec::<u32>() {
+                        Ok(v) => v,
+                        Err(e) => {
+                            error!("failed to convert tensor to Vec<u32> (wasm): {:?}", e);
+                            continue;
+                        }
+                    };
 
                     generation.process(tokens).await;
                 }

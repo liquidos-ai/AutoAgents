@@ -12,16 +12,17 @@ pub enum Sampler {
 }
 
 impl Sampler {
-    pub fn sample<B: Backend>(&mut self, logits: Tensor<B, 2>) -> Tensor<B, 2, Int> {
+    pub async fn sample<B: Backend>(&mut self, logits: Tensor<B, 2>) -> Tensor<B, 2, Int> {
         match self {
-            Self::TopP(s) => s.sample(logits),
+            Self::TopP(s) => s.sample(logits).await,
             Self::Argmax => logits.argmax(1),
         }
     }
 }
 
+#[async_trait::async_trait]
 pub trait Sampling {
-    fn sample<B: Backend>(&mut self, logits: Tensor<B, 2>) -> Tensor<B, 2, Int>;
+    async fn sample<B: Backend>(&mut self, logits: Tensor<B, 2>) -> Tensor<B, 2, Int>;
 }
 
 /// Top-p sampling (nucleus sampling) selects the smallest set of tokens whose cumulative
@@ -40,8 +41,9 @@ impl TopP {
     }
 }
 
+#[async_trait::async_trait]
 impl Sampling for TopP {
-    fn sample<B: Backend>(&mut self, probs: Tensor<B, 2>) -> Tensor<B, 2, Int> {
+    async fn sample<B: Backend>(&mut self, probs: Tensor<B, 2>) -> Tensor<B, 2, Int> {
         assert_eq!(
             probs.dims()[0],
             1,
@@ -51,7 +53,19 @@ impl Sampling for TopP {
 
         // TODO: cumsum + Distribution::Multinomial support
 
-        let mut probs_sort = probs_sort.to_data().iter::<f64>().collect::<Vec<_>>();
+        #[cfg(target_arch = "wasm32")]
+        let mut probs_sort = {
+            // asynchronously pull data from the tensor
+            let data = probs_sort.to_data_async().await;
+            // then iterate it
+            data.iter::<f64>().collect::<Vec<_>>()
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut probs_sort = {
+            let data = probs_sort.to_data();
+            data.iter::<f64>().collect::<Vec<_>>()
+        };
 
         let mut cumsum = 0.;
         probs_sort.iter_mut().for_each(|x| {

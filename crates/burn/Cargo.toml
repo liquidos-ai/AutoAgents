@@ -89,6 +89,7 @@ tokenizers = { version = "0.22.0", default-features = false, optional = true, fe
     "unstable_wasm",
 ] }
 
+async-trait = "0.1.86"
 rand = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true, default-features = false, features = [

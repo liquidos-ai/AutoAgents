@@ -347,7 +347,7 @@ impl Llama3Builder {
 
             let device = INFERENCE_DEVICE;
 
-            // let _ = init_setup().await;
+            let _ = init_setup().await;
 
             info!("Building Llama3 model from bytes for WASM");
             info!("Model variant: {:?}", self.config.model_variant);
