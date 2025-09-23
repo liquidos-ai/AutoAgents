@@ -1,3 +1,4 @@
+use autoagents::async_trait;
 /// This example demonstrates creating tools and agents without macros and is helpful when dynamic tool instance creation is required
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
@@ -21,8 +22,9 @@ pub struct AdditionToolInput {
 pub struct AdditionTool {}
 
 // Define the ToolRuntime for AdditionTool
+#[async_trait]
 impl ToolRuntime for AdditionTool {
-    fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
         println!("Running addition tool");
         let typed_args: AdditionToolInput = serde_json::from_value(args)?;
         let result = typed_args.left + typed_args.right;
@@ -62,8 +64,9 @@ pub struct SubtractToolInput {
 #[derive(Debug)]
 pub struct SubtractTool {}
 
+#[async_trait]
 impl ToolRuntime for SubtractTool {
-    fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
         println!("Running subtract tool");
         let typed_args: SubtractToolInput = serde_json::from_value(args)?;
         let result = typed_args.left - typed_args.right;

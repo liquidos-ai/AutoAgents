@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::fmt::Debug;
 use std::sync::Arc;
 mod runtime;
+use async_trait::async_trait;
 pub use runtime::ToolRuntime;
 
 #[cfg(feature = "wasmtime")]
@@ -53,9 +54,10 @@ impl SharedTool {
     }
 }
 
+#[async_trait]
 impl ToolRuntime for SharedTool {
-    fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        self.inner.execute(args)
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        self.inner.execute(args).await
     }
 }
 
@@ -160,8 +162,12 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl ToolRuntime for MockTool {
-        fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+        async fn execute(
+            &self,
+            args: serde_json::Value,
+        ) -> Result<serde_json::Value, ToolCallError> {
             if self.should_fail {
                 return Err(ToolCallError::RuntimeError(
                     "Mock tool failure".to_string().into(),
@@ -239,15 +245,15 @@ mod tests {
         assert_eq!(schema["properties"]["value"]["type"], "integer");
     }
 
-    #[test]
-    fn test_mock_tool_run_success() {
+    #[tokio::test]
+    async fn test_mock_tool_run_success() {
         let tool = MockTool::new("success_tool", "Success test");
         let input = json!({
             "name": "test",
             "value": 42
         });
 
-        let result = tool.execute(input);
+        let result = tool.execute(input).await;
         assert!(result.is_ok());
 
         let output = result.unwrap();
@@ -255,15 +261,15 @@ mod tests {
         assert_eq!(output["doubled_value"], 84);
     }
 
-    #[test]
-    fn test_mock_tool_run_failure() {
+    #[tokio::test]
+    async fn test_mock_tool_run_failure() {
         let tool = MockTool::with_failure("failure_tool", "Failure test");
         let input = json!({
             "name": "test",
             "value": 42
         });
 
-        let result = tool.execute(input);
+        let result = tool.execute(input).await;
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -271,20 +277,20 @@ mod tests {
             .contains("Mock tool failure"));
     }
 
-    #[test]
-    fn test_mock_tool_run_invalid_input() {
+    #[tokio::test]
+    async fn test_mock_tool_run_invalid_input() {
         let tool = MockTool::new("invalid_input_tool", "Invalid input test");
         let input = json!({
             "invalid_field": "test"
         });
 
-        let result = tool.execute(input);
+        let result = tool.execute(input).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ToolCallError::SerdeError(_)));
     }
 
-    #[test]
-    fn test_mock_tool_run_with_extra_fields() {
+    #[tokio::test]
+    async fn test_mock_tool_run_with_extra_fields() {
         let tool = MockTool::new("extra_fields_tool", "Extra fields test");
         let input = json!({
             "name": "test",
@@ -292,7 +298,7 @@ mod tests {
             "extra_field": "ignored"
         });
 
-        let result = tool.execute(input);
+        let result = tool.execute(input).await;
         assert!(result.is_ok());
 
         let output = result.unwrap();
@@ -391,8 +397,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_tool_run_with_different_inputs() {
+    #[tokio::test]
+    async fn test_tool_run_with_different_inputs() {
         let tool = MockTool::new("varied_input_tool", "Varied input test");
 
         let inputs = vec![
@@ -403,7 +409,7 @@ mod tests {
         ];
 
         for input in inputs {
-            let result = tool.execute(input.clone());
+            let result = tool.execute(input.clone()).await;
             assert!(result.is_ok());
 
             let output = result.unwrap();

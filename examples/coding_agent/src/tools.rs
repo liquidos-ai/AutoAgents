@@ -1,3 +1,4 @@
+use autoagents::async_trait;
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents_derive::{tool, ToolInput};
 use regex::Regex;
@@ -21,8 +22,9 @@ pub struct FileSearchArgs {
 )]
 pub struct FileSearchTool {}
 
+#[async_trait]
 impl ToolRuntime for FileSearchTool {
-    fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+    async fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
         let args: FileSearchArgs = serde_json::from_value(args)?;
         println!("🔍 Searching for files matching: {}", args.pattern);
 
@@ -76,8 +78,9 @@ pub struct GrepArgs {
 )]
 pub struct GrepTool {}
 
+#[async_trait]
 impl ToolRuntime for GrepTool {
-    fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+    async fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
         let args: GrepArgs = serde_json::from_value(args)?;
         println!("🔎 Grepping for: {} in {}", args.pattern, args.file_pattern);
 
@@ -157,8 +160,9 @@ pub struct ReadFileArgs {
 )]
 pub struct ReadFileTool {}
 
+#[async_trait]
 impl ToolRuntime for ReadFileTool {
-    fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+    async fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
         let args: ReadFileArgs = serde_json::from_value(args)?;
         println!("📖 Reading file: {}", args.file_path);
         let path = Path::new(&args.file_path);
@@ -191,8 +195,9 @@ pub struct WriteFileArgs {
 )]
 pub struct WriteFileTool {}
 
+#[async_trait]
 impl ToolRuntime for WriteFileTool {
-    fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+    async fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
         let args: WriteFileArgs = serde_json::from_value(args)?;
         println!("✍️  Writing to file: {}", args.file_path);
 
@@ -231,8 +236,9 @@ pub struct DeleteFileArgs {
 )]
 pub struct DeleteFileTool {}
 
+#[async_trait]
 impl ToolRuntime for DeleteFileTool {
-    fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+    async fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
         let args: DeleteFileArgs = serde_json::from_value(args)?;
         println!("🗑️  Deleting file: {}", args.file_path);
 
@@ -264,8 +270,9 @@ pub struct ListDirectoryArgs {
 )]
 pub struct ListDirectoryTool {}
 
+#[async_trait]
 impl ToolRuntime for ListDirectoryTool {
-    fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+    async fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
         let args: ListDirectoryArgs = serde_json::from_value(args)?;
         println!("📁 Listing directory: {}", args.dir_path);
 
@@ -336,8 +343,9 @@ pub struct AnalyzeCodeArgs {
 )]
 pub struct AnalyzeCodeTool {}
 
+#[async_trait]
 impl ToolRuntime for AnalyzeCodeTool {
-    fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
+    async fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
         let args: AnalyzeCodeArgs = serde_json::from_value(args)?;
         println!("🔬 Analyzing code: {} ({})", args.path, args.analysis_type);
 

@@ -1,3 +1,4 @@
+use autoagents::async_trait;
 /// This example demonstrates Agent Streaming
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
@@ -28,8 +29,9 @@ pub struct AdditionArgs {
 )]
 struct Addition {}
 
+#[async_trait]
 impl ToolRuntime for Addition {
-    fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
         let typed_args: AdditionArgs = serde_json::from_value(args)?;
         let result = typed_args.left + typed_args.right;
         println!("Tool Call Executed: {}", result);
