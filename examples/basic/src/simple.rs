@@ -1,4 +1,5 @@
 use crate::utils::handle_events;
+use autoagents::async_trait;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
@@ -26,8 +27,9 @@ pub struct AdditionArgs {
 )]
 struct Addition {}
 
+#[async_trait]
 impl ToolRuntime for Addition {
-    fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
         println!("execute tool: {:?}", args);
         let typed_args: AdditionArgs = serde_json::from_value(args)?;
         let result = typed_args.left + typed_args.right;

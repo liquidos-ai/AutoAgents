@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use autoagents::core::actor::Topic;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
@@ -32,8 +33,9 @@ pub struct AdditionArgs {
 )]
 struct WasmAddition {}
 
+#[async_trait]
 impl ToolRuntime for WasmAddition {
-    fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
         println!("🔧 Executing WASM Addition tool...");
 
         let runtime = WasmRuntime::builder()

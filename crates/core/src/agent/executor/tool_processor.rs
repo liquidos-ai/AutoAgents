@@ -102,7 +102,7 @@ impl ToolProcessor {
 
         // Find and execute the tool
         let result = match tools.iter().find(|t| t.name() == tool_name) {
-            Some(tool) => Self::execute_tool(tool.as_ref(), &tool_name, &tool_args),
+            Some(tool) => Self::execute_tool(tool.as_ref(), &tool_name, &tool_args).await,
             None => Self::create_error_result(
                 &tool_name,
                 &tool_args,
@@ -117,9 +117,9 @@ impl ToolProcessor {
     }
 
     /// Execute a tool and return the result
-    fn execute_tool(tool: &dyn ToolT, tool_name: &str, tool_args: &str) -> ToolCallResult {
+    async fn execute_tool(tool: &dyn ToolT, tool_name: &str, tool_args: &str) -> ToolCallResult {
         match serde_json::from_str::<Value>(tool_args) {
-            Ok(parsed_args) => match tool.execute(parsed_args) {
+            Ok(parsed_args) => match tool.execute(parsed_args).await {
                 Ok(output) => ToolCallResult {
                     tool_name: tool_name.to_string(),
                     success: true,

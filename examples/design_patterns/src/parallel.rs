@@ -173,7 +173,7 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     // Set up custom event handler to coordinate parallel results
     handle_events(receiver, task.submission_id, runtime.clone());
 
-    println!("--- Running Parallel LangChain Example for Topic: '{task:?}' ---");
+    println!("--- Running Parallel Example for Topic: '{task:?}' ---");
 
     // Publish the task to all three agents simultaneously
     // They will process in parallel

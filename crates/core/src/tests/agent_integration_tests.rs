@@ -7,6 +7,7 @@ mod tests {
     use crate::runtime::{SingleThreadedRuntime, TypedRuntime};
     use crate::tests::agent::{MockAgentImpl, MockTool, TestAgentOutput};
     use crate::tool::{ToolCallError, ToolRuntime, ToolT};
+    use async_trait::async_trait;
     use autoagents_test_utils::llm::MockLLMProvider;
     use serde_json::Value;
     use std::sync::Arc;
@@ -34,8 +35,9 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl ToolRuntime for MockTool {
-        fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
             let input_str = args
                 .get("input")
                 .and_then(|v| v.as_str())

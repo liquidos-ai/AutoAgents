@@ -298,7 +298,7 @@ AutoAgents/
 │   ├── core/           # Core agent framework
 │   ├── llm/            # LLM provider implementations
 │   ├── burn/           # LLM provider implementations using Burn
-│   ├── onnx-ort/       # Edge Runtime Implementation using Onnx
+│   ├── onnx/       # Edge Runtime Implementation using Onnx
 │   └── derive/         # Procedural macros
 ├── examples/           # Example implementations
 ```
