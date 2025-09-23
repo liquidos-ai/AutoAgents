@@ -17,18 +17,27 @@ struct SimpleAgent {}
 
 use crate::Model;
 
-pub async fn run_pretrained(model_type: Model, prompt: String) -> Result<(), Error> {
-    println!("Running Pretrained command with {:?} model (pretrained will be downloaded automatically)...", model_type);
+pub async fn run_frombytes(
+    model_type: Model,
+    model_path: String,
+    tokenizer_path: String,
+    prompt: String,
+) -> Result<(), Error> {
+    println!(
+        "Running FromFile command with {:?} model: {}, tokenizer: {}",
+        model_type, model_path, tokenizer_path
+    );
 
-    let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
+    let sliding_window_memory = Box::new(SlidingWindowMemory::new(100));
 
     let agent_handle = match model_type {
         Model::Tiny => {
             let llm = TinyLlamaBuilder::new()
-                .temperature(0.0)
-                .max_tokens(1024)
-                .build_from_pretrained()
-                .await
+                .model_path(&model_path)
+                .tokenizer_path(&tokenizer_path)
+                .temperature(0.7)
+                .max_tokens(256)
+                .build()
                 .expect("Failed to build TinyLlama LLM");
             let agent = BasicAgent::new(SimpleAgent {});
             AgentBuilder::<_, DirectAgent>::new(agent)
@@ -39,11 +48,12 @@ pub async fn run_pretrained(model_type: Model, prompt: String) -> Result<(), Err
         }
         Model::Llama3 => {
             let llm = Llama3Builder::new()
-                .max_seq_len(1024)
-                .temperature(0.0)
+                .model_path(&model_path)
+                .tokenizer_path(&tokenizer_path)
+                .temperature(0.7)
                 .max_tokens(1024)
                 .llama3_2_1b_q4()
-                .build_from_pretrained()
+                .build_from_bytes()
                 .await
                 .expect("Failed to build Llama3 LLM");
             let agent = BasicAgent::new(SimpleAgent {});

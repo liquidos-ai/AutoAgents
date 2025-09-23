@@ -1,5 +1,14 @@
 use std::time::Instant;
 
+use super::super::super::{
+    nn::{
+        pos_encoding::{PositionalEncodingState, RopeConfig, RopeFrequencyScaling},
+        transformer::{Transformer, TransformerCache, TransformerConfig},
+    },
+    tokenizer::Tokenizer,
+};
+use crate::model::llama::nn::transformer::TransformerRecord;
+use burn::record::Recorder;
 use burn::{
     config::Config,
     module::{Module, Quantizer},
@@ -10,14 +19,6 @@ use burn::{
         quantization::{Calibration, QuantScheme},
         Device, Int, Shape, Tensor, TensorData,
     },
-};
-
-use super::super::super::{
-    nn::{
-        pos_encoding::{PositionalEncodingState, RopeConfig, RopeFrequencyScaling},
-        transformer::{Transformer, TransformerCache, TransformerConfig},
-    },
-    tokenizer::Tokenizer,
 };
 
 #[cfg(feature = "tiny")]
@@ -188,6 +189,41 @@ impl LlamaConfig {
         let llama = llama
             .load(checkpoint, &recorder)
             .map_err(|err| format!("Failed to load pre-trained Llama model.\nError: {err}"))?;
+
+        Ok(llama)
+    }
+
+    /// Load pre-trained Llama-3.2-1B model with [Tiktoken](https://github.com/openai/tiktoken) tokenizer.
+    #[cfg(all(feature = "llama3", not(target_arch = "wasm32")))]
+    pub fn load_llama3_2_1b_from_bytes<B: Backend>(
+        checkpoint: &str,
+        tokenizer_path: &str,
+        max_seq_len: usize,
+        device: &Device<B>,
+    ) -> Result<Llama<B, Tiktoken>, String> {
+        use burn::record::NamedMpkBytesRecorder;
+        use std::fs;
+
+        let tokenizer_bytes = fs::read(tokenizer_path)
+            .map_err(|e| format!("Failed to read tokenizer file: {}", e))?;
+
+        let checkpoint_bytes =
+            fs::read(checkpoint).map_err(|e| format!("Failed to read checkpoint file: {}", e))?;
+
+        let tokenizer = Tiktoken::from_bytes(&tokenizer_bytes)
+            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+
+        let llama = Self::llama3_2_1b("")
+            .with_max_seq_len(max_seq_len)
+            .init_with_tokenizer::<B, Tiktoken>(tokenizer, device)?;
+
+        let recorder = NamedMpkBytesRecorder::<HalfPrecisionSettings>::new();
+        let record: TransformerRecord<B> = recorder
+            .load(checkpoint_bytes, device)
+            .map_err(|err| format!("Failed to load pre-trained Llama model.\nError: {err}"))?;
+
+        let mut llama = llama;
+        llama.model = llama.model.load_record(record);
 
         Ok(llama)
     }

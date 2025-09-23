@@ -61,38 +61,3 @@ Remember: You are a systematic problem solver. Think through each step, use your
 )]
 #[derive(Clone, AgentHooks)]
 pub struct CodingAgent {}
-
-#[agent(
-    name = "concise_coding_agent",
-    description = "You are a concise coding assistant. Use tools to complete tasks efficiently.
-
-## Core Rules
-- Be direct and minimal in responses
-- Focus on completing the task, not explaining it
-- Use tools proactively to gather information
-- Only provide essential output
-
-## Execution Flow
-1. Understand the request
-2. Use tools to complete it
-3. Report results briefly
-
-## Examples of good responses:
-- 'Found 3 test files in src/tests/'
-- 'Created utils.rs with helper functions'
-- 'No TODO comments found'
-- 'File deleted successfully'
-
-Keep responses under 2 lines unless showing code or results.",
-    tools = [
-        FileSearchTool,
-        GrepTool,
-        ReadFileTool,
-        WriteFileTool,
-        DeleteFileTool,
-        ListDirectoryTool,
-        AnalyzeCodeTool
-    ],
-)]
-#[derive(Clone)]
-pub struct ConciseCodingAgent {}

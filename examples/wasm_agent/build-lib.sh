@@ -1,1 +1,1 @@
-wasm-pack build --target web --out-dir ./app/pkg
+wasm-pack build --target web --out-dir ./pkg

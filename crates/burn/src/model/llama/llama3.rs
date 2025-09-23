@@ -1,8 +1,8 @@
 use crate::backend::burn_backend_types::InferenceBackend;
-use crate::model::llama::chat::{GenerationConfig, LlamaChat};
+use crate::model::llama::chat::{GenerationConfig, LLamaModel, LlamaChat};
 use crate::model::llama::tokenizer::Tiktoken;
 use crate::model::llama::{Llama, LlamaConfig};
-use crate::utils::CustomMutex;
+use crate::utils::{spawn_blocking, CustomMutex};
 use autoagents_llm::error::LLMError;
 use log::info;
 use std::marker::PhantomData;
@@ -37,9 +37,7 @@ pub struct LLama3ModelConfig {
     pub generation_config: GenerationConfig,
     pub model_variant: Llama3Model,
     pub import: bool,
-    #[cfg(target_arch = "wasm32")]
     pub model_bytes: Option<Vec<u8>>,
-    #[cfg(target_arch = "wasm32")]
     pub tokenizer_bytes: Option<Vec<u8>>,
 }
 
@@ -48,13 +46,11 @@ impl Default for LLama3ModelConfig {
         Self {
             model_path: PathBuf::from("models/llama3.mpk"),
             tokenizer_path: PathBuf::from("models/tokenizer.model"),
-            max_seq_len: 512,
+            max_seq_len: 8192,
             generation_config: GenerationConfig::default(),
             model_variant: Llama3Model::default(),
             import: false,
-            #[cfg(target_arch = "wasm32")]
             model_bytes: None,
-            #[cfg(target_arch = "wasm32")]
             tokenizer_bytes: None,
         }
     }
@@ -134,27 +130,15 @@ impl Llama3Builder {
         self
     }
 
-    #[cfg(target_arch = "wasm32")]
     pub fn with_model_bytes(mut self, bytes: Vec<u8>) -> Self {
         self.config.model_bytes = Some(bytes);
         self.config.import = true;
         self
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_model_bytes(self, _bytes: Vec<u8>) -> Self {
-        panic!("Model bytes is supported only in wasm32");
-    }
-
-    #[cfg(target_arch = "wasm32")]
     pub fn with_tokenizer_bytes(mut self, bytes: Vec<u8>) -> Self {
         self.config.tokenizer_bytes = Some(bytes);
         self
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_tokenizer_bytes(self, _bytes: Vec<u8>) -> Self {
-        panic!("Tokenizer bytes is supported only in wasm32");
     }
 
     #[cfg(feature = "pretrained")]
@@ -178,7 +162,7 @@ impl Llama3Builder {
         let max_seq_len = self.config.max_seq_len;
         let model_variant = self.config.model_variant;
 
-        let llama = tokio::task::spawn_blocking(move || match model_variant {
+        let llama = spawn_blocking(move || match model_variant {
             Llama3Model::Llama3_8B => {
                 LlamaConfig::llama3_8b_pretrained::<InferenceBackend>(max_seq_len, &device)
             }
@@ -196,13 +180,64 @@ impl Llama3Builder {
             }
         })
         .await
-        .map_err(|e| LLMError::Generic(format!("Task join error: {}", e)))?
+        .map_err(|e| LLMError::Generic(e))?
         .map_err(|e| LLMError::Generic(format!("Failed to load model: {}", e)))?;
 
         Ok(Arc::new(LlamaChat {
             llama: Arc::new(CustomMutex::new(llama)),
             config: self.config.generation_config,
             marker: PhantomData,
+            model: LLamaModel::Llama3,
+        }))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn build_from_bytes(
+        self,
+    ) -> Result<Arc<LlamaChat<InferenceBackend, Tiktoken>>, LLMError> {
+        use crate::backend::burn_backend_types::INFERENCE_DEVICE;
+
+        let device = INFERENCE_DEVICE;
+
+        info!(
+            "Burn using device {}",
+            crate::backend::burn_backend_types::NAME
+        );
+
+        // Convert paths into owned Strings
+        let model_path = self
+            .config
+            .model_path
+            .to_str()
+            .ok_or_else(|| LLMError::Generic("Invalid model path".to_string()))?
+            .to_string();
+        let tokenizer_path = self
+            .config
+            .tokenizer_path
+            .to_str()
+            .ok_or_else(|| LLMError::Generic("Invalid tokenizer path".to_string()))?
+            .to_string();
+
+        let max_seq_len = self.config.max_seq_len;
+
+        // Move owned values into spawn_blocking
+        let llama = spawn_blocking(move || {
+            LlamaConfig::load_llama3_2_1b_from_bytes::<InferenceBackend>(
+                &model_path,
+                &tokenizer_path,
+                max_seq_len,
+                &device,
+            )
+        })
+        .await
+        .map_err(|e| LLMError::Generic(e))?
+        .map_err(|e| LLMError::Generic(format!("Failed to load model: {}", e)))?;
+
+        Ok(Arc::new(LlamaChat {
+            llama: Arc::new(CustomMutex::new(llama)),
+            config: self.config.generation_config,
+            marker: PhantomData,
+            model: LLamaModel::TinyLLama,
         }))
     }
 
@@ -216,13 +251,6 @@ impl Llama3Builder {
             "Building Llama3 model variant: {:?}",
             self.config.model_variant
         );
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            if self.config.import {
-                return self.build_from_bytes();
-            }
-        }
 
         let model_path = self
             .config
@@ -284,15 +312,21 @@ impl Llama3Builder {
             llama: Arc::new(CustomMutex::new(llama)),
             config: self.config.generation_config,
             marker: PhantomData,
+            model: LLamaModel::Llama3,
         }))
     }
 
-    pub fn build_from_bytes(self) -> Result<Arc<LlamaChat<InferenceBackend, Tiktoken>>, LLMError> {
-        #[cfg(target_arch = "wasm32")]
+    pub async fn build_from_bytes_wasm(
+        self,
+    ) -> Result<Arc<LlamaChat<InferenceBackend, Tiktoken>>, LLMError> {
+        #[cfg(all(target_arch = "wasm32", feature = "webgpu"))]
         {
+            use crate::backend::burn_backend_types::init_setup;
             use crate::backend::burn_backend_types::INFERENCE_DEVICE;
 
             let device = INFERENCE_DEVICE;
+
+            let _ = init_setup().await;
 
             info!("Building Llama3 model from bytes for WASM");
             info!("Model variant: {:?}", self.config.model_variant);
@@ -371,6 +405,7 @@ impl Llama3Builder {
                 llama: Arc::new(CustomMutex::new(llama)),
                 config: self.config.generation_config,
                 marker: PhantomData,
+                model: LLamaModel::Llama3,
             }));
         }
         #[cfg(not(target_arch = "wasm32"))]

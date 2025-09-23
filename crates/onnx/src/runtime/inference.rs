@@ -1,7 +1,7 @@
 //! ONNX Runtime backend for onnx inference
 
 use crate::error::{EdgeError, EdgeResult};
-use crate::runtime::{InferenceInput, InferenceOutput, RuntimeBackend};
+use crate::runtime::{InferenceInput, InferenceOutput};
 use crate::{Device, Model};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -9,11 +9,8 @@ use std::path::{Path, PathBuf};
 
 use ndarray::{ArrayD, IxDyn};
 
-#[cfg(feature = "onnx")]
-use ort::{session::Session, value::Value as OrtValue};
-
-#[cfg(all(feature = "onnx", not(target_arch = "wasm32")))]
 use ort::execution_providers::ExecutionProvider;
+use ort::{session::Session, value::Value as OrtValue};
 
 /// ONNX Runtime backend for edge inference
 pub struct OnnxBackend {
@@ -288,10 +285,8 @@ impl OnnxBackend {
             "Unsupported tensor type for output conversion",
         ))
     }
-}
 
-impl RuntimeBackend for OnnxBackend {
-    fn infer(&mut self, input: InferenceInput) -> EdgeResult<InferenceOutput> {
+    pub fn infer(&mut self, input: InferenceInput) -> EdgeResult<InferenceOutput> {
         // Convert inputs to ONNX format
         let mut onnx_inputs = HashMap::new();
 
@@ -332,7 +327,7 @@ impl RuntimeBackend for OnnxBackend {
         })
     }
 
-    fn model_info(&self) -> HashMap<String, Value> {
+    pub fn model_info(&self) -> HashMap<String, Value> {
         let mut info = HashMap::new();
         info.insert(
             "backend_type".to_string(),
@@ -376,11 +371,11 @@ impl RuntimeBackend for OnnxBackend {
         info
     }
 
-    fn is_ready(&self) -> bool {
+    pub fn is_ready(&self) -> bool {
         true // ONNX session is ready once created
     }
 
-    fn backend_info(&self) -> HashMap<String, Value> {
+    pub fn backend_info(&self) -> HashMap<String, Value> {
         let mut info = HashMap::new();
         info.insert(
             "name".to_string(),
@@ -562,9 +557,4 @@ impl ModelBuilder {
     pub fn onnx_from_file<P: AsRef<Path>>(path: P) -> EdgeResult<OnnxModel> {
         OnnxModel::from_file(path)
     }
-}
-
-/// Convenience function to create an ONNX model
-pub fn onnx_model<P: AsRef<Path>>(path: P) -> EdgeResult<OnnxModel> {
-    OnnxModel::from_directory(path)
 }

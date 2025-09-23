@@ -14,7 +14,6 @@ pub struct SentencePieceTokenizer {
 
 impl SentencePieceTokenizer {
     /// Load the tokenizer from bytes (for WASM targets)
-    #[cfg(target_arch = "wasm32")]
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let bpe = BaseTokenizer::from_bytes(bytes).map_err(|e| e.to_string())?;
 

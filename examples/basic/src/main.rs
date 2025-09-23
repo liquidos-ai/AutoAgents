@@ -10,7 +10,7 @@ mod actor;
 mod basic;
 mod hooks;
 mod manual_tool_agent;
-mod onnx_ort;
+mod onnx;
 mod streaming;
 mod utils;
 
@@ -67,7 +67,7 @@ async fn main() -> Result<(), Error> {
     match args.usecase {
         UseCase::Simple => simple::simple_agent(llm).await?,
         UseCase::Basic => basic::basic_agent(llm).await?,
-        UseCase::Edge => onnx_ort::edge_agent(args.device).await?,
+        UseCase::Edge => onnx::edge_agent(args.device).await?,
         UseCase::Streaming => streaming::run(llm).await?,
         UseCase::Actor => actor::run(llm).await?,
         UseCase::Hooks => hooks::hooks_agent(llm).await?,

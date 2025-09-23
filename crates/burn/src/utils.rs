@@ -62,3 +62,26 @@ use futures::channel::mpsc::unbounded as unbounded_channel;
 pub type CustomMutex<T> = futures::lock::Mutex<T>;
 #[cfg(not(target_arch = "wasm32"))]
 pub type CustomMutex<T> = tokio::sync::Mutex<T>;
+
+// Platform-specific spawn_blocking functions
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn spawn_blocking<F, R>(f: F) -> Result<R, String>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("Task join error: {}", e))
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn spawn_blocking<F, R>(f: F) -> Result<R, String>
+where
+    F: FnOnce() -> R + 'static,
+    R: 'static,
+{
+    // In WASM, we can't spawn blocking tasks to separate threads
+    // so we just execute the function directly
+    Ok(f())
+}

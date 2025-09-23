@@ -10,27 +10,43 @@ categories.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]
-# For now until stable release is used
-test = false
 
 [features]
 default = []
 
-# Backends
-ndarray = ["burn/ndarray"]
-webgpu = ["burn/webgpu"]
-cuda = ["burn/cuda", "burn/default"]
+# Feature flag to deactivate the default backend.
+selected-backend = []
+
+# Backend Features
+candle-accelerate = ["burn/candle", "burn/accelerate", "selected-backend"]
+candle-cpu = ["burn/candle", "selected-backend"]
+candle-cuda = ["burn/candle-cuda", "selected-backend"]
+candle-metal = ["burn/candle", "burn/metal", "selected-backend"]
+
+cuda = [
+    "burn/cuda",
+    "burn/default",
+    #    "burn/compilation-cache",
+    "selected-backend",
+]
 rocm = [
     "burn/rocm",
     "burn/default",
+    #    "burn/compilation-cache",
+    "selected-backend",
 ]
-metal = ["burn/metal"]
-wgpu = ["burn/wgpu", "burn/default"]
-vulkan = ["burn/vulkan", "burn/default"]
-candle-metal = ["burn/candle", "burn/metal", "burn/candle-metal"]
-candle-cpu = ["burn/candle"]
+metal = ["burn/metal", "selected-backend"]
+libtorch = ["burn/tch", "selected-backend"]
+libtorch-cpu = ["burn/tch", "selected-backend"]
+ndarray = ["burn/ndarray"]
+ndarray-blas-accelerate = ["ndarray", "burn/accelerate"]
+ndarray-blas-netlib = ["ndarray", "burn/blas-netlib"]
+ndarray-blas-openblas = ["ndarray", "burn/openblas"]
+wgpu = ["burn/wgpu", "burn/default", "selected-backend"]
+vulkan = ["burn/vulkan", "burn/default", "selected-backend"]
+wgpu-cpu = ["burn/wgpu", "burn/default", "selected-backend"]
+webgpu = ["burn/webgpu", "burn/default", "selected-backend"]
 
-# Element type
 f16 = []
 bf16 = []
 f32 = []
@@ -43,30 +59,31 @@ pretrained = ["burn/network", "dep:dirs"]
 tiny = ["dep:tokenizers"]
 llama3 = ["dep:tiktoken-rs", "dep:rustc-hash", "dep:base64"]
 
-# Test specific features
-test-non-default = []
-test-ndarray = ["burn/ndarray"]
-
 [dependencies]
-autoagents-llm.workspace = true
+autoagents-llm = { workspace = true }
 
 # Burn Related Imports
 burn = { git = "https://github.com/tracel-ai/burn", features = [
     "std",
-    "ndarray"
-], default-features = false, rev = "c56f5ab2046c7dbc28e642c0a08624c4ec290106" }
-burn-import = { git = "https://github.com/tracel-ai/burn", optional = true, default-features = false, rev = "c56f5ab2046c7dbc28e642c0a08624c4ec290106" }
+    "ndarray",
+], default-features = false }
+burn-common = { git = "https://github.com/tracel-ai/burn", features = [
+    "std",
+], default-features = false }
+burn-import = { git = "https://github.com/tracel-ai/burn", optional = true, default-features = false }
 
 # Tiktoken tokenizer (llama 3)
-tiktoken-rs = { version = "0.7.0", optional = true }
+tiktoken-rs = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
-rustc-hash = { version = "1.1.0", optional = true }
+rustc-hash = { version = "1.1", optional = true }
+bytemuck = { workspace = true }
 
-# SentencePiece tokenizer (tiny llama / llama 2)
-tokenizers = { version = "0.22.0", default-features = false, optional = true, features = [
+# SentencePiece tokenizer (tiny llama)
+tokenizers = { workspace = true, default-features = false, optional = true, features = [
     "unstable_wasm",
 ] }
 
+async-trait = { workspace = true }
 rand = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true, default-features = false, features = [
@@ -76,15 +93,16 @@ serde = { workspace = true, default-features = false, features = [
 dirs = { workspace = true, optional = true }
 log = { workspace = true, features = ["std"] }
 cfg-if = { version = "1.0.1" }
-futures-core = "0.3.31"
-futures-util = "0.3.31"
+half = "2.6.0"
+futures-core = { workspace = true }
+futures-util = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio-stream.workspace = true
 tokio = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4.50"
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
 getrandom = { workspace = true, features = ["wasm_js"] }
 uuid = { workspace = true, features = ["serde", "v4", "js"] }

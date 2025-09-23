@@ -9,18 +9,12 @@ and internal logic are subject to change without notice. Stability and performan
 
 We welcome feedback and contributions, but please use with caution in production environments. Expect breaking changes
 and incomplete functionality as we iterate and improve the inference engine.
+
 ---
 
-Onnx-Ort is a inference runtime designed specifically for edge computing environments. It provides
+Onnx is a inference runtime designed specifically for edge computing environments. It provides
 high-performance LLM inference with multiple backend support, comprehensive tokenization capabilities, and optimized
 memory management with AutoAgents LLM Provider Support.
-
-```sh
-pipx install "optimum[onnxruntime]"
-optimum-cli export onnx \                                                                                                                                               ✔ │ 7s   │ rust-onnx-chat 
-      --model squeeze-ai-lab/TinyAgent-1.1B \
-      --task text-generation ./models/tinyagen
-```
 
 ### Model Directory Structure
 

@@ -10,9 +10,8 @@ categories = ["science", "algorithms"]
 readme = "README.md"
 
 [features]
-default = ["onnx"]
-onnx = ["dep:ort", "dep:ndarray"]
-cuda = ["onnx", "ort/cuda"]
+default = []
+cuda = ["ort/cuda"]
 
 [dependencies]
 autoagents-llm.workspace = true
@@ -32,22 +31,15 @@ tokio = { workspace = true, features = ["rt", "sync", "fs"] }
 num_cpus = "1.16"
 rand = { workspace = true }
 # ONNX Runtime support for native
-ort = { version = "=2.0.0-rc.10", optional = true, features = [
+ort = { version = "=2.0.0-rc.10", features = [
     "copy-dylibs",
     "half",
     "std",
 ] }
-ndarray = { workspace = true, optional = true }
+ndarray = { workspace = true }
 tokenizers = { workspace = true }
 minijinja = { workspace = true }
 regex = { workspace = true }
-
-# WASM dependencies
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = { version = "0.2", optional = true }
-wasm-bindgen-futures = { version = "0.4", optional = true }
-getrandom = { workspace = true, optional = true, features = ["wasm_js"] }
-ndarray = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

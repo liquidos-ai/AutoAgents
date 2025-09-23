@@ -14,7 +14,7 @@ use autoagents_derive::{agent, tool, AgentHooks, ToolInput};
 use autoagents_onnx::chat::{LiquidEdgeBuilder, OnnxEdge};
 use autoagents_onnx::cpu;
 use autoagents_onnx::device::cuda_default;
-use autoagents_onnx::runtime::onnx::onnx_model;
+use autoagents_onnx::onnx_model;
 use colored::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

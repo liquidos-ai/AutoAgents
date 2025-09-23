@@ -1,52 +1,96 @@
 use super::super::tokenizer::Tokenizer;
+use crate::model::llama::generation::stream_sender::StreamSender;
 use crate::model::llama::generation::streaming::StreamingDecoder;
+use crate::utils::{spawn_future, CustomMutex};
+use autoagents_llm::chat::{StreamChoice, StreamDelta, StreamResponse};
 use burn::prelude::Backend;
 use burn::tensor::{Int, Tensor};
+#[cfg(target_arch = "wasm32")]
+use futures_util::SinkExt;
+use log::debug;
+use log::error;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    mpsc::Sender,
-    Arc, Mutex,
+    Arc,
 };
 
-#[derive(Clone)]
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::sync::mpsc;
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::sync::mpsc::Sender;
+
+#[cfg(target_arch = "wasm32")]
+use futures::channel::mpsc;
+#[cfg(target_arch = "wasm32")]
+use futures::channel::mpsc::{unbounded, UnboundedSender as Sender};
+
 /// The text generation context, used to check when a stop token has been reached.
-pub struct GenerationContext<B: Backend> {
+pub struct GenerationContext<B: Backend, T: Tokenizer + 'static> {
     pub tokens: Tensor<B, 1, Int>,
     num_tokens: usize,
     stop: Arc<AtomicBool>,
     num_generated: Arc<AtomicUsize>,
     sender: Sender<Tensor<B, 1, Int>>,
-    generated_text: Arc<Mutex<String>>,
+    generated_text: Arc<CustomMutex<String>>,
+    generator: Arc<CustomMutex<TokenGeneration<T>>>,
 }
 
-impl<B: Backend> GenerationContext<B> {
+impl<B: Backend, T: Tokenizer> GenerationContext<B, T> {
     /// Create a new generation context.
-    pub fn new<T: Tokenizer + 'static>(
+    pub async fn new(
         max_sample_len: usize,
         tokenizer: T,
         device: &B::Device,
+        emitter: Option<StreamSender>,
     ) -> Self {
-        let (sender, receiver) = std::sync::mpsc::channel::<Tensor<B, 1, Int>>();
+        #[cfg(not(target_arch = "wasm32"))]
+        let (sender, mut receiver) = mpsc::channel::<Tensor<B, 1, Int>>(100);
+        #[cfg(target_arch = "wasm32")]
+        let (sender, mut receiver) = unbounded::<Tensor<B, 1, Int>>();
+
         let stop = Arc::new(AtomicBool::new(false));
         let num_generated = Arc::new(AtomicUsize::new(0));
-        let generated_text = Arc::new(Mutex::new(String::new()));
+        let generated_text = Arc::new(CustomMutex::new(String::new()));
 
-        let mut generation = TokenGeneration::new(
+        let mut generation = Arc::new(CustomMutex::new(TokenGeneration::new(
             tokenizer,
             stop.clone(),
             num_generated.clone(),
             generated_text.clone(),
-        );
+            emitter,
+        )));
 
-        std::thread::spawn(move || {
-            for tokens in receiver.iter() {
+        let generation_clone = generation.clone();
+
+        spawn_future(async move {
+            #[cfg(not(target_arch = "wasm32"))]
+            while let Some(tokens) = receiver.recv().await {
                 let tokens = tokens
                     .into_data()
                     .convert::<u32>()
                     .into_vec::<u32>()
                     .unwrap();
 
-                generation.process(tokens);
+                generation_clone.clone().lock().await.process(tokens).await;
+            }
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                use futures::StreamExt;
+                while let Some(tokens) = receiver.next().await {
+                    let data = tokens.into_data_async().await;
+                    // Convert to Vec<u32>
+                    debug!("Attempting data conversion to U32");
+                    let tokens = match data.convert::<u32>().into_vec::<u32>() {
+                        Ok(v) => v,
+                        Err(e) => {
+                            error!("failed to convert tensor to Vec<u32> (wasm): {:?}", e);
+                            continue;
+                        }
+                    };
+
+                    generation_clone.lock().await.process(tokens).await;
+                }
             }
         });
 
@@ -57,6 +101,7 @@ impl<B: Backend> GenerationContext<B> {
             num_generated,
             sender,
             generated_text,
+            generator: generation,
         }
     }
 
@@ -69,11 +114,23 @@ impl<B: Backend> GenerationContext<B> {
     }
 
     /// Update the state with newly generated tokens.
-    pub fn update(&mut self, tokens: Tensor<B, 1, Int>) {
+    pub async fn update(&mut self, tokens: Tensor<B, 1, Int>) {
         self.append(tokens.clone());
+        let tokens = tokens.clone();
 
         if !self.should_stop() {
-            let _ = self.sender.send(tokens);
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if let Err(e) = self.sender.send(tokens).await {
+                    error!("error sending update: {:?}", e.to_string());
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                if let Err(e) = self.sender.unbounded_send(tokens) {
+                    error!("error sending update: {:?}", e.to_string());
+                }
+            }
         }
     }
 
@@ -88,8 +145,8 @@ impl<B: Backend> GenerationContext<B> {
     }
 
     /// Returns the generated text.
-    pub fn get_generated_text(&self) -> String {
-        self.generated_text.lock().unwrap().clone()
+    pub async fn get_generated_text(&self) -> String {
+        self.generated_text.lock().await.clone()
     }
 }
 
@@ -99,7 +156,8 @@ struct TokenGeneration<T: Tokenizer> {
     stop: Arc<AtomicBool>,
     num_tokens_generated: Arc<AtomicUsize>,
     num_generated: usize,
-    generated_text: Arc<Mutex<String>>,
+    generated_text: Arc<CustomMutex<String>>,
+    emitter: Option<StreamSender>,
 }
 
 impl<T: Tokenizer> TokenGeneration<T> {
@@ -107,7 +165,8 @@ impl<T: Tokenizer> TokenGeneration<T> {
         tokenizer: T,
         stop: Arc<AtomicBool>,
         num_tokens_generated: Arc<AtomicUsize>,
-        generated_text: Arc<Mutex<String>>,
+        generated_text: Arc<CustomMutex<String>>,
+        emitter: Option<StreamSender>,
     ) -> Self {
         Self {
             stop_tokens: tokenizer.stop_ids(),
@@ -116,10 +175,11 @@ impl<T: Tokenizer> TokenGeneration<T> {
             num_tokens_generated,
             num_generated: 0,
             generated_text,
+            emitter,
         }
     }
 
-    fn process(&mut self, tokens: Vec<u32>) {
+    async fn process(&mut self, tokens: Vec<u32>) {
         let mut finished = false;
         let mut generated = Vec::new();
 
@@ -137,8 +197,27 @@ impl<T: Tokenizer> TokenGeneration<T> {
 
         if !generated.is_empty() {
             if let Some(text) = self.decoder.push_tokens(&generated) {
-                let mut gen_text = self.generated_text.lock().unwrap();
+                let mut gen_text = self.generated_text.lock().await;
                 gen_text.push_str(&text);
+                let response = StreamResponse {
+                    choices: vec![StreamChoice {
+                        delta: StreamDelta {
+                            content: Some(text),
+                            tool_calls: None,
+                        },
+                    }],
+                    usage: None,
+                };
+                if let Some(emitter) = self.emitter.as_ref() {
+                    emitter.send(Ok(response)).await;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    tokio::task::yield_now().await;
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        use futures_util::future::FutureExt;
+                        futures_util::future::ready(()).then(|_| async {}).await;
+                    }
+                }
             }
         }
 

@@ -9,14 +9,22 @@ name = "autoagents-burn-example"
 path = "src/main.rs"
 test = false
 
+[features]
+default = []
+cuda = ["autoagents-burn/cuda", "f16"]
+metal = ["autoagents-burn/metal", "f16"]
+ndarray = ["autoagents-burn/ndarray", "f32"]
+
+## Dtype
+f16 = ["autoagents-burn/f16"]
+f32 = ["autoagents-burn/f32"]
+
 [dependencies]
 autoagents-derive.workspace = true
 autoagents = { workspace = true, features = [] }
 autoagents-burn = { workspace = true, default-features = false, features = [
     "tiny",
     "llama3",
-    "f16",
-    "cuda",
     "pretrained"
 ] }
 clap = { workspace = true }
@@ -29,4 +37,3 @@ tokio = { workspace = true, features = [
     "rt-multi-thread",
     "macros",
 ] }
-

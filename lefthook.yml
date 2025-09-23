@@ -9,7 +9,7 @@ pre-commit:
       run: cargo clippy --all-features --all-targets -- -D warnings
 
     test:
-      run: cargo test --all-features --workspace --exclude autoagents-burn #Remove exclude when build errors are resolved
+      run: cargo test --all-features --workspace --exclude autoagents-burn --exclude wasm_agent #TODO: Better job at enabling device specific features for test
 
     check:
       run: cargo check --all-features --all-targets

@@ -1,8 +1,11 @@
+#![recursion_limit = "256"]
+
 use autoagents::core::error::Error;
 use autoagents::init_logging;
 use clap::{Parser, Subcommand};
 
 mod commands;
+use crate::commands::run_frombytes;
 use commands::{run_fromfile, run_pretrained};
 
 #[derive(Parser)]
@@ -35,6 +38,32 @@ enum Commands {
             short,
             long,
             default_value = "./examples/burn/model/TinyLlama-1.1B/tokenizer.json"
+        )]
+        tokenizer_path: String,
+
+        /// Prompt to send to the agent
+        #[arg(short, long, default_value = "Tell me a poem?")]
+        prompt: String,
+    },
+    /// Run with local model files with Bytes
+    FromBytes {
+        /// Model type to use
+        #[arg(long, default_value = "llama3")]
+        model: Model,
+
+        /// Path to the model file
+        #[arg(
+            short,
+            long,
+            default_value = "./examples/burn/model/Llama-3.2-1B-Instruct/model.mpk"
+        )]
+        model_path: String,
+
+        /// Path to the tokenizer file
+        #[arg(
+            short,
+            long,
+            default_value = "./examples/burn/model/Llama-3.2-1B-Instruct/tokenizer.model"
         )]
         tokenizer_path: String,
 
@@ -76,6 +105,14 @@ async fn main() -> Result<(), Error> {
             prompt,
         } => {
             run_fromfile(model, model_path, tokenizer_path, prompt).await?;
+        }
+        Commands::FromBytes {
+            model,
+            model_path,
+            tokenizer_path,
+            prompt,
+        } => {
+            run_frombytes(model, model_path, tokenizer_path, prompt).await?;
         }
         Commands::Pretrained { model, prompt } => {
             run_pretrained(model, prompt).await?;
