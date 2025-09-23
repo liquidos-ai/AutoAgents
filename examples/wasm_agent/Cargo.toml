@@ -7,7 +7,6 @@ publish = false
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-
 [dependencies]
 wasm-bindgen = { workspace = true, features = ["serde", "serde_json"] }
 autoagents-burn = { workspace = true, default-features = false, features = [

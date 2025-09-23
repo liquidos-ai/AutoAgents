@@ -85,6 +85,3 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4.50"
 serde-wasm-bindgen = "0.6"
 bytemuck = "1.23.2"
-
-[patch."https://github.com/tracel-ai/cubecl"]
-cubecl = { git = "https://github.com/Prerna-Goyal/cubecl", branch = "fix/async-staging-buffer" }

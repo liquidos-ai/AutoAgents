@@ -80,9 +80,6 @@ impl<B: Backend, T: Tokenizer + 'static> Llama<B, T> {
             self.pos_encoding.prepare(seq_len);
             debug!("Prepared Positional Encoding");
 
-            let data1 = TensorData::new(vec![1.0f32, 2.0f32], Shape::new([2]));
-            let data2 = TensorData::new(vec![3.0f32, 4.0f32], Shape::new([2]));
-
             let logits = self
                 .model
                 .forward(x, &mut self.cache, &self.pos_encoding, mask);

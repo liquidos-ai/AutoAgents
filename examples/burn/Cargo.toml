@@ -10,7 +10,7 @@ path = "src/main.rs"
 test = false
 
 [features]
-default = ["ndarray"]
+default = []
 cuda = ["autoagents-burn/cuda", "f16"]
 metal = ["autoagents-burn/metal", "f16"]
 ndarray = ["autoagents-burn/ndarray", "f32"]

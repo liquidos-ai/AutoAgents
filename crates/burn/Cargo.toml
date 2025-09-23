@@ -26,13 +26,13 @@ candle-metal = ["burn/candle", "burn/metal", "selected-backend"]
 cuda = [
     "burn/cuda",
     "burn/default",
-    "burn/compilation-cache",
+    #    "burn/compilation-cache",
     "selected-backend",
 ]
 rocm = [
     "burn/rocm",
     "burn/default",
-       "burn/compilation-cache",
+    #    "burn/compilation-cache",
     "selected-backend",
 ]
 metal = ["burn/metal", "selected-backend"]
@@ -76,7 +76,7 @@ burn-import = { git = "https://github.com/tracel-ai/burn", optional = true, defa
 tiktoken-rs = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 rustc-hash = { version = "1.1", optional = true }
-bytemuck = { workspace =  true }
+bytemuck = { workspace = true }
 
 # SentencePiece tokenizer (tiny llama)
 tokenizers = { workspace = true, default-features = false, optional = true, features = [
