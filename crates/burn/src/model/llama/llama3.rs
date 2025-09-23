@@ -37,9 +37,7 @@ pub struct LLama3ModelConfig {
     pub generation_config: GenerationConfig,
     pub model_variant: Llama3Model,
     pub import: bool,
-    #[cfg(target_arch = "wasm32")]
     pub model_bytes: Option<Vec<u8>>,
-    #[cfg(target_arch = "wasm32")]
     pub tokenizer_bytes: Option<Vec<u8>>,
 }
 
@@ -52,9 +50,7 @@ impl Default for LLama3ModelConfig {
             generation_config: GenerationConfig::default(),
             model_variant: Llama3Model::default(),
             import: false,
-            #[cfg(target_arch = "wasm32")]
             model_bytes: None,
-            #[cfg(target_arch = "wasm32")]
             tokenizer_bytes: None,
         }
     }
@@ -134,27 +130,15 @@ impl Llama3Builder {
         self
     }
 
-    #[cfg(target_arch = "wasm32")]
     pub fn with_model_bytes(mut self, bytes: Vec<u8>) -> Self {
         self.config.model_bytes = Some(bytes);
         self.config.import = true;
         self
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_model_bytes(self, _bytes: Vec<u8>) -> Self {
-        panic!("Model bytes is supported only in wasm32");
-    }
-
-    #[cfg(target_arch = "wasm32")]
     pub fn with_tokenizer_bytes(mut self, bytes: Vec<u8>) -> Self {
         self.config.tokenizer_bytes = Some(bytes);
         self
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_tokenizer_bytes(self, _bytes: Vec<u8>) -> Self {
-        panic!("Tokenizer bytes is supported only in wasm32");
     }
 
     #[cfg(feature = "pretrained")]

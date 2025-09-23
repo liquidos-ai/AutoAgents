@@ -4,10 +4,9 @@ Run Agents on Browser using AutoAgents WASM support with Candle - The current Ti
 the results are not good. Candle currently does not support WebGPU.
 
 ```shell
-wasm-pack build --release --target web --out-dir ./app/public/pkg
+wasm-pack build --release --target web --out-dir ./pkg
 ```
 
 ```shell
-cd app
-npm run dev
+python3 -m http.server
 ```

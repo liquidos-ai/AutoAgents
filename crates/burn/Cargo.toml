@@ -65,7 +65,7 @@ autoagents-llm = { workspace = true }
 # Burn Related Imports
 burn = { git = "https://github.com/tracel-ai/burn", features = [
     "std",
-    "ndarray"
+    "ndarray",
 ], default-features = false }
 burn-common = { git = "https://github.com/tracel-ai/burn", features = [
     "std",
@@ -76,6 +76,7 @@ burn-import = { git = "https://github.com/tracel-ai/burn", optional = true, defa
 tiktoken-rs = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 rustc-hash = { version = "1.1", optional = true }
+bytemuck = { workspace =  true }
 
 # SentencePiece tokenizer (tiny llama)
 tokenizers = { workspace = true, default-features = false, optional = true, features = [
@@ -92,6 +93,7 @@ serde = { workspace = true, default-features = false, features = [
 dirs = { workspace = true, optional = true }
 log = { workspace = true, features = ["std"] }
 cfg-if = { version = "1.0.1" }
+half = "2.6.0"
 futures-core = { workspace = true }
 futures-util = { workspace = true }
 

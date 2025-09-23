@@ -2,6 +2,7 @@ use super::super::{tokenizer::Tokenizer, Llama};
 use super::{GenerationContext, Sampler};
 use crate::model::llama::generation::stream_sender::StreamSender;
 use burn::{prelude::*, tensor::activation::softmax};
+use log::debug;
 
 pub(crate) fn temperature_scaled_softmax<B: Backend>(
     logits: Tensor<B, 2>,
@@ -47,7 +48,7 @@ impl<B: Backend, T: Tokenizer + 'static> Llama<B, T> {
         let input_tokens = self.tokenize(prompt);
         let prompt_len = input_tokens.dims()[0];
 
-        let mut state = GenerationContext::new(
+        let mut state = GenerationContext::<B, T>::new(
             prompt_len + sample_len,
             self.tokenizer.clone(),
             &self.device,
@@ -57,9 +58,10 @@ impl<B: Backend, T: Tokenizer + 'static> Llama<B, T> {
         state.append(input_tokens);
 
         let mut input_pos = Tensor::<B, 1, Int>::arange(0..prompt_len as i64, &self.device);
-        // let now = Instant::now();
 
-        for _ in 0..sample_len {
+        debug!("Starting Generation Loop");
+        for i in 0..sample_len {
+            debug!("Generation Loop Iter: {i}");
             if state.should_stop() {
                 break;
             }
@@ -74,11 +76,18 @@ impl<B: Backend, T: Tokenizer + 'static> Llama<B, T> {
 
             // Prepare cache and RoPE for current sequence length and position
             let mask = self.cache.prepare(seq_len)?;
+            debug!("Prepared Cache");
             self.pos_encoding.prepare(seq_len);
+            debug!("Prepared Positional Encoding");
+
+            let data1 = TensorData::new(vec![1.0f32, 2.0f32], Shape::new([2]));
+            let data2 = TensorData::new(vec![3.0f32, 4.0f32], Shape::new([2]));
 
             let logits = self
                 .model
                 .forward(x, &mut self.cache, &self.pos_encoding, mask);
+
+            debug!("Model Forwad Pass Completed");
 
             let [batch_size, seq_len, _vocab_size] = logits.dims();
             let mut next_token_logits = logits
@@ -89,23 +98,27 @@ impl<B: Backend, T: Tokenizer + 'static> Llama<B, T> {
                 next_token_logits = temperature_scaled_softmax(next_token_logits, temperature);
             };
 
-            let next_token = sampler.sample(next_token_logits).await.squeeze(0);
+            debug!("Sampling Tokens");
+            let next_token = sampler.sample(next_token_logits).await.squeeze::<1>(0);
+
             // Update with the new generated token
-            state.update(next_token).await;
+            state.update(next_token.clone()).await;
+            debug!("Update Tokens Complete");
 
             // Advance
             let t = input_pos.dims()[0];
             input_pos = input_pos.slice(t - 1..t) + 1;
         }
+        debug!("Generation Loop Exited");
 
         let num_tokens = state.num_tokens_generated();
 
         // Decode the generated tokens to text
         let generated_text = state.get_generated_text().await;
+        debug!("Generated Text Extracted");
 
         Ok(GenerationOutput {
             tokens: num_tokens,
-            // time: now.elapsed(),
             result: generated_text,
         })
     }

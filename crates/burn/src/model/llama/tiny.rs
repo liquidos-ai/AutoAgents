@@ -16,9 +16,7 @@ pub struct TinyLLamaModelConfig {
     pub generation_config: GenerationConfig,
     #[allow(dead_code)]
     pub import: bool,
-    #[cfg(target_arch = "wasm32")]
     pub model_bytes: Option<Vec<u8>>,
-    #[cfg(target_arch = "wasm32")]
     pub tokenizer_bytes: Option<Vec<u8>>,
 }
 
@@ -30,9 +28,7 @@ impl Default for TinyLLamaModelConfig {
             max_seq_len: 512,
             generation_config: GenerationConfig::default(),
             import: false,
-            #[cfg(target_arch = "wasm32")]
             model_bytes: None,
-            #[cfg(target_arch = "wasm32")]
             tokenizer_bytes: None,
         }
     }

@@ -7,6 +7,7 @@ use burn::prelude::Backend;
 use burn::tensor::{Int, Tensor};
 #[cfg(target_arch = "wasm32")]
 use futures_util::SinkExt;
+use log::debug;
 use log::error;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -23,20 +24,20 @@ use futures::channel::mpsc;
 #[cfg(target_arch = "wasm32")]
 use futures::channel::mpsc::{unbounded, UnboundedSender as Sender};
 
-#[derive(Clone)]
 /// The text generation context, used to check when a stop token has been reached.
-pub struct GenerationContext<B: Backend> {
+pub struct GenerationContext<B: Backend, T: Tokenizer + 'static> {
     pub tokens: Tensor<B, 1, Int>,
     num_tokens: usize,
     stop: Arc<AtomicBool>,
     num_generated: Arc<AtomicUsize>,
     sender: Sender<Tensor<B, 1, Int>>,
     generated_text: Arc<CustomMutex<String>>,
+    generator: Arc<CustomMutex<TokenGeneration<T>>>,
 }
 
-impl<B: Backend> GenerationContext<B> {
+impl<B: Backend, T: Tokenizer> GenerationContext<B, T> {
     /// Create a new generation context.
-    pub async fn new<T: Tokenizer + 'static>(
+    pub async fn new(
         max_sample_len: usize,
         tokenizer: T,
         device: &B::Device,
@@ -51,13 +52,15 @@ impl<B: Backend> GenerationContext<B> {
         let num_generated = Arc::new(AtomicUsize::new(0));
         let generated_text = Arc::new(CustomMutex::new(String::new()));
 
-        let mut generation = TokenGeneration::new(
+        let mut generation = Arc::new(CustomMutex::new(TokenGeneration::new(
             tokenizer,
             stop.clone(),
             num_generated.clone(),
             generated_text.clone(),
             emitter,
-        );
+        )));
+
+        let generation_clone = generation.clone();
 
         spawn_future(async move {
             #[cfg(not(target_arch = "wasm32"))]
@@ -68,7 +71,7 @@ impl<B: Backend> GenerationContext<B> {
                     .into_vec::<u32>()
                     .unwrap();
 
-                generation.process(tokens).await;
+                generation_clone.clone().lock().await.process(tokens).await;
             }
 
             #[cfg(target_arch = "wasm32")]
@@ -77,6 +80,7 @@ impl<B: Backend> GenerationContext<B> {
                 while let Some(tokens) = receiver.next().await {
                     let data = tokens.into_data_async().await;
                     // Convert to Vec<u32>
+                    debug!("Attempting data conversion to U32");
                     let tokens = match data.convert::<u32>().into_vec::<u32>() {
                         Ok(v) => v,
                         Err(e) => {
@@ -85,7 +89,7 @@ impl<B: Backend> GenerationContext<B> {
                         }
                     };
 
-                    generation.process(tokens).await;
+                    generation_clone.lock().await.process(tokens).await;
                 }
             }
         });
@@ -97,6 +101,7 @@ impl<B: Backend> GenerationContext<B> {
             num_generated,
             sender,
             generated_text,
+            generator: generation,
         }
     }
 
@@ -111,6 +116,7 @@ impl<B: Backend> GenerationContext<B> {
     /// Update the state with newly generated tokens.
     pub async fn update(&mut self, tokens: Tensor<B, 1, Int>) {
         self.append(tokens.clone());
+        let tokens = tokens.clone();
 
         if !self.should_stop() {
             #[cfg(not(target_arch = "wasm32"))]
