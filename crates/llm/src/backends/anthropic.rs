@@ -300,90 +300,92 @@ impl Anthropic {
         _json_schema: Option<StructuredOutputFormat>,
         stream: bool,
     ) -> Result<AnthropicCompleteRequest<'a>, LLMError> {
-        let anthropic_messages: Vec<AnthropicMessage> = messages
-            .iter()
-            .map(|m| AnthropicMessage {
-                role: match m.role {
-                    ChatRole::User => "user",
-                    ChatRole::Tool => "tool",
-                    ChatRole::Assistant => "assistant",
-                    ChatRole::System => "system",
-                },
-                content: match &m.message_type {
-                    MessageType::Text => vec![MessageContent {
-                        message_type: Some("text"),
-                        text: Some(&m.content),
+        let mut anthropic_messages = Vec::new();
+
+        for message in messages {
+            let role = match message.role {
+                ChatRole::User => "user",
+                ChatRole::Tool => "user",
+                ChatRole::Assistant => "assistant",
+                ChatRole::System => continue,
+            };
+
+            let content = match &message.message_type {
+                MessageType::Text => vec![MessageContent {
+                    message_type: Some("text"),
+                    text: Some(&message.content),
+                    image_url: None,
+                    source: None,
+                    tool_use_id: None,
+                    tool_input: None,
+                    tool_name: None,
+                    tool_result_id: None,
+                    tool_output: None,
+                }],
+                MessageType::Pdf(_) => unimplemented!(),
+                MessageType::Image((image_mime, raw_bytes)) => {
+                    vec![MessageContent {
+                        message_type: Some("image"),
+                        text: None,
+                        image_url: None,
+                        source: Some(ImageSource {
+                            source_type: "base64",
+                            media_type: image_mime.mime_type(),
+                            data: BASE64.encode(raw_bytes),
+                        }),
+                        tool_use_id: None,
+                        tool_input: None,
+                        tool_name: None,
+                        tool_result_id: None,
+                        tool_output: None,
+                    }]
+                }
+                MessageType::ImageURL(ref url) => vec![MessageContent {
+                    message_type: Some("image_url"),
+                    text: None,
+                    image_url: Some(ImageUrlContent { url }),
+                    source: None,
+                    tool_use_id: None,
+                    tool_input: None,
+                    tool_name: None,
+                    tool_result_id: None,
+                    tool_output: None,
+                }],
+                MessageType::ToolUse(calls) => calls
+                    .iter()
+                    .map(|c| MessageContent {
+                        message_type: Some("tool_use"),
+                        text: None,
+                        image_url: None,
+                        source: None,
+                        tool_use_id: Some(c.id.clone()),
+                        tool_input: Some(
+                            serde_json::from_str(&c.function.arguments)
+                                .unwrap_or(c.function.arguments.clone().into()),
+                        ),
+                        tool_name: Some(c.function.name.clone()),
+                        tool_result_id: None,
+                        tool_output: None,
+                    })
+                    .collect(),
+                MessageType::ToolResult(responses) => responses
+                    .iter()
+                    .map(|r| MessageContent {
+                        message_type: Some("tool_result"),
+                        text: None,
                         image_url: None,
                         source: None,
                         tool_use_id: None,
                         tool_input: None,
                         tool_name: None,
-                        tool_result_id: None,
-                        tool_output: None,
-                    }],
-                    MessageType::Pdf(_) => unimplemented!(),
-                    MessageType::Image((image_mime, raw_bytes)) => {
-                        vec![MessageContent {
-                            message_type: Some("image"),
-                            text: None,
-                            image_url: None,
-                            source: Some(ImageSource {
-                                source_type: "base64",
-                                media_type: image_mime.mime_type(),
-                                data: BASE64.encode(raw_bytes),
-                            }),
-                            tool_use_id: None,
-                            tool_input: None,
-                            tool_name: None,
-                            tool_result_id: None,
-                            tool_output: None,
-                        }]
-                    }
-                    MessageType::ImageURL(ref url) => vec![MessageContent {
-                        message_type: Some("image_url"),
-                        text: None,
-                        image_url: Some(ImageUrlContent { url }),
-                        source: None,
-                        tool_use_id: None,
-                        tool_input: None,
-                        tool_name: None,
-                        tool_result_id: None,
-                        tool_output: None,
-                    }],
-                    MessageType::ToolUse(calls) => calls
-                        .iter()
-                        .map(|c| MessageContent {
-                            message_type: Some("tool_use"),
-                            text: None,
-                            image_url: None,
-                            source: None,
-                            tool_use_id: Some(c.id.clone()),
-                            tool_input: Some(
-                                serde_json::from_str(&c.function.arguments)
-                                    .unwrap_or(c.function.arguments.clone().into()),
-                            ),
-                            tool_name: Some(c.function.name.clone()),
-                            tool_result_id: None,
-                            tool_output: None,
-                        })
-                        .collect(),
-                    MessageType::ToolResult(responses) => responses
-                        .iter()
-                        .map(|r| MessageContent {
-                            message_type: Some("tool_result"),
-                            text: None,
-                            image_url: None,
-                            source: None,
-                            tool_use_id: None,
-                            tool_input: None,
-                            tool_name: None,
-                            tool_result_id: Some(r.id.clone()),
-                            tool_output: Some(r.function.arguments.clone()),
-                        })
-                        .collect(),
-                },
-            })
-            .collect();
+                        tool_result_id: Some(r.id.clone()),
+                        tool_output: Some(r.function.arguments.clone()),
+                    })
+                    .collect(),
+            };
+
+            anthropic_messages.push(AnthropicMessage { role, content });
+        }
 
         let anthropic_tools = tools.map(|slice| {
             slice
@@ -395,6 +397,12 @@ impl Anthropic {
                 })
                 .collect::<Vec<_>>()
         });
+
+        let system_content = messages
+            .iter()
+            .find(|m| m.role == ChatRole::System)
+            .map(|m| m.content.as_str())
+            .unwrap_or(&self.system);
 
         let tool_choice = match self.tool_choice {
             Some(ToolChoice::Auto) => {
@@ -431,7 +439,7 @@ impl Anthropic {
             model: &self.model,
             max_tokens: Some(self.max_tokens),
             temperature: Some(self.temperature),
-            system: Some(&self.system),
+            system: Some(system_content),
             stream: Some(stream),
             top_p: self.top_p,
             top_k: self.top_k,
