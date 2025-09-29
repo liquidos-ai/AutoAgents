@@ -9,4 +9,11 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-autoagents-core.workspace = true
+autoagents.workspace = true
+autoagents-derive.workspace = true
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+log = { workspace = true }
+once_cell = { workspace = true }

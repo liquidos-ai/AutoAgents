@@ -1,5 +1,4 @@
 use autoagents_derive::{agent, AgentHooks};
-use serde_json::Value;
 
 use crate::tools::{
     AnalyzeCodeTool, DeleteFileTool, FileSearchTool, GrepTool, ListDirectoryTool, ReadFileTool,

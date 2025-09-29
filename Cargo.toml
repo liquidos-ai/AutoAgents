@@ -13,7 +13,8 @@ members = [
     "crates/derive",
     "crates/test_utils",
     "crates/burn",
-    "crates/onnx", "crates/toolkit",
+    "crates/onnx",
+    "crates/toolkit",
 ]
 
 exclude = [
@@ -40,6 +41,7 @@ autoagents-core = { path = "crates/core", version = "0.2.3" }
 autoagents-test-utils = { path = "crates/test_utils" }
 autoagents-onnx = { path = "crates/onnx", version = "0.2.3" }
 autoagents-burn = { path = "crates/burn", version = "0.2.3", default-features = false }
+autoagents-toolkit = { path = "crates/toolkit", version = "0.2.3" }
 
 syn = { version = "2.0.98", features = ["full"] }
 tokio = { version = "1.43.0", features = ["full"] }
@@ -85,3 +87,4 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4.50"
 serde-wasm-bindgen = "0.6"
 bytemuck = "1.23.2"
+once_cell = "1.21.3"

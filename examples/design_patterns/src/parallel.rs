@@ -11,7 +11,7 @@ use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::utils::BoxEventStream;
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, AgentHooks};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::time::Instant;

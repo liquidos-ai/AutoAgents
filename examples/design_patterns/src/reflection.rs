@@ -9,21 +9,20 @@ use autoagents::core::error::Error;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::llm::LLMProvider;
 use autoagents_derive::agent;
-use serde_json::Value;
 use std::sync::Arc;
 
 #[agent(
     name = "code_generator",
-    description = "Generate or refine Python code based on task requirements and critiques. 
+    description = "Generate or refine Python code based on task requirements and critiques.
     You are an expert Python developer. Generate clean, well-documented code that follows best practices.
-    
+
     IMPORTANT: Your task is to create a Python function named `calculate_factorial` that:
     1. Accepts a single integer `n` as input
     2. Calculates its factorial (n!)
     3. Includes a clear docstring explaining what the function does
     4. Handles edge cases: The factorial of 0 is 1
     5. Handles invalid input: Raises a ValueError if the input is negative
-    
+
     Output ONLY the Python code, no explanations or markdown formatting."
 )]
 pub struct CodeGenerator {
@@ -100,10 +99,10 @@ impl AgentHooks for CodeGenerator {
 #[agent(
     name = "code_critic",
     description = "Critically evaluate Python code and provide constructive feedback.
-    You are a senior software engineer and expert in Python. 
-    Your role is to perform meticulous code reviews. 
+    You are a senior software engineer and expert in Python.
+    Your role is to perform meticulous code reviews.
     Look for bugs, style issues, missing edge cases, and areas for improvement.
-    
+
     If the code is perfect and meets all requirements, respond with exactly: CODE_IS_PERFECT
     Otherwise, provide specific, actionable feedback for improvement."
 )]

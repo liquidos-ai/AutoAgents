@@ -5,8 +5,8 @@ use autoagents::core::agent::{AgentBuilder, DirectAgent};
 use autoagents::core::error::Error;
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, AgentHooks};
-use serde_json::Value;
 use std::sync::Arc;
+
 #[agent(
     name = "math_agent",
     description = "You are a Math agent",

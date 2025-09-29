@@ -24,6 +24,7 @@ enum UseCase {
     Actor,
     Hooks,
     ManualToolAgent,
+    Toolkit,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -73,6 +74,7 @@ async fn main() -> Result<(), Error> {
         UseCase::Actor => actor::run(llm).await?,
         UseCase::Hooks => hooks::hooks_agent(llm).await?,
         UseCase::ManualToolAgent => manual_tool_agent::run_agent(llm, &args.mode).await?,
+        UseCase::Toolkit => toolkit::run_agent(llm).await?,
     }
 
     Ok(())

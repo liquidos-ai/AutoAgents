@@ -2,8 +2,8 @@ use proc_macro::TokenStream;
 use quote::quote;
 use strum::{Display, EnumString};
 use syn::{
-    bracketed, parse::Parse, parse_macro_input, punctuated::Punctuated, Ident, ItemStruct, LitStr,
-    Token, Type,
+    bracketed, parse::Parse, parse_macro_input, punctuated::Punctuated, Expr, Ident, ItemStruct,
+    LitStr, Token, Type,
 };
 
 pub(crate) mod output;
@@ -11,7 +11,7 @@ pub(crate) mod output;
 pub(crate) struct AgentAttributes {
     pub(crate) name: LitStr,
     pub(crate) description: LitStr,
-    pub(crate) tools: Option<Vec<Ident>>,
+    pub(crate) tools: Option<Vec<Expr>>,
     pub(crate) output: Option<Type>,
 }
 
@@ -65,12 +65,12 @@ impl Parse for AgentAttributes {
                     output = Some(input.parse::<Type>()?);
                 }
                 AgentAttributeKeys::Tools => {
-                    // Parse a bracketed list of identifiers
+                    // Parse a bracketed list of tool expressions
                     let content;
                     bracketed!(content in input);
-                    let punctuated_idents: Punctuated<Ident, Token![,]> =
-                        content.parse_terminated(Ident::parse, Token![,])?;
-                    tools = Some(punctuated_idents.into_iter().collect::<Vec<Ident>>());
+                    let punctuated_exprs: Punctuated<Expr, Token![,]> =
+                        content.parse_terminated(Expr::parse, Token![,])?;
+                    tools = Some(punctuated_exprs.into_iter().collect::<Vec<Expr>>());
                 }
                 AgentAttributeKeys::Unknown(other) => {
                     return Err(syn::Error::new(
@@ -110,10 +110,20 @@ impl AgentParser {
         let agent_attrs = parse_macro_input!(attr as AgentAttributes);
         let input_struct = parse_macro_input!(item as ItemStruct);
         let struct_name = &input_struct.ident;
-        let agent_name_literal = agent_attrs.name;
-        let agent_description = agent_attrs.description;
-        let tool_idents = agent_attrs.tools.unwrap_or_default();
-        let output_type = agent_attrs.output;
+        let AgentAttributes {
+            name: agent_name_literal,
+            description: agent_description,
+            tools,
+            output: output_type,
+        } = agent_attrs;
+        let tool_initializers = tools
+            .unwrap_or_default()
+            .into_iter()
+            .map(|tool_expr| match tool_expr {
+                Expr::Path(expr_path) => quote! { #expr_path {} },
+                other => quote! { #other },
+            })
+            .collect::<Vec<_>>();
 
         let quoted_output_type = match &output_type {
             Some(output_ty) => quote! { #output_ty },
@@ -123,14 +133,14 @@ impl AgentParser {
         let output_schema_impl = match &output_type {
             Some(output_ty) => {
                 quote! {
-                    fn output_schema(&self) -> Option<Value> {
+                    fn output_schema(&self) -> Option<serde_json::Value> {
                         Some(<#output_ty>::structured_output_format())
                     }
                 }
             }
             None => {
                 quote! {
-                    fn output_schema(&self) -> Option<Value> {
+                    fn output_schema(&self) -> Option<serde_json::Value> {
                         None
                     }
                 }
@@ -156,7 +166,7 @@ impl AgentParser {
                 fn tools(&self) -> Vec<Box<dyn autoagents::core::tool::ToolT>> {
                     vec![
                         #(
-                            Box::new(#tool_idents{}) as Box<dyn autoagents::core::tool::ToolT>
+                            Box::new(#tool_initializers) as Box<dyn autoagents::core::tool::ToolT>
                         ),*
                     ]
                 }

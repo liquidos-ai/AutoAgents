@@ -390,7 +390,14 @@ dependencies = [
 name = "autoagents-toolkit"
 version = "0.2.3"
 dependencies = [
- "autoagents-core",
+ "autoagents",
+ "autoagents-derive",
+ "log",
+ "once_cell",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -525,8 +532,10 @@ dependencies = [
  "autoagents",
  "autoagents-derive",
  "autoagents-onnx",
+ "autoagents-toolkit",
  "clap",
  "colored",
+ "once_cell",
  "serde",
  "serde_json",
  "tokio",

@@ -6,7 +6,6 @@ use autoagents::core::agent::{AgentBuilder, AgentHooks, Context, DirectAgent, Ho
 use autoagents::core::error::Error;
 use autoagents::llm::LLMProvider;
 use autoagents_derive::agent;
-use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 
