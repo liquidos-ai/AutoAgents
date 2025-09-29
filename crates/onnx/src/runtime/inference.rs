@@ -88,25 +88,17 @@ impl OnnxBackend {
         // Register execution provider based on device type (following USLS pattern)
         match device {
             #[allow(unused_variables)]
+            #[cfg(feature = "cuda")]
             Device::Cuda(id) => {
-                #[cfg(feature = "cuda")]
-                {
-                    use ort::execution_providers::CUDAExecutionProvider;
-                    let ep = CUDAExecutionProvider::default().with_device_id(id as i32);
-                    match ep.is_available() {
-                        Ok(true) => {
-                            ep.register(&mut builder).map_err(|e| {
-                                EdgeError::runtime(format!("Failed to register CUDA: {e}"))
-                            })?;
-                        }
-                        _ => {
-                            return Err(EdgeError::runtime("CUDA execution provider not available"))
-                        }
+                use ort::execution_providers::CUDAExecutionProvider;
+                let ep = CUDAExecutionProvider::default().with_device_id(id as i32);
+                match ep.is_available() {
+                    Ok(true) => {
+                        ep.register(&mut builder).map_err(|e| {
+                            EdgeError::runtime(format!("Failed to register CUDA: {e}"))
+                        })?;
                     }
-                }
-                #[cfg(not(feature = "cuda"))]
-                {
-                    return Err(EdgeError::runtime("CUDA feature not enabled"));
+                    _ => return Err(EdgeError::runtime("CUDA execution provider not available")),
                 }
             }
             Device::Cpu(_) => {
