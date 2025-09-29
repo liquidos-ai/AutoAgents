@@ -19,7 +19,7 @@ jobs:
         with:
           toolchain: stable
           override: true
-          components: llvm-tools-preview
+          components: llvm-tools-preview,rustfmt
 
       # Run formatting check
       - name: Run fmt
