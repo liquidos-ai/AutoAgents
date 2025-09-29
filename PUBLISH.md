@@ -37,6 +37,12 @@ cargo publish --dry-run
 cargo publish
 ```
 
+```shell
+cd ../toolkit
+cargo publish --dry-run
+cargo publish
+```
+
 4. Create release tag:
 
 ```shell
@@ -44,7 +50,7 @@ cd ../.. # Back to project root
 git tag -a vx.x.x -m "Release vx.x.x
 
 Features:
-- 
+-
 
 Improvements:
 -
