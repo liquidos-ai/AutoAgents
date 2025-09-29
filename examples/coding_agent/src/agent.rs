@@ -1,5 +1,5 @@
 use autoagents_derive::{agent, AgentHooks};
-use autoagents_toolkit::filesystem::{DeleteFile, ListDir, ReadFile, SearchFile, WriteFile};
+use autoagents_toolkit::tools::filesystem::{DeleteFile, ListDir, ReadFile, SearchFile, WriteFile};
 
 use crate::tools::{AnalyzeCodeTool, GrepTool};
 

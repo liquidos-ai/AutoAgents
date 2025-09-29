@@ -1,0 +1,6 @@
+# Brave Search MCP Server - provides web search capabilities
+[[mcp.server]]
+name = "brave_search"
+protocol = "stdio"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-brave-search"]

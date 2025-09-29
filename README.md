@@ -266,6 +266,11 @@ Explore our comprehensive examples to get started quickly:
 Demonstrates various examples like Simple Agent with Tools, Very Basic Agent, Edge Agent, Chaining, Actor Based Model,
 Streaming and Adding Agent Hooks.
 
+
+### [MCP Integration](examples/mcp/)
+
+Demonstrates how to integrate AutoAgents with the Model Context Protocol (MCP).
+
 ### [Design Patterns](examples/design_patterns/)
 
 Demonstrates various design patterns like Chaining, Planning, Routing, Parallel and Reflection.
