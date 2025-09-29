@@ -68,7 +68,9 @@ impl Device {
     /// Get the device ID if applicable
     pub fn id(&self) -> Option<usize> {
         match self {
-            Self::Cpu(i) | Self::Cuda(i) => Some(*i),
+            Self::Cpu(i) => Some(*i),
+            #[cfg(feature = "cuda")]
+            Self::Cuda(i) => Some(*i),
         }
     }
 
