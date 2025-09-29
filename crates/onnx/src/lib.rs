@@ -11,7 +11,10 @@ pub mod runtime;
 pub mod chat;
 
 // Re-exports
-pub use device::{cpu, cpu_with_threads, cuda, cuda_default, Device};
+pub use device::{cpu, cpu_with_threads, Device};
+
+#[cfg(feature = "cuda")]
+pub use device::{cuda, cuda_default};
 
 pub use error::{EdgeError, EdgeResult};
 pub use model::Model;
