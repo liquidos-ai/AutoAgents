@@ -9,28 +9,30 @@ on:
       - "**"
 
 jobs:
-  lefthook:
-    name: Run Lefthook Pre-Commit Hooks
+  ci:
     runs-on: ubuntu-latest
     steps:
-      # Checkout repository
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      # Install NodeJS
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      # Install Rust
+      - uses: actions-rs/toolchain@v1
         with:
-          node-version: "20"
+          toolchain: stable
+          override: true
+          components: llvm-tools-preview
 
-      # Install Lefthook globally
-      - name: Install Lefthook
-        run: npm install -g lefthook
+      # Run formatting check
+      - name: Run fmt
+        run: cargo fmt -- --check
 
-      # Install Git hooks
-      - name: Install Git hooks
-        run: lefthook install
+      # Run clippy
+      - name: Run clippy
+        run: cargo clippy --all-features --all-targets -- -D warnings
 
-      # Run all pre-commit hooks
-      - name: Run Pre-Commit Hooks
-        run: lefthook run pre-commit
+      # Run tests
+      - name: Run tests
+        run: cargo test --all-features --workspace --exclude autoagents-burn --exclude wasm_agent
+
+      # Run cargo check
+      - name: Run cargo check
+        run: cargo check --all-features --all-targets
