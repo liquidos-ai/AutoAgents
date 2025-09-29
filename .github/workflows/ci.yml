@@ -13,21 +13,19 @@ jobs:
     name: Run Lefthook Pre-Commit Hooks
     runs-on: ubuntu-latest
     steps:
-      # Checkout code
+      # Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # Install Rust
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      # Install NodeJS
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
-          toolchain: stable
-          override: true
-          components: llvm-tools-preview
+          node-version: "20"
 
-      # Install Lefthook
+      # Install Lefthook globally
       - name: Install Lefthook
-        run: cargo install lefthook
+        run: npm install -g lefthook
 
       # Install Git hooks
       - name: Install Git hooks
