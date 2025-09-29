@@ -11,7 +11,7 @@ readme.workspace = true
 
 [features]
 default = []
-mcp = ["rmcp", "toml", "thiserror"]
+mcp = ["rmcp", "toml"]
 filesystem = []
 search = ["reqwest", "once_cell"]
 
@@ -25,8 +25,7 @@ log = { workspace = true }
 once_cell = { workspace = true, optional = true }
 base64 = { workspace = true }
 toml = { version = "0.8", optional = true }
-thiserror = { workspace = true, optional = true }
-
+thiserror = { workspace = true }
 rmcp = { workspace = true, optional = true, features = ["client", "transport-child-process", "transport-sse-client-reqwest", "transport-streamable-http-client-reqwest"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
