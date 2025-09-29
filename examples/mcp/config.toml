@@ -1,5 +1,3 @@
-[mcp]
-
 # Brave Search MCP Server - provides web search capabilities
 [[mcp.server]]
 name = "brave_search"
