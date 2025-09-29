@@ -20,7 +20,13 @@ cargo publish
 ```
 
 ```shell
-cd ../onnx-ort
+cd ../onnx
+cargo publish --dry-run
+cargo publish
+```
+
+```shell
+cd ../burn
 cargo publish --dry-run
 cargo publish
 ```
