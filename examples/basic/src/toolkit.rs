@@ -5,7 +5,7 @@ use autoagents::core::agent::{AgentBuilder, DirectAgent};
 use autoagents::core::error::Error;
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{agent, AgentHooks};
-use autoagents_toolkit::tools::search::BraveSearch;
+use autoagents_toolkit::search::BraveSearch;
 use std::sync::Arc;
 
 #[agent(
