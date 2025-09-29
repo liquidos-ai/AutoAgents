@@ -38,6 +38,7 @@ pub enum AgentProtocol {
 }
 
 /// Messages from the agent - used for A2A communication
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AgentMessage {
     /// The content of the message

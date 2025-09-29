@@ -12,6 +12,7 @@ mod hooks;
 mod manual_tool_agent;
 mod onnx;
 mod streaming;
+mod toolkit;
 mod utils;
 
 #[derive(Debug, Clone, ValueEnum)]

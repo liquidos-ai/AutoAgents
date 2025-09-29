@@ -1,0 +1,38 @@
+name: CI Checks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  lefthook:
+    name: Run Lefthook Pre-Commit Hooks
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Install Rust
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: llvm-tools-preview
+
+      # Install Lefthook
+      - name: Install Lefthook
+        run: cargo install lefthook
+
+      # Install Git hooks
+      - name: Install Git hooks
+        run: lefthook install
+
+      # Run all pre-commit hooks
+      - name: Run Pre-Commit Hooks
+        run: lefthook run pre-commit

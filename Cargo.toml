@@ -13,7 +13,7 @@ members = [
     "crates/derive",
     "crates/test_utils",
     "crates/burn",
-    "crates/onnx",
+    "crates/onnx", "crates/toolkit",
 ]
 
 exclude = [
