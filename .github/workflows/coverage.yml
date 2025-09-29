@@ -1,17 +1,22 @@
-name: coverage
+name: Coverage
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'crates/**'
-      - 'Cargo.toml'
-      - '.github/workflows/coverage.yml'
+      - "crates/**"
+      - "Cargo.toml"
+      - ".github/workflows/coverage.yml"
+  # pull_request:
+  #   paths:
+  #     - "crates/**"
+  #     - "Cargo.toml"
+  #     - ".github/workflows/coverage.yml"
 
 jobs:
-  test:
-    name: coverage
+  coverage:
+    name: Coverage
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: "-C target-cpu=native"
@@ -34,12 +39,21 @@ jobs:
 
       - name: Generate code coverage
         run: |
-          cargo tarpaulin --features="full" --verbose --workspace --timeout 120 --out Xml --engine llvm --ignore-panics
+          cargo tarpaulin \
+            --features="full" \
+            --verbose \
+            --workspace \
+            --timeout 120 \
+            --out Xml \
+            --engine llvm \
+            --ignore-panics
 
-      - name: Upload to codecov.io
+      - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: true
           fail_ci_if_error: true
           files: ./cobertura.xml
+          branch: ${{ github.ref_name }} # branch name
+          pr: ${{ github.event.pull_request.number || '' }} # PR number if exists

@@ -7,7 +7,6 @@ use autoagents::llm::backends::groq::Groq;
 use autoagents::llm::builder::LLMBuilder;
 use autoagents_derive::{agent, AgentHooks, AgentOutput};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize, AgentOutput)]

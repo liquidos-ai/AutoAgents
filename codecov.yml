@@ -1,0 +1,18 @@
+coverage:
+  status:
+    # Diff / patch coverage (new or modified lines)
+    patch:
+      default:
+        target: 0 # ignore patch coverage for PRs
+        threshold: 0 # don't fail PRs based on diff
+
+# Ignore files/folders that don't need tests
+ignore:
+  - "docs/*"
+  - "examples/*"
+  - "*.md"
+  - "scripts/*"
+
+comment:
+  layout: "reach, diff, flags, files, footer"
+  behavior: default

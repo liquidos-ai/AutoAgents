@@ -1,0 +1,38 @@
+name: CI Checks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      # Install Rust
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: llvm-tools-preview,rustfmt,clippy
+
+      # Run formatting check
+      - name: Run fmt
+        run: cargo fmt -- --check
+
+      # Run clippy
+      - name: Run clippy
+        run: cargo clippy --all-features --all-targets -- -D warnings
+
+      # Run tests
+      - name: Run tests
+        run: cargo test --all-features --workspace --exclude autoagents-burn --exclude wasm_agent
+
+      # Run cargo check
+      - name: Run cargo check
+        run: cargo check --all-features --all-targets

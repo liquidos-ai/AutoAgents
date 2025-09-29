@@ -9,7 +9,6 @@ use autoagents::core::error::Error;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::llm::LLMProvider;
 use autoagents_derive::agent;
-use serde_json::Value;
 use std::sync::Arc;
 
 /// Strategic planner agent that creates and manages multi-step execution plans
@@ -18,18 +17,18 @@ use std::sync::Arc;
 #[agent(
     name = "strategic_planner",
     description = "You are a strategic planner who breaks down complex tasks into detailed, executable plans.
-    
+
     Given a complex task, create a comprehensive plan with the following structure:
     1. GOAL: Clear statement of what needs to be achieved
     2. STEPS: Numbered list of specific actions to take (aim for 3-5 steps)
     3. EXPECTED_OUTPUTS: What each step should produce
     4. SUCCESS_CRITERIA: How to measure if the plan is working
-    
+
     Format your response exactly like this:
     GOAL: [Clear goal statement]
     STEPS:
     1. [First specific action]
-    2. [Second specific action]  
+    2. [Second specific action]
     3. [Third specific action]
     EXPECTED_OUTPUTS:
     - Step 1: [Expected output]
@@ -94,13 +93,13 @@ impl AgentHooks for StrategicPlanner {
 #[agent(
     name = "plan_executor",
     description = "You are a plan executor who carries out specific steps from a strategic plan.
-    
+
     Your job is to:
     1. Execute the given step thoroughly
     2. Report what you accomplished
     3. Identify any issues or roadblocks
     4. Suggest if the plan needs adjustment
-    
+
     Format your response as:
     STEP_EXECUTED: [What step you just completed]
     RESULTS: [What you accomplished]
@@ -287,7 +286,7 @@ fn extract_original_task(task_prompt: &str) -> String {
 ///
 /// This pattern differs from simple chaining by implementing:
 /// 1. **Strategic Planning**: Creates comprehensive multi-step plans
-/// 2. **Adaptive Execution**: Can modify plans based on execution feedback  
+/// 2. **Adaptive Execution**: Can modify plans based on execution feedback
 /// 3. **Progress Tracking**: Monitors step-by-step progress
 /// 4. **Error Handling**: Can revise plans when steps fail or are blocked
 ///
@@ -302,7 +301,7 @@ fn extract_original_task(task_prompt: &str) -> String {
 ///          |
 ///    ╔═══════════════╗
 ///    ║ Plan Executor ║ <-- Executes each step
-///    ║ (step by step)║ <-- Reports progress  
+///    ║ (step by step)║ <-- Reports progress
 ///    ╚═══════════════╝ <-- Can request revision
 ///          |
 ///    [Success/Revision/Continue]
@@ -316,7 +315,7 @@ fn extract_original_task(task_prompt: &str) -> String {
 ///
 /// Use cases:
 /// - Complex project management
-/// - Multi-stage problem solving  
+/// - Multi-stage problem solving
 /// - Research workflows with feedback loops
 /// - Adaptive content creation pipelines
 /// - Strategic analysis with course correction

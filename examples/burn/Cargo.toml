@@ -13,6 +13,7 @@ test = false
 default = []
 cuda = ["autoagents-burn/cuda", "f16"]
 metal = ["autoagents-burn/metal", "f16"]
+wgpu = ["autoagents-burn/wgpu", "f16"]
 ndarray = ["autoagents-burn/ndarray", "f32"]
 
 ## Dtype

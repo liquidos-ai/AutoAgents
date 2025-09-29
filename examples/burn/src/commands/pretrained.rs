@@ -5,7 +5,6 @@ use autoagents::core::agent::{AgentBuilder, DirectAgent};
 use autoagents::core::error::Error;
 use autoagents_burn::model::llama::{Llama3Builder, TinyLlamaBuilder};
 use autoagents_derive::{agent, AgentHooks};
-use serde_json::Value;
 use tokio_stream::StreamExt;
 
 #[agent(

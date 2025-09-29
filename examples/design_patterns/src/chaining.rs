@@ -9,7 +9,6 @@ use autoagents::core::error::Error;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::llm::LLMProvider;
 use autoagents_derive::agent;
-use serde_json::Value;
 use std::sync::Arc;
 
 /// First agent in the chain that extracts technical specifications from text

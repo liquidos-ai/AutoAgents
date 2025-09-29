@@ -1,0 +1,19 @@
+[package]
+name = "autoagents-toolkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+autoagents.workspace = true
+autoagents-derive.workspace = true
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+log = { workspace = true }
+once_cell = { workspace = true }

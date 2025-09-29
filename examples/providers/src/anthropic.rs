@@ -6,7 +6,6 @@ use autoagents::core::error::Error;
 use autoagents::llm::backends::anthropic::Anthropic;
 use autoagents::llm::builder::LLMBuilder;
 use autoagents_derive::{agent, AgentHooks};
-use serde_json::Value;
 use std::sync::Arc;
 
 #[agent(
