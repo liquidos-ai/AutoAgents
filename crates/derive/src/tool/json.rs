@@ -7,7 +7,7 @@ pub(crate) enum JsonType {
     String,
     #[strum(serialize = "number")]
     Number,
-    #[strum(serialize = "bool")]
+    #[strum(serialize = "boolean")]
     Boolean,
     #[strum(serialize = "object")]
     Object,

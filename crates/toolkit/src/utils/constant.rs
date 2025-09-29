@@ -1,9 +1,11 @@
+#[cfg(feature = "search")]
 pub(crate) enum RestHeaders {
     Accept,
     XSubscriptionToken,
     ApplicationJson,
 }
 
+#[cfg(feature = "search")]
 impl RestHeaders {
     pub fn as_str(&self) -> &str {
         match self {

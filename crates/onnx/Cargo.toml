@@ -7,7 +7,7 @@ description = "Minimal edge inference runtime for LLMs"
 repository.workspace = true
 keywords = ["inference", "llm", "edge", "runtime"]
 categories = ["science", "algorithms"]
-readme = "README.md"
+readme.workspace = true
 
 [features]
 default = []

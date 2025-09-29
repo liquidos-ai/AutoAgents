@@ -133,7 +133,8 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
 
     pub fn agent_config(&self) -> AgentConfig {
         let output_schema = self.inner().output_schema();
-        let structured_schema = output_schema.map(|schema| serde_json::from_value(schema).unwrap());
+        let structured_schema =
+            output_schema.and_then(|schema| serde_json::from_value(schema).ok());
         AgentConfig {
             name: self.name().into(),
             description: self.description().into(),

@@ -1,9 +1,7 @@
 use autoagents_derive::{agent, AgentHooks};
+use autoagents_toolkit::filesystem::{DeleteFile, ListDir, ReadFile, SearchFile, WriteFile};
 
-use crate::tools::{
-    AnalyzeCodeTool, DeleteFileTool, FileSearchTool, GrepTool, ListDirectoryTool, ReadFileTool,
-    WriteFileTool,
-};
+use crate::tools::{AnalyzeCodeTool, GrepTool};
 
 #[agent(
     name = "coding_agent",
@@ -49,12 +47,12 @@ As a ReAct agent, you follow this pattern for each task:
 
 Remember: You are a systematic problem solver. Think through each step, use your tools effectively, and provide clear, actionable results.",
     tools = [
-        FileSearchTool,
+        SearchFile::new(),
         GrepTool,
-        ReadFileTool,
-        WriteFileTool,
-        DeleteFileTool,
-        ListDirectoryTool,
+        ReadFile::new(),
+        WriteFile::new(),
+        DeleteFile::new(),
+        ListDir::new(),
         AnalyzeCodeTool
     ],
 )]

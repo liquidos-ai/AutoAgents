@@ -392,11 +392,13 @@ version = "0.2.3"
 dependencies = [
  "autoagents",
  "autoagents-derive",
+ "base64 0.22.1",
  "log",
  "once_cell",
  "reqwest",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 
@@ -1560,6 +1562,7 @@ version = "0.2.0-alpha.0"
 dependencies = [
  "autoagents",
  "autoagents-derive",
+ "autoagents-toolkit",
  "clap",
  "colored",
  "glob",
