@@ -5,8 +5,9 @@ edition = "2021"
 publish = false
 
 [dependencies]
-autoagents-derive = { path = "../../crates/derive" }
-autoagents = { path = "../../crates/autoagents", features = [
+autoagents-derive = { workspace = true }
+autoagents-toolkit = { workspace = true, features = ["filesystem"] }
+autoagents = { workspace = true, features = [
     "openai",
     "anthropic",
 ] }

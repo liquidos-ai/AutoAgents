@@ -24,7 +24,8 @@ use std::sync::Arc;
 use tokio_stream::StreamExt;
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
-pub struct AdditionArgs {
+#[allow(dead_code)]
+struct AdditionArgs {
     #[input(description = "Left Operand for addition")]
     left: i64,
     #[input(description = "Right Operand for addition")]

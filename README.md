@@ -298,8 +298,9 @@ AutoAgents/
 │   ├── autoagents/     # Main library entry point
 │   ├── core/           # Core agent framework
 │   ├── llm/            # LLM provider implementations
+│   ├── toolkit/        # Collection of Ready to use Tools
 │   ├── burn/           # LLM provider implementations using Burn
-│   ├── onnx/       # Edge Runtime Implementation using Onnx
+│   ├── onnx/           # Edge Runtime Implementation using Onnx
 │   └── derive/         # Procedural macros
 ├── examples/           # Example implementations
 ```

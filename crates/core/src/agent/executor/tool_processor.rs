@@ -49,20 +49,6 @@ impl ToolProcessor {
             HookOutcome::Continue => {}
         }
 
-        let tool_name = call.function.name.clone();
-        let tool_args = call.function.arguments.clone();
-
-        // Send tool call requested event
-        Self::send_event(
-            tx_event,
-            Event::ToolCallRequested {
-                id: call.id.clone(),
-                tool_name: tool_name.clone(),
-                arguments: tool_args.clone(),
-            },
-        )
-        .await;
-
         //Run the tool start hook
         hooks.on_tool_start(call, context).await;
 

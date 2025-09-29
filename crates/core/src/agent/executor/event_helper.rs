@@ -19,6 +19,7 @@ impl EventHelper {
     pub async fn send(tx: &Option<mpsc::Sender<Event>>, event: Event) {
         if let Some(tx) = tx {
             #[cfg(not(target_arch = "wasm32"))]
+            //TODO: WASM Targets currently does not support event handling
             let _ = tx.send(event).await;
         }
     }

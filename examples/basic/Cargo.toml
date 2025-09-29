@@ -8,7 +8,7 @@ publish = false
 autoagents-derive.workspace = true
 autoagents = { workspace = true, features = ["openai", "logging"] }
 autoagents-onnx = { workspace = true, features = ["cuda"] }
-autoagents-toolkit = { workspace = true }
+autoagents-toolkit = { workspace = true, features = ["search"] }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
