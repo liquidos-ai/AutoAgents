@@ -8,11 +8,11 @@ on:
       - "crates/**"
       - "Cargo.toml"
       - ".github/workflows/coverage.yml"
-  pull_request:
-    paths:
-      - "crates/**"
-      - "Cargo.toml"
-      - ".github/workflows/coverage.yml"
+  # pull_request:
+  #   paths:
+  #     - "crates/**"
+  #     - "Cargo.toml"
+  #     - ".github/workflows/coverage.yml"
 
 jobs:
   coverage:
