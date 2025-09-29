@@ -25,7 +25,7 @@ exclude = [
 resolver = "2"
 
 [workspace.package]
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Agent Framework for Building Autonomous Agents"
@@ -34,14 +34,14 @@ keywords = ["agents", "llm"]
 categories = []
 
 [workspace.dependencies]
-autoagents = { path = "crates/autoagents", version = "0.2.3" }
-autoagents-llm = { path = "crates/llm", version = "0.2.3" }
-autoagents-derive = { path = "crates/derive", version = "0.2.3" }
-autoagents-core = { path = "crates/core", version = "0.2.3" }
+autoagents = { path = "crates/autoagents", version = "0.2.4" }
+autoagents-llm = { path = "crates/llm", version = "0.2.4" }
+autoagents-derive = { path = "crates/derive", version = "0.2.4" }
+autoagents-core = { path = "crates/core", version = "0.2.4" }
 autoagents-test-utils = { path = "crates/test_utils" }
-autoagents-onnx = { path = "crates/onnx", version = "0.2.3" }
-autoagents-burn = { path = "crates/burn", version = "0.2.3", default-features = false }
-autoagents-toolkit = { path = "crates/toolkit", version = "0.2.3" }
+autoagents-onnx = { path = "crates/onnx", version = "0.2.4" }
+autoagents-burn = { path = "crates/burn", version = "0.2.4", default-features = false }
+autoagents-toolkit = { path = "crates/toolkit", version = "0.2.4" }
 
 syn = { version = "2.0.98", features = ["full"] }
 tokio = { version = "1.43.0", features = ["full"] }

@@ -231,7 +231,7 @@ checksum = "628d228f918ac3b82fe590352cc719d30664a0c13ca3a60266fe02c7132d480a"
 
 [[package]]
 name = "autoagents"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "async-trait",
  "autoagents-core",
@@ -244,7 +244,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-burn"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "async-trait",
  "autoagents-llm",
@@ -288,7 +288,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-core"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "async-trait",
  "autoagents-llm",
@@ -313,7 +313,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-derive"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -325,7 +325,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-llm"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-onnx"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "async-trait",
  "autoagents-llm",
@@ -375,7 +375,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-test-utils"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "autoagents",
  "autoagents-derive",
@@ -388,7 +388,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-toolkit"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "autoagents",
  "autoagents-derive",
@@ -2747,7 +2747,7 @@ dependencies = [
 
 [[package]]
 name = "design_patterns"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "autoagents",
@@ -4874,7 +4874,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-example"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "autoagents",
  "autoagents-derive",
@@ -5902,7 +5902,7 @@ dependencies = [
 
 [[package]]
 name = "providers"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "autoagents",
