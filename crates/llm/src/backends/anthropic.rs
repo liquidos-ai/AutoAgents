@@ -495,7 +495,6 @@ impl Anthropic {
 
         log::debug!("Anthropic HTTP status: {}", resp.status());
 
-        let resp = resp.error_for_status()?;
         let resp = check_response_status(resp).await?;
 
         let body = resp.text().await?;
