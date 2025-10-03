@@ -10,9 +10,9 @@ categories.workspace = true
 publish = false
 
 [dependencies]
-autoagents = { path = "../autoagents" }
-autoagents-derive = { path = "../derive" }
-autoagents-llm = { path = "../llm" }
+autoagents = { workspace = true }
+autoagents-derive = { workspace = true }
+autoagents-llm = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

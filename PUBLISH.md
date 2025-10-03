@@ -8,31 +8,31 @@
 3. Publish to Crates.io (MAINTAIN the order)
 
 ```shell
-cd crates/derive
+cd crates/autoagents-derive
 cargo publish --dry-run # Test first
 cargo publish
 ```
 
 ```shell
-cd ../llm
+cd ../autoagents-llm
 cargo publish --dry-run
 cargo publish
 ```
 
 ```shell
-cd ../onnx
+cd ../autoagents-onnx
 cargo publish --dry-run
 cargo publish
 ```
 
 ```shell
-cd ../burn
+cd ../autoagents-burn
 cargo publish --dry-run
 cargo publish
 ```
 
 ```shell
-cd ../core
+cd ../autoagents-core
 cargo publish --dry-run
 cargo publish
 ```
@@ -44,7 +44,7 @@ cargo publish
 ```
 
 ```shell
-cd ../toolkit
+cd ../autoagents-toolkit
 cargo publish --dry-run
 cargo publish
 ```

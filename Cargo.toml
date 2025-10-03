@@ -1,28 +1,20 @@
 [workspace]
+resolver = "2"
+
 default-members = [
     "crates/autoagents",
-    "crates/core",
-    "crates/llm",
-    "crates/derive",
+    "crates/autoagents-core",
+    "crates/autoagents-llm",
+    "crates/autoagents-derive",
 ]
 members = [
-    "crates/core",
-    "crates/autoagents",
+    "crates/*",
     "examples/*",
-    "crates/llm",
-    "crates/derive",
-    "crates/test_utils",
-    "crates/burn",
-    "crates/onnx",
-    "crates/toolkit",
 ]
 
 exclude = [
     "examples/wasm_tool",
 ]
-
-
-resolver = "2"
 
 [workspace.package]
 version = "0.2.4"
@@ -35,13 +27,13 @@ categories = []
 
 [workspace.dependencies]
 autoagents = { path = "crates/autoagents", version = "0.2.4" }
-autoagents-llm = { path = "crates/llm", version = "0.2.4" }
-autoagents-derive = { path = "crates/derive", version = "0.2.4" }
-autoagents-core = { path = "crates/core", version = "0.2.4" }
-autoagents-test-utils = { path = "crates/test_utils" }
-autoagents-onnx = { path = "crates/onnx", version = "0.2.4" }
-autoagents-burn = { path = "crates/burn", version = "0.2.4", default-features = false }
-autoagents-toolkit = { path = "crates/toolkit", version = "0.2.4" }
+autoagents-llm = { path = "crates/autoagents-llm", version = "0.2.4" }
+autoagents-derive = { path = "crates/autoagents-derive", version = "0.2.4" }
+autoagents-core = { path = "crates/autoagents-core", version = "0.2.4" }
+autoagents-test-utils = { path = "crates/autoagents-test-utils", version = "0.2.4" }
+autoagents-onnx = { path = "crates/autoagents-onnx", version = "0.2.4" }
+autoagents-burn = { path = "crates/autoagents-burn", version = "0.2.4", default-features = false }
+autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.2.4" }
 
 syn = { version = "2.0.98", features = ["full"] }
 tokio = { version = "1.43.0", features = ["full"] }

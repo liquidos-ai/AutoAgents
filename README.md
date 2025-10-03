@@ -300,14 +300,14 @@ AutoAgents is built with a modular architecture:
 ```
 AutoAgents/
 ├── crates/
-│   ├── autoagents/     # Main library entry point
-│   ├── core/           # Core agent framework
-│   ├── llm/            # LLM provider implementations
-│   ├── toolkit/        # Collection of Ready to use Tools
-│   ├── burn/           # LLM provider implementations using Burn
-│   ├── onnx/           # Edge Runtime Implementation using Onnx
-│   └── derive/         # Procedural macros
-├── examples/           # Example implementations
+│   ├── autoagents/                # Main library entry point
+│   ├── autoagents-core/           # Core agent framework
+│   ├── autoagents-llm/            # LLM provider implementations
+│   ├── autoagents-toolkit/        # Collection of Ready to use Tools
+│   ├── autoagents-burn/           # LLM provider implementations using Burn
+│   ├── autoagents-onnx/           # Edge Runtime Implementation using Onnx
+│   └── autoagents-derive/         # Procedural macros
+├── examples/                      # Example implementations
 ```
 
 ### Core Components
