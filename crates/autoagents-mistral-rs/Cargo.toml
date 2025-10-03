@@ -1,0 +1,25 @@
+[package]
+name = "autoagents-mistral-rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme.workspace = true
+
+[features]
+cuda = ["mistralrs/cuda"]
+cudnn = ["mistralrs/cudnn"]
+metal = ["mistralrs/metal"]
+flash-attn = ["cuda", "mistralrs/flash-attn"]
+accelerate = ["mistralrs/accelerate"]
+mkl = ["mistralrs/mkl"]
+nccl = ["mistralrs/nccl"]
+ring = ["mistralrs/ring"]
+
+[dependencies]
+autoagents-llm = { workspace = true }
+
+mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs.git" }
