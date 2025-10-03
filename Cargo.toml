@@ -33,6 +33,7 @@ autoagents-core = { path = "crates/autoagents-core", version = "0.2.4" }
 autoagents-test-utils = { path = "crates/autoagents-test-utils", version = "0.2.4" }
 autoagents-onnx = { path = "crates/autoagents-onnx", version = "0.2.4" }
 autoagents-burn = { path = "crates/autoagents-burn", version = "0.2.4", default-features = false }
+autoagents-mistral-rs = { path = "crates/autoagents-mistral-rs", version = "0.2.4" }
 autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.2.4" }
 
 syn = { version = "2.0.98", features = ["full"] }
