@@ -14,6 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # Install Objective-C compiler for crates like objc_exception
+      - name: Install Objective-C dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libobjc-dev
+
       # Install Rust
       - uses: actions-rs/toolchain@v1
         with:
@@ -21,15 +27,19 @@ jobs:
           override: true
           components: llvm-tools-preview,rustfmt,clippy
 
+      # Set clang as the default C compiler to ensure objc support
+      - name: Set CC to clang
+        run: echo "CC=clang" >> $GITHUB_ENV
+
       # Run formatting check
       - name: Run fmt
         run: cargo fmt -- --check
 
-      # Run clippy
+      # Run Clippy lints
       - name: Run clippy
         run: cargo clippy --all-features --all-targets -- -D warnings
 
-      # Run tests
+      # Run tests (skip problematic crates if needed)
       - name: Run tests
         run: cargo test --all-features --workspace --exclude autoagents-burn --exclude wasm_agent
 
