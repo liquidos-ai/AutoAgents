@@ -18,7 +18,7 @@ jobs:
       - name: Install Objective-C dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libobjc-dev
+          sudo apt-get install -y clang gcc-objc
 
       # Install Rust
       - uses: actions-rs/toolchain@v1
