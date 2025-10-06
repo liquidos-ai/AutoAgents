@@ -14,18 +14,29 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      # Install Rust
+      # Install Clang (with Objective-C support built in)
+      - name: Install Clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      # Use clang for building Objective-C code
+      - name: Set clang as compiler
+        run: |
+          echo "CC=clang" >> $GITHUB_ENV
+
+      # Install Rust toolchain
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
           components: llvm-tools-preview,rustfmt,clippy
 
-      # Run formatting check
+      # Formatting check
       - name: Run fmt
         run: cargo fmt -- --check
 
-      # Run clippy
+      # Clippy lint
       - name: Run clippy
         run: cargo clippy --all-features --all-targets -- -D warnings
 
@@ -33,6 +44,6 @@ jobs:
       - name: Run tests
         run: cargo test --all-features --workspace --exclude autoagents-burn --exclude wasm_agent
 
-      # Run cargo check
+      # Cargo check
       - name: Run cargo check
         run: cargo check --all-features --all-targets

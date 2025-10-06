@@ -1,0 +1,32 @@
+[package]
+name = "mistral_rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[features]
+cuda = ["autoagents-mistral-rs/cuda"]
+cudnn = ["autoagents-mistral-rs/cudnn"]
+metal = ["autoagents-mistral-rs/metal"]
+flash-attn = ["cuda", "autoagents-mistral-rs/flash-attn"]
+accelerate = ["autoagents-mistral-rs/accelerate"]
+
+[dependencies]
+autoagents = { workspace = true, features = ["logging"] }
+autoagents-derive = { workspace = true }
+autoagents-mistral-rs = { workspace = true }
+env_logger = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+tokio-stream.workspace = true
+tokio = { workspace = true, features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+] }

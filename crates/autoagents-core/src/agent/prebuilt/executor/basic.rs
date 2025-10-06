@@ -168,10 +168,20 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
             content: context.config().description.clone(),
         }];
 
-        let chat_msg = ChatMessage {
-            role: ChatRole::User,
-            message_type: MessageType::Text,
-            content: task.prompt.clone(),
+        let chat_msg = if let Some((mime, image_data)) = &task.image {
+            // Task has an image, create an Image message
+            ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Image((*mime, image_data.clone())),
+                content: task.prompt.clone(),
+            }
+        } else {
+            // Text-only task
+            ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: task.prompt.clone(),
+            }
         };
         messages.push(chat_msg);
         let response = context
@@ -210,10 +220,20 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
             content: context.config().description.clone(),
         }];
 
-        let chat_msg = ChatMessage {
-            role: ChatRole::User,
-            message_type: MessageType::Text,
-            content: task.prompt.clone(),
+        let chat_msg = if let Some((mime, image_data)) = &task.image {
+            // Task has an image, create an Image message
+            ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Image((*mime, image_data.clone())),
+                content: task.prompt.clone(),
+            }
+        } else {
+            // Text-only task
+            ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: task.prompt.clone(),
+            }
         };
         messages.push(chat_msg);
 

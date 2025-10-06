@@ -30,7 +30,7 @@ pub use actor::ActorAgentHandle;
 pub use base::{AgentDeriveT, BaseAgent};
 pub use builder::AgentBuilder;
 pub use context::{Context, ContextError};
-pub use direct::DirectAgent;
+pub use direct::{DirectAgent, DirectAgentHandle};
 pub use executor::{
     event_helper::EventHelper, memory_helper::MemoryHelper, tool_processor::ToolProcessor,
     AgentExecutor, ExecutorConfig, TurnResult,

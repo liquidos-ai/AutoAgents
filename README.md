@@ -75,11 +75,12 @@ AutoAgents supports a wide range of LLM providers, allowing you to choose the be
 
 ### Local Providers
 
-| Provider   | Status          |
-|------------|-----------------|
-| **Burn**   | ⚠️ Experimental |
-| **Onnx**   | ⚠️ Experimental |
-| **Ollama** | ✅               |
+| Provider       | Status               |
+|----------------|----------------------|
+| **Mistral-rs** | ⚠️ Under Development |
+| **Burn**       | ⚠️ Experimental      |
+| **Onnx**       | ⚠️ Experimental      |
+| **Ollama**     | ✅                    |
 
 *Provider support is actively expanding based on community needs.*
 
@@ -266,10 +267,13 @@ Explore our comprehensive examples to get started quickly:
 Demonstrates various examples like Simple Agent with Tools, Very Basic Agent, Edge Agent, Chaining, Actor Based Model,
 Streaming and Adding Agent Hooks.
 
-
 ### [MCP Integration](examples/mcp/)
 
 Demonstrates how to integrate AutoAgents with the Model Context Protocol (MCP).
+
+### [Local Models](examples/mistral_rs)
+
+Demonstrates how to integrate AutoAgents with the Mistral-rs for Local Models.
 
 ### [Design Patterns](examples/design_patterns/)
 
@@ -305,6 +309,7 @@ AutoAgents/
 │   ├── autoagents-llm/            # LLM provider implementations
 │   ├── autoagents-toolkit/        # Collection of Ready to use Tools
 │   ├── autoagents-burn/           # LLM provider implementations using Burn
+│   ├── autoagents-mistral-rs/     # LLM provider implementations using Mistral-rs
 │   ├── autoagents-onnx/           # Edge Runtime Implementation using Onnx
 │   └── autoagents-derive/         # Procedural macros
 ├── examples/                      # Example implementations

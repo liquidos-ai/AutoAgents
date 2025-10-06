@@ -21,6 +21,19 @@
       <sourceFolder url="file://$MODULE_DIR$/examples/burn/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/onnx-ort/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/onnx/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/autoagents-burn/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/autoagents-core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/autoagents-derive/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/autoagents-llm/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/autoagents-llm/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/autoagents-mistral-rs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/autoagents-onnx/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/autoagents-test-utils/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/autoagents-toolkit/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/mcp/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/mistral_rs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/autoagents-mistral-rs/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/autoagents-mistral-rs/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/examples/wasm_tool/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/examples/voice_agent/target" />
