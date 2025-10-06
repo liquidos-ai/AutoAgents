@@ -22,7 +22,7 @@ pub enum ChatRole {
 }
 
 /// The supported MIME type of an image.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Copy)]
 #[non_exhaustive]
 pub enum ImageMime {
     /// JPEG image

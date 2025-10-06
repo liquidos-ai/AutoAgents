@@ -20,9 +20,10 @@ accelerate = ["autoagents-mistral-rs/accelerate"]
 autoagents = { workspace = true, features = ["logging"] }
 autoagents-derive = { workspace = true }
 autoagents-mistral-rs = { workspace = true }
-
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
 tokio-stream.workspace = true
 tokio = { workspace = true, features = [
     "rt",

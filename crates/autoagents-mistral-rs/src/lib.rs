@@ -1,30 +1,50 @@
-use autoagents_llm::error::LLMError;
-use mistralrs::{
-    IsqType, PagedAttentionMetaBuilder, TextMessageRole, TextMessages, TextModelBuilder,
-};
+//! # AutoAgents Mistral.rs Backend
+//!
+//! Local LLM inference backend for AutoAgents using mistral.rs.
+//!
+//! ## Features
+//!
+//! - **Dual Model Support**: Load models from HuggingFace or local GGUF files
+//! - **Hardware Acceleration**: CUDA, Metal, cuDNN support via feature flags
+//! - **Quantization**: In-situ quantization for HF models, native GGUF quantization
+//! - **Memory Efficient**: Paged attention support
+//! - **Production Ready**: Comprehensive error handling and logging
+//!
 
-pub async fn run_model() -> Result<(), LLMError> {
-    let model = TextModelBuilder::new("microsoft/Phi-3.5-mini-instruct".to_string())
-        .with_isq(IsqType::Q8_0)
-        .with_paged_attn(|| PagedAttentionMetaBuilder::default().build())
-        .unwrap()
-        .with_logging()
-        .build()
-        .await
-        .unwrap();
+pub mod config;
+pub mod conversion;
+pub mod error;
+pub mod models;
+pub mod provider;
 
-    let messages = TextMessages::new()
-        .add_message(
-            TextMessageRole::System,
-            "You are an AI agent with a specialty in programming.",
-        )
-        .add_message(
-            TextMessageRole::User,
-            "Hello! How are you? Please write generic binary search function in Rust.",
-        );
+// Re-exports for convenience
+pub use config::{MistralRsConfig, MistralRsConfigBuilder};
+pub use error::MistralRsError;
+pub use models::{GgufQuant, HFModels, ModelSource};
+pub use provider::{MistralRsProvider, MistralRsProviderBuilder};
 
-    let response = model.send_chat_request(messages).await.unwrap();
+// Re-export mistralrs types that users might need
+pub use mistralrs::IsqType;
 
-    println!("{}", response.choices[0].message.content.as_ref().unwrap());
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_library_imports() {
+        // Test that all main types are accessible
+        let _quant = GgufQuant::Q4_K_M;
+        let _model = HFModels::Phi35MiniInstruct;
+        let _source = ModelSource::HuggingFace {
+            repo_id: "test/model".to_string(),
+            revision: None,
+            model_type: models::ModelType::Auto,
+        };
+    }
+
+    #[test]
+    fn test_builder_accessible() {
+        let _builder = MistralRsProvider::builder();
+        let _config_builder = MistralRsConfigBuilder::new();
+    }
 }

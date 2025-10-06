@@ -21,5 +21,9 @@ ring = ["mistralrs/ring"]
 
 [dependencies]
 autoagents-llm = { workspace = true }
-
 mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs.git" }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = "1.0"
+image = { workspace = true }

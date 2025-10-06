@@ -394,8 +394,13 @@ dependencies = [
 name = "autoagents-mistral-rs"
 version = "0.2.4"
 dependencies = [
+ "anyhow",
+ "async-trait",
  "autoagents-llm",
+ "image 0.25.8",
  "mistralrs",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -5697,6 +5702,10 @@ dependencies = [
  "autoagents",
  "autoagents-derive",
  "autoagents-mistral-rs",
+ "clap",
+ "env_logger",
+ "serde",
+ "serde_json",
  "tokio",
  "tokio-stream",
 ]

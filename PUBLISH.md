@@ -32,6 +32,12 @@ cargo publish
 ```
 
 ```shell
+cd ../autoagents-mistral-rs
+cargo publish --dry-run
+cargo publish
+```
+
+```shell
 cd ../autoagents-core
 cargo publish --dry-run
 cargo publish
