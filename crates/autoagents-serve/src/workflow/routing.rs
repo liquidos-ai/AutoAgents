@@ -149,7 +149,7 @@ impl RoutingWorkflow {
         let result_tx = Arc::new(tokio::sync::Mutex::new(Some(result_tx)));
 
         // Build router agent with unique name
-        let router_llm = LLMFactory::create_llm(&self.router_config.model)?;
+        let router_llm = LLMFactory::create_llm(&self.router_config.model).await?;
         let router_tools = ToolRegistry::create_tools(&self.router_config.tools)?;
 
         let router_name = format!("{}_{}", self.router_config.name, run_id);
@@ -184,7 +184,7 @@ impl RoutingWorkflow {
 
         // Build handler agents with unique names
         for handler in &self.handlers {
-            let handler_llm = LLMFactory::create_llm(&handler.agent.model)?;
+            let handler_llm = LLMFactory::create_llm(&handler.agent.model).await?;
             let handler_tools = ToolRegistry::create_tools(&handler.agent.tools)?;
 
             let handler_name = format!("{}_{}", handler.agent.name, run_id);

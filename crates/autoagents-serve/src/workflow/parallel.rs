@@ -74,7 +74,7 @@ impl ParallelWorkflow {
         let mut handles = vec![];
 
         for agent_config in &self.agent_configs {
-            let llm = LLMFactory::create_llm(&agent_config.model)?;
+            let llm = LLMFactory::create_llm(&agent_config.model).await?;
             let tools = ToolRegistry::create_tools(&agent_config.tools)?;
 
             // Determine output schema

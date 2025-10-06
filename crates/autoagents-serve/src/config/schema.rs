@@ -77,8 +77,11 @@ pub struct AgentConfig {
 pub struct ModelConfig {
     pub kind: String, // "llm" for now
     pub backend: BackendConfig,
-    pub provider: String, // "OpenAI", "Anthropic", "Ollama", etc.
-    pub model_name: String,
+    pub provider: String, // "OpenAI", "Anthropic", "Ollama", "mistral", etc.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>, // HuggingFace repo ID or local path for mistral-rs
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parameters: Option<ModelParameters>,
 }
@@ -100,6 +103,19 @@ pub struct ModelParameters {
     pub top_p: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_k: Option<u32>,
+    // MistralRs-specific parameters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quant: Option<String>, // "q4", "q8", "f16", etc.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paged_attention: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verbose: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_dir: Option<String>, // For local GGUF models
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_type: Option<String>, // "text", "vision", "gguf"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accelerator: Option<String>, // "cuda", "metal", "cpu"
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

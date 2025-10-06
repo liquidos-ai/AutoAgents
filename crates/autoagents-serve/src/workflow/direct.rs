@@ -78,7 +78,7 @@ impl DirectWorkflow {
 
     pub async fn run(&self, input: String) -> Result<String> {
         // Create LLM provider
-        let llm = LLMFactory::create_llm(&self.agent_config.model)?;
+        let llm = LLMFactory::create_llm(&self.agent_config.model).await?;
 
         // Create tools
         let tools = ToolRegistry::create_tools(&self.agent_config.tools)?;

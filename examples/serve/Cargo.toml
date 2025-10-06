@@ -18,3 +18,4 @@ autoagents = { workspace = true, features = ["logging"] }
 autoagents-serve = { workspace = true, features = ["search"] }
 tokio = { workspace = true }
 anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }

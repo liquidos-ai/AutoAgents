@@ -8365,6 +8365,7 @@ dependencies = [
  "anyhow",
  "autoagents",
  "autoagents-serve",
+ "clap",
  "tokio",
 ]
 
