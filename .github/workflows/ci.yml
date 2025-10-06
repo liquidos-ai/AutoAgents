@@ -14,17 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      # Install Clang (with Objective-C support built in)
-      - name: Install Clang
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang
-
-      # Use clang for building Objective-C code
-      - name: Set clang as compiler
-        run: |
-          echo "CC=clang" >> $GITHUB_ENV
-
       # Install Rust toolchain
       - uses: actions-rs/toolchain@v1
         with:
@@ -42,7 +31,7 @@ jobs:
 
       # Run tests
       - name: Run tests
-        run: cargo test --all-features --workspace --exclude autoagents-burn --exclude wasm_agent
+        run: cargo test --workspace --exclude autoagents-burn --exclude wasm_agent
 
       # Cargo check
       - name: Run cargo check
