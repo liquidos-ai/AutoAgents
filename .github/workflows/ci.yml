@@ -24,7 +24,6 @@ jobs:
       - name: Set clang as compiler
         run: |
           echo "CC=clang" >> $GITHUB_ENV
-          echo "CFLAGS=-ObjC" >> $GITHUB_ENV
 
       # Install Rust toolchain
       - uses: actions-rs/toolchain@v1
