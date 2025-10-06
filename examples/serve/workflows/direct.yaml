@@ -1,0 +1,34 @@
+#
+# Direct Workflow - Single Agent Execution
+#
+kind: Direct
+name: SimpleCalculator
+stream: false
+description: "Simple calculator agent for basic math"
+
+workflow:
+  agent:
+    name: MathAgent
+    description: "A helpful math calculator agent"
+    instructions: |
+      You are a math expert. Solve the given math problem step by step.
+      Provide a clear and concise answer.
+    executor: ReAct
+    memory:
+      kind: sliding_window
+      parameters:
+        window_size: 10
+    model:
+      kind: llm
+      backend:
+        kind: Cloud
+      provider: OpenAI
+      model_name: gpt-4o-mini
+      parameters:
+        temperature: 0.1
+        max_tokens: 500
+    tools: [ ]
+    output:
+      type: text
+  output:
+    type: text

@@ -1,0 +1,50 @@
+#
+# Sequential Workflow - Chain of Agents
+#
+kind: Sequential
+name: DataPipeline
+description: "Extract and transform data sequentially"
+
+workflow:
+  agents:
+    - name: Extractor
+      description: "Extract key information from text"
+      instructions: |
+        Extract the main topic and key points from the given text.
+        List them clearly in bullet points.
+      executor: Basic
+      memory:
+        kind: sliding_window
+        parameters:
+          window_size: 5
+      model:
+        kind: llm
+        backend:
+          kind: Cloud
+        provider: OpenAI
+        model_name: gpt-4o-mini
+        parameters:
+          temperature: 0.2
+      tools: [ ]
+
+    - name: Summarizer
+      description: "Create a concise summary"
+      instructions: |
+        Take the extracted information and create a brief 2-3 sentence summary.
+        Be concise and clear.
+      executor: Basic
+      memory:
+        kind: sliding_window
+        parameters:
+          window_size: 5
+      model:
+        kind: llm
+        backend:
+          kind: Cloud
+        provider: OpenAI
+        model_name: gpt-4o-mini
+        parameters:
+          temperature: 0.3
+      tools: [ ]
+  output:
+    type: text

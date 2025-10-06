@@ -1,0 +1,21 @@
+[package]
+name = "autoagents-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "autoagents"
+path = "src/main.rs"
+
+[dependencies]
+autoagents-serve = { workspace = true, features = ["http-serve", "search"] }
+clap = { workspace = true }
+tokio = { workspace = true }
+anyhow = "1.0"
+env_logger = { workspace = true }
+log = { workspace = true }
