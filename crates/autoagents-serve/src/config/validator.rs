@@ -84,6 +84,7 @@ mod tests {
                 handlers: None,
                 output: None,
             },
+            memory_persistence: None,
             environment: None,
             runtime: None,
         };

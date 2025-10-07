@@ -76,9 +76,42 @@ impl DirectWorkflow {
         }
     }
 
-    pub async fn run(&self, input: String) -> Result<String> {
-        // Create LLM provider
-        let llm = LLMFactory::create_llm(&self.agent_config.model).await?;
+    pub async fn run(
+        &self,
+        input: String,
+        model_cache: Option<&crate::workflow::ModelCache>,
+        memory_cache: Option<
+            &std::sync::Arc<
+                tokio::sync::RwLock<
+                    std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
+                >,
+            >,
+        >,
+        workflow_name: Option<&str>,
+        memory_persistence: bool,
+    ) -> Result<String> {
+        // Get cached model or create new one
+        let cached_model = if self.agent_config.model.preload {
+            if let Some(cache) = model_cache {
+                let key = {
+                    #[cfg(feature = "http-serve")]
+                    {
+                        crate::server::generate_model_key(&self.agent_config.model)
+                    }
+                    #[cfg(not(feature = "http-serve"))]
+                    String::new()
+                };
+                let cache_read = cache.read().await;
+                cache_read.get(&key).cloned()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Create LLM provider (uses cache if available)
+        let llm = LLMFactory::create_llm_with_cache(&self.agent_config.model, cached_model).await?;
 
         // Create tools
         let tools = ToolRegistry::create_tools(&self.agent_config.tools)?;
@@ -106,17 +139,57 @@ impl DirectWorkflow {
             output_schema,
         );
 
-        // Configure memory
+        // Configure memory - check if persistence is enabled
+        let use_persistence = memory_persistence
+            && self
+                .agent_config
+                .memory
+                .as_ref()
+                .and_then(|m| m.persistence.as_ref())
+                .map(|p| p.enable)
+                .unwrap_or(true); // Default to enabled if workflow has persistence
+
         let window_size = self
             .agent_config
             .memory
             .as_ref()
             .map(|m| m.get_window_size())
             .unwrap_or(10);
-        let memory = Box::new(SlidingWindowMemory::new(window_size));
+
+        // Create memory and preload from cache if persistence is enabled
+        let mut memory: Box<dyn autoagents::core::agent::memory::MemoryProvider> =
+            Box::new(SlidingWindowMemory::new(window_size));
+
+        let memory_key = if use_persistence {
+            Some(format!(
+                "{}_{}",
+                workflow_name.unwrap_or("default"),
+                self.agent_config.name
+            ))
+        } else {
+            None
+        };
+
+        // Preload memory from cache if available
+        if let (Some(key), Some(cache)) = (&memory_key, memory_cache) {
+            let cache_read = cache.read().await;
+            if let Some(cached_messages) = cache_read.get(key) {
+                log::debug!(
+                    "Preloading persistent memory for agent: {} ({} messages)",
+                    self.agent_config.name,
+                    cached_messages.len()
+                );
+                memory.preload(cached_messages.clone());
+            } else {
+                log::debug!(
+                    "No cached memory found for agent: {}, starting fresh",
+                    self.agent_config.name
+                );
+            }
+        }
 
         // Create executor based on executor kind
-        match self.agent_config.executor {
+        let result = match self.agent_config.executor {
             ExecutorKind::ReAct => {
                 let agent = ReActAgent::new(dynamic_agent);
                 let agent_handle = AgentBuilder::<_, DirectAgent>::new(agent)
@@ -127,7 +200,22 @@ impl DirectWorkflow {
                     .await?;
 
                 let result = agent_handle.agent.run(Task::new(input)).await?;
-                Ok(result)
+
+                // Export memory back to cache if persistence is enabled
+                if let (Some(key), Some(cache)) = (&memory_key, memory_cache) {
+                    if let Some(mem) = &agent_handle.agent.memory() {
+                        let exported_messages = mem.lock().await.export();
+                        let mut cache_write = cache.write().await;
+                        cache_write.insert(key.clone(), exported_messages.clone());
+                        log::debug!(
+                            "Exported {} messages to persistent cache for agent: {}",
+                            exported_messages.len(),
+                            self.agent_config.name
+                        );
+                    }
+                }
+
+                result
             }
             ExecutorKind::Basic => {
                 let agent = BasicAgent::new(dynamic_agent);
@@ -139,8 +227,25 @@ impl DirectWorkflow {
                     .await?;
 
                 let result = agent_handle.agent.run(Task::new(input)).await?;
-                Ok(result)
+
+                // Export memory back to cache if persistence is enabled
+                if let (Some(key), Some(cache)) = (&memory_key, memory_cache) {
+                    if let Some(mem) = &agent_handle.agent.memory() {
+                        let exported_messages = mem.lock().await.export();
+                        let mut cache_write = cache.write().await;
+                        cache_write.insert(key.clone(), exported_messages.clone());
+                        log::debug!(
+                            "Exported {} messages to persistent cache for agent: {}",
+                            exported_messages.len(),
+                            self.agent_config.name
+                        );
+                    }
+                }
+
+                result
             }
-        }
+        };
+
+        Ok(result)
     }
 }

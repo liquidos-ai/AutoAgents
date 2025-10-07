@@ -41,4 +41,4 @@ pub use error::{Result, WorkflowError};
 pub use workflow::{Workflow, WorkflowOutput};
 
 #[cfg(feature = "http-serve")]
-pub use server::{serve, ServerConfig};
+pub use server::{generate_model_key, serve, ServerConfig};

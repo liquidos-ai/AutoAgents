@@ -13,6 +13,19 @@ pub struct LLMFactory;
 
 impl LLMFactory {
     pub async fn create_llm(config: &ModelConfig) -> Result<Arc<dyn LLMProvider>> {
+        Self::create_llm_with_cache(config, None).await
+    }
+
+    pub async fn create_llm_with_cache(
+        config: &ModelConfig,
+        cached_model: Option<Arc<dyn LLMProvider>>,
+    ) -> Result<Arc<dyn LLMProvider>> {
+        // Return cached model if available
+        if let Some(model) = cached_model {
+            log::debug!("Using preloaded model for provider: {}", config.provider);
+            return Ok(model);
+        }
+
         let provider_str = config.provider.to_lowercase();
 
         match provider_str.as_str() {

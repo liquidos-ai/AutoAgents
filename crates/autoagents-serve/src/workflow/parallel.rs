@@ -70,7 +70,20 @@ impl ParallelWorkflow {
         Self { agent_configs }
     }
 
-    pub async fn run(&self, input: String) -> Result<Vec<String>> {
+    pub async fn run(
+        &self,
+        input: String,
+        _model_cache: Option<&crate::workflow::ModelCache>,
+        _memory_cache: Option<
+            &std::sync::Arc<
+                tokio::sync::RwLock<
+                    std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
+                >,
+            >,
+        >,
+        _workflow_name: Option<&str>,
+        _memory_persistence: bool,
+    ) -> Result<Vec<String>> {
         let mut handles = vec![];
 
         for agent_config in &self.agent_configs {

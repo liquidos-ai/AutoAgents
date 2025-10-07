@@ -57,12 +57,70 @@ impl Workflow {
         }
     }
 
-    pub async fn execute(&self, input: String) -> Result<WorkflowOutput> {
+    pub async fn execute(
+        &self,
+        input: String,
+        model_cache: Option<
+            &std::sync::Arc<
+                tokio::sync::RwLock<
+                    std::collections::HashMap<
+                        String,
+                        std::sync::Arc<dyn autoagents::llm::LLMProvider>,
+                    >,
+                >,
+            >,
+        >,
+        memory_cache: Option<
+            &std::sync::Arc<
+                tokio::sync::RwLock<
+                    std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
+                >,
+            >,
+        >,
+        workflow_name: Option<&str>,
+        memory_persistence: bool,
+    ) -> Result<WorkflowOutput> {
         match self {
-            Workflow::Direct(w) => Ok(WorkflowOutput::Single(w.run(input).await?)),
-            Workflow::Sequential(w) => Ok(WorkflowOutput::Single(w.run(input).await?)),
-            Workflow::Parallel(w) => Ok(WorkflowOutput::Multiple(w.run(input).await?)),
-            Workflow::Routing(w) => Ok(WorkflowOutput::Single(w.run(input).await?)),
+            Workflow::Direct(w) => Ok(WorkflowOutput::Single(
+                w.run(
+                    input,
+                    model_cache,
+                    memory_cache,
+                    workflow_name,
+                    memory_persistence,
+                )
+                .await?,
+            )),
+            Workflow::Sequential(w) => Ok(WorkflowOutput::Single(
+                w.run(
+                    input,
+                    model_cache,
+                    memory_cache,
+                    workflow_name,
+                    memory_persistence,
+                )
+                .await?,
+            )),
+            Workflow::Parallel(w) => Ok(WorkflowOutput::Multiple(
+                w.run(
+                    input,
+                    model_cache,
+                    memory_cache,
+                    workflow_name,
+                    memory_persistence,
+                )
+                .await?,
+            )),
+            Workflow::Routing(w) => Ok(WorkflowOutput::Single(
+                w.run(
+                    input,
+                    model_cache,
+                    memory_cache,
+                    workflow_name,
+                    memory_persistence,
+                )
+                .await?,
+            )),
         }
     }
 }

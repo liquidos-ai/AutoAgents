@@ -90,7 +90,20 @@ impl SequentialWorkflow {
         Self { agent_configs }
     }
 
-    pub async fn run(&self, input: String) -> Result<String> {
+    pub async fn run(
+        &self,
+        input: String,
+        _model_cache: Option<&crate::workflow::ModelCache>,
+        _memory_cache: Option<
+            &std::sync::Arc<
+                tokio::sync::RwLock<
+                    std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
+                >,
+            >,
+        >,
+        _workflow_name: Option<&str>,
+        _memory_persistence: bool,
+    ) -> Result<String> {
         // Generate unique suffix for this workflow run to avoid actor name collisions
         let run_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
 

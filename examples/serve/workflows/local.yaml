@@ -17,6 +17,9 @@ name: LocalMathAgent
 stream: false
 description: "Math agent using local MistralRs model"
 
+memory_persistence:
+  mode: "memory"
+
 workflow:
   agent:
     name: MathAgent
@@ -31,6 +34,7 @@ workflow:
         window_size: 10
     model:
       kind: llm
+      preload: true
       backend:
         kind: local
       provider: mistral-rs

@@ -23,7 +23,7 @@ use std::path::Path;
 /// }
 /// ```
 pub struct WorkflowBuilder {
-    config: WorkflowConfig,
+    pub config: WorkflowConfig,
 }
 
 impl WorkflowBuilder {
@@ -68,14 +68,82 @@ impl WorkflowBuilder {
     ///
     /// Returns an error if the workflow cannot be constructed from the configuration
     pub fn build(self) -> Result<BuiltWorkflow> {
-        let workflow = Workflow::from_config(self.config)?;
-        Ok(BuiltWorkflow { workflow })
+        let workflow = Workflow::from_config(self.config.clone())?;
+        let memory_persistence_enabled = self.config.memory_persistence.is_some();
+        Ok(BuiltWorkflow {
+            workflow,
+            model_cache: None,
+            memory_cache: None,
+            workflow_name: self.config.name.clone(),
+            memory_persistence_enabled,
+        })
+    }
+
+    /// Build the workflow with a model cache for preloaded models
+    pub fn build_with_cache(
+        self,
+        model_cache: std::sync::Arc<
+            tokio::sync::RwLock<
+                std::collections::HashMap<String, std::sync::Arc<dyn autoagents::llm::LLMProvider>>,
+            >,
+        >,
+    ) -> Result<BuiltWorkflow> {
+        let workflow = Workflow::from_config(self.config.clone())?;
+        let memory_persistence_enabled = self.config.memory_persistence.is_some();
+        Ok(BuiltWorkflow {
+            workflow,
+            model_cache: Some(model_cache.clone()),
+            memory_cache: None,
+            workflow_name: self.config.name.clone(),
+            memory_persistence_enabled,
+        })
+    }
+
+    /// Build the workflow with both model and memory caches
+    pub fn build_with_caches(
+        self,
+        model_cache: std::sync::Arc<
+            tokio::sync::RwLock<
+                std::collections::HashMap<String, std::sync::Arc<dyn autoagents::llm::LLMProvider>>,
+            >,
+        >,
+        memory_cache: std::sync::Arc<
+            tokio::sync::RwLock<
+                std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
+            >,
+        >,
+    ) -> Result<BuiltWorkflow> {
+        let workflow = Workflow::from_config(self.config.clone())?;
+        let memory_persistence_enabled = self.config.memory_persistence.is_some();
+        Ok(BuiltWorkflow {
+            workflow,
+            model_cache: Some(model_cache),
+            memory_cache: Some(memory_cache),
+            workflow_name: self.config.name.clone(),
+            memory_persistence_enabled,
+        })
     }
 }
 
 /// A fully constructed workflow ready for execution
 pub struct BuiltWorkflow {
     workflow: Workflow,
+    pub model_cache: Option<
+        std::sync::Arc<
+            tokio::sync::RwLock<
+                std::collections::HashMap<String, std::sync::Arc<dyn autoagents::llm::LLMProvider>>,
+            >,
+        >,
+    >,
+    pub memory_cache: Option<
+        std::sync::Arc<
+            tokio::sync::RwLock<
+                std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
+            >,
+        >,
+    >,
+    pub workflow_name: Option<String>,
+    pub memory_persistence_enabled: bool,
 }
 
 impl BuiltWorkflow {
@@ -98,7 +166,15 @@ impl BuiltWorkflow {
     /// - Any agent in the workflow fails
     /// - The workflow times out
     pub async fn run(&self, input: String) -> Result<WorkflowOutput> {
-        self.workflow.execute(input).await
+        self.workflow
+            .execute(
+                input,
+                self.model_cache.as_ref(),
+                self.memory_cache.as_ref(),
+                self.workflow_name.as_deref(),
+                self.memory_persistence_enabled,
+            )
+            .await
     }
 }
 

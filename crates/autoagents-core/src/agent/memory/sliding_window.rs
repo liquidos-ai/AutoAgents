@@ -176,6 +176,22 @@ impl MemoryProvider for SlidingWindowMemory {
             .push_back(ChatMessage::assistant().content(summary).build());
         self.needs_summary = false;
     }
+
+    fn clone_box(&self) -> Box<dyn MemoryProvider> {
+        Box::new(self.clone())
+    }
+
+    fn preload(&mut self, data: Vec<ChatMessage>) -> bool {
+        self.messages.clear();
+        for msg in data {
+            self.messages.push_back(msg);
+        }
+        true
+    }
+
+    fn export(&self) -> Vec<ChatMessage> {
+        Vec::from(self.messages.clone())
+    }
 }
 
 #[cfg(test)]

@@ -29,6 +29,7 @@ autoagents serve --workflow workflow.yaml --port 8080
 ```
 
 Optional arguments:
+
 - `--name <NAME>` - Custom name for the workflow (defaults to filename)
 - `--host <HOST>` - Host to bind to (default: 127.0.0.1)
 - `--port <PORT>` - Port to bind to (default: 8080)
@@ -51,16 +52,19 @@ autoagents serve -w workflow.yaml --name my_agent --host 0.0.0.0 --port 3000
 When using the `serve` command, the following endpoints are available:
 
 ### Health Check
+
 ```bash
 GET /health
 ```
 
 ### List Workflows
+
 ```bash
 GET /api/v1/workflows
 ```
 
 ### Execute Workflow
+
 ```bash
 POST /api/v1/workflows/:name/execute
 Content-Type: application/json
@@ -71,6 +75,7 @@ Content-Type: application/json
 ```
 
 Example:
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/workflows/research/execute \
   -H "Content-Type: application/json" \
@@ -86,6 +91,10 @@ export OPENAI_API_KEY="your-key"
 export ANTHROPIC_API_KEY="your-key"
 export GROQ_API_KEY="your-key"
 export BRAVE_SEARCH_API_KEY="your-key"  # For search tools
+```
+
+```shell
+cargo run -p autoagents-cli --release --features cuda serve --directory ./examples/serve/workflows
 ```
 
 ## Logging

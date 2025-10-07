@@ -21,6 +21,8 @@ pub struct WorkflowConfig {
     pub version: Option<String>,
     #[serde(default)]
     pub stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_persistence: Option<MemoryPersistenceConfig>,
     pub workflow: WorkflowSpec,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<EnvironmentConfig>,
@@ -76,6 +78,8 @@ pub struct AgentConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelConfig {
     pub kind: String, // "llm" for now
+    #[serde(default)]
+    pub preload: bool, // Preload model at startup instead of per-request
     pub backend: BackendConfig,
     pub provider: String, // "OpenAI", "Anthropic", "Ollama", "mistral", etc.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -148,7 +152,31 @@ pub struct OutputConfig {
 pub struct MemoryConfig {
     pub kind: String, // "sliding_window", "buffer", etc.
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub persistence: Option<MemoryPersistenceOverride>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub parameters: Option<MemoryParameters>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPersistenceConfig {
+    #[serde(default = "default_persistence_mode")]
+    pub mode: String, // "memory", "file", etc.
+}
+
+fn default_persistence_mode() -> String {
+    "memory".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPersistenceOverride {
+    #[serde(default = "default_enable")]
+    pub enable: bool, // false to override workflow-level persistence
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+}
+
+fn default_enable() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -12,6 +12,10 @@ categories.workspace = true
 name = "autoagents"
 path = "src/main.rs"
 
+[features]
+cuda = ["autoagents-serve/cuda"]
+meta = ["autoagents-serve/metal"]
+
 [dependencies]
 autoagents-serve = { workspace = true, features = ["http-serve", "search"] }
 clap = { workspace = true }
