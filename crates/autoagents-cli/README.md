@@ -93,20 +93,8 @@ export GROQ_API_KEY="your-key"
 export BRAVE_SEARCH_API_KEY="your-key"  # For search tools
 ```
 
+## With Local Model Acceleration
+
 ```shell
 cargo run -p autoagents-cli --release --features cuda serve --directory ./examples/serve/workflows
 ```
-
-## Logging
-
-Enable logging with the `RUST_LOG` environment variable:
-
-```bash
-RUST_LOG=info autoagents serve -w workflow.yaml
-```
-
-Log levels: `error`, `warn`, `info`, `debug`, `trace`
-
-## License
-
-MIT OR Apache-2.0

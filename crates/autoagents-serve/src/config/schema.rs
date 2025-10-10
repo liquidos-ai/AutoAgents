@@ -118,14 +118,14 @@ pub struct ModelParameters {
     pub model_dir: Option<String>, // For local GGUF models
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_type: Option<String>, // "text", "vision", "gguf"
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub accelerator: Option<String>, // "cuda", "metal", "cpu"
+                                    // #[serde(skip_serializing_if = "Option::is_none")]
+                                    // pub accelerator: Option<String>, // "cuda", "metal", "cpu"
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolConfig {
-    #[serde(rename = "type")]
-    pub tool_type: String,
+    #[serde(rename = "name")]
+    pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub options: Option<HashMap<String, serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -215,7 +215,7 @@ pub struct EnvironmentConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeConfig {
     #[serde(rename = "type")]
-    pub runtime_type: String, // "single_threaded", "multi_threaded"
+    pub runtime_type: String, // "single_threaded"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_concurrent: Option<usize>,
 }

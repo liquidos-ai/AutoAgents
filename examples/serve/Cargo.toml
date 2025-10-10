@@ -15,7 +15,8 @@ metal = ["autoagents-serve/metal"]
 
 [dependencies]
 autoagents = { workspace = true, features = ["logging"] }
-autoagents-serve = { workspace = true, features = ["search"] }
+autoagents-serve = { workspace = true, features = ["search-tools"] }
 tokio = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+
 anyhow = "1.0"
-clap = { version = "4.5", features = ["derive"] }

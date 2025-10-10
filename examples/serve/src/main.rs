@@ -71,6 +71,12 @@ fn get_workflows() -> Vec<WorkflowExample> {
             description: "Local model using MistralRs",
             default_inputs: &["What is 5 + 5?"],
         },
+        WorkflowExample {
+            name: "research",
+            path: "examples/serve/workflows/research.yaml",
+            description: "Research Agent",
+            default_inputs: &["What is 5 + 5?"],
+        },
     ]
 }
 

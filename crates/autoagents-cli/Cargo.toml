@@ -15,11 +15,16 @@ path = "src/main.rs"
 [features]
 cuda = ["autoagents-serve/cuda"]
 meta = ["autoagents-serve/metal"]
+accelerate = ["autoagents-serve/accelerate"]
 
 [dependencies]
-autoagents-serve = { workspace = true, features = ["http-serve", "search"] }
+autoagents-serve = { workspace = true, features = [
+  "http-serve",
+  "search-tools",
+] }
 clap = { workspace = true }
 tokio = { workspace = true }
-anyhow = "1.0"
 env_logger = { workspace = true }
 log = { workspace = true }
+
+anyhow = "1.0"

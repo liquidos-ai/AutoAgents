@@ -7,13 +7,15 @@ description.workspace = true
 repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
+readme = "README.md"
 
 [features]
 default = []
 cuda = ["autoagents-mistral-rs/cuda"]
 metal = ["autoagents-mistral-rs/metal"]
 http-serve = ["axum", "tower", "tower-http"]
-search = ["autoagents-toolkit/search"]
+search-tools = ["autoagents-toolkit/search"]
+accelerate = ["autoagents-mistral-rs/accelerate"]
 
 [dependencies]
 autoagents = { workspace = true, features = ["full", "logging"] }
@@ -22,13 +24,16 @@ autoagents-toolkit = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = "0.9"
 thiserror = { workspace = true }
 async-trait = { workspace = true }
 log = { workspace = true }
-uuid = { version = "1.11", features = ["v4"] }
+uuid = { workspace = true, features = ["v4"] }
 
-# HTTP server dependencies (feature-gated)
-axum = { version = "0.7", optional = true }
-tower = { version = "0.5", optional = true }
-tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
+serde_yaml = "0.9.3" #Need to replace with something supported
+
+axum = { version = "0.8.6", optional = true }
+tower = { version = "0.5.2", optional = true }
+tower-http = { version = "0.6.6", features = [
+  "cors",
+  "trace",
+], optional = true }

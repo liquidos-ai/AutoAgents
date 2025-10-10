@@ -75,21 +75,16 @@ pub async fn serve(
                 {
                     Ok(workflow) => {
                         state.add_workflow(name.clone(), workflow).await;
-                        log::info!("✓ Workflow '{}' loaded successfully", name);
+                        log::info!("Workflow '{}' loaded successfully", name);
                     }
                     Err(e) => {
-                        log::error!("✗ Failed to build workflow '{}': {}", name, e);
+                        log::error!("Failed to build workflow '{}': {}", name, e);
                         return Err(e);
                     }
                 }
             }
             Err(e) => {
-                log::error!(
-                    "✗ Failed to parse workflow '{}' from '{}': {}",
-                    name,
-                    path,
-                    e
-                );
+                log::error!("Failed to parse workflow '{}' from '{}': {}", name, path, e);
                 return Err(e);
             }
         }
@@ -123,7 +118,7 @@ pub async fn serve(
         crate::error::WorkflowError::IoError(e)
     })?;
 
-    log::info!("🚀 Server started successfully!");
+    log::info!("Server started successfully!");
 
     if let Err(e) = axum::serve(listener, app).await {
         log::error!("Server error: {}", e);

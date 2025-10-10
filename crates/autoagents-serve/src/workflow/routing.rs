@@ -155,7 +155,7 @@ impl RoutingWorkflow {
 
         let runtime = SingleThreadedRuntime::new(None);
         let mut environment = Environment::new(None);
-        environment.register_runtime(runtime.clone()).await;
+        let _ = environment.register_runtime(runtime.clone()).await;
 
         // Channel for getting final result
         let (result_tx, mut result_rx) = mpsc::channel::<String>(1);
@@ -238,7 +238,7 @@ impl RoutingWorkflow {
 
         // Run environment in background
         let env_handle = tokio::spawn(async move {
-            environment.run().await;
+            let _ = environment.run().await;
         });
 
         // Wait for result with timeout

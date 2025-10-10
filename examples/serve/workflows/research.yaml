@@ -1,0 +1,39 @@
+#
+# Research Workflow - Single Agent Execution
+#
+kind: Direct
+name: ResearchAgent
+stream: true
+description: "A research agent designed to search, retrieve, and summarize information from the web."
+
+workflow:
+  agent:
+    name: ResearchAgent
+    description: "A deep research agent capable of gathering accurate information, summarizing sources, and providing references."
+    instructions: |
+      You are a research expert. Your task is to find accurate and up-to-date information related to the user's query.
+      1. Search for relevant sources on the web.
+      2. Extract key insights and summarize them concisely.
+      3. Provide references and links to original sources.
+      4. Make sure to cross-verify facts and avoid unverified information.
+      5. Present the final answer in a structured and clear manner.
+    executor: ReAct
+    memory:
+      kind: sliding_window
+      parameters:
+        window_size: 100
+    model:
+      kind: llm
+      backend:
+        kind: Cloud
+      provider: OpenAI
+      model_name: gpt-4o-mini
+      parameters:
+        temperature: 0.2
+        max_tokens: 1500
+    tools:
+      - name: brave_search
+    output:
+      type: text
+  output:
+    type: text

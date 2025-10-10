@@ -7,7 +7,6 @@ use burn::prelude::Backend;
 use burn::tensor::{Int, Tensor};
 #[cfg(target_arch = "wasm32")]
 use futures_util::SinkExt;
-use log::debug;
 use log::error;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -80,7 +79,6 @@ impl<B: Backend, T: Tokenizer> GenerationContext<B, T> {
                 while let Some(tokens) = receiver.next().await {
                     let data = tokens.into_data_async().await;
                     // Convert to Vec<u32>
-                    debug!("Attempting data conversion to U32");
                     let tokens = match data.convert::<u32>().into_vec::<u32>() {
                         Ok(v) => v,
                         Err(e) => {

@@ -160,13 +160,6 @@ async fn serve_workflows(
         }
     }
 
-    log::info!("Endpoints:");
-    log::info!("  GET  /health");
-    log::info!("  GET  /api/v1/workflows");
-    for workflow_name in workflows.keys() {
-        log::info!("  POST /api/v1/workflows/{}/execute", workflow_name);
-    }
-
     serve(config, workflows).await?;
 
     Ok(())
