@@ -17,7 +17,7 @@ struct Cli {
 enum Commands {
     /// Run a specific workflow
     Run {
-        /// Workflow to run: direct, sequential, parallel, routing, local, or path to YAML file
+        /// Workflow path to YAML file
         #[arg(short, long)]
         workflow: String,
 
@@ -25,58 +25,6 @@ enum Commands {
         #[arg(short, long)]
         input: String,
     },
-}
-
-// Workflow definitions with default inputs
-struct WorkflowExample {
-    name: &'static str,
-    path: &'static str,
-    description: &'static str,
-    default_inputs: &'static [&'static str],
-}
-
-fn get_workflows() -> Vec<WorkflowExample> {
-    vec![
-        WorkflowExample {
-            name: "direct",
-            path: "examples/serve/workflows/direct.yaml",
-            description: "Single agent execution",
-            default_inputs: &["What is 15 multiplied by 8?"],
-        },
-        WorkflowExample {
-            name: "sequential",
-            path: "examples/serve/workflows/sequential.yaml",
-            description: "Sequential chain of agents",
-            default_inputs: &["Rust is a systems programming language that is blazingly fast and memory-efficient. It has no runtime or garbage collector and can power performance-critical services."],
-        },
-        WorkflowExample {
-            name: "parallel",
-            path: "examples/serve/workflows/parallel.yaml",
-            description: "Parallel execution of multiple agents",
-            default_inputs: &["Artificial Intelligence and Machine Learning"],
-        },
-        WorkflowExample {
-            name: "routing",
-            path: "examples/serve/workflows/routing.yaml",
-            description: "Router-based workflow with conditional handlers",
-            default_inputs: &[
-                "Calculate the sum of 25 and 17",
-                "Write a short poem about the ocean",
-            ],
-        },
-        WorkflowExample {
-            name: "local",
-            path: "examples/serve/workflows/local.yaml",
-            description: "Local model using MistralRs",
-            default_inputs: &["What is 5 + 5?"],
-        },
-        WorkflowExample {
-            name: "research",
-            path: "examples/serve/workflows/research.yaml",
-            description: "Research Agent",
-            default_inputs: &["What is 5 + 5?"],
-        },
-    ]
 }
 
 #[tokio::main]
@@ -106,21 +54,10 @@ async fn run_specific_workflow(workflow_name: &str, input: &str) -> anyhow::Resu
     let workflow_path = if workflow_name.ends_with(".yaml") || workflow_name.ends_with(".yml") {
         workflow_name.to_string()
     } else {
-        // Look up predefined workflow
-        let workflows = get_workflows();
-        let workflow = workflows
-            .iter()
-            .find(|w| w.name == workflow_name.to_lowercase())
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Unknown workflow: {}. Use 'list' command to see available workflows.",
-                    workflow_name
-                )
-            })?;
-        workflow.path.to_string()
+        "".into()
     };
 
-    run_workflow(&workflow_path, input, Some(workflow_name)).await?;
+    run_workflow(&workflow_path, input).await?;
 
     println!("\n==============================================");
     println!("   Workflow completed successfully! ✓");
@@ -129,17 +66,7 @@ async fn run_specific_workflow(workflow_name: &str, input: &str) -> anyhow::Resu
     Ok(())
 }
 
-async fn run_workflow(
-    yaml_path: &str,
-    input: &str,
-    workflow_name: Option<&str>,
-) -> anyhow::Result<()> {
-    if let Some(name) = workflow_name {
-        println!("Loading workflow: {} ({})", name, yaml_path);
-    } else {
-        println!("Loading workflow: {}", yaml_path);
-    }
-
+async fn run_workflow(yaml_path: &str, input: &str) -> anyhow::Result<()> {
     let workflow = WorkflowBuilder::from_yaml_file(yaml_path)?.build()?;
 
     println!("Input: {}", input);
