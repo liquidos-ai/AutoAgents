@@ -37,3 +37,5 @@ tower-http = { version = "0.6.6", features = [
   "cors",
   "trace",
 ], optional = true }
+futures = { workspace = true }
+tokio-stream = { workspace = true }

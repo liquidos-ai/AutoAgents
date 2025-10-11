@@ -18,5 +18,7 @@ autoagents = { workspace = true, features = ["logging"] }
 autoagents-serve = { workspace = true, features = ["search-tools"] }
 tokio = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+tokio-stream = { workspace = true }
+serde_json = { workspace = true }
 
 anyhow = "1.0"

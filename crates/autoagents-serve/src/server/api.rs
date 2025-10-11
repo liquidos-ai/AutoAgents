@@ -1,5 +1,6 @@
 use super::state::AppState;
-use crate::workflow::WorkflowOutput;
+use crate::workflow::{WorkflowOutput, WorkflowStreamEvent};
+use axum::response::sse::{Event as SseEvent, Sse};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -7,7 +8,9 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::convert::Infallible;
 use std::time::Instant;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -43,7 +46,7 @@ pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/api/v1/workflows", get(list_workflows))
-        .route("/api/v1/workflows/:name/execute", post(execute_workflow))
+        .route("/api/v1/workflows/{name}/execute", post(execute_workflow))
         .with_state(state)
 }
 
@@ -65,7 +68,7 @@ async fn execute_workflow(
     State(state): State<AppState>,
     Path(name): Path<String>,
     Json(payload): Json<ExecuteRequest>,
-) -> Result<Json<ExecuteResponse>, AppError> {
+) -> Result<Response, AppError> {
     let start = Instant::now();
     log::info!(
         "Executing workflow '{}' with input: '{}'",
@@ -80,6 +83,36 @@ async fn execute_workflow(
 
     log::debug!("Workflow '{}' found, starting execution", name);
 
+    if workflow.stream_enabled() {
+        log::debug!("Workflow '{}' streaming enabled", name);
+
+        let stream = workflow
+            .run_stream(payload.input.clone())
+            .await
+            .map_err(|e| {
+                log::error!("Workflow '{}' streaming initialization failed: {}", name, e);
+                AppError::Internal(e.to_string())
+            })?;
+
+        let duration = start.elapsed();
+        log::info!(
+            "Workflow '{}' streaming initiated in {:.2}s",
+            name,
+            duration.as_secs_f64()
+        );
+
+        let stream_name = name.clone();
+        let sse_stream = stream.map(move |item| match item {
+            Ok(event) => Ok::<SseEvent, Infallible>(sse_event_from_workflow_event(event)),
+            Err(err) => {
+                log::error!("Workflow '{}' streaming error: {}", stream_name, err);
+                Ok::<SseEvent, Infallible>(sse_error_event(err.to_string()))
+            }
+        });
+
+        return Ok(Sse::new(sse_stream).into_response());
+    }
+
     match workflow.run(payload.input.clone()).await {
         Ok(output) => {
             let duration = start.elapsed();
@@ -90,12 +123,14 @@ async fn execute_workflow(
             );
             log::debug!("Workflow '{}' output: {:?}", name, output);
 
-            Ok(Json(ExecuteResponse {
+            let response = Json(ExecuteResponse {
                 success: true,
                 output: Some(output),
                 error: None,
                 execution_time_ms: Some(duration.as_millis() as u64),
-            }))
+            });
+
+            Ok(response.into_response())
         }
         Err(e) => {
             let duration = start.elapsed();
@@ -106,14 +141,32 @@ async fn execute_workflow(
                 e
             );
 
-            Ok(Json(ExecuteResponse {
+            let response = Json(ExecuteResponse {
                 success: false,
                 output: None,
                 error: Some(e.to_string()),
                 execution_time_ms: Some(duration.as_millis() as u64),
-            }))
+            });
+
+            Ok(response.into_response())
         }
     }
+}
+
+fn sse_event_from_workflow_event(event: WorkflowStreamEvent) -> SseEvent {
+    let event_name = match event {
+        WorkflowStreamEvent::Chunk { .. } => "chunk",
+        WorkflowStreamEvent::ToolCall { .. } => "tool_call",
+        WorkflowStreamEvent::Complete => "complete",
+        WorkflowStreamEvent::ToolCallComplete { .. } => "tool_call_complete",
+    };
+
+    let payload = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
+    SseEvent::default().event(event_name).data(payload)
+}
+
+fn sse_error_event(message: String) -> SseEvent {
+    SseEvent::default().event("error").data(message)
 }
 
 // Error handling

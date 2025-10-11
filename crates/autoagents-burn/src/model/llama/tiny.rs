@@ -16,7 +16,9 @@ pub struct TinyLLamaModelConfig {
     pub generation_config: GenerationConfig,
     #[allow(dead_code)]
     pub import: bool,
+    #[allow(dead_code)]
     pub model_bytes: Option<Vec<u8>>,
+    #[allow(dead_code)]
     pub tokenizer_bytes: Option<Vec<u8>>,
 }
 

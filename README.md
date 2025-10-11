@@ -12,6 +12,7 @@
 [![codecov](https://codecov.io/gh/liquidos-ai/AutoAgents/graph/badge.svg)](https://codecov.io/gh/liquidos-ai/AutoAgents)
 
 [Documentation](https://liquidos-ai.github.io/AutoAgents/) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
+
 </div>
 
 ---
@@ -62,27 +63,27 @@ AutoAgents supports a wide range of LLM providers, allowing you to choose the be
 ### Cloud Providers
 
 | Provider         | Status |
-|------------------|--------|
-| **OpenAI**       | ✅      |
-| **OpenRouter**   | ✅      |
-| **Anthropic**    | ✅      |
-| **DeepSeek**     | ✅      |
-| **xAI**          | ✅      |
-| **Phind**        | ✅      |
-| **Groq**         | ✅      |
-| **Google**       | ✅      |
-| **Azure OpenAI** | ✅      |
+| ---------------- | ------ |
+| **OpenAI**       | ✅     |
+| **OpenRouter**   | ✅     |
+| **Anthropic**    | ✅     |
+| **DeepSeek**     | ✅     |
+| **xAI**          | ✅     |
+| **Phind**        | ✅     |
+| **Groq**         | ✅     |
+| **Google**       | ✅     |
+| **Azure OpenAI** | ✅     |
 
 ### Local Providers
 
 | Provider       | Status               |
-|----------------|----------------------|
+| -------------- | -------------------- |
 | **Mistral-rs** | ⚠️ Under Development |
 | **Burn**       | ⚠️ Experimental      |
 | **Onnx**       | ⚠️ Experimental      |
-| **Ollama**     | ✅                    |
+| **Ollama**     | ✅                   |
 
-*Provider support is actively expanding based on community needs.*
+_Provider support is actively expanding based on community needs._
 
 ---
 
@@ -256,6 +257,97 @@ async fn main() -> Result<(), Error> {
 }
 ```
 
+### AutoAgents CLI
+
+Command-line interface for running and serving AutoAgents workflows from YAML.
+
+### Installation
+
+```bash
+cargo build --package autoagents-cli --release
+```
+
+The binary will be available at `target/release/autoagents`.
+
+### Usage
+
+#### Run a Workflow
+
+Execute a workflow from a YAML file:
+
+```yaml
+kind: Direct
+name: ResearchAgent
+stream: false
+description: "A research agent designed to search, retrieve, and summarize information from the web."
+
+workflow:
+  agent:
+    name: ResearchAgent
+    description: "A deep research agent capable of gathering accurate information, summarizing sources, and providing references."
+    instructions: |
+      You are a research expert. Your task is to find accurate and up-to-date information related to the user's query.
+      1. Search for relevant sources on the web.
+      2. Extract key insights and summarize them concisely.
+      3. Provide references and links to original sources.
+      4. Make sure to cross-verify facts and avoid unverified information.
+      5. Present the final answer in a structured and clear manner.
+    executor: ReAct
+    memory:
+      kind: sliding_window
+      parameters:
+        window_size: 100
+    model:
+      kind: llm
+      backend:
+        kind: Cloud
+      provider: OpenAI
+      model_name: gpt-4o-mini
+      parameters:
+        temperature: 0.2
+        max_tokens: 1500
+    tools:
+      - name: brave_search
+    output:
+      type: text
+  output:
+    type: text
+```
+
+```bash
+autoagents run --workflow workflow.yaml --input "What is Rust?"
+```
+
+#### Serve Workflows over HTTP
+
+Start an HTTP server to serve workflows via REST API:
+
+```bash
+autoagents serve --workflow workflow.yaml --port 8080
+```
+
+Optional arguments:
+
+- `--name <NAME>` - Custom name for the workflow (defaults to filename)
+- `--host <HOST>` - Host to bind to (default: 127.0.0.1)
+- `--port <PORT>` - Port to bind to (default: 8080)
+
+#### Examples
+
+```bash
+# Run a direct workflow
+autoagents run -w workflow.yaml -i "Tell me about AI"
+
+# Serve a workflow on custom port
+autoagents serve -w workflow.yaml -p 9000 --name research
+
+# serve from directory
+autoagents serve --directory ./workflows
+
+# Serve with custom name
+autoagents serve -w workflow.yaml --name my_agent --host 0.0.0.0 --port 3000
+```
+
 ---
 
 ## 📚 Examples
@@ -312,6 +404,8 @@ AutoAgents/
 │   ├── autoagents-mistral-rs/     # LLM provider implementations using Mistral-rs
 │   ├── autoagents-onnx/           # Edge Runtime Implementation using Onnx
 │   └── autoagents-derive/         # Procedural macros
+│   └── autoagents-cli/            # AutoAgents CLI
+│   └── autoagents-serve/          # Crate responsible for running and serving YAML based workflows
 ├── examples/                      # Example implementations
 ```
 
@@ -410,6 +504,7 @@ Special thanks to:
   <strong>Ready to build intelligent agents? Get started with AutoAgents today!</strong>
 
 ⭐ **Star us on GitHub** | 🐛 **Report Issues** | 💬 **Join Discussions**
+
 </div>
 
 ## Star History

@@ -1,7 +1,7 @@
 use crate::{
     config::{parse_yaml_file, parse_yaml_str, validate_workflow, WorkflowConfig},
-    error::Result,
-    workflow::{Workflow, WorkflowOutput},
+    error::{Result, WorkflowError},
+    workflow::{Workflow, WorkflowOutput, WorkflowStream},
 };
 use std::path::Path;
 
@@ -76,6 +76,7 @@ impl WorkflowBuilder {
             memory_cache: None,
             workflow_name: self.config.name.clone(),
             memory_persistence_enabled,
+            stream_enabled: self.config.stream,
         })
     }
 
@@ -96,6 +97,7 @@ impl WorkflowBuilder {
             memory_cache: None,
             workflow_name: self.config.name.clone(),
             memory_persistence_enabled,
+            stream_enabled: self.config.stream,
         })
     }
 
@@ -121,6 +123,7 @@ impl WorkflowBuilder {
             memory_cache: Some(memory_cache),
             workflow_name: self.config.name.clone(),
             memory_persistence_enabled,
+            stream_enabled: self.config.stream,
         })
     }
 }
@@ -144,9 +147,14 @@ pub struct BuiltWorkflow {
     >,
     pub workflow_name: Option<String>,
     pub memory_persistence_enabled: bool,
+    pub stream_enabled: bool,
 }
 
 impl BuiltWorkflow {
+    pub fn stream_enabled(&self) -> bool {
+        self.stream_enabled && self.workflow.stream_enabled()
+    }
+
     /// Execute the workflow with the given input
     ///
     /// # Arguments
@@ -168,6 +176,24 @@ impl BuiltWorkflow {
     pub async fn run(&self, input: String) -> Result<WorkflowOutput> {
         self.workflow
             .execute(
+                input,
+                self.model_cache.as_ref(),
+                self.memory_cache.as_ref(),
+                self.workflow_name.as_deref(),
+                self.memory_persistence_enabled,
+            )
+            .await
+    }
+
+    pub async fn run_stream(&self, input: String) -> Result<WorkflowStream> {
+        if !self.stream_enabled() {
+            return Err(WorkflowError::ExecutionError(
+                "Streaming is not enabled for this workflow".to_string(),
+            ));
+        }
+
+        self.workflow
+            .execute_stream(
                 input,
                 self.model_cache.as_ref(),
                 self.memory_cache.as_ref(),

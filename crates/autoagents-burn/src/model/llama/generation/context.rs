@@ -31,6 +31,7 @@ pub struct GenerationContext<B: Backend, T: Tokenizer + 'static> {
     num_generated: Arc<AtomicUsize>,
     sender: Sender<Tensor<B, 1, Int>>,
     generated_text: Arc<CustomMutex<String>>,
+    #[allow(dead_code)]
     generator: Arc<CustomMutex<TokenGeneration<T>>>,
 }
 
@@ -51,7 +52,7 @@ impl<B: Backend, T: Tokenizer> GenerationContext<B, T> {
         let num_generated = Arc::new(AtomicUsize::new(0));
         let generated_text = Arc::new(CustomMutex::new(String::new()));
 
-        let mut generation = Arc::new(CustomMutex::new(TokenGeneration::new(
+        let generation = Arc::new(CustomMutex::new(TokenGeneration::new(
             tokenizer,
             stop.clone(),
             num_generated.clone(),

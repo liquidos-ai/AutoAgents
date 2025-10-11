@@ -61,129 +61,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```yaml
 kind: Direct
+name: SimpleCalculator
+stream: false
+description: "Simple calculator agent for basic math"
 
 workflow:
   agent:
-    name: ResearchAgent
-    description: A research agent for web searches
+    name: MathAgent
+    description: "A helpful math calculator agent"
     instructions: |
-      You are a helpful research agent. Search the internet
-      for accurate information and provide concise answers.
+      You are a math expert. Solve the given math problem step by step.
+      Provide a clear and concise answer.
+    executor: ReAct
+    memory:
+      kind: sliding_window
+      parameters:
+        window_size: 10
     model:
       kind: llm
       backend:
         kind: Cloud
       provider: OpenAI
-      model_name: gpt-4o
+      model_name: gpt-4o-mini
       parameters:
-        temperature: 0.2
-        max_tokens: 1024
-    tools:
-      - name: brave_search
-        options: {}
+        temperature: 0.1
+        max_tokens: 500
+    tools: []
     output:
       type: text
-```
-
-### Sequential Workflow
-
-```yaml
-kind: Sequential
-
-workflow:
-  agents:
-    - name: ExtractorAgent
-      description: Extract specifications from text
-      model:
-        kind: llm
-        backend:
-          kind: Cloud
-        provider: OpenAI
-        model_name: gpt-4
-      tools: []
-
-    - name: TransformerAgent
-      description: Transform specs to JSON
-      model:
-        kind: llm
-        backend:
-          kind: Cloud
-        provider: OpenAI
-        model_name: gpt-4
-      tools: []
-```
-
-### Parallel Workflow
-
-```yaml
-kind: Parallel
-
-workflow:
-  agents:
-    - name: Summarizer1
-      description: Summarize from perspective A
-      model:
-        kind: llm
-        backend:
-          kind: Cloud
-        provider: OpenAI
-        model_name: gpt-4
-      tools: []
-
-    - name: Summarizer2
-      description: Summarize from perspective B
-      model:
-        kind: llm
-        backend:
-          kind: Cloud
-        provider: OpenAI
-        model_name: gpt-4
-      tools: []
-```
-
-### Routing Workflow
-
-```yaml
-kind: Routing
-
-workflow:
-  router:
-    name: RouterAgent
-    description: |
-      Route requests to appropriate handler.
-      Output 'booker' for booking requests, 'info' for information.
-    model:
-      kind: llm
-      backend:
-        kind: Cloud
-      provider: OpenAI
-      model_name: gpt-4
-    tools: []
-
-  handlers:
-    - condition: booker
-      agent:
-        name: BookingAgent
-        description: Handle booking requests
-        model:
-          kind: llm
-          backend:
-            kind: Cloud
-          provider: OpenAI
-          model_name: gpt-4
-        tools: []
-
-    - condition: info
-      agent:
-        name: InfoAgent
-        description: Provide information
-        model:
-          kind: llm
-          backend:
-            kind: Cloud
-          provider: OpenAI
-          model_name: gpt-4
-        tools: []
+  output:
+    type: text
 ```
 
 ## Architecture
@@ -200,9 +107,9 @@ workflow:
 Configure LLM providers through environment variables:
 
 - `OPENAI_API_KEY` - For OpenAI
-- `ANTHROPIC_API_KEY` - For Anthropic
-- `GROQ_API_KEY` - For Groq
 - Base URLs can be configured in YAML for local providers (Ollama)
+
+Use Mistral-rs for running llm on local with CUDA, Metal
 
 ### Tools
 

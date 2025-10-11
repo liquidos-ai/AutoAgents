@@ -1,6 +1,9 @@
 use autoagents::init_logging;
+use autoagents_serve::workflow::WorkflowStreamEvent;
 use autoagents_serve::WorkflowBuilder;
 use clap::{Parser, Subcommand};
+use std::io::{self, Write};
+use tokio_stream::StreamExt;
 
 #[derive(Parser)]
 #[command(name = "workflow-runner")]
@@ -22,10 +25,6 @@ enum Commands {
         #[arg(short, long)]
         input: String,
     },
-    /// Run all example workflows
-    All,
-    /// List available workflows
-    List,
 }
 
 // Workflow definitions with default inputs
@@ -90,15 +89,8 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Run { workflow, input }) => {
             run_specific_workflow(&workflow, &input).await?;
         }
-        Some(Commands::All) => {
-            run_all_workflows().await?;
-        }
-        Some(Commands::List) => {
-            list_workflows();
-        }
         None => {
-            // Default: run all workflows
-            run_all_workflows().await?;
+            panic!("Invalid Command")
         }
     }
 
@@ -137,75 +129,6 @@ async fn run_specific_workflow(workflow_name: &str, input: &str) -> anyhow::Resu
     Ok(())
 }
 
-async fn run_all_workflows() -> anyhow::Result<()> {
-    println!("==============================================");
-    println!("   AutoAgents Workflow Examples");
-    println!("==============================================\n");
-
-    let workflows = get_workflows();
-    for (idx, workflow) in workflows.iter().enumerate() {
-        for (input_idx, input) in workflow.default_inputs.iter().enumerate() {
-            let title = if workflow.default_inputs.len() > 1 {
-                format!(
-                    "Example {}.{}: {} - {}",
-                    idx + 1,
-                    (b'a' + input_idx as u8) as char,
-                    workflow.name,
-                    workflow.description
-                )
-            } else {
-                format!(
-                    "Example {}: {} - {}",
-                    idx + 1,
-                    workflow.name,
-                    workflow.description
-                )
-            };
-
-            println!("{}", title);
-            println!("{}", "-".repeat(title.len() + 3));
-            run_workflow(workflow.path, input, Some(workflow.name)).await?;
-            println!("\n");
-        }
-    }
-
-    println!("==============================================");
-    println!("   All examples completed successfully! ✓");
-    println!("==============================================\n");
-
-    Ok(())
-}
-
-fn list_workflows() {
-    println!("==============================================");
-    println!("   Available Workflows");
-    println!("==============================================\n");
-
-    let workflows = get_workflows();
-    for workflow in workflows {
-        println!("{}", workflow.name);
-        println!("   Description: {}", workflow.description);
-        println!("   Path: {}", workflow.path);
-        println!("   Default inputs:");
-        for (idx, input) in workflow.default_inputs.iter().enumerate() {
-            let preview = if input.len() > 60 {
-                format!("{}...", &input[..60])
-            } else {
-                input.to_string()
-            };
-            println!("     {}. {}", idx + 1, preview);
-        }
-        println!();
-    }
-
-    println!("Usage examples:");
-    println!("  cargo run --example serve -- run -w direct -i \"What is 5 + 3?\"");
-    println!("  cargo run --example serve -- run -w routing -i \"Write a haiku\"");
-    println!("  cargo run --example serve -- run -w path/to/custom.yaml -i \"Your input\"");
-    println!("  cargo run --example serve -- all");
-    println!();
-}
-
 async fn run_workflow(
     yaml_path: &str,
     input: &str,
@@ -221,6 +144,54 @@ async fn run_workflow(
 
     println!("Input: {}", input);
     println!("Executing...\n");
+
+    if workflow.stream_enabled() {
+        match workflow.run_stream(input.to_string()).await {
+            Ok(mut stream) => {
+                let mut aggregated = String::new();
+                println!("Streaming output:\n");
+
+                while let Some(event) = stream.next().await {
+                    match event {
+                        Ok(WorkflowStreamEvent::Chunk { content }) => {
+                            print!("{}", content);
+                            let _ = io::stdout().flush();
+                            aggregated.push_str(&content);
+                        }
+                        Ok(WorkflowStreamEvent::ToolCall { tool_name, payload }) => {
+                            println!(
+                                "\n\n[tool-call] {} => {}\n",
+                                tool_name,
+                                serde_json::to_string_pretty(&payload).unwrap_or_default()
+                            );
+                        }
+                        Ok(WorkflowStreamEvent::ToolCallComplete { tool_name, .. }) => {
+                            println!("\n\n[tool-call-complete] {}\n", tool_name,);
+                        }
+                        Ok(WorkflowStreamEvent::Complete) => {
+                            println!("\n\n[stream complete]");
+                            break;
+                        }
+                        Err(e) => {
+                            println!("\n\n[stream error] {}", e);
+                            break;
+                        }
+                    }
+                }
+
+                if !aggregated.is_empty() {
+                    println!("\nFinal response:\n{}", aggregated);
+                }
+                return Ok(());
+            }
+            Err(e) => {
+                println!(
+                    "Streaming unsupported for this workflow run ({}). Falling back to blocking execution.\n",
+                    e
+                );
+            }
+        }
+    }
 
     let result = workflow.run(input.to_string()).await?;
 

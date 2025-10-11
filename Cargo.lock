@@ -447,12 +447,14 @@ dependencies = [
  "autoagents-mistral-rs",
  "autoagents-toolkit",
  "axum",
+ "futures",
  "log",
  "serde",
  "serde_json",
  "serde_yaml",
  "thiserror 2.0.17",
  "tokio",
+ "tokio-stream",
  "tower",
  "tower-http",
  "uuid 1.18.1",
@@ -8305,7 +8307,9 @@ dependencies = [
  "autoagents",
  "autoagents-serve",
  "clap",
+ "serde_json",
  "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
