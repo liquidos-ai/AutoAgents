@@ -20,5 +20,4 @@ tokio = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 tokio-stream = { workspace = true }
 serde_json = { workspace = true }
-
-anyhow = "1.0"
+anyhow = { workspace = true }

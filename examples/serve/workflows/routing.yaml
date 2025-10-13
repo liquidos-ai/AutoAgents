@@ -3,6 +3,7 @@
 #
 kind: Routing
 name: SmartAssistant
+stream: false
 description: "Route requests to appropriate specialist agents"
 
 workflow:

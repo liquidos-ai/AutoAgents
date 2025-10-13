@@ -3,6 +3,7 @@
 #
 kind: Sequential
 name: DataPipeline
+stream: false
 description: "Extract and transform data sequentially"
 
 workflow:

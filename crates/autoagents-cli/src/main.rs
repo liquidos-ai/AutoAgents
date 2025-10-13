@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use autoagents_serve::{serve, ServerConfig, WorkflowBuilder};
+use autoagents_serve::{HTTPServer, ServerConfig, WorkflowBuilder};
 use clap::{Parser, Subcommand};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -160,7 +160,8 @@ async fn serve_workflows(
         }
     }
 
-    serve(config, workflows).await?;
+    let server = HTTPServer::new(config, workflows);
+    let _ = server.serve().await?;
 
     Ok(())
 }

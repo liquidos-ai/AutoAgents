@@ -1,44 +1,17 @@
 use crate::{
     config::{parse_yaml_file, parse_yaml_str, validate_workflow, WorkflowConfig},
     error::{Result, WorkflowError},
-    workflow::{Workflow, WorkflowOutput, WorkflowStream},
+    workflow::{MemoryCache, ModelCache, Workflow, WorkflowOutput, WorkflowStream},
 };
 use std::path::Path;
 
 /// Builder for constructing and executing workflows from YAML configurations
-///
-/// # Examples
-///
-/// ```no_run
-/// use autoagents_serve::WorkflowBuilder;
-///
-/// #[tokio::main]
-/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let workflow = WorkflowBuilder::from_yaml_file("workflow.yaml")?
-///         .build()?;
-///     
-///     let result = workflow.run("What is 2+2?".to_string()).await?;
-///     println!("Result: {:?}", result);
-///     Ok(())
-/// }
-/// ```
 pub struct WorkflowBuilder {
     pub config: WorkflowConfig,
 }
 
 impl WorkflowBuilder {
     /// Create a new WorkflowBuilder from a YAML file path
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to the YAML workflow configuration file
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The file cannot be read
-    /// - The YAML is malformed
-    /// - The configuration is invalid
     pub fn from_yaml_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let config = parse_yaml_file(path)?;
         validate_workflow(&config)?;
@@ -46,16 +19,6 @@ impl WorkflowBuilder {
     }
 
     /// Create a new WorkflowBuilder from a YAML string
-    ///
-    /// # Arguments
-    ///
-    /// * `yaml` - YAML string containing the workflow configuration
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The YAML is malformed
-    /// - The configuration is invalid
     pub fn from_yaml_str(yaml: &str) -> Result<Self> {
         let config = parse_yaml_str(yaml)?;
         validate_workflow(&config)?;
@@ -63,10 +26,6 @@ impl WorkflowBuilder {
     }
 
     /// Build the workflow from the configuration
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the workflow cannot be constructed from the configuration
     pub fn build(self) -> Result<BuiltWorkflow> {
         let workflow = Workflow::from_config(self.config.clone())?;
         let memory_persistence_enabled = self.config.memory_persistence.is_some();
@@ -81,14 +40,7 @@ impl WorkflowBuilder {
     }
 
     /// Build the workflow with a model cache for preloaded models
-    pub fn build_with_cache(
-        self,
-        model_cache: std::sync::Arc<
-            tokio::sync::RwLock<
-                std::collections::HashMap<String, std::sync::Arc<dyn autoagents::llm::LLMProvider>>,
-            >,
-        >,
-    ) -> Result<BuiltWorkflow> {
+    pub fn build_with_cache(self, model_cache: ModelCache) -> Result<BuiltWorkflow> {
         let workflow = Workflow::from_config(self.config.clone())?;
         let memory_persistence_enabled = self.config.memory_persistence.is_some();
         Ok(BuiltWorkflow {
@@ -104,16 +56,8 @@ impl WorkflowBuilder {
     /// Build the workflow with both model and memory caches
     pub fn build_with_caches(
         self,
-        model_cache: std::sync::Arc<
-            tokio::sync::RwLock<
-                std::collections::HashMap<String, std::sync::Arc<dyn autoagents::llm::LLMProvider>>,
-            >,
-        >,
-        memory_cache: std::sync::Arc<
-            tokio::sync::RwLock<
-                std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
-            >,
-        >,
+        model_cache: ModelCache,
+        memory_cache: MemoryCache,
     ) -> Result<BuiltWorkflow> {
         let workflow = Workflow::from_config(self.config.clone())?;
         let memory_persistence_enabled = self.config.memory_persistence.is_some();
@@ -131,20 +75,8 @@ impl WorkflowBuilder {
 /// A fully constructed workflow ready for execution
 pub struct BuiltWorkflow {
     workflow: Workflow,
-    pub model_cache: Option<
-        std::sync::Arc<
-            tokio::sync::RwLock<
-                std::collections::HashMap<String, std::sync::Arc<dyn autoagents::llm::LLMProvider>>,
-            >,
-        >,
-    >,
-    pub memory_cache: Option<
-        std::sync::Arc<
-            tokio::sync::RwLock<
-                std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
-            >,
-        >,
-    >,
+    pub model_cache: Option<ModelCache>,
+    pub memory_cache: Option<MemoryCache>,
     pub workflow_name: Option<String>,
     pub memory_persistence_enabled: bool,
     pub stream_enabled: bool,
@@ -156,23 +88,6 @@ impl BuiltWorkflow {
     }
 
     /// Execute the workflow with the given input
-    ///
-    /// # Arguments
-    ///
-    /// * `input` - The input string to process through the workflow
-    ///
-    /// # Returns
-    ///
-    /// Returns the workflow output which can be either:
-    /// - `WorkflowOutput::Single(String)` for Direct, Sequential, and Routing workflows
-    /// - `WorkflowOutput::Multiple(Vec<String>)` for Parallel workflows
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The workflow execution fails
-    /// - Any agent in the workflow fails
-    /// - The workflow times out
     pub async fn run(&self, input: String) -> Result<WorkflowOutput> {
         self.workflow
             .execute(

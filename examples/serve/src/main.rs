@@ -112,7 +112,7 @@ async fn run_workflow(yaml_path: &str, input: &str) -> anyhow::Result<()> {
                 return Ok(());
             }
             Err(e) => {
-                println!(
+                panic!(
                     "Streaming unsupported for this workflow run ({}). Falling back to blocking execution.\n",
                     e
                 );

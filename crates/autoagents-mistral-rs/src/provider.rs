@@ -10,19 +10,26 @@ use crate::{
 };
 use autoagents_llm::{
     async_trait,
-    chat::{ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat, Tool},
+    chat::{
+        ChatMessage, ChatProvider, ChatResponse, StreamChoice, StreamDelta, StreamResponse,
+        StreamToolCallDelta, StreamToolCallFunction, StructuredOutputFormat, Tool,
+        Usage as ChatUsage,
+    },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
     error::LLMError,
     models::ModelsProvider,
     LLMProvider,
 };
+use futures::{stream::Stream, StreamExt};
 use mistralrs::{
-    CalledFunction, Constraint, Function, GgufModelBuilder, IsqType, PagedAttentionMetaBuilder,
-    RequestBuilder, TextMessageRole, TextModelBuilder, ToolCallResponse, ToolCallType,
-    ToolChoice as MistralToolChoice, ToolType, VisionModelBuilder,
+    CalledFunction, ChatCompletionChunkResponse, ChatCompletionResponse, ChunkChoice, Constraint,
+    Function, GgufModelBuilder, IsqType, PagedAttentionMetaBuilder, RequestBuilder, Response,
+    TextMessageRole, TextModelBuilder, ToolCallResponse, ToolCallType,
+    ToolChoice as MistralToolChoice, ToolType, Usage as MistralUsage, VisionModelBuilder,
 };
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 /// MistralRs provider for local LLM inference
 pub struct MistralRsProvider {
@@ -186,6 +193,220 @@ impl MistralRsProvider {
     pub fn config(&self) -> &MistralRsConfig {
         &self.config
     }
+
+    fn prepare_messages_with_system(&self, messages: &[ChatMessage]) -> Vec<ChatMessage> {
+        let mut all_messages = Vec::new();
+
+        if let Some(system_prompt) = &self.config.system_prompt {
+            let has_system_message = messages
+                .iter()
+                .any(|msg| msg.role == autoagents_llm::chat::ChatRole::System);
+
+            if !has_system_message {
+                all_messages.push(ChatMessage {
+                    role: autoagents_llm::chat::ChatRole::System,
+                    message_type: autoagents_llm::chat::MessageType::Text,
+                    content: system_prompt.clone(),
+                });
+            }
+        }
+
+        all_messages.extend_from_slice(messages);
+        all_messages
+    }
+
+    fn build_stream_request(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<RequestBuilder, LLMError> {
+        let all_messages = self.prepare_messages_with_system(messages);
+        let is_vision_model = self.config.model_source.detect_model_type() == ModelType::Vision;
+        let has_images = all_messages.iter().any(|msg| {
+            matches!(
+                msg.message_type,
+                autoagents_llm::chat::MessageType::Image(_)
+                    | autoagents_llm::chat::MessageType::ImageURL(_)
+            )
+        });
+
+        let request_builder = if tools.is_some() || json_schema.is_some() {
+            build_request_builder(&all_messages, tools, json_schema)?
+        } else if is_vision_model || has_images {
+            let vision_messages = convert_vision_messages(&all_messages, &self.model)
+                .map_err(convert_anyhow_error)?;
+            RequestBuilder::from(vision_messages)
+        } else {
+            let text_messages = convert_messages(&all_messages);
+            RequestBuilder::from(text_messages)
+        };
+
+        Ok(self.apply_sampling_params(request_builder))
+    }
+
+    fn apply_sampling_params(&self, request_builder: RequestBuilder) -> RequestBuilder {
+        let mut builder = request_builder;
+
+        if let Some(max_tokens) = self.config.max_tokens {
+            builder = builder.set_sampler_max_len(max_tokens as usize);
+        }
+        if let Some(temperature) = self.config.temperature {
+            builder = builder.set_sampler_temperature(temperature as f64);
+        }
+        if let Some(top_p) = self.config.top_p {
+            builder = builder.set_sampler_topp(f64::from(top_p));
+        }
+        if let Some(top_k) = self.config.top_k {
+            builder = builder.set_sampler_topk(top_k as usize);
+        }
+
+        builder
+    }
+
+    fn convert_usage(usage: MistralUsage) -> ChatUsage {
+        ChatUsage {
+            prompt_tokens: usage.prompt_tokens as u32,
+            completion_tokens: usage.completion_tokens as u32,
+            total_tokens: usage.total_tokens as u32,
+            completion_tokens_details: None,
+            prompt_tokens_details: None,
+        }
+    }
+
+    fn chunk_to_stream_response(chunk: ChatCompletionChunkResponse) -> Option<StreamResponse> {
+        let choices: Vec<StreamChoice> = chunk
+            .choices
+            .into_iter()
+            .filter_map(|choice: ChunkChoice| {
+                let tool_calls = choice.delta.tool_calls.map(|calls| {
+                    calls
+                        .into_iter()
+                        .map(|call| StreamToolCallDelta {
+                            index: call.index,
+                            function: Some(StreamToolCallFunction {
+                                name: call.function.name,
+                                arguments: call.function.arguments,
+                            }),
+                        })
+                        .collect::<Vec<_>>()
+                });
+
+                let content = choice.delta.content;
+                let has_tool_calls = tool_calls
+                    .as_ref()
+                    .map(|calls| !calls.is_empty())
+                    .unwrap_or(false);
+                let has_content = content.as_ref().map(|c| !c.is_empty()).unwrap_or(false);
+
+                if !has_content && !has_tool_calls {
+                    return None;
+                }
+
+                Some(StreamChoice {
+                    delta: StreamDelta {
+                        content,
+                        tool_calls,
+                    },
+                })
+            })
+            .collect();
+
+        if choices.is_empty() && chunk.usage.is_none() {
+            return None;
+        }
+
+        Some(StreamResponse {
+            choices,
+            usage: chunk.usage.map(Self::convert_usage),
+        })
+    }
+
+    fn done_to_stream_response(done: ChatCompletionResponse) -> StreamResponse {
+        StreamResponse {
+            choices: vec![StreamChoice {
+                delta: StreamDelta {
+                    content: None,
+                    tool_calls: None,
+                },
+            }],
+            usage: Some(Self::convert_usage(done.usage)),
+        }
+    }
+
+    fn spawn_response_stream(
+        model: Arc<mistralrs::Model>,
+        request_builder: RequestBuilder,
+    ) -> std::pin::Pin<Box<dyn Stream<Item = Result<MistralStreamEvent, LLMError>> + Send>> {
+        let (tx, rx) = mpsc::unbounded_channel::<Result<MistralStreamEvent, LLMError>>();
+
+        tokio::spawn(async move {
+            match model.stream_chat_request(request_builder).await {
+                Ok(mut response_stream) => {
+                    while let Some(response) = response_stream.next().await {
+                        match response {
+                            Response::Chunk(chunk) => {
+                                if tx.send(Ok(MistralStreamEvent::Chunk(chunk))).is_err() {
+                                    break;
+                                }
+                            }
+                            Response::Done(done) => {
+                                let _ = tx.send(Ok(MistralStreamEvent::Done(done)));
+                                break;
+                            }
+                            Response::InternalError(err) => {
+                                let _ = tx.send(Err(LLMError::ProviderError(format!(
+                                    "Mistral.rs internal error: {}",
+                                    err
+                                ))));
+                                break;
+                            }
+                            Response::ValidationError(err) => {
+                                let _ = tx.send(Err(LLMError::InvalidRequest(err.to_string())));
+                                break;
+                            }
+                            Response::ModelError(msg, _) => {
+                                let _ = tx.send(Err(LLMError::ProviderError(msg)));
+                                break;
+                            }
+                            Response::CompletionModelError(msg, _) => {
+                                let _ = tx.send(Err(LLMError::ProviderError(format!(
+                                    "Mistral.rs completion error: {}",
+                                    msg
+                                ))));
+                                break;
+                            }
+                            Response::CompletionDone(_)
+                            | Response::CompletionChunk(_)
+                            | Response::Speech { .. }
+                            | Response::ImageGeneration(_)
+                            | Response::Raw { .. } => {
+                                let _ = tx.send(Err(LLMError::Generic(
+                                    "Unexpected streaming response variant for chat request"
+                                        .to_string(),
+                                )));
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    let _ = tx.send(Err(convert_anyhow_error(err)));
+                }
+            }
+        });
+
+        let output_stream = futures::stream::unfold(rx, |mut rx| async move {
+            rx.recv().await.map(|item| (item, rx))
+        });
+
+        Box::pin(output_stream)
+    }
+}
+
+enum MistralStreamEvent {
+    Chunk(ChatCompletionChunkResponse),
+    Done(ChatCompletionResponse),
 }
 
 /// Builder for MistralRsProvider
@@ -455,6 +676,57 @@ impl ChatProvider for MistralRsProvider {
 
         Ok(Box::new(MistralRsResponse { text, tool_calls }))
     }
+
+    async fn chat_stream(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
+    {
+        let request_builder = self.build_stream_request(messages, tools, json_schema)?;
+        let response_stream = Self::spawn_response_stream(self.model.clone(), request_builder);
+
+        let content_stream = response_stream.filter_map(|event| async move {
+            match event {
+                Ok(MistralStreamEvent::Chunk(chunk)) => chunk
+                    .choices
+                    .into_iter()
+                    .find_map(|choice| choice.delta.content)
+                    .filter(|content| !content.is_empty())
+                    .map(Ok),
+                Ok(MistralStreamEvent::Done(_)) => None,
+                Err(err) => Some(Err(err)),
+            }
+        });
+
+        Ok(Box::pin(content_stream))
+    }
+
+    async fn chat_stream_struct(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<
+        std::pin::Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>,
+        LLMError,
+    > {
+        let request_builder = self.build_stream_request(messages, tools, json_schema)?;
+        let response_stream = Self::spawn_response_stream(self.model.clone(), request_builder);
+
+        let struct_stream = response_stream.filter_map(|event| async move {
+            match event {
+                Ok(MistralStreamEvent::Chunk(chunk)) => {
+                    Self::chunk_to_stream_response(chunk).map(Ok)
+                }
+                Ok(MistralStreamEvent::Done(done)) => Some(Ok(Self::done_to_stream_response(done))),
+                Err(err) => Some(Err(err)),
+            }
+        });
+
+        Ok(Box::pin(struct_stream))
+    }
 }
 
 #[async_trait]
@@ -499,9 +771,7 @@ impl EmbeddingProvider for MistralRsProvider {
 }
 
 #[async_trait]
-impl ModelsProvider for MistralRsProvider {
-    // Use default implementation which returns "not supported"
-}
+impl ModelsProvider for MistralRsProvider {}
 
 impl LLMProvider for MistralRsProvider {}
 

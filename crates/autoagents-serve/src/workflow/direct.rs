@@ -298,7 +298,7 @@ impl DirectWorkflow {
                 let key = {
                     #[cfg(feature = "http-serve")]
                     {
-                        crate::server::generate_model_key(&self.agent_config.model)
+                        crate::utils::generate_model_key(&self.agent_config.model)
                     }
                     #[cfg(not(feature = "http-serve"))]
                     String::new()

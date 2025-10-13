@@ -17,3 +17,7 @@ pub type ModelCache = std::sync::Arc<
         std::collections::HashMap<String, std::sync::Arc<dyn autoagents::llm::LLMProvider>>,
     >,
 >;
+
+pub type MemoryCache = std::sync::Arc<
+    tokio::sync::RwLock<std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>>,
+>;

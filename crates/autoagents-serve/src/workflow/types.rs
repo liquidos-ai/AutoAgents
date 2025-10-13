@@ -3,7 +3,7 @@ use crate::{
     error::{Result, WorkflowError},
     workflow::{
         direct::DirectWorkflow, parallel::ParallelWorkflow, routing::RoutingWorkflow,
-        sequential::SequentialWorkflow,
+        sequential::SequentialWorkflow, MemoryCache, ModelCache,
     },
 };
 use futures::Stream;
@@ -95,23 +95,8 @@ impl Workflow {
     pub async fn execute(
         &self,
         input: String,
-        model_cache: Option<
-            &std::sync::Arc<
-                tokio::sync::RwLock<
-                    std::collections::HashMap<
-                        String,
-                        std::sync::Arc<dyn autoagents::llm::LLMProvider>,
-                    >,
-                >,
-            >,
-        >,
-        memory_cache: Option<
-            &std::sync::Arc<
-                tokio::sync::RwLock<
-                    std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
-                >,
-            >,
-        >,
+        model_cache: Option<&ModelCache>,
+        memory_cache: Option<&MemoryCache>,
         workflow_name: Option<&str>,
         memory_persistence: bool,
     ) -> Result<WorkflowOutput> {
@@ -162,23 +147,8 @@ impl Workflow {
     pub async fn execute_stream(
         &self,
         input: String,
-        model_cache: Option<
-            &std::sync::Arc<
-                tokio::sync::RwLock<
-                    std::collections::HashMap<
-                        String,
-                        std::sync::Arc<dyn autoagents::llm::LLMProvider>,
-                    >,
-                >,
-            >,
-        >,
-        memory_cache: Option<
-            &std::sync::Arc<
-                tokio::sync::RwLock<
-                    std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
-                >,
-            >,
-        >,
+        model_cache: Option<&ModelCache>,
+        memory_cache: Option<&MemoryCache>,
         workflow_name: Option<&str>,
         memory_persistence: bool,
     ) -> Result<WorkflowStream> {

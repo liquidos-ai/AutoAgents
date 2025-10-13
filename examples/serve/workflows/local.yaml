@@ -14,7 +14,7 @@
 #
 kind: Direct
 name: LocalMathAgent
-stream: false
+stream: true
 description: "Math agent using local MistralRs model"
 
 memory_persistence:
@@ -47,14 +47,14 @@ workflow:
         # ISQ quantization for HF models (q4, q8, etc.)
         # or GGUF quant type (q4_k_m, q8_0, etc.)
         quant: "q8"
-        model_type: "text"  # "text" or "vision"
+        model_type: "text" # "text" or "vision"
         temperature: 0.1
         max_tokens: 500
         paged_attention: false
         verbose: true
         # Accelerator: cuda, metal, or cpu
         accelerator: "cuda"
-    tools: [ ]
+    tools: []
     output:
       type: text
   output:

@@ -409,10 +409,12 @@ dependencies = [
  "anyhow",
  "async-trait",
  "autoagents-llm",
+ "futures",
  "image 0.25.8",
  "mistralrs",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

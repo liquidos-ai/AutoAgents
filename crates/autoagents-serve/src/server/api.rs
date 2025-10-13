@@ -11,6 +11,7 @@ use axum::{
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
+use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -37,7 +38,7 @@ pub struct HealthResponse {
     pub status: String,
 }
 
-pub fn create_router(state: AppState) -> Router {
+pub fn create_router(state: Arc<AppState>) -> Router {
     log::info!("Creating API router with endpoints:");
     log::info!("  GET  /health");
     log::info!("  GET  /api/v1/workflows");
@@ -57,7 +58,7 @@ async fn health() -> Json<HealthResponse> {
     })
 }
 
-async fn list_workflows(State(state): State<AppState>) -> Json<ListWorkflowsResponse> {
+async fn list_workflows(State(state): State<Arc<AppState>>) -> Json<ListWorkflowsResponse> {
     log::info!("Listing all workflows");
     let workflows = state.list_workflows().await;
     log::debug!("Found {} workflows: {:?}", workflows.len(), workflows);
@@ -65,7 +66,7 @@ async fn list_workflows(State(state): State<AppState>) -> Json<ListWorkflowsResp
 }
 
 async fn execute_workflow(
-    State(state): State<AppState>,
+    State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
     Json(payload): Json<ExecuteRequest>,
 ) -> Result<Response, AppError> {
