@@ -25,5 +25,7 @@ mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs.git" }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-anyhow = "1.0"
+anyhow = { workspace = true }
 image = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true }

@@ -1,0 +1,102 @@
+#
+# Routing Workflow - Intelligent Request Routing
+#
+kind: Routing
+name: SmartAssistant
+stream: false
+description: "Route requests to appropriate specialist agents"
+
+workflow:
+  router:
+    name: Router
+    description: "Route requests to appropriate handler"
+    instructions: |
+      Analyze the user's request and determine the appropriate handler.
+      - If the request is about mathematics or calculations, output: math
+      - If the request is about creative writing or stories, output: creative
+      - For anything else, output: general
+      
+      IMPORTANT: Output ONLY ONE WORD: math, creative, or general
+    executor: Basic
+    memory:
+      kind: sliding_window
+      parameters:
+        window_size: 3
+    model:
+      kind: llm
+      backend:
+        kind: Cloud
+      provider: OpenAI
+      model_name: gpt-4o-mini
+      parameters:
+        temperature: 0.1
+    tools: [ ]
+  
+  handlers:
+    - condition: math
+      agent:
+        name: MathExpert
+        description: "Handle mathematical questions"
+        instructions: |
+          You are a math expert. Solve the problem step by step.
+          Provide a clear answer with explanation.
+        executor: Basic
+        memory:
+          kind: sliding_window
+          parameters:
+            window_size: 5
+        model:
+          kind: llm
+          backend:
+            kind: Cloud
+          provider: OpenAI
+          model_name: gpt-4o-mini
+          parameters:
+            temperature: 0.1
+        tools: [ ]
+
+    - condition: creative
+      agent:
+        name: CreativeWriter
+        description: "Handle creative writing requests"
+        instructions: |
+          You are a creative writer. Craft engaging and imaginative content.
+          Be creative and expressive.
+        executor: Basic
+        memory:
+          kind: sliding_window
+          parameters:
+            window_size: 5
+        model:
+          kind: llm
+          backend:
+            kind: Cloud
+          provider: OpenAI
+          model_name: gpt-4o-mini
+          parameters:
+            temperature: 0.8
+        tools: [ ]
+
+    - condition: general
+      agent:
+        name: GeneralAssistant
+        description: "Handle general questions"
+        instructions: |
+          You are a helpful general assistant. Answer questions clearly
+          and concisely with accurate information.
+        executor: Basic
+        memory:
+          kind: sliding_window
+          parameters:
+            window_size: 5
+        model:
+          kind: llm
+          backend:
+            kind: Cloud
+          provider: OpenAI
+          model_name: gpt-4o-mini
+          parameters:
+            temperature: 0.5
+        tools: [ ]
+  output:
+    type: text

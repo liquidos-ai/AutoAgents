@@ -7,7 +7,6 @@ use burn::prelude::Backend;
 use burn::tensor::{Int, Tensor};
 #[cfg(target_arch = "wasm32")]
 use futures_util::SinkExt;
-use log::debug;
 use log::error;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -32,6 +31,7 @@ pub struct GenerationContext<B: Backend, T: Tokenizer + 'static> {
     num_generated: Arc<AtomicUsize>,
     sender: Sender<Tensor<B, 1, Int>>,
     generated_text: Arc<CustomMutex<String>>,
+    #[allow(dead_code)]
     generator: Arc<CustomMutex<TokenGeneration<T>>>,
 }
 
@@ -52,7 +52,7 @@ impl<B: Backend, T: Tokenizer> GenerationContext<B, T> {
         let num_generated = Arc::new(AtomicUsize::new(0));
         let generated_text = Arc::new(CustomMutex::new(String::new()));
 
-        let mut generation = Arc::new(CustomMutex::new(TokenGeneration::new(
+        let generation = Arc::new(CustomMutex::new(TokenGeneration::new(
             tokenizer,
             stop.clone(),
             num_generated.clone(),
@@ -80,7 +80,6 @@ impl<B: Backend, T: Tokenizer> GenerationContext<B, T> {
                 while let Some(tokens) = receiver.next().await {
                     let data = tokens.into_data_async().await;
                     // Convert to Vec<u32>
-                    debug!("Attempting data conversion to U32");
                     let tokens = match data.convert::<u32>().into_vec::<u32>() {
                         Ok(v) => v,
                         Err(e) => {

@@ -1,0 +1,73 @@
+#
+# Parallel Workflow - Concurrent Agent Execution
+#
+kind: Parallel
+name: MultiPerspective
+description: "Analyze from multiple perspectives simultaneously"
+
+workflow:
+  agents:
+    - name: TechnicalAnalyst
+      description: "Analyze from technical perspective"
+      instructions: |
+        Analyze the given topic from a technical perspective.
+        Focus on technical details and implementation aspects.
+        Keep it brief (2-3 sentences).
+      executor: Basic
+      memory:
+        kind: sliding_window
+        parameters:
+          window_size: 5
+      model:
+        kind: llm
+        backend:
+          kind: Cloud
+        provider: OpenAI
+        model_name: gpt-4o-mini
+        parameters:
+          temperature: 0.2
+      tools: [ ]
+
+    - name: BusinessAnalyst
+      description: "Analyze from business perspective"
+      instructions: |
+        Analyze the given topic from a business perspective.
+        Focus on business value and use cases.
+        Keep it brief (2-3 sentences).
+      executor: Basic
+      memory:
+        kind: sliding_window
+        parameters:
+          window_size: 5
+      model:
+        kind: llm
+        backend:
+          kind: Cloud
+        provider: OpenAI
+        model_name: gpt-4o-mini
+        parameters:
+          temperature: 0.3
+      tools: [ ]
+
+    - name: UserAnalyst
+      description: "Analyze from user perspective"
+      instructions: |
+        Analyze the given topic from an end-user perspective.
+        Focus on user experience and benefits.
+        Keep it brief (2-3 sentences).
+      executor: Basic
+      memory:
+        kind: sliding_window
+        parameters:
+          window_size: 5
+      model:
+        kind: llm
+        backend:
+          kind: Cloud
+        provider: OpenAI
+        model_name: gpt-4o-mini
+        parameters:
+          temperature: 0.4
+      tools: [ ]
+  output:
+    type: text

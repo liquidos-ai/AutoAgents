@@ -82,6 +82,10 @@ mod tests {
         fn size(&self) -> usize {
             self.messages.len()
         }
+
+        fn clone_box(&self) -> Box<dyn MemoryProvider> {
+            unimplemented!()
+        }
     }
 
     #[test]
@@ -858,5 +862,27 @@ pub trait MemoryProvider: Send + Sync {
         _role: String,
     ) -> Result<(), LLMError> {
         self.remember(message).await
+    }
+
+    /// Clone the memory provider into a new Box
+    /// This is needed for persistence across requests
+    fn clone_box(&self) -> Box<dyn MemoryProvider>;
+
+    /// Get a unique identifier for this memory instance
+    /// Used for caching and persistence
+    fn id(&self) -> Option<String> {
+        None
+    }
+
+    /// Preload memory from a cache or storage
+    /// Returns true if memory was successfully preloaded
+    fn preload(&mut self, _data: Vec<ChatMessage>) -> bool {
+        false
+    }
+
+    /// Export memory data for caching or persistence
+    /// Returns the messages that should be persisted
+    fn export(&self) -> Vec<ChatMessage> {
+        Vec::new()
     }
 }

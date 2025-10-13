@@ -1,0 +1,31 @@
+[package]
+name = "autoagents-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+
+[[bin]]
+name = "autoagents"
+path = "src/main.rs"
+
+[features]
+cuda = ["autoagents-serve/cuda"]
+meta = ["autoagents-serve/metal"]
+accelerate = ["autoagents-serve/accelerate"]
+
+[dependencies]
+autoagents-serve = { workspace = true, features = [
+  "http-serve",
+  "search-tools",
+] }
+clap = { workspace = true }
+tokio = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+
+anyhow = "1.0"
