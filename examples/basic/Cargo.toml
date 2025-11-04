@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 autoagents-derive.workspace = true
-autoagents = { workspace = true, features = ["openai", "logging"] }
+autoagents = { workspace = true, features = ["openai", "ollama", "logging"] }
 autoagents-onnx = { workspace = true, features = ["cuda"] }
 autoagents-toolkit = { workspace = true, features = ["search"] }
 tokio = { workspace = true }

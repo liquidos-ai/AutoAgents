@@ -181,6 +181,11 @@ where
     async fn on_tool_error(&self, tool_call: &ToolCall, err: Value, ctx: &Context) {
         self.inner.on_tool_error(tool_call, err, ctx).await
     }
+
+    async fn on_llm_token_usage(&self, usage: &autoagents_llm::chat::Usage, ctx: &Context) {
+        self.inner.on_llm_token_usage(usage, ctx).await
+    }
+
     async fn on_agent_shutdown(&self) {
         self.inner.on_agent_shutdown().await
     }
@@ -216,7 +221,7 @@ impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
         let agent_config = context.config();
         let tools_serialized: Vec<Tool> = tools.iter().map(to_llm_tool).collect();
 
-        llm.chat(
+        let response = llm.chat(
             messages,
             if tools.is_empty() {
                 None
@@ -226,7 +231,20 @@ impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
             agent_config.output_schema.clone(),
         )
         .await
-        .map_err(|e| ReActExecutorError::LLMError(e.to_string()))
+        .map_err(|e| ReActExecutorError::LLMError(e.to_string()))?;
+
+        // Record token usage if available
+        if let Some(usage) = response.usage() {
+            let state_arc = context.state();
+            let mut state = state_arc.lock().await;
+            state.record_usage(usage.clone());
+            drop(state); // Release lock before calling hook
+            
+            // Call the hook for token usage tracking
+            self.on_llm_token_usage(&usage, context).await;
+        }
+
+        Ok(response)
     }
 
     /// Handle tool calls and return the result
@@ -333,6 +351,15 @@ impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
         // Process stream chunks
         while let Some(chunk_result) = stream.next().await {
             let chunk = chunk_result.map_err(|e| ReActExecutorError::LLMError(e.to_string()))?;
+
+            // Track token usage if available in this chunk
+            if let Some(usage) = chunk.usage.clone() {
+                let state_arc = context.state();
+                let mut state = state_arc.lock().await;
+                state.record_usage(usage.clone());
+                drop(state);
+                self.on_llm_token_usage(&usage, context).await;
+            }
 
             if let Some(choice) = chunk.choices.first() {
                 // Handle content

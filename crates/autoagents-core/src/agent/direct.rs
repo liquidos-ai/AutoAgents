@@ -69,6 +69,20 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
                 //Extract Agent output into the desired type
                 let agent_out: <T as AgentDeriveT>::Output = output.into();
 
+                // Emit token usage event if tx exists
+                if let Some(ref tx) = self.tx {
+                    let usage = context.get_usage().await;
+                    let _ = tx.send(Event::TokenUsage {
+                        sub_id: task.submission_id,
+                        actor_id: self.id,
+                        actor_name: self.name().to_string(),
+                        prompt_tokens: usage.total_prompt_tokens,
+                        completion_tokens: usage.total_completion_tokens,
+                        total_tokens: usage.total_tokens,
+                        llm_call_count: usage.llm_call_count,
+                    }).await;
+                }
+
                 //Run On complete Hook
                 self.inner
                     .on_run_complete(&task, &agent_out, &context)

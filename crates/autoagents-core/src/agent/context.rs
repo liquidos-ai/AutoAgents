@@ -1,7 +1,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use crate::actor::{ActorMessage, Topic};
 use crate::agent::memory::MemoryProvider;
-use crate::agent::state::AgentState;
+use crate::agent::state::{AgentState, TokenUsage};
 use crate::agent::AgentConfig;
 use crate::protocol::Event;
 use crate::tool::ToolT;
@@ -125,6 +125,18 @@ impl Context {
 
     pub fn stream(&self) -> bool {
         self.stream
+    }
+
+    // Get token usage from state
+    pub async fn get_usage(&self) -> TokenUsage {
+        let state = self.state.lock().await;
+        state.get_usage().clone()
+    }
+
+    // Reset token usage counters
+    pub async fn reset_usage(&self) {
+        let mut state = self.state.lock().await;
+        state.reset_usage();
     }
 }
 

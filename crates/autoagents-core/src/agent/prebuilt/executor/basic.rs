@@ -132,6 +132,11 @@ where
     async fn on_tool_error(&self, tool_call: &ToolCall, err: Value, ctx: &Context) {
         self.inner.on_tool_error(tool_call, err, ctx).await
     }
+
+    async fn on_llm_token_usage(&self, usage: &autoagents_llm::chat::Usage, ctx: &Context) {
+        self.inner.on_llm_token_usage(usage, ctx).await
+    }
+
     async fn on_agent_shutdown(&self) {
         self.inner.on_agent_shutdown().await
     }
@@ -139,7 +144,7 @@ where
 
 /// Implementation of AgentExecutor for the BasicExecutorWrapper
 #[async_trait]
-impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
+impl<T: AgentDeriveT + AgentHooks> AgentExecutor for BasicAgent<T> {
     type Output = BasicAgentOutput;
     type Error = BasicExecutorError;
 
@@ -189,6 +194,18 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
             .chat(&messages, None, context.config().output_schema.clone())
             .await
             .map_err(|e| BasicExecutorError::LLMError(e.to_string()))?;
+
+        // Record token usage if available
+        if let Some(usage) = response.usage() {
+            let state_arc = context.state();
+            let mut state = state_arc.lock().await;
+            state.record_usage(usage.clone());
+            drop(state); // Release lock before calling hook
+            
+            // Call the hook for token usage tracking
+            self.on_llm_token_usage(&usage, &context).await;
+        }
+
         let response_text = response.text().unwrap_or_default();
         Ok(BasicAgentOutput {
             response: response_text,
@@ -243,21 +260,46 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
             .await
             .map_err(|e| BasicExecutorError::LLMError(e.to_string()))?;
 
-        let mapped_stream = stream.map(|chunk_result| match chunk_result {
-            Ok(chunk) => {
-                let content = chunk
-                    .choices
-                    .first()
-                    .and_then(|choice| choice.delta.content.as_ref())
-                    .map_or("", |v| v)
-                    .to_string();
+        let context_clone = Arc::clone(&context);
+        let self_clone = self.clone();
 
-                Ok(BasicAgentOutput {
-                    response: content,
-                    done: false,
-                })
+        let mapped_stream = stream.map(move |chunk_result| {
+            let context = Arc::clone(&context_clone);
+            let self_ref = self_clone.clone();
+            
+            match chunk_result {
+                Ok(chunk) => {
+                    // Check for token usage in the chunk (typically in the final chunk)
+                    if let Some(usage) = &chunk.usage {
+                        let usage_clone = usage.clone();
+                        let ctx = Arc::clone(&context);
+                        let agent = self_ref.clone();
+                        
+                        // Spawn task to record usage without blocking the stream
+                        tokio::spawn(async move {
+                            let state_arc = ctx.state();
+                            let mut state = state_arc.lock().await;
+                            state.record_usage(usage_clone.clone());
+                            drop(state);
+                            
+                            agent.on_llm_token_usage(&usage_clone, &ctx).await;
+                        });
+                    }
+
+                    let content = chunk
+                        .choices
+                        .first()
+                        .and_then(|choice| choice.delta.content.as_ref())
+                        .map_or("", |v| v)
+                        .to_string();
+
+                    Ok(BasicAgentOutput {
+                        response: content,
+                        done: false,
+                    })
+                }
+                Err(e) => Err(BasicExecutorError::LLMError(e.to_string())),
             }
-            Err(e) => Err(BasicExecutorError::LLMError(e.to_string())),
         });
 
         Ok(Box::pin(mapped_stream))

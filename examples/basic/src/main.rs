@@ -11,7 +11,11 @@ mod basic;
 mod hooks;
 mod manual_tool_agent;
 mod onnx;
+mod react_token_tracking;
+mod react_token_tracking_ollama;
 mod streaming;
+mod token_tracking;
+mod token_tracking_ollama;
 mod toolkit;
 mod utils;
 
@@ -25,6 +29,10 @@ enum UseCase {
     Hooks,
     ManualToolAgent,
     Toolkit,
+    TokenTracking,
+    ReactTokenTracking,
+    TokenTrackingOllama,
+    ReactTokenTrackingOllama,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -75,6 +83,10 @@ async fn main() -> Result<(), Error> {
         UseCase::Hooks => hooks::hooks_agent(llm).await?,
         UseCase::ManualToolAgent => manual_tool_agent::run_agent(llm, &args.mode).await?,
         UseCase::Toolkit => toolkit::run_agent(llm).await?,
+        UseCase::TokenTracking => token_tracking::token_tracking_example(llm).await?,
+        UseCase::ReactTokenTracking => react_token_tracking::react_token_tracking_example(llm).await?,
+        UseCase::TokenTrackingOllama => token_tracking_ollama::token_tracking_ollama_example().await?,
+        UseCase::ReactTokenTrackingOllama => react_token_tracking_ollama::react_token_tracking_ollama_example().await?,
     }
 
     Ok(())

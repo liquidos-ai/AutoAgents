@@ -2,6 +2,7 @@ use crate::agent::task::Task;
 use crate::agent::{AgentDeriveT, Context};
 use crate::tool::ToolCallResult;
 use async_trait::async_trait;
+use autoagents_llm::chat::Usage;
 use autoagents_llm::ToolCall;
 use serde_json::Value;
 
@@ -41,6 +42,8 @@ pub trait AgentHooks: AgentDeriveT + Send + Sync {
     }
     /// Called if the execution of the tool failed
     async fn on_tool_error(&self, _tool_call: &ToolCall, _err: Value, _ctx: &Context) {}
+    /// Called when an LLM call completes and returns token usage information
+    async fn on_llm_token_usage(&self, _usage: &Usage, _ctx: &Context) {}
     /// Called when an Actor Agent post-shutdown, This has no effect on DirectAgent, It only works for ActorBased Agents
     async fn on_agent_shutdown(&self) {}
 }
