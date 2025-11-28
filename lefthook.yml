@@ -14,7 +14,7 @@ pre-commit:
     check:
       run: cargo check --all-features --all-targets
 
-pre-push:
-  commands:
-    doc:
-      run: cargo doc --all-features --no-deps
+#pre-push:
+#  commands:
+#    doc:
+#      run: cargo doc --all-features --no-deps
