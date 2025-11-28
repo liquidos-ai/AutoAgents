@@ -28,7 +28,7 @@ autoagents-core = { path = "crates/autoagents-core", version = "0.3.0" }
 autoagents-test-utils = { path = "crates/autoagents-test-utils" }
 autoagents-onnx = { path = "crates/autoagents-onnx", version = "0.3.0" }
 autoagents-burn = { path = "crates/autoagents-burn", version = "0.3.0", default-features = false }
-autoagents-mistral-rs = { path = "crates/autoagents-mistral-rs", version = "0.3.0" }
+autoagents-mistral-rs = { path = "crates/autoagents-mistral-rs" }
 autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.3.0" }
 autoagents-cli = { path = "crates/autoagents-cli", version = "0.3.0" }
 autoagents-serve = { path = "crates/autoagents-serve", version = "0.3.0" }
