@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
+/// Errors emitted when managing runtimes and consuming event receivers
 #[derive(Debug, thiserror::Error)]
 pub enum EnvironmentError {
     #[error("Runtime not found: {0}")]
@@ -19,6 +20,7 @@ pub enum EnvironmentError {
     EventError,
 }
 
+/// Configuration for the process environment that owns one or more runtimes.
 #[derive(Clone)]
 pub struct EnvironmentConfig {
     pub working_dir: PathBuf,
@@ -32,6 +34,9 @@ impl Default for EnvironmentConfig {
     }
 }
 
+/// High-level container that owns one or more runtimes, exposes a unified
+/// event receiver, and provides lifecycle helpers for running and shutting down
+/// the underlying actor system.
 pub struct Environment {
     config: EnvironmentConfig,
     runtime_manager: Arc<RuntimeManager>,
@@ -40,6 +45,7 @@ pub struct Environment {
 }
 
 impl Environment {
+    /// Create a new environment with optional configuration.
     pub fn new(config: Option<EnvironmentConfig>) -> Self {
         let config = config.unwrap_or_default();
         let runtime_manager = Arc::new(RuntimeManager::new());
@@ -52,6 +58,8 @@ impl Environment {
         }
     }
 
+    /// Register a runtime with this environment and make it the default if none
+    /// is set yet.
     pub async fn register_runtime(&mut self, runtime: Arc<dyn Runtime>) -> Result<(), Error> {
         self.runtime_manager
             .register_runtime(runtime.clone())
@@ -62,14 +70,17 @@ impl Environment {
         Ok(())
     }
 
+    /// Access the environment configuration.
     pub fn config(&self) -> &EnvironmentConfig {
         &self.config
     }
 
+    /// Get a runtime by its id, if present.
     pub async fn get_runtime(&self, runtime_id: &RuntimeID) -> Option<Arc<dyn Runtime>> {
         self.runtime_manager.get_runtime(runtime_id).await
     }
 
+    /// Get the specified runtime or the default one when `None` is passed.
     pub async fn get_runtime_or_default(
         &self,
         runtime_id: Option<RuntimeID>,
@@ -80,6 +91,8 @@ impl Environment {
             .ok_or_else(|| EnvironmentError::RuntimeNotFound(rid).into())
     }
 
+    /// Start all registered runtimes and return a handle that resolves when
+    /// they finish. This will typically run until shutdown is requested.
     pub fn run(&mut self) -> JoinHandle<Result<(), RuntimeError>> {
         let manager = self.runtime_manager.clone();
         // Spawn background task to run the runtimes. This will wait indefinitely
@@ -87,12 +100,16 @@ impl Environment {
         handle
     }
 
+    /// Start all registered runtimes and return immediately without waiting
+    /// for completion.
     pub async fn run_background(&mut self) -> Result<(), RuntimeError> {
         let manager = self.runtime_manager.clone();
         // Spawn background task to run the runtimes.
         manager.run_background().await
     }
 
+    /// Take the event receiver for a specific runtime (or the default one) so
+    /// the caller can consume protocol events. This can only be taken once.
     pub async fn take_event_receiver(
         &mut self,
         runtime_id: Option<RuntimeID>,
@@ -107,6 +124,7 @@ impl Environment {
         }
     }
 
+    /// Request shutdown on all runtimes and await the run handle if present.
     pub async fn shutdown(&mut self) {
         let _ = self.runtime_manager.stop().await;
 

@@ -5,12 +5,17 @@ use async_trait::async_trait;
 use autoagents_llm::ToolCall;
 use serde_json::Value;
 
+/// Outcome for hook execution: continue or abort the run.
 #[derive(PartialEq)]
 pub enum HookOutcome {
     Continue,
     Abort,
 }
 
+/// Lifecycle hooks that allow observing and customizing agent behavior.
+/// Implementers can observe agent creation, per-run lifecycle (start/complete),
+/// per-turn lifecycle (start/complete) for multi-turn executors, and tool
+/// execution (pre-call gating, start, result, error).
 #[async_trait]
 pub trait AgentHooks: AgentDeriveT + Send + Sync {
     /// Hook called when builder creates a new instance of BaseAgent

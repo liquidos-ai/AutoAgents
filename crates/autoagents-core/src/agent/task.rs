@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+/// A unit of work submitted to an agent. Tasks carry a user prompt, optional
+/// image payload for multimodal models, a unique submission id, and a place to
+/// store a final result when executed within an actor runtime.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub prompt: String,
@@ -16,6 +19,7 @@ pub struct Task {
 }
 
 impl Task {
+    /// Create a new text-only task with a fresh submission id.
     pub fn new<T: Into<String>>(task: T) -> Self {
         Self {
             prompt: task.into(),
@@ -26,6 +30,8 @@ impl Task {
         }
     }
 
+    /// Create a new task with an image payload (e.g., for vision-capable
+    /// chat models) and a fresh submission id.
     pub fn new_with_image<T: Into<String>>(
         task: T,
         image_mime: ImageMime,

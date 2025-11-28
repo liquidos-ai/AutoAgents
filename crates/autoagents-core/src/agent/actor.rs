@@ -23,6 +23,10 @@ use serde_json::Value;
 use std::fmt::Debug;
 use std::sync::Arc;
 
+/// Marker type for actor-based agents.
+///
+/// Actor agents run inside a runtime, can subscribe to topics, receive
+/// messages, and emit protocol `Event`s for streaming updates.
 pub struct ActorAgent {}
 
 impl AgentType for ActorAgent {
@@ -31,7 +35,9 @@ impl AgentType for ActorAgent {
     }
 }
 
-/// Handle for an agent that includes both the agent and its actor reference
+/// Handle for an actor-based agent that contains both the agent and the
+/// address of its actor. Use `addr()` to send messages directly or publish
+/// `Task`s to subscribed `Topic<Task>`.
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone)]
 pub struct ActorAgentHandle<T: AgentDeriveT + AgentExecutor + AgentHooks + Send + Sync> {
@@ -41,12 +47,13 @@ pub struct ActorAgentHandle<T: AgentDeriveT + AgentExecutor + AgentHooks + Send 
 
 #[cfg(not(target_arch = "wasm32"))]
 impl<T: AgentDeriveT + AgentExecutor + AgentHooks> ActorAgentHandle<T> {
-    /// Get the actor reference for direct messaging
+    /// Get the actor reference (`ActorRef<Task>`) for direct messaging.
     pub fn addr(&self) -> ActorRef<Task> {
         self.actor_ref.clone()
     }
 
-    /// Get the agent reference
+    /// Get a clone of the agent reference for querying metadata or invoking
+    /// methods that require `Arc<BaseAgent<..>>`.
     pub fn agent(&self) -> Arc<BaseAgent<T, ActorAgent>> {
         self.agent.clone()
     }
