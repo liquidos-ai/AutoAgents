@@ -65,24 +65,24 @@ autoagents-llm = { workspace = true }
 
 # Burn Related Imports
 # DEV
-burn = { git = "https://github.com/tracel-ai/burn", features = [
+#burn = { git = "https://github.com/tracel-ai/burn", features = [
+#    "std",
+#    "ndarray",
+#], default-features = false }
+#burn-common = { git = "https://github.com/tracel-ai/burn", features = [
+#    "std",
+#], default-features = false }
+#burn-import = { git = "https://github.com/tracel-ai/burn", optional = true, default-features = false }
+
+# CRATES
+burn = { version = "0.19.1", features = [
     "std",
     "ndarray",
 ], default-features = false }
-burn-common = { git = "https://github.com/tracel-ai/burn", features = [
+burn-common = { version = "0.19.1", features = [
     "std",
 ], default-features = false }
-burn-import = { git = "https://github.com/tracel-ai/burn", optional = true, default-features = false }
-
-# CRATES
-# burn = { version = "0.18.0", features = [
-#     "std",
-#     "ndarray",
-# ], default-features = false }
-# burn-common = { version = "0.18.0", features = [
-#     "std",
-# ], default-features = false }
-# burn-import = { version = "0.18.0", optional = true, default-features = false }
+burn-import = { version = "0.19.1", optional = true, default-features = false }
 
 # Tiktoken tokenizer (llama 3)
 tiktoken-rs = { workspace = true, optional = true }

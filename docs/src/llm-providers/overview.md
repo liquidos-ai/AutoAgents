@@ -1,34 +1,36 @@
 # Overview
+
 AutoAgents supports a wide range of LLM providers, allowing you to choose the best fit for your use case:
 
 ### Cloud Providers
 
 | Provider         | Status |
-| ---------------- | ------ |
-| **OpenAI**       | ✅     |
-| **OpenRouter**   | ✅     |
-| **Anthropic**    | ✅     |
-| **DeepSeek**     | ✅     |
-| **xAI**          | ✅     |
-| **Phind**        | ✅     |
-| **Groq**         | ✅     |
-| **Google**       | ✅     |
-| **Azure OpenAI** | ✅     |
+|------------------|--------|
+| **OpenAI**       | ✅      |
+| **OpenRouter**   | ✅      |
+| **Anthropic**    | ✅      |
+| **DeepSeek**     | ✅      |
+| **xAI**          | ✅      |
+| **Phind**        | ✅      |
+| **Groq**         | ✅      |
+| **Google**       | ✅      |
+| **Azure OpenAI** | ✅      |
 
 ### Local Providers
 
 | Provider       | Status               |
-| -------------- | -------------------- |
+|----------------|----------------------|
 | **Mistral-rs** | ⚠️ Under Development |
 | **Burn**       | ⚠️ Experimental      |
 | **Onnx**       | ⚠️ Experimental      |
-| **Ollama**     | ✅                   |
+| **Ollama**     | ✅                    |
 
 _Provider support is actively expanding based on community needs._
 
 ## Using Providers
 
-Providers are accessed via `LLMBuilder` and enabled via `autoagents` crate features. Choose only what you need (e.g., `openai`, `anthropic`, `ollama`).
+Providers are accessed via `LLMBuilder` and enabled via `autoagents` crate features. Choose only what you need (e.g.,
+`openai`, `anthropic`, `ollama`).
 
 ```rust
 use autoagents::llm::builder::LLMBuilder;
@@ -56,7 +58,7 @@ let llm: Arc<Ollama> = LLMBuilder::<Ollama>::new()
 Enable providers on the `autoagents` crate:
 
 ```toml
-autoagents = { version = "0.2.4", features = ["openai"] }
+autoagents = { version = "0.3.0", features = ["openai"] }
 ```
 
 Common API key environment variables:
@@ -71,35 +73,37 @@ Common API key environment variables:
 
 ## Architecture
 
-All LLM backends implement the unified `LLMProvider` trait; chat/completion/embedding/model listing are composed from sub‑traits. This keeps agents provider‑agnostic.
+All LLM backends implement the unified `LLMProvider` trait; chat/completion/embedding/model listing are composed from
+sub‑traits. This keeps agents provider‑agnostic.
 
 ## Capability Snapshot
 
 This snapshot reflects the current code paths in `autoagents-llm` and may vary by specific model or provider changes.
 
 - OpenAI
-  - Chat + Streaming: Yes
-  - Tool Calls: Yes
-  - Structured Output (JSON Schema): Yes
-  - Embeddings: Yes
-  - Notes: Some options vary by model; check provider docs.
+    - Chat + Streaming: Yes
+    - Tool Calls: Yes
+    - Structured Output (JSON Schema): Yes
+    - Embeddings: Yes
+    - Notes: Some options vary by model; check provider docs.
 
 - Anthropic (Claude)
-  - Chat + Streaming: Yes
-  - Tool Calls: Yes (Anthropic tool-use format)
-  - Structured Output: Not standardized; return text + tool events
-  - Embeddings: No
+    - Chat + Streaming: Yes
+    - Tool Calls: Yes (Anthropic tool-use format)
+    - Structured Output: Not standardized; return text + tool events
+    - Embeddings: No
 
 - Groq (OpenAI-compatible)
-  - Chat + Streaming: Yes
-  - Tool Calls: Yes
-  - Structured Output: Yes
-  - Embeddings: No (not implemented)
+    - Chat + Streaming: Yes
+    - Tool Calls: Yes
+    - Structured Output: Yes
+    - Embeddings: No (not implemented)
 
 - OpenRouter (OpenAI-compatible)
-  - Chat + Streaming: Yes
-  - Tool Calls: Yes
-  - Structured Output: Yes
-  - Embeddings: No (not implemented)
+    - Chat + Streaming: Yes
+    - Tool Calls: Yes
+    - Structured Output: Yes
+    - Embeddings: No (not implemented)
 
-For other providers (Azure OpenAI, Google, XAI, DeepSeek, Ollama), consult their module docs and service documentation; support can vary by model and API.
+For other providers (Azure OpenAI, Google, XAI, DeepSeek, Ollama), consult their module docs and service documentation;
+support can vary by model and API.
