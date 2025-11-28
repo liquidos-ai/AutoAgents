@@ -12,7 +12,7 @@ members = ["crates/*", "examples/*"]
 exclude = ["examples/wasm_tool"]
 
 [workspace.package]
-version = "0.2.4"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Agent Framework for Building Autonomous Agents"
@@ -21,17 +21,17 @@ keywords = ["agents", "llm"]
 categories = []
 
 [workspace.dependencies]
-autoagents = { path = "crates/autoagents", version = "0.2.4" }
-autoagents-llm = { path = "crates/autoagents-llm", version = "0.2.4" }
-autoagents-derive = { path = "crates/autoagents-derive", version = "0.2.4" }
-autoagents-core = { path = "crates/autoagents-core", version = "0.2.4" }
-autoagents-test-utils = { path = "crates/autoagents-test-utils", version = "0.2.4" }
-autoagents-onnx = { path = "crates/autoagents-onnx", version = "0.2.4" }
-autoagents-burn = { path = "crates/autoagents-burn", version = "0.2.4", default-features = false }
-autoagents-mistral-rs = { path = "crates/autoagents-mistral-rs", version = "0.2.4" }
-autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.2.4" }
-autoagents-cli = { path = "crates/autoagents-cli", version = "0.2.4" }
-autoagents-serve = { path = "crates/autoagents-serve", version = "0.2.4" }
+autoagents = { path = "crates/autoagents", version = "0.3.0" }
+autoagents-llm = { path = "crates/autoagents-llm", version = "0.3.0" }
+autoagents-derive = { path = "crates/autoagents-derive", version = "0.3.0" }
+autoagents-core = { path = "crates/autoagents-core", version = "0.3.0" }
+autoagents-test-utils = { path = "crates/autoagents-test-utils", version = "0.3.0" }
+autoagents-onnx = { path = "crates/autoagents-onnx", version = "0.3.0" }
+autoagents-burn = { path = "crates/autoagents-burn", version = "0.3.0", default-features = false }
+autoagents-mistral-rs = { path = "crates/autoagents-mistral-rs", version = "0.3.0" }
+autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.3.0" }
+autoagents-cli = { path = "crates/autoagents-cli", version = "0.3.0" }
+autoagents-serve = { path = "crates/autoagents-serve", version = "0.3.0" }
 
 syn = { version = "2.0.98", features = ["full"] }
 tokio = { version = "1.43.0", features = ["full"] }

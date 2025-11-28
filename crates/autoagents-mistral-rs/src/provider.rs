@@ -387,6 +387,13 @@ impl MistralRsProvider {
                                 )));
                                 break;
                             }
+                            Response::Embeddings { .. } => {
+                                let _ = tx.send(Err(LLMError::Generic(
+                                    "Embedding streaming response variant for chat request"
+                                        .to_string(),
+                                )));
+                                break;
+                            }
                         }
                     }
                 }

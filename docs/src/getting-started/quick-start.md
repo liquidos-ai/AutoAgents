@@ -4,7 +4,7 @@
 
 Before using AutoAgents, ensure you have:
 
-- **Rust 1.70 or later** - Install using [rustup](https://rustup.rs/)
+- **Rust 1.91.1 or later** - Install using [rustup](https://rustup.rs/)
 - **Cargo** package manager (comes with Rust)
 
 Verify your installation:
@@ -26,14 +26,14 @@ Add the core crate and macros. Enable a provider feature (e.g., `openai`) to use
 ```toml
 # Cargo.toml
 [dependencies]
-autoagents = { version = "0.2.4", features = ["openai"] }
-autoagents-derive = "0.2.4"
+autoagents = { version = "0.3.0", features = ["openai"] }
+autoagents-derive = "0.3.0"
 ```
 
 Optional tools (filesystem, search) live in `autoagents-toolkit`:
 
 ```toml
-autoagents-toolkit = { version = "0.2.4", features = ["filesystem", "search"] }
+autoagents-toolkit = { version = "0.3.0", features = ["filesystem", "search"] }
 ```
 
 Provider features available on `autoagents`: `openai`, `anthropic`, `openrouter`, `groq`, `google`, `azure_openai`, `xai`, `deepseek`, `ollama`. Use only what you need.

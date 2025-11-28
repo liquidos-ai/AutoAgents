@@ -40,6 +40,7 @@
       <excludeFolder url="file://$MODULE_DIR$/examples/wasm_tool/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/examples/voice_agent/target" />
+      <excludeFolder url="file://$MODULE_DIR$/examples/burn/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
