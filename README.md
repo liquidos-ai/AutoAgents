@@ -267,7 +267,7 @@ Command-line interface for running and serving AutoAgents workflows from YAML.
 cargo build --package autoagents-cli --release
 ```
 
-The binary will be available at `target/release/autoagents`.
+The binary will be available at `target/release/autoagents`. You can also install it using `cargo install --path ./crates/autoagents-cli`
 
 ### Usage
 

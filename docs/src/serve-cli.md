@@ -2,6 +2,12 @@
 
 AutoAgents includes a serving library (`autoagents-serve`) and a CLI (`autoagents-cli`) for running agent workflows defined in YAML.
 
+To install the CLI, clone the AutoAgents repository and run:
+
+```rs
+cargo install --path ./crates/autoagents-cli.
+```
+
 ## CLI
 
 Binary: `autoagents`
