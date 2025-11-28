@@ -30,12 +30,14 @@ cd ../autoagents-burn
 cargo publish --dry-run
 cargo publish
 ```
-
+---
+Cannot publish yet as mistral-rs is not on crates
 ```shell
 cd ../autoagents-mistral-rs
 cargo publish --dry-run
 cargo publish
 ```
+---
 
 ```shell
 cd ../autoagents-core
@@ -54,7 +56,8 @@ cd ../autoagents-toolkit
 cargo publish --dry-run
 cargo publish
 ```
-
+---
+Cannot publish yet as mistral-rs is not on crates
 ```shell
 cd ../autoagents-serve
 cargo publish --dry-run
@@ -66,6 +69,7 @@ cd ../autoagents-cli
 cargo publish --dry-run
 cargo publish
 ```
+---
 
 4. Create release tag:
 
