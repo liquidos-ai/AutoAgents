@@ -25,7 +25,7 @@ autoagents = { path = "crates/autoagents", version = "0.3.0" }
 autoagents-llm = { path = "crates/autoagents-llm", version = "0.3.0" }
 autoagents-derive = { path = "crates/autoagents-derive", version = "0.3.0" }
 autoagents-core = { path = "crates/autoagents-core", version = "0.3.0" }
-autoagents-test-utils = { path = "crates/autoagents-test-utils", version = "0.3.0" }
+autoagents-test-utils = { path = "crates/autoagents-test-utils" }
 autoagents-onnx = { path = "crates/autoagents-onnx", version = "0.3.0" }
 autoagents-burn = { path = "crates/autoagents-burn", version = "0.3.0", default-features = false }
 autoagents-mistral-rs = { path = "crates/autoagents-mistral-rs", version = "0.3.0" }
