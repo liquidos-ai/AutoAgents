@@ -4,7 +4,6 @@
 
 # Getting Started
 
-- [Installation](./getting-started/installation.md)
 - [Quick Start](./getting-started/quick-start.md)
 - [Your First Agent](./getting-started/first-agent.md)
 
@@ -15,20 +14,13 @@
 - [Tools](./core-concepts/tools.md)
 - [Memory Systems](./core-concepts/memory.md)
 - [Executors](./core-concepts/executors.md)
-- [Environment](./core-concepts/environment.md)
 
 # LLM Providers
 
 - [Overview](./llm-providers/overview.md)
-- [OpenAI](./llm-providers/openai.md)
 
-# Examples
+# Developer 
 
-- [Basic Weather Agent](./examples/basic-weather.md)
-
-# Contributing
-
-- [Development Setup](./contributing/development-setup.md)
-- [Code Style](./contributing/code-style.md)
-- [Testing](./contributing/testing.md)
-- [Documentation](./contributing/documentation.md)
+- [Development Setup](./developer/development-setup.md)
+- [Code Style](./developer/code-style.md)
+- [Testing](./developer/testing.md)
