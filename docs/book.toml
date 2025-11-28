@@ -1,5 +1,17 @@
 [book]
-authors = ["Liquidos AI Team", "saivishwak"]
-language = "en"
-src = "src"
 title = "AutoAgents - Rust Multi-Agent Framework"
+authors = ["saivishwak"]
+language = "en"
+
+[preprocessor]
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[output]
+
+[output.html]
+default-theme = "latte"
+preferred-dark-theme = "mocha"
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
+additional-css = ["./theme/catppuccin.css"]

@@ -1,41 +1,4 @@
-# Installation
-
-This comprehensive guide will help you install AutoAgents and set up your development environment for both using the library and contributing to the project.
-
-## Using AutoAgents in Your Project
-
-### Prerequisites
-
-Before using AutoAgents, ensure you have:
-
-- **Rust 1.70 or later** - Install using [rustup](https://rustup.rs/)
-- **Cargo** package manager (comes with Rust)
-
-Verify your installation:
-```bash
-rustc --version
-cargo --version
-```
-
-### Adding AutoAgents to Your Project
-
-Add AutoAgents to your `Cargo.toml`:
-
-### Environment Variables
-
-Set up your API keys:
-
-```bash
-# For OpenAI
-export OPENAI_API_KEY="your-openai-api-key"
-
-# For Anthropic
-export ANTHROPIC_API_KEY="your-anthropic-api-key"
-
-# For other providers, see the provider-specific documentation
-```
-
-## Development Setup
+# Development Setup
 
 If you want to contribute to AutoAgents or build from source, follow these additional steps:
 
@@ -82,8 +45,8 @@ cargo test --all-features
 # For test coverage (optional)
 cargo install cargo-tarpaulin
 
-# For documentation generation
-cargo install cargo-doc
+# For documentation generation (mdBook)
+cargo install mdbook mdbook-mermaid
 
 # For security auditing (recommended)
 cargo install cargo-audit
@@ -168,19 +131,12 @@ cargo install cargo-tarpaulin
 cargo tarpaulin --all-features --out html
 ```
 
-### Getting Help
 
-If you encounter issues:
+## Documentation
 
-1. Check our [GitHub Issues](https://github.com/liquidos-ai/AutoAgents/issues)
-2. Join our [Discord Community](https://discord.gg/Ghau8xYn)
+Build the docs locally with mdBook:
 
-## Next Steps
-
-After successful installation:
-
-1. **Explore Examples**: Check out the [examples directory](https://github.com/liquidos-ai/AutoAgents/tree/main/examples)
-3. **API Documentation**: Browse the [API Documentation](https://liquidos-ai.github.io/AutoAgents)
-4. **Contributing**: See the [Contributing Guidelines](https://github.com/liquidos-ai/AutoAgents/blob/main/CONTRIBUTING.md)
-
-For the latest version information, check [GitHub](https://github.com/liquidos-ai/AutoAgents).
+```bash
+cd docs
+mdbook serve -p 4000
+```
