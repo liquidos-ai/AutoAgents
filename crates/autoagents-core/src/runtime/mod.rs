@@ -15,7 +15,7 @@ use crate::actor::Topic;
 use crate::utils::BoxEventStream;
 pub use single_threaded::SingleThreadedRuntime;
 
-/// Configuration for runtime instances
+/// Configuration for runtime instances.
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
     pub queue_size: Option<usize>,
@@ -29,7 +29,7 @@ impl Default for RuntimeConfig {
     }
 }
 
-/// Error types for Session operations
+/// Error types for runtime operations and message routing.
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
     #[error("Send Message Error: {0}")]
@@ -45,6 +45,9 @@ pub enum RuntimeError {
     EventError(#[from] SendError<Event>),
 }
 
+/// Abstract runtime that manages actor subscriptions, pub/sub delivery, and
+/// emission of protocol events. Implementations can provide different threading
+/// or transport strategies.
 #[async_trait]
 pub trait Runtime: Send + Sync {
     fn id(&self) -> RuntimeID;
@@ -63,14 +66,20 @@ pub trait Runtime: Send + Sync {
         message: Arc<dyn Any + Send + Sync>,
     ) -> Result<(), RuntimeError>;
 
-    //Local event processing event handler, This is passed to the agent handler and agents emit events using this, The runtime is responsible to move it to the parent environment
+    /// Local event processing sender. Agents receive this and emit protocol
+    /// `Event`s through it. The runtime is responsible for forwarding them to
+    /// the owning `Environment`.
     fn tx(&self) -> mpsc::Sender<Event>;
     async fn transport(&self) -> Arc<dyn Transport>;
     async fn take_event_receiver(&self) -> Option<BoxEventStream<Event>>;
+    /// Run the runtime event loop and process internal messages until stopped.
     async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    /// Request shutdown of the runtime.
     async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 
+/// Type-safe convenience layer over `Runtime` for strongly-typed topics and
+/// direct messaging to actors.
 #[async_trait]
 pub trait TypedRuntime: Runtime {
     async fn subscribe<M>(&self, topic: &Topic<M>, actor: ActorRef<M>) -> Result<(), RuntimeError>

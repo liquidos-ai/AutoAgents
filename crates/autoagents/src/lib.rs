@@ -2,6 +2,7 @@
 pub use async_trait::async_trait;
 pub use autoagents_core::{self as core, error as core_error};
 pub use autoagents_llm::{self as llm, error as llm_error};
+pub mod prelude;
 
 #[inline]
 /// Initialize logging using env_logger if the "logging" feature is enabled.

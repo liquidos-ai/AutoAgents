@@ -10,6 +10,8 @@ pub use runtime::ToolRuntime;
 #[cfg(feature = "wasmtime")]
 pub use runtime::{WasmRuntime, WasmRuntimeError};
 
+/// Result emitted after executing a single tool call, including the tool name,
+/// success flag, original arguments, and the tool's structured result payload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCallResult {
     pub tool_name: String,
@@ -36,12 +38,15 @@ pub trait ToolT: Send + Sync + Debug + ToolRuntime {
     fn args_schema(&self) -> Value;
 }
 
+/// Marker trait for input types used by `#[derive(ToolInput)]` macros.
 pub trait ToolInputT {
     fn io_schema() -> &'static str;
 }
 
 /// A wrapper that allows Arc<dyn ToolT> to be used as Box<dyn ToolT>
 /// This is useful for sharing tools across multiple agents without cloning
+/// Wrapper around `Arc<dyn ToolT>` that presents a `Box<dyn ToolT>`-like API.
+/// Useful when sharing tool instances across multiple agents without cloning.
 #[derive(Debug)]
 pub struct SharedTool {
     inner: Arc<dyn ToolT>,
@@ -77,6 +82,8 @@ impl ToolT for SharedTool {
 
 /// Helper function to convert Vec<Arc<dyn ToolT>> to Vec<Box<dyn ToolT>>
 /// This is useful when implementing AgentDeriveT::tools() with shared tools
+/// Convert a vector of `Arc<dyn ToolT>` into boxed trait objects for use in
+/// agent definitions.
 pub fn shared_tools_to_boxes(tools: &[Arc<dyn ToolT>]) -> Vec<Box<dyn ToolT>> {
     tools
         .iter()

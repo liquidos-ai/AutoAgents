@@ -53,6 +53,26 @@ impl From<ReActAgentOutput> for String {
 }
 
 impl ReActAgentOutput {
+    /// Try to parse the response string as structured JSON of type `T`.
+    /// Returns `serde_json::Error` if parsing fails.
+    pub fn try_parse<T: for<'de> serde::Deserialize<'de>>(&self) -> Result<T, serde_json::Error> {
+        serde_json::from_str::<T>(&self.response)
+    }
+
+    /// Parse the response string as structured JSON of type `T`, or map the raw
+    /// text into `T` using the provided fallback function if parsing fails.
+    /// This is useful in examples to avoid repeating parsing boilerplate.
+    pub fn parse_or_map<T, F>(&self, fallback: F) -> T
+    where
+        T: for<'de> serde::Deserialize<'de>,
+        F: FnOnce(&str) -> T,
+    {
+        self.try_parse::<T>()
+            .unwrap_or_else(|_| fallback(&self.response))
+    }
+}
+
+impl ReActAgentOutput {
     /// Extract the agent output from the ReAct response
     #[allow(clippy::result_large_err)]
     pub fn extract_agent_output<T>(val: Value) -> Result<T, ReActExecutorError>
@@ -89,7 +109,10 @@ pub enum ReActExecutorError {
     AgentOutputError(String),
 }
 
-/// Wrapper type for ReAct executor
+/// Wrapper type for the multi-turn ReAct executor with tool calling support.
+///
+/// Use `ReActAgent<T>` when your agent needs to perform tool calls, manage
+/// multiple turns, and optionally stream content and tool-call deltas.
 #[derive(Debug)]
 pub struct ReActAgent<T: AgentDeriveT> {
     inner: Arc<T>,

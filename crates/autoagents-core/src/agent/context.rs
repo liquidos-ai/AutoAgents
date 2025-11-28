@@ -17,6 +17,12 @@ use futures::channel::mpsc;
 #[cfg(target_arch = "wasm32")]
 use futures::lock::Mutex;
 
+/// Execution context shared across an agent run.
+///
+/// Holds the configured LLM provider, accumulated chat messages, optional
+/// memory and tools, agent configuration, ephemeral execution state, and
+/// an optional event transmitter used by actor-based agents to emit protocol
+/// `Event`s. Also carries a `stream` flag to indicate streaming mode.
 pub struct Context {
     llm: Arc<dyn LLMProvider>,
     messages: Vec<ChatMessage>,
@@ -119,6 +125,7 @@ impl Context {
         self.state.clone()
     }
 
+    /// Get a clone of the event transmitter (only present for Actor agents).
     pub fn tx(&self) -> Result<mpsc::Sender<Event>, ContextError> {
         Ok(self.tx.as_ref().ok_or(ContextError::EmptyTx)?.clone())
     }

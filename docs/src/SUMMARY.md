@@ -14,6 +14,13 @@
 - [Tools](./core-concepts/tools.md)
 - [Memory Systems](./core-concepts/memory.md)
 - [Executors](./core-concepts/executors.md)
+- [Executors: When To Use What](./core-concepts/executors_guide.md)
+- [Actor Agents](./core-concepts/actor_agents.md)
+- [Advanced Patterns](./core-concepts/advanced_patterns.md)
+
+# Serve & CLI
+
+- [Serve and CLI](./serve-cli.md)
 
 # LLM Providers
 

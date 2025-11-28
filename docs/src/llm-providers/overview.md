@@ -72,3 +72,34 @@ Common API key environment variables:
 ## Architecture
 
 All LLM backends implement the unified `LLMProvider` trait; chat/completion/embedding/model listing are composed from sub‑traits. This keeps agents provider‑agnostic.
+
+## Capability Snapshot
+
+This snapshot reflects the current code paths in `autoagents-llm` and may vary by specific model or provider changes.
+
+- OpenAI
+  - Chat + Streaming: Yes
+  - Tool Calls: Yes
+  - Structured Output (JSON Schema): Yes
+  - Embeddings: Yes
+  - Notes: Some options vary by model; check provider docs.
+
+- Anthropic (Claude)
+  - Chat + Streaming: Yes
+  - Tool Calls: Yes (Anthropic tool-use format)
+  - Structured Output: Not standardized; return text + tool events
+  - Embeddings: No
+
+- Groq (OpenAI-compatible)
+  - Chat + Streaming: Yes
+  - Tool Calls: Yes
+  - Structured Output: Yes
+  - Embeddings: No (not implemented)
+
+- OpenRouter (OpenAI-compatible)
+  - Chat + Streaming: Yes
+  - Tool Calls: Yes
+  - Structured Output: Yes
+  - Embeddings: No (not implemented)
+
+For other providers (Azure OpenAI, Google, XAI, DeepSeek, Ollama), consult their module docs and service documentation; support can vary by model and API.

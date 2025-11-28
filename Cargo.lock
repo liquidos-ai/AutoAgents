@@ -275,6 +275,7 @@ version = "0.2.4"
 dependencies = [
  "async-trait",
  "autoagents-core",
+ "autoagents-derive",
  "autoagents-llm",
  "autoagents-test-utils",
  "env_logger",

@@ -15,7 +15,7 @@ path = "src/main.rs"
 
 [features]
 cuda = ["autoagents-serve/cuda"]
-meta = ["autoagents-serve/metal"]
+metal = ["autoagents-serve/metal"]
 accelerate = ["autoagents-serve/accelerate"]
 
 [dependencies]

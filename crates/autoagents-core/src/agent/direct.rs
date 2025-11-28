@@ -12,6 +12,11 @@ use crate::channel::{channel, Receiver, Sender};
 
 use crate::utils::{receiver_into_stream, BoxEventStream};
 
+/// Marker type for direct (non-actor) agents.
+///
+/// Direct agents execute immediately within the caller's task without
+/// requiring a runtime or event wiring. Use this for simple one-shot
+/// invocations and unit tests.
 pub struct DirectAgent {}
 
 impl AgentType for DirectAgent {
@@ -20,7 +25,9 @@ impl AgentType for DirectAgent {
     }
 }
 
-/// Handle for an agent that includes both the agent and its actor reference
+/// Handle for a direct agent containing the agent instance and an event stream
+/// receiver. Use `agent.run(...)` for one-shot calls or `agent.run_stream(...)`
+/// to receive streaming outputs.
 pub struct DirectAgentHandle<T: AgentDeriveT + AgentExecutor + AgentHooks + Send + Sync> {
     pub agent: BaseAgent<T, DirectAgent>,
     pub rx: BoxEventStream<Event>,
@@ -48,6 +55,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> AgentBuilder<T, DirectAgent> 
 }
 
 impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
+    /// Execute the agent for a single task and return the final agent output.
     pub async fn run(&self, task: Task) -> Result<<T as AgentDeriveT>::Output, RunnableAgentError>
     where
         <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
@@ -82,6 +90,8 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
         }
     }
 
+    /// Execute the agent with streaming enabled and receive a stream of
+    /// partial outputs which culminate in a final chunk with `done=true`.
     pub async fn run_stream(
         &self,
         task: Task,

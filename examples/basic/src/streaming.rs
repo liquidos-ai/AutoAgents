@@ -47,20 +47,9 @@ pub struct AgentOutput {
 
 impl From<ReActAgentOutput> for AgentOutput {
     fn from(output: ReActAgentOutput) -> Self {
-        let resp = output.response;
-        // For streaming: only try to parse JSON if the output is marked as done
-        // and the response is not empty
-        if output.done && !resp.trim().is_empty() {
-            // Try to parse as structured JSON first
-            if let Ok(value) = serde_json::from_str::<AgentOutput>(&resp) {
-                return value;
-            }
-        }
-
-        // For streaming chunks or unparseable content, create a default response
-        AgentOutput {
+        output.parse_or_map(|resp| AgentOutput {
             response: resp.to_string(),
-        }
+        })
     }
 }
 

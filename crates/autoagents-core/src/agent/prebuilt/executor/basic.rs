@@ -30,6 +30,25 @@ impl From<BasicAgentOutput> for String {
     }
 }
 
+impl BasicAgentOutput {
+    /// Try to parse the response string as structured JSON of type `T`.
+    /// Returns `serde_json::Error` if parsing fails.
+    pub fn try_parse<T: for<'de> serde::Deserialize<'de>>(&self) -> Result<T, serde_json::Error> {
+        serde_json::from_str::<T>(&self.response)
+    }
+
+    /// Parse the response string as structured JSON of type `T`, or map the raw
+    /// text into `T` using the provided fallback function if parsing fails.
+    pub fn parse_or_map<T, F>(&self, fallback: F) -> T
+    where
+        T: for<'de> serde::Deserialize<'de>,
+        F: FnOnce(&str) -> T,
+    {
+        self.try_parse::<T>()
+            .unwrap_or_else(|_| fallback(&self.response))
+    }
+}
+
 /// Error type for Basic executor
 #[derive(Debug, thiserror::Error)]
 pub enum BasicExecutorError {
@@ -40,7 +59,10 @@ pub enum BasicExecutorError {
     Other(String),
 }
 
-/// Wrapper type for Basic executor
+/// Wrapper type for the single-turn Basic executor.
+///
+/// Use `BasicAgent<T>` when you want a single request/response interaction
+/// with optional streaming but without tool calling or multi-turn loops.
 #[derive(Debug)]
 pub struct BasicAgent<T: AgentDeriveT> {
     inner: Arc<T>,

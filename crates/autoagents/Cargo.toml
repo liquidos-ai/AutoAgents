@@ -30,6 +30,7 @@ autoagents-core.workspace = true
 autoagents-llm.workspace = true
 async-trait = { workspace = true }
 env_logger = { workspace = true, optional = true }
+autoagents-derive.workspace = true
 
 [dev-dependencies]
 serde_json = { workspace = true }

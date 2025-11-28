@@ -55,6 +55,18 @@ cargo publish --dry-run
 cargo publish
 ```
 
+```shell
+cd ../autoagents-serve
+cargo publish --dry-run
+cargo publish
+```
+
+```shell
+cd ../autoagents-cli
+cargo publish --dry-run
+cargo publish
+```
+
 4. Create release tag:
 
 ```shell

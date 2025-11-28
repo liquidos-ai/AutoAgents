@@ -93,19 +93,11 @@ pub struct MathAgent {}
 
 impl From<ReActAgentOutput> for MathAgentOutput {
     fn from(output: ReActAgentOutput) -> Self {
-        let resp = output.response;
-        if output.done && !resp.trim().is_empty() {
-            // Try to parse as structured JSON first
-            if let Ok(value) = serde_json::from_str::<MathAgentOutput>(&resp) {
-                return value;
-            }
-        }
-        // For streaming chunks or unparseable content, create a default response
-        MathAgentOutput {
+        output.parse_or_map(|resp| MathAgentOutput {
             value: 0,
-            explanation: resp,
+            explanation: resp.to_string(),
             generic: None,
-        }
+        })
     }
 }
 
