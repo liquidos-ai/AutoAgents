@@ -86,5 +86,8 @@ Improvements:
 ```
 
 ```shell
+# For All Tags
 git push origin main --tags
+# For specific Tag
+git push origin vx.x.x
 ```
