@@ -64,6 +64,10 @@ struct OllamaResponse {
     content: Option<String>,
     response: Option<String>,
     message: Option<OllamaChatResponseMessage>,
+    /// Number of tokens in the prompt
+    prompt_eval_count: Option<u32>,
+    /// Number of tokens in the completion
+    eval_count: Option<u32>,
 }
 
 impl std::fmt::Display for OllamaResponse {
@@ -119,6 +123,24 @@ impl ChatResponse for OllamaResponse {
                     .collect()
             })
         })
+    }
+
+    fn usage(&self) -> Option<crate::chat::Usage> {
+        // Ollama returns token counts in different fields:
+        // - prompt_eval_count: number of tokens in the prompt
+        // - eval_count: number of tokens in the completion
+        if let (Some(prompt_tokens), Some(completion_tokens)) = 
+            (self.prompt_eval_count, self.eval_count) {
+            Some(crate::chat::Usage {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens: prompt_tokens + completion_tokens,
+                completion_tokens_details: None,
+                prompt_tokens_details: None,
+            })
+        } else {
+            None
+        }
     }
 }
 

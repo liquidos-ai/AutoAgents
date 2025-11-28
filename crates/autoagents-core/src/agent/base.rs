@@ -1,6 +1,7 @@
 use crate::agent::config::AgentConfig;
 use crate::agent::memory::MemoryProvider;
 use crate::agent::{output::AgentOutputT, AgentExecutor, Context};
+use crate::agent::state::TokenUsage;
 use crate::protocol::Event;
 use crate::{protocol::ActorID, tool::ToolT};
 use async_trait::async_trait;
@@ -151,6 +152,14 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
     /// Get the memory provider if available
     pub fn memory(&self) -> Option<Arc<Mutex<Box<dyn MemoryProvider>>>> {
         self.memory.clone()
+    }
+
+     pub async fn get_token_usage(&self) -> TokenUsage {
+        self.create_context().get_usage().await
+    }
+
+    pub async fn reset_token_usage(&self) {
+        self.create_context().reset_usage().await
     }
 }
 
