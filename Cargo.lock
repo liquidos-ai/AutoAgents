@@ -8132,18 +8132,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rag-qdrant-qa"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "autoagents-core",
- "autoagents-llm",
- "autoagents-qdrant",
- "serde",
- "tokio",
-]
-
-[[package]]
 name = "rand"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

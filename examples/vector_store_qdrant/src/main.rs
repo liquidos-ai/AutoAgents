@@ -1,13 +1,12 @@
 use anyhow::{Context, Error};
-use autoagents_core::embeddings::{Embed, EmbedError, TextEmbedder};
+use autoagents_core::embeddings::{Embed, EmbedError, SharedEmbeddingProvider, TextEmbedder};
 use autoagents_core::vector_store::request::VectorSearchRequest;
 use autoagents_core::vector_store::VectorStoreIndex;
 use autoagents_llm::backends::openai::OpenAI;
-use autoagents_llm::builder::LLMBuilder;
+use autoagents_llm::embedding::EmbeddingBuilder;
 use autoagents_qdrant::QdrantVectorStore;
 use serde::{Deserialize, Serialize};
 use std::env;
-use std::sync::Arc;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SupportArticle {
@@ -31,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
         env::var("QDRANT_COLLECTION").unwrap_or_else(|_| "autoagents_demo".into());
     let qdrant_api_key = env::var("QDRANT_API_KEY").ok();
 
-    let provider: Arc<OpenAI> = LLMBuilder::<OpenAI>::new()
+    let provider: SharedEmbeddingProvider = EmbeddingBuilder::<OpenAI>::new()
         .api_key(api_key)
         .model("text-embedding-3-small")
         .build()

@@ -31,3 +31,4 @@
 - [Development Setup](./developer/development-setup.md)
 - [Code Style](./developer/code-style.md)
 - [Testing](./developer/testing.md)
+- [Workspace Architecture](./developer/workspace-architecture.md)

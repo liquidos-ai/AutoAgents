@@ -1,22 +1,22 @@
 use anyhow::Context;
 use autoagents_core::document::Document;
+use autoagents_core::embeddings::SharedEmbeddingProvider;
 use autoagents_core::readers::simple_directory_reader::SimpleDirectoryReader;
 use autoagents_core::vector_store::in_memory_store::InMemoryVectorStore;
 use autoagents_core::vector_store::request::VectorSearchRequest;
 use autoagents_core::vector_store::VectorStoreIndex;
 use autoagents_llm::backends::openai::OpenAI;
-use autoagents_llm::builder::LLMBuilder;
+use autoagents_llm::embedding::EmbeddingBuilder;
 use std::env;
-use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let api_key = env::var("OPENAI_API_KEY").context("OPENAI_API_KEY is required")?;
-    let provider: Arc<OpenAI> = LLMBuilder::<OpenAI>::new()
+    let provider: SharedEmbeddingProvider = EmbeddingBuilder::<OpenAI>::new()
         .api_key(api_key)
         .model("text-embedding-3-small")
         .build()
-        .context("failed to build OpenAI client")?;
+        .context("failed to build OpenAI embedding client")?;
 
     let documents = SimpleDirectoryReader::new("examples/vector_store_in_memory/data")
         .with_extensions(["txt"])

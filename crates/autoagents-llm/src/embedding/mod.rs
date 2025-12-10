@@ -1,9 +1,11 @@
+use crate::error::LLMError;
 use async_trait::async_trait;
 
-use crate::error::LLMError;
+pub mod model_provider;
+pub use model_provider::EmbeddingBuilder;
 
 #[async_trait]
-pub trait EmbeddingProvider {
+pub trait EmbeddingProvider: Sync + Send {
     async fn embed(&self, input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError>;
 }
 

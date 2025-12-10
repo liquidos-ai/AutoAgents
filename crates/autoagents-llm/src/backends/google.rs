@@ -20,7 +20,7 @@ use crate::{
         Tool,
     },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
-    embedding::EmbeddingProvider,
+    embedding::{EmbeddingBuilder, EmbeddingProvider},
     error::LLMError,
     models::ModelsProvider,
     FunctionCall, LLMProvider, ToolCall,
@@ -877,5 +877,27 @@ impl LLMBuilder<Google> {
         );
 
         Ok(Arc::new(google))
+    }
+}
+
+impl EmbeddingBuilder<Google> {
+    /// Build a Google embedding provider.
+    pub fn build(self) -> Result<Arc<Google>, LLMError> {
+        let api_key = self.api_key.ok_or_else(|| {
+            LLMError::InvalidRequest("No API key provided for Google".to_string())
+        })?;
+
+        let provider = Google::new(
+            api_key,
+            self.model,
+            None,
+            None,
+            self.timeout_seconds,
+            None,
+            None,
+            None,
+        );
+
+        Ok(Arc::new(provider))
     }
 }

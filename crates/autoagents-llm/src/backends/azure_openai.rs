@@ -5,6 +5,7 @@
 use crate::{
     builder::LLMBuilder,
     chat::{ChatResponse, ToolChoice},
+    embedding::EmbeddingBuilder,
     FunctionCall, ToolCall,
 };
 use crate::{
@@ -647,6 +648,47 @@ impl LLMBuilder<AzureOpenAI> {
             self.embedding_dimensions,
             self.tool_choice,
             self.reasoning_effort,
+        );
+
+        Ok(Arc::new(provider))
+    }
+}
+
+impl EmbeddingBuilder<AzureOpenAI> {
+    /// Build an Azure OpenAI embedding provider.
+    pub fn build(self) -> Result<Arc<AzureOpenAI>, LLMError> {
+        let api_key = self.api_key.ok_or_else(|| {
+            LLMError::InvalidRequest("No API key provided for Azure OpenAI".to_string())
+        })?;
+        let api_version = self.api_version.ok_or_else(|| {
+            LLMError::InvalidRequest("No API version provided for Azure OpenAI".to_string())
+        })?;
+        let deployment_id = self.deployment_id.ok_or_else(|| {
+            LLMError::InvalidRequest("No deployment ID provided for Azure OpenAI".to_string())
+        })?;
+        let endpoint = self.base_url.ok_or_else(|| {
+            LLMError::InvalidRequest("No API endpoint provided for Azure OpenAI".to_string())
+        })?;
+
+        let provider = AzureOpenAI::new(
+            api_key,
+            api_version,
+            deployment_id,
+            endpoint,
+            Some(
+                self.model
+                    .unwrap_or_else(|| "text-embedding-3-small".to_string()),
+            ),
+            None,
+            None,
+            self.timeout_seconds,
+            None,
+            None,
+            None,
+            self.embedding_encoding_format,
+            self.embedding_dimensions,
+            None,
+            None,
         );
 
         Ok(Arc::new(provider))

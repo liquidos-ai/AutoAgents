@@ -6,7 +6,7 @@ use crate::{
     builder::LLMBuilder,
     chat::{ChatMessage, ChatProvider, ChatResponse, ChatRole, StructuredOutputFormat, Tool},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
-    embedding::EmbeddingProvider,
+    embedding::{EmbeddingBuilder, EmbeddingProvider},
     error::LLMError,
     models::ModelsProvider,
     FunctionCall, ToolCall,
@@ -488,5 +488,29 @@ impl LLMBuilder<Ollama> {
         );
 
         Ok(Arc::new(ollama))
+    }
+}
+
+impl EmbeddingBuilder<Ollama> {
+    /// Build an Ollama embedding provider.
+    pub fn build(self) -> Result<Arc<Ollama>, LLMError> {
+        let model = self.model.ok_or_else(|| {
+            LLMError::InvalidRequest("No model provided for Ollama embeddings".to_string())
+        })?;
+
+        let provider = Ollama::new(
+            self.base_url
+                .unwrap_or_else(|| "http://localhost:11434".to_string()),
+            self.api_key,
+            Some(model),
+            None,
+            None,
+            self.timeout_seconds,
+            None,
+            None,
+            None,
+        );
+
+        Ok(Arc::new(provider))
     }
 }

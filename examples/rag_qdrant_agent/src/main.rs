@@ -7,6 +7,7 @@ use autoagents::core::vector_store::request::VectorSearchRequest;
 use autoagents::core::vector_store::VectorStoreIndex;
 use autoagents::llm::backends::openai::OpenAI;
 use autoagents::llm::builder::LLMBuilder;
+use autoagents::llm::embedding::EmbeddingBuilder;
 use autoagents::prelude::AgentHooks;
 use autoagents_derive::agent;
 use autoagents_qdrant::QdrantVectorStore;
@@ -52,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
         .build()
         .map_err(Error::new)?;
 
-    let embedder: Arc<OpenAI> = LLMBuilder::<OpenAI>::new()
+    let embedder = EmbeddingBuilder::<OpenAI>::new()
         .api_key(api_key)
         .model("text-embedding-3-small")
         .build()

@@ -3,6 +3,8 @@
 //! This module provides integration with X.AI's models through their API.
 //! It implements chat and completion capabilities using the X.AI API endpoints.
 
+#[cfg(feature = "xai")]
+use crate::embedding::EmbeddingBuilder;
 use crate::{
     builder::LLMBuilder,
     chat::{ChatResponse, Tool},
@@ -660,5 +662,35 @@ impl LLMBuilder<XAI> {
         );
 
         Ok(Arc::new(xai))
+    }
+}
+
+impl EmbeddingBuilder<XAI> {
+    /// Build an XAI embedding provider.
+    pub fn build(self) -> Result<Arc<XAI>, LLMError> {
+        let api_key = self
+            .api_key
+            .ok_or_else(|| LLMError::InvalidRequest("No API key provided for XAI".to_string()))?;
+
+        let provider = XAI::new(
+            api_key,
+            Some(self.model.unwrap_or_else(|| "grok-2-latest".to_string())),
+            None,
+            None,
+            self.timeout_seconds,
+            None,
+            None,
+            None,
+            self.embedding_encoding_format,
+            self.embedding_dimensions,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        Ok(Arc::new(provider))
     }
 }

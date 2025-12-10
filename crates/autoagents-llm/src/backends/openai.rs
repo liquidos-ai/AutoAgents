@@ -6,6 +6,7 @@ use crate::chat::utils::check_response_status;
 use crate::chat::{
     StreamChoice, StreamDelta, StreamResponse, StreamToolCallDelta, StreamToolCallFunction, Usage,
 };
+use crate::embedding::EmbeddingBuilder;
 use crate::{
     builder::LLMBackend,
     chat::Tool,
@@ -873,47 +874,6 @@ impl CompletionProvider for OpenAI {
     }
 }
 
-#[cfg(feature = "openai")]
-#[async_trait]
-impl EmbeddingProvider for OpenAI {
-    async fn embed(&self, input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-        if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing OpenAI API key".into()));
-        }
-
-        let emb_format = self
-            .embedding_encoding_format
-            .clone()
-            .unwrap_or_else(|| "float".to_string());
-
-        let body = OpenAIEmbeddingRequest {
-            model: self.model.clone(),
-            input,
-            encoding_format: Some(emb_format),
-            dimensions: self.embedding_dimensions,
-        };
-
-        let url = self
-            .base_url
-            .join("embeddings")
-            .map_err(|e| LLMError::HttpError(e.to_string()))?;
-
-        let resp = self
-            .client
-            .post(url)
-            .bearer_auth(&self.api_key)
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?;
-
-        let json_resp: OpenAIEmbeddingResponse = resp.json().await?;
-
-        let embeddings = json_resp.data.into_iter().map(|d| d.embedding).collect();
-        Ok(embeddings)
-    }
-}
-
 #[derive(Clone, Debug, Deserialize)]
 pub struct OpenAIModelEntry {
     pub id: String,
@@ -1165,5 +1125,84 @@ impl LLMBuilder<OpenAI> {
         );
 
         Ok(Arc::new(openai))
+    }
+}
+
+#[cfg(feature = "openai")]
+#[async_trait]
+impl EmbeddingProvider for OpenAI {
+    async fn embed(&self, input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
+        if self.api_key.is_empty() {
+            return Err(LLMError::AuthError("Missing OpenAI API key".into()));
+        }
+
+        let emb_format = self
+            .embedding_encoding_format
+            .clone()
+            .unwrap_or_else(|| "float".to_string());
+
+        let body = OpenAIEmbeddingRequest {
+            model: self.model.clone(),
+            input,
+            encoding_format: Some(emb_format),
+            dimensions: self.embedding_dimensions,
+        };
+
+        let url = self
+            .base_url
+            .join("embeddings")
+            .map_err(|e| LLMError::HttpError(e.to_string()))?;
+
+        let resp = self
+            .client
+            .post(url)
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let json_resp: OpenAIEmbeddingResponse = resp.json().await?;
+
+        let embeddings = json_resp.data.into_iter().map(|d| d.embedding).collect();
+        Ok(embeddings)
+    }
+}
+
+impl EmbeddingBuilder<OpenAI> {
+    /// Build an OpenAI embedding provider.
+    pub fn build(self) -> Result<Arc<OpenAI>, LLMError> {
+        let api_key = self.api_key.ok_or_else(|| {
+            LLMError::InvalidRequest("No API key provided for OpenAI".to_string())
+        })?;
+
+        let model = self
+            .model
+            .unwrap_or_else(|| "text-embedding-3-small".to_string());
+
+        let provider = OpenAI::new(
+            api_key,
+            self.base_url,
+            Some(model),
+            None,
+            None,
+            self.timeout_seconds,
+            None,
+            None,
+            None,
+            self.embedding_encoding_format,
+            self.embedding_dimensions,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        Ok(Arc::new(provider))
     }
 }
