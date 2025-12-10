@@ -112,6 +112,17 @@ pub enum Event {
     StreamComplete {
         sub_id: SubmissionId,
     },
+
+    /// Report token usage
+    TokenUsage {
+        sub_id: SubmissionId,
+        actor_id: ActorID,
+        actor_name: String,
+        prompt_tokens: u64,
+        completion_tokens: u64,
+        total_tokens: u64,
+        llm_call_count: u32,
+    },
 }
 
 /// Internal events that are processed within the runtime
