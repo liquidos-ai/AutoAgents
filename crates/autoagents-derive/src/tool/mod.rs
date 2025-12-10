@@ -25,10 +25,10 @@ impl ToolParser {
             #input_struct
 
             impl autoagents::core::tool::ToolT for #struct_name {
-                fn name(&self) -> &'static str {
+                fn name(&self) -> &str {
                     #tool_name_literal
                 }
-                fn description(&self) -> &'static str {
+                fn description(&self) -> &str {
                     #tool_description
                 }
                 fn args_schema(&self) -> serde_json::Value {

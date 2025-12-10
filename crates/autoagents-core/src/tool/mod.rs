@@ -31,9 +31,9 @@ pub enum ToolCallError {
 
 pub trait ToolT: Send + Sync + Debug + ToolRuntime {
     /// The name of the tool.
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
     /// A description explaining the tool’s purpose.
-    fn description(&self) -> &'static str;
+    fn description(&self) -> &str;
     /// Return a description of the expected arguments.
     fn args_schema(&self) -> Value;
 }
@@ -67,11 +67,11 @@ impl ToolRuntime for SharedTool {
 }
 
 impl ToolT for SharedTool {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         self.inner.name()
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         self.inner.description()
     }
 
