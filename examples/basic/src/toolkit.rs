@@ -27,7 +27,7 @@ pub async fn run_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     let result = agent_handle
         .agent
-        .run(Task::new("What is the current news related to AI?"))
+        .run(Task::new("What is the current news related to AI in 2025?"))
         .await?;
     println!("Result: {:?}", result);
     Ok(())

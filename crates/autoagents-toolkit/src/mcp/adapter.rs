@@ -47,13 +47,13 @@ impl McpToolAdapter {
 }
 
 impl ToolT for McpToolAdapter {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         // We need to use Box::leak to convert String to &'static str
         // This is safe because tools are typically long-lived
         Box::leak(self.name.clone().into_boxed_str())
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         // Same approach for description
         Box::leak(self.description.clone().into_boxed_str())
     }
@@ -173,11 +173,11 @@ impl McpToolWrapper {
 }
 
 impl ToolT for McpToolWrapper {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         self.tool.name()
     }
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         self.tool.description()
     }
 
