@@ -1,0 +1,1 @@
+Agents can keep working memory in a vector store so they can recall earlier context quickly.

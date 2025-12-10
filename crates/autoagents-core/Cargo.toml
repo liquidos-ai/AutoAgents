@@ -24,6 +24,7 @@ thiserror = { workspace = true }
 futures = { workspace = true }
 regex = { workspace = true }
 log = { workspace = true, features = ["std"] }
+walkdir = { workspace = true }
 wasmtime = { workspace = true, optional = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
