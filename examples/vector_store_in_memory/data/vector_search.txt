@@ -1,0 +1,1 @@
+Vector search finds semantically similar documents using embeddings produced by a model.

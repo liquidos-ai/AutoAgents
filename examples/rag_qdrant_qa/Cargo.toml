@@ -1,0 +1,13 @@
+[package]
+name = "rag-qdrant-qa"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+autoagents-core = { workspace = true }
+autoagents-llm = { workspace = true, features = ["openai"] }
+autoagents-qdrant = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

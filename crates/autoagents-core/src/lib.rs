@@ -11,10 +11,15 @@ pub mod agent;
 
 // Common modules available on all platforms
 mod channel;
+pub mod document;
+pub mod embeddings;
 pub mod error;
+pub mod one_or_many;
 pub mod protocol;
+pub mod readers;
 pub mod tool;
 pub mod utils;
+pub mod vector_store;
 
 #[cfg(test)]
 mod tests;
