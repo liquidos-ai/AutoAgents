@@ -3,13 +3,13 @@ use super::{
     json::JsonType,
 };
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
+use quote::quote;
 use serde::Serialize;
 use std::collections::HashMap;
 use strum::{Display, EnumString};
 use syn::{
-    parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Field, Ident, LitStr,
-    Result, Type,
+    parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Field, GenericArgument,
+    Ident, LitStr, PathArguments, Result, Type,
 };
 
 #[derive(EnumString, Display)]
@@ -117,11 +117,11 @@ impl InputParser {
     }
 
     fn parse_field(&mut self, name: String, field: &Field) -> Result<InputToolProperty> {
-        //Add the field to required
-        self.tool_parse_data.add_required_field(name);
-
         // Determine JSON schema type from the Rust type.
-        let json_type = self.get_json_type(&field.ty)?;
+        let (json_type, optional) = self.get_json_type(&field.ty)?;
+        if !optional {
+            self.tool_parse_data.add_required_field(name.clone());
+        }
         let mut tool_property: Option<FieldSchemaAttr> = None;
 
         //Currently handling Input ident only
@@ -153,21 +153,51 @@ impl InputParser {
         }
     }
 
-    fn get_json_type(&mut self, field_type: &Type) -> Result<JsonType> {
-        let type_str = field_type.to_token_stream().clone();
-        let type_str = type_str.to_string();
-        let json_type: JsonType = match type_str.as_str() {
-            "String" => JsonType::String,
-            "i32" | "u32" | "f64" | "f32" | "u8" | "i64" => JsonType::Number,
-            "bool" => JsonType::Boolean,
-            _ => {
-                return Err(Error::new(
-                    proc_macro2::Span::call_site(),
-                    "Unsupported Data Type",
-                ));
+    fn get_json_type(&mut self, field_type: &Type) -> Result<(JsonType, bool)> {
+        match field_type {
+            Type::Path(path) => {
+                let Some(segment) = path.path.segments.last() else {
+                    return Err(Error::new(
+                        proc_macro2::Span::call_site(),
+                        "Invalid type path",
+                    ));
+                };
+
+                if segment.ident == "Option" {
+                    if let PathArguments::AngleBracketed(args) = &segment.arguments {
+                        if let Some(GenericArgument::Type(inner)) = args.args.first() {
+                            let (json_type, _) = self.get_json_type(inner)?;
+                            return Ok((json_type, true));
+                        }
+                    }
+
+                    return Err(Error::new(
+                        proc_macro2::Span::call_site(),
+                        "Unsupported Option type",
+                    ));
+                }
+
+                let json_type = self.get_base_json_type(&segment.ident.to_string());
+                Ok((json_type, false))
             }
-        };
-        Ok(json_type)
+            Type::Reference(reference) => self.get_json_type(&reference.elem),
+            Type::Group(group) => self.get_json_type(&group.elem),
+            Type::Paren(paren) => self.get_json_type(&paren.elem),
+            // Fallback to string for other complex cases.
+            _ => Ok((JsonType::String, false)),
+        }
+    }
+
+    fn get_base_json_type(&self, type_str: &str) -> JsonType {
+        match type_str {
+            "String" | "str" => JsonType::String,
+            "i32" | "u32" | "f64" | "f32" | "u8" | "i64" | "u16" | "usize" | "isize" => {
+                JsonType::Number
+            }
+            "bool" => JsonType::Boolean,
+            // For custom enums or other simple types, default to string representation.
+            _ => JsonType::String,
+        }
     }
 
     fn parse_macro_attributes(

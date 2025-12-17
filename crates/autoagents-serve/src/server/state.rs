@@ -38,6 +38,7 @@ impl AppState {
         cache.insert(key, model);
     }
 
+    #[allow(dead_code)]
     pub async fn get_model(&self, key: &str) -> Option<Arc<dyn LLMProvider>> {
         let cache = self.model_cache.read().await;
         cache.get(key).cloned()
