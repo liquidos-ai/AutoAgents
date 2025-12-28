@@ -758,24 +758,57 @@ impl ChatProvider for OpenAI {
 fn create_struct_sse_stream(
     response: reqwest::Response,
 ) -> std::pin::Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>> {
+    use bytes::BytesMut;
     use futures::stream::StreamExt;
+
+    const SSE_DELIMITER: &[u8] = b"\n\n";
+
     let stream = response
         .bytes_stream()
-        .map(move |chunk| match chunk {
-            Ok(bytes) => {
-                let text = String::from_utf8_lossy(&bytes);
-                parse_sse_chunk(&text)
-            }
-            Err(e) => Err(LLMError::HttpError(e.to_string())),
+        .scan(BytesMut::with_capacity(1024), |buffer, chunk| {
+            let result = match chunk {
+                Ok(bytes) => {
+                    buffer.extend_from_slice(&bytes);
+                    let mut responses: Vec<Result<Option<StreamResponse>, LLMError>> = Vec::new();
+
+                    while let Some(pos) = find_subsequence(buffer, SSE_DELIMITER) {
+                        let complete_bytes = buffer.split_to(pos + SSE_DELIMITER.len());
+                        let complete_chunk = String::from_utf8_lossy(&complete_bytes);
+                        responses.push(parse_sse_chunk(&complete_chunk));
+                    }
+
+                    if responses.is_empty() {
+                        Ok(Vec::new())
+                    } else {
+                        Ok(responses
+                            .into_iter()
+                            .filter_map(|r| match r {
+                                Ok(Some(resp)) => Some(Ok(resp)),
+                                Ok(None) => None,
+                                Err(e) => Some(Err(e)),
+                            })
+                            .collect())
+                    }
+                }
+                Err(e) => Err(LLMError::HttpError(e.to_string())),
+            };
+            async move { Some(result) }
         })
-        .filter_map(|result| async move {
-            match result {
-                Ok(Some(response)) => Some(Ok(response)),
-                Ok(None) => None,
-                Err(e) => Some(Err(e)),
-            }
-        });
+        .flat_map(
+            |result: Result<Vec<Result<StreamResponse, LLMError>>, LLMError>| match result {
+                Ok(responses) => futures::stream::iter(responses),
+                Err(e) => futures::stream::iter(vec![Err(e)]),
+            },
+        );
+
     Box::pin(stream)
+}
+
+#[inline]
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 // Create an owned OpenAIChatMessage that doesn't borrow from any temporary variables
