@@ -124,13 +124,14 @@ impl ChatProvider for DeepSeek {
             return Err(LLMError::AuthError("Missing DeepSeek API key".to_string()));
         }
 
-        let mut deepseek_msgs: Vec<DeepSeekChatMessage> = messages
+        let deepseek_msgs: Vec<DeepSeekChatMessage> = messages
             .iter()
             .map(|m| DeepSeekChatMessage {
                 role: match m.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
                     ChatRole::System => "system",
+                    ChatRole::Tool => "tool",
                 },
                 content: &m.content,
             })

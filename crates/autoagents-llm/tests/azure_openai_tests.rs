@@ -27,7 +27,6 @@ mod azure_openai_test_cases {
             .model("gpt-4")
             .max_tokens(100)
             .temperature(0.7)
-            .system("Test system prompt")
             .build()
             .expect("Failed to build Azure OpenAI client")
     }
@@ -40,7 +39,6 @@ mod azure_openai_test_cases {
         assert_eq!(client.model, "gpt-4");
         assert_eq!(client.max_tokens, Some(100));
         assert_eq!(client.temperature, Some(0.7));
-        assert_eq!(client.system, Some("Test system prompt".to_string()));
         assert_eq!(
             client.base_url.as_str(),
             "https://myresource.openai.azure.com/openai/deployments/gpt-4-deployment/"
@@ -127,13 +125,11 @@ mod azure_openai_test_cases {
             None,
             None,
             None,
-            None,
         );
 
         assert_eq!(client.model, "gpt-3.5-turbo");
         assert!(client.max_tokens.is_none());
         assert!(client.temperature.is_none());
-        assert!(client.system.is_none());
     }
 
     #[test]
@@ -187,12 +183,11 @@ mod azure_openai_test_cases {
             None,
             None,
             None,
-            None,
         );
 
         let messages = vec![ChatMessage::user().content("Hello").build()];
 
-        let result = client.chat(&messages, None, None).await;
+        let result = client.chat(&messages, None).await;
         assert!(result.is_err());
 
         match result.err().unwrap() {
@@ -224,7 +219,6 @@ mod azure_openai_test_cases {
             "2023-05-15",
             "my-deployment",
             "https://myresource.openai.azure.com",
-            None,
             None,
             None,
             None,

@@ -439,11 +439,7 @@ impl ChatProvider for OpenAI {
                 })
                 .collect()
         });
-        let repsonse_schema: Option<OpenAIResponseFormat> = if let Some(schema) = json_schema {
-            Some(schema.into())
-        } else {
-            None
-        };
+        let repsonse_schema: Option<OpenAIResponseFormat> = json_schema.map(|schema| schema.into());
         let body = OpenAIAPIChatRequest {
             model: &self.provider.model,
             messages: openai_msgs,

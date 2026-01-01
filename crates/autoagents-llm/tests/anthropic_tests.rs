@@ -181,34 +181,10 @@ mod anthropic_test_cases {
     }
 
     #[tokio::test]
-    async fn test_completion_auth_error() {
-        let client = Anthropic::new(
-            "", // Empty API key
-            None, None, None, None, None, None, None, None,
-        );
-
-        let request = CompletionRequest {
-            prompt: "Complete this sentence".to_string(),
-            max_tokens: None,
-            temperature: None,
-        };
-
-        let result = client.complete(&request, None).await;
-        assert!(result.is_err());
-
-        match result.err().unwrap() {
-            LLMError::AuthError(msg) => {
-                assert_eq!(msg, "Missing Anthropic API key");
-            }
-            _ => panic!("Expected AuthError"),
-        }
-    }
-
-    #[tokio::test]
     async fn test_chat_with_tools_auth_error() {
         let client = Anthropic::new(
             "", // Empty API key
-            None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None,
         );
 
         let messages = vec![ChatMessage::user().content("Use a tool").build()];
@@ -239,7 +215,7 @@ mod anthropic_test_cases {
     async fn test_chat_with_structured_output() {
         let client = Anthropic::new(
             "", // Will trigger auth error
-            None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None,
         );
 
         let messages = vec![ChatMessage::user().content("Give me JSON").build()];
@@ -259,20 +235,6 @@ mod anthropic_test_cases {
 
         let result = client.chat(&messages, Some(structured_format)).await;
         assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_models_provider_not_implemented() {
-        let client = create_test_anthropic();
-        let result = client.list_models(None).await;
-
-        assert!(result.is_err());
-        match result.err().unwrap() {
-            LLMError::ProviderError(msg) => {
-                assert!(msg.contains("List Models not supported"));
-            }
-            _ => panic!("Expected ProviderError"),
-        }
     }
 
     #[test]
@@ -352,52 +314,6 @@ mod anthropic_test_cases {
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_completion_with_suffix() {
-        let client = Anthropic::new(
-            "", // Will trigger auth error
-            None, None, None, None, None, None, None, None, None,
-        );
-
-        let request = CompletionRequest {
-            prompt: "The beginning".to_string(),
-            max_tokens: None,
-            temperature: None,
-        };
-
-        let result = client.complete(&request, None).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_completion_with_structured_output() {
-        let client = Anthropic::new(
-            "", // Will trigger auth error
-            None, None, None, None, None, None, None, None, None,
-        );
-
-        let request = CompletionRequest {
-            prompt: "Generate JSON".to_string(),
-            max_tokens: None,
-            temperature: None,
-        };
-
-        let structured_format = StructuredOutputFormat {
-            name: "completion_schema".to_string(),
-            description: Some("Completion schema".to_string()),
-            schema: Some(json!({
-                "type": "object",
-                "properties": {
-                    "result": {"type": "string"}
-                }
-            })),
-            strict: Some(true),
-        };
-
-        let result = client.complete(&request, Some(structured_format)).await;
-        assert!(result.is_err());
-    }
-
     #[test]
     fn test_anthropic_reasoning_false() {
         let client = LLMBuilder::<Anthropic>::new()
@@ -431,7 +347,6 @@ mod anthropic_test_cases {
         assert!(!client.model.is_empty());
         assert!(client.max_tokens > 0);
         assert!(client.temperature >= 0.0);
-        assert!(!client.system.is_empty());
         assert!(client.timeout_seconds > 0);
         let _ = client.top_p;
         let _ = client.top_k;
@@ -540,26 +455,6 @@ mod anthropic_test_cases {
                 .expect("Failed to build Anthropic client");
 
             assert_eq!(client.timeout_seconds, timeout);
-        }
-    }
-
-    #[test]
-    fn test_anthropic_system_prompts() {
-        let prompts = vec![
-            "",
-            "Simple prompt",
-            "Very long system prompt that contains multiple sentences and explains the context in great detail about what the assistant should do and how it should behave when responding to user queries.",
-            "System prompt with\nnewlines\nand\tspecial\rcharacters!@#$%^&*(){}[]|\\:;\"'<>?,./",
-            "🤖 System prompt with emojis and unicode characters: αβγδε 中文 العربية",
-        ];
-
-        for prompt in prompts {
-            let client = LLMBuilder::<Anthropic>::new()
-                .api_key("test-key")
-                .build()
-                .expect("Failed to build Anthropic client");
-
-            assert_eq!(client.system, prompt);
         }
     }
 

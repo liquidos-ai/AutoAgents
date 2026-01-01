@@ -69,6 +69,7 @@ impl<'a> From<&'a ChatMessage> for AzureOpenAIChatMessage<'a> {
                 ChatRole::User => "user",
                 ChatRole::System => "system",
                 ChatRole::Assistant => "assistant",
+                ChatRole::Tool => "tool",
             },
             tool_call_id: None,
             content: match &chat_msg.message_type {

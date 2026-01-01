@@ -315,6 +315,7 @@ impl Anthropic {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
                     ChatRole::System => "system",
+                    ChatRole::Tool => "user",
                 },
                 content: match &m.message_type {
                     MessageType::Text => vec![MessageContent {
@@ -628,6 +629,7 @@ impl ChatProvider for Anthropic {
                     ChatRole::User => "user",
                     ChatRole::System => "system",
                     ChatRole::Assistant => "assistant",
+                    ChatRole::Tool => "user",
                 },
                 content: match &m.message_type {
                     MessageType::Text => vec![MessageContent {

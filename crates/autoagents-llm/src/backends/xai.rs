@@ -354,6 +354,7 @@ impl ChatProvider for XAI {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
                     ChatRole::System => "system",
+                    ChatRole::Tool => "tool",
                 },
                 content: &m.content,
             })
@@ -439,13 +440,14 @@ impl ChatProvider for XAI {
             return Err(LLMError::AuthError("Missing X.AI API key".to_string()));
         }
 
-        let mut xai_msgs: Vec<XAIChatMessage> = messages
+        let xai_msgs: Vec<XAIChatMessage> = messages
             .iter()
             .map(|m| XAIChatMessage {
                 role: match m.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
                     ChatRole::System => "system",
+                    ChatRole::Tool => "tool",
                 },
                 content: &m.content,
             })
@@ -492,7 +494,7 @@ impl ChatProvider for XAI {
 
     async fn chat_with_tools(
         &self,
-        messages: &[ChatMessage],
+        _messages: &[ChatMessage],
         _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {

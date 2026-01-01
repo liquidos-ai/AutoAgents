@@ -295,6 +295,7 @@ impl OnnxEdge {
                     ChatRole::System => "system",
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
+                    ChatRole::Tool => "tool",
                 };
 
                 serde_json::json!({

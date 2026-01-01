@@ -1,6 +1,6 @@
 use autoagents::async_trait;
 use autoagents_llm::{
-    chat::{ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat},
+    chat::{ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat, Tool},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
     error::LLMError,
@@ -16,7 +16,16 @@ impl ChatProvider for MockLLMProvider {
     async fn chat(
         &self,
         _messages: &[ChatMessage],
-        _tools: Option<&[autoagents_llm::chat::Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        Ok(Box::new(MockChatResponse {
+            text: Some("Mock response".to_string()),
+        }))
+    }
+    async fn chat_with_tools(
+        &self,
+        _messages: &[ChatMessage],
+        _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         Ok(Box::new(MockChatResponse {

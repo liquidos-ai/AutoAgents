@@ -303,6 +303,7 @@ impl Ollama {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
                     ChatRole::System => "system",
+                    ChatRole::Tool => "tool",
                 },
                 content: &msg.content,
             })

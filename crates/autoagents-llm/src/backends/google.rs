@@ -469,6 +469,7 @@ impl Google {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "model",
                     ChatRole::System => "user", //System is user in Google API
+                    ChatRole::Tool => "function",
                 },
             };
 
@@ -663,6 +664,7 @@ impl ChatProvider for Google {
                 ChatRole::User => "user",
                 ChatRole::Assistant => "model",
                 ChatRole::System => "user", //System is user in Google API
+                ChatRole::Tool => "function",
             };
 
             chat_contents.push(GoogleChatContent {

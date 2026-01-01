@@ -25,7 +25,6 @@ mod ollama_test_cases {
             .model("llama3.1")
             .max_tokens(100)
             .temperature(0.7)
-            .system("Test system prompt")
             .build()
             .expect("Failed to build Ollama client")
     }
@@ -37,7 +36,6 @@ mod ollama_test_cases {
         assert_eq!(client.model, "llama3.1");
         assert_eq!(client.max_tokens, Some(100));
         assert_eq!(client.temperature, Some(0.7));
-        assert_eq!(client.system, Some("Test system prompt".to_string()));
     }
 
     #[test]

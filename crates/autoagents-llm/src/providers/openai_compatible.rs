@@ -153,6 +153,7 @@ pub struct OpenAIChatChoice {
 
 #[derive(Deserialize, Debug)]
 pub struct OpenAIChatMsg {
+    #[allow(dead_code)]
     pub role: String,
     pub content: Option<String>,
     pub tool_calls: Option<Vec<ToolCall>>,
@@ -348,7 +349,7 @@ impl<T: OpenAIProviderConfig> OpenAICompatibleProvider<T> {
     }
 
     pub fn prepare_messages(&self, messages: &[ChatMessage]) -> Vec<OpenAIChatMessage<'_>> {
-        let mut openai_msgs: Vec<OpenAIChatMessage> = messages
+        let openai_msgs: Vec<OpenAIChatMessage> = messages
             .iter()
             .flat_map(|msg| {
                 if let MessageType::ToolResult(ref results) = msg.message_type {
@@ -541,7 +542,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
             } else {
                 None
             },
-            response_format: response_format,
+            response_format,
             stream_options: if T::SUPPORTS_STREAM_OPTIONS {
                 Some(OpenAIStreamOptions {
                     include_usage: true,
@@ -640,7 +641,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
             } else {
                 None
             },
-            response_format: response_format,
+            response_format,
             stream_options: if T::SUPPORTS_STREAM_OPTIONS {
                 Some(OpenAIStreamOptions {
                     include_usage: true,
@@ -922,6 +923,7 @@ pub fn chat_message_to_openai_message(chat_msg: ChatMessage) -> OpenAIChatMessag
             ChatRole::User => "user",
             ChatRole::Assistant => "assistant",
             ChatRole::System => "system",
+            ChatRole::Tool => "tool",
         },
         tool_call_id: None,
         content: match &chat_msg.message_type {
@@ -1384,7 +1386,7 @@ mod tests {
 
         // Should have ToolUseStart and ToolUseInputDelta
         assert!(
-            results.len() >= 1,
+            !results.is_empty(),
             "Expected at least 1 result, got {:?}",
             results
         );

@@ -136,6 +136,20 @@ pub enum ChatRole {
     User,
     /// The AI assistant participant in the conversation
     Assistant,
+    /// Tool/function response
+    Tool,
+}
+
+impl fmt::Display for ChatRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = match self {
+            ChatRole::System => "system",
+            ChatRole::User => "user",
+            ChatRole::Assistant => "assistant",
+            ChatRole::Tool => "tool",
+        };
+        f.write_str(value)
+    }
 }
 
 /// The supported MIME type of an image.
@@ -257,7 +271,7 @@ pub struct FunctionTool {
 /// ## Example
 ///
 /// ```
-/// use llm::chat::StructuredOutputFormat;
+/// use autoagents_llm::chat::StructuredOutputFormat;
 /// use serde_json::json;
 ///
 /// let response_format = r#"
@@ -439,7 +453,7 @@ pub trait ChatProvider: Sync + Send {
     async fn chat_stream(
         &self,
         _messages: &[ChatMessage],
-        json_schema: Option<StructuredOutputFormat>,
+        _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
         Err(LLMError::Generic(
@@ -835,7 +849,7 @@ mod tests {
         let frame_stream = futures::stream::iter(
             chunks
                 .into_iter()
-                .map(|chunk| chunk.map(|bytes| hyper::body::Frame::data(bytes))),
+                .map(|chunk| chunk.map(hyper::body::Frame::data)),
         );
 
         let body = StreamBody::new(frame_stream);
