@@ -11,8 +11,8 @@ use crate::{
 use autoagents_llm::{
     async_trait,
     chat::{
-        ChatMessage, ChatProvider, ChatResponse, StreamChoice, StreamDelta, StreamResponse,
-        StructuredOutputFormat, Tool, Usage as ChatUsage,
+        ChatMessage, ChatProvider, ChatResponse, StreamChoice, StreamChunk, StreamDelta,
+        StreamResponse, StructuredOutputFormat, Tool, Usage as ChatUsage,
     },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
@@ -27,7 +27,7 @@ use mistralrs::{
     TextMessageRole, TextModelBuilder, ToolCallResponse, ToolCallType,
     ToolChoice as MistralToolChoice, ToolType, Usage as MistralUsage, VisionModelBuilder,
 };
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 use tokio::sync::mpsc;
 
 /// MistralRs provider for local LLM inference
@@ -732,6 +732,16 @@ impl ChatProvider for MistralRsProvider {
         });
 
         Ok(Box::pin(struct_stream))
+    }
+
+    async fn chat_stream_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError> {
+        //TODO: Fix this to be compatable with ReAct Agent Executor
+        todo!()
     }
 }
 

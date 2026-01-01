@@ -4,7 +4,8 @@ use crate::model::llama::tokenizer::Tokenizer;
 use crate::model::llama::Llama;
 use crate::utils::{receiver_into_stream, spawn_future, CustomMutex};
 use autoagents_llm::chat::{
-    ChatMessage, ChatProvider, ChatResponse, StreamResponse, StructuredOutputFormat, Tool,
+    ChatMessage, ChatProvider, ChatResponse, StreamChunk, StreamResponse, StructuredOutputFormat,
+    Tool,
 };
 use autoagents_llm::completion::{CompletionProvider, CompletionRequest, CompletionResponse};
 use autoagents_llm::embedding::EmbeddingProvider;
@@ -259,6 +260,16 @@ impl<B: Backend, T: Tokenizer> ChatProvider for LlamaChat<B, T> {
         });
 
         Ok(receiver_into_stream(rx))
+    }
+
+    async fn chat_stream_with_tools(
+        &self,
+        _messages: &[ChatMessage],
+        _tools: Option<&[Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError> {
+        //TODO: Fix this to be compatable with ReAct Agent Executor
+        todo!()
     }
 }
 

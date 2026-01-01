@@ -4,7 +4,7 @@ use crate::agent::{AgentDeriveT, Context, ExecutorConfig, TurnResult};
 use crate::protocol::{Event, StreamingTurnResult, SubmissionId};
 use crate::tool::{to_llm_tool, ToolCallResult, ToolT};
 use async_trait::async_trait;
-use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, Tool};
+use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, StreamChunk, Tool};
 use autoagents_llm::error::LLMError;
 use autoagents_llm::ToolCall;
 use futures::{Stream, StreamExt};
@@ -357,12 +357,13 @@ impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
 
         // Process stream chunks
         while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| ReActExecutorError::LLMError(e.to_string()))?;
+            let chunk: StreamChunk =
+                chunk_result.map_err(|e| ReActExecutorError::LLMError(e.to_string()))?;
+            let chunk_clone = chunk.clone();
 
-            if let Some(choice) = chunk.choices.first() {
-                // Handle content
-                if let Some(content) = &choice.delta.content {
-                    response_text.push_str(content);
+            match chunk {
+                StreamChunk::Text(content) => {
+                    response_text.push_str(&content);
                     let _ = tx
                         .send(Ok(ReActAgentOutput {
                             response: content.to_string(),
@@ -371,28 +372,32 @@ impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
                         }))
                         .await;
                 }
+                StreamChunk::ToolUseComplete {
+                    index: _,
+                    tool_call,
+                } => {
+                    if tool_call_ids.insert(tool_call.id.clone()) {
+                        tool_calls.push(tool_call.clone());
 
-                // Handle tool calls
-                if let Some(chunk_tool_calls) = &choice.delta.tool_calls {
-                    for tool_call in chunk_tool_calls {
-                        if tool_call_ids.insert(tool_call.id.clone()) {
-                            tool_calls.push(tool_call.clone());
-
-                            let tx_event = context.tx().ok();
-                            EventHelper::send_stream_tool_call(
-                                &tx_event,
-                                submission_id,
-                                serde_json::to_value(tool_call).unwrap_or(Value::Null),
-                            )
-                            .await;
-                        }
+                        let tx_event = context.tx().ok();
+                        EventHelper::send_stream_tool_call(
+                            &tx_event,
+                            submission_id,
+                            serde_json::to_value(tool_call).unwrap_or(Value::Null),
+                        )
+                        .await;
                     }
                 }
-
-                // Send stream chunk event
-                let tx_event = context.tx().ok();
-                EventHelper::send_stream_chunk(&tx_event, submission_id, choice.clone()).await;
+                StreamChunk::Usage(_) => {
+                    //TODO: Add Usage Analytics
+                }
+                _ => {
+                    //Do nothing
+                }
             }
+            // Send stream chunk event
+            let tx_event = context.tx().ok();
+            EventHelper::send_stream_chunk(&tx_event, submission_id, chunk_clone).await;
         }
 
         // Process collected tool calls if any
@@ -432,14 +437,14 @@ impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
         messages: &[ChatMessage],
         tools: &[Box<dyn ToolT>],
     ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<autoagents_llm::chat::StreamResponse, LLMError>> + Send>>,
+        Pin<Box<dyn Stream<Item = Result<autoagents_llm::chat::StreamChunk, LLMError>> + Send>>,
         ReActExecutorError,
     > {
         let llm = context.llm();
         let agent_config = context.config();
         let tools_serialized: Vec<Tool> = tools.iter().map(to_llm_tool).collect();
 
-        llm.chat_stream_struct(
+        llm.chat_stream_with_tools(
             messages,
             if tools.is_empty() {
                 None

@@ -20,6 +20,7 @@ use autoagents::{
         runtime::{SingleThreadedRuntime, TypedRuntime},
         tool::{shared_tools_to_boxes, ToolT},
     },
+    llm::chat::StreamChunk,
 };
 use futures::StreamExt;
 use std::sync::Arc;
@@ -408,7 +409,7 @@ impl RoutingWorkflow {
                     }
                     Event::StreamChunk { sub_id, chunk } => {
                         if target_sub_id == Some(sub_id) {
-                            if let Some(content) = chunk.delta.content {
+                            if let StreamChunk::Text(content) = chunk {
                                 if !content.is_empty()
                                     && tx_events
                                         .send(Ok(WorkflowStreamEvent::Chunk { content }))

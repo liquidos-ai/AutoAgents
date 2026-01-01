@@ -780,8 +780,17 @@ fn parse_openai_sse_chunk_with_tools(
 
     for line in event.lines() {
         let line = line.trim();
-        if let Some(data) = line.strip_prefix("data: ") {
-            if data == "[DONE]" {
+
+        // Accept both "data: " and "data:" prefixes (tolerant parsing).
+        let data_opt = line
+            .strip_prefix("data: ")
+            .or_else(|| line.strip_prefix("data:").map(|d| d.trim_start()));
+
+        if let Some(data) = data_opt {
+            let data_trimmed = data.trim();
+
+            // End-of-stream sentinel.
+            if data_trimmed == "[DONE]" {
                 // Emit any remaining tool completions
                 for (index, state) in tool_states.drain() {
                     if state.started {
@@ -798,85 +807,103 @@ fn parse_openai_sse_chunk_with_tools(
                         });
                     }
                 }
+
+                // No usage available here (usage is often sent in a prior event).
                 results.push(ChatStreamChunk::Done {
                     stop_reason: "end_turn".to_string(),
                 });
                 return Ok(results);
             }
 
-            if let Ok(chunk) = serde_json::from_str::<OpenAIToolStreamChunk>(data) {
-                for choice in &chunk.choices {
-                    // Handle text content
-                    if let Some(content) = &choice.delta.content {
-                        if !content.is_empty() {
-                            results.push(ChatStreamChunk::Text(content.clone()));
-                        }
-                    }
+            // Try to parse JSON chunk; return parse error so caller can turn into an Err item.
+            let chunk: OpenAIToolStreamChunk = serde_json::from_str(data_trimmed)
+                .map_err(|e| LLMError::JsonError(e.to_string()))?;
 
-                    // Handle tool calls
-                    if let Some(tool_calls) = &choice.delta.tool_calls {
-                        for tc in tool_calls {
-                            let index = tc.index.unwrap_or(0);
-                            let state = tool_states.entry(index).or_default();
+            // Capture usage if present (we may emit it either immediately or after completions).
+            let mut usage_opt = chunk.usage.clone();
 
-                            // First chunk has id and name
-                            if let Some(id) = &tc.id {
-                                state.id = id.clone();
-                            }
-                            if let Some(name) = &tc.function.name {
-                                state.name = name.clone();
-
-                                // Emit ToolUseStart
-                                if !state.started {
-                                    state.started = true;
-                                    results.push(ChatStreamChunk::ToolUseStart {
-                                        index,
-                                        id: state.id.clone(),
-                                        name: state.name.clone(),
-                                    });
-                                }
-                            }
-
-                            // Accumulate arguments
-                            if !tc.function.arguments.is_empty() {
-                                state.arguments_buffer.push_str(&tc.function.arguments);
-                                results.push(ChatStreamChunk::ToolUseInputDelta {
-                                    index,
-                                    partial_json: tc.function.arguments.clone(),
-                                });
-                            }
-                        }
-                    }
-
-                    // Handle finish_reason
-                    if let Some(finish_reason) = &choice.finish_reason {
-                        // Emit tool completions before done
-                        for (index, state) in tool_states.drain() {
-                            if state.started {
-                                results.push(ChatStreamChunk::ToolUseComplete {
-                                    index,
-                                    tool_call: ToolCall {
-                                        id: state.id,
-                                        call_type: "function".to_string(),
-                                        function: FunctionCall {
-                                            name: state.name,
-                                            arguments: state.arguments_buffer,
-                                        },
-                                    },
-                                });
-                            }
-                        }
-
-                        let stop_reason = match finish_reason.as_str() {
-                            "tool_calls" => "tool_use",
-                            "stop" => "end_turn",
-                            other => other,
-                        };
-                        results.push(ChatStreamChunk::Done {
-                            stop_reason: stop_reason.to_string(),
-                        });
+            for choice in &chunk.choices {
+                // Handle text content
+                if let Some(content) = &choice.delta.content {
+                    if !content.is_empty() {
+                        results.push(ChatStreamChunk::Text(content.clone()));
                     }
                 }
+
+                // Handle tool calls (per-index)
+                if let Some(tool_calls) = &choice.delta.tool_calls {
+                    for tc in tool_calls {
+                        let index = tc.index.unwrap_or(0);
+                        let state = tool_states.entry(index).or_default();
+
+                        // First chunk can contain id and name
+                        if let Some(id) = &tc.id {
+                            state.id = id.clone();
+                        }
+                        if let Some(name) = &tc.function.name {
+                            state.name = name.clone();
+
+                            // Emit ToolUseStart if not already started
+                            if !state.started {
+                                state.started = true;
+                                results.push(ChatStreamChunk::ToolUseStart {
+                                    index,
+                                    id: state.id.clone(),
+                                    name: state.name.clone(),
+                                });
+                            }
+                        }
+
+                        // Accumulate arguments and emit the delta event so consumers can stream partial JSON.
+                        if !tc.function.arguments.is_empty() {
+                            state.arguments_buffer.push_str(&tc.function.arguments);
+                            results.push(ChatStreamChunk::ToolUseInputDelta {
+                                index,
+                                partial_json: tc.function.arguments.clone(),
+                            });
+                        }
+                    }
+                }
+
+                // Handle finish_reason (map to Done stop_reason and flush completions)
+                if let Some(finish_reason) = &choice.finish_reason {
+                    // Emit tool completions before Done
+                    for (index, state) in tool_states.drain() {
+                        if state.started {
+                            results.push(ChatStreamChunk::ToolUseComplete {
+                                index,
+                                tool_call: ToolCall {
+                                    id: state.id,
+                                    call_type: "function".to_string(),
+                                    function: FunctionCall {
+                                        name: state.name,
+                                        arguments: state.arguments_buffer,
+                                    },
+                                },
+                            });
+                        }
+                    }
+
+                    // If usage was present in this chunk, emit it now (after completions, before Done).
+                    if let Some(u) = usage_opt.take() {
+                        results.push(ChatStreamChunk::Usage(u));
+                    }
+
+                    let stop_reason = match finish_reason.as_str() {
+                        "tool_calls" => "tool_use",
+                        "stop" => "end_turn",
+                        other => other,
+                    };
+                    results.push(ChatStreamChunk::Done {
+                        stop_reason: stop_reason.to_string(),
+                    });
+                }
+            }
+
+            // If no finish_reason was found but usage was present in this chunk,
+            // emit the usage now (consume it so it is not emitted again).
+            if let Some(u) = usage_opt.take() {
+                results.push(ChatStreamChunk::Usage(u));
             }
         }
     }
@@ -888,6 +915,9 @@ fn parse_openai_sse_chunk_with_tools(
 #[derive(Debug, Deserialize)]
 struct OpenAIToolStreamChunk {
     choices: Vec<OpenAIToolStreamChoice>,
+    /// Optional usage metadata (often appears in its own SSE event).
+    #[serde(default)]
+    usage: Option<Usage>,
 }
 
 #[derive(Debug, Deserialize)]

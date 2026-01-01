@@ -67,7 +67,7 @@ pub struct StreamDelta {
 /// This enum provides a unified representation of streaming events
 /// when using `chat_stream_with_tools`. It allows callers to receive
 /// text deltas as they arrive while also handling tool use blocks.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StreamChunk {
     /// Text content delta
     Text(String),
@@ -103,6 +103,7 @@ pub enum StreamChunk {
         /// The reason the stream stopped (e.g., "end_turn", "tool_use")
         stop_reason: String,
     },
+    Usage(Usage),
 }
 
 /// Breakdown of completion tokens.

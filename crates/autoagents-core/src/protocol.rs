@@ -1,6 +1,6 @@
 use crate::agent::task::Task;
 use crate::tool::ToolCallResult;
-use autoagents_llm::chat::StreamChoice;
+use autoagents_llm::chat::StreamChunk;
 use serde::{Deserialize, Serialize};
 use std::any::{Any, TypeId};
 use std::fmt::Debug;
@@ -99,7 +99,7 @@ pub enum Event {
     /// Streaming chunk from agent
     StreamChunk {
         sub_id: SubmissionId,
-        chunk: StreamChoice,
+        chunk: StreamChunk,
     },
 
     /// Streaming tool call chunk
