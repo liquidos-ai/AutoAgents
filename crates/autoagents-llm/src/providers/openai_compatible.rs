@@ -923,7 +923,7 @@ pub fn chat_message_to_openai_message(chat_msg: ChatMessage) -> OpenAIChatMessag
             ChatRole::User => "user",
             ChatRole::Assistant => "assistant",
             ChatRole::System => "system",
-            ChatRole::Tool => "tool",
+            ChatRole::Tool => "user",
         },
         tool_call_id: None,
         content: match &chat_msg.message_type {

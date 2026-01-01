@@ -49,7 +49,7 @@ pub(crate) fn convert_role(role: &ChatRole) -> TextMessageRole {
         ChatRole::System => TextMessageRole::System,
         ChatRole::User => TextMessageRole::User,
         ChatRole::Assistant => TextMessageRole::Assistant,
-        ChatRole::Tool => TextMessageRole::Tool,
+        ChatRole::Tool => TextMessageRole::User,
     }
 }
 

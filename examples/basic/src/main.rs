@@ -5,6 +5,7 @@ use autoagents::prelude::*;
 mod actor;
 mod basic;
 mod hooks;
+mod llm;
 mod manual_tool_agent;
 #[cfg(any(feature = "onnx", feature = "onnx-cuda"))]
 mod onnx;
@@ -23,6 +24,7 @@ enum UseCase {
     Hooks,
     ManualToolAgent,
     Toolkit,
+    Llm,
 }
 
 #[cfg(any(feature = "onnx", feature = "onnx-cuda"))]
@@ -78,6 +80,7 @@ async fn main() -> Result<(), Error> {
         UseCase::Hooks => hooks::hooks_agent(llm).await?,
         UseCase::ManualToolAgent => manual_tool_agent::run_agent(llm, &args.mode).await?,
         UseCase::Toolkit => toolkit::run_agent(llm).await?,
+        UseCase::Llm => llm::run_llm(llm).await?,
     }
 
     Ok(())

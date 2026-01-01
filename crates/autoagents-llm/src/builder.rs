@@ -166,7 +166,7 @@ impl<L: LLMProvider> Default for LLMBuilder<L> {
             api_version: None,
             deployment_id: None,
             voice: None,
-            normalize_response: None,
+            normalize_response: Some(true), //Defaulting so it accumilates tool calls in streams, easy for agent handling
             extra_body: None,
         }
     }
@@ -437,7 +437,7 @@ impl FunctionBuilder {
 
     /// Builds the function tool
     #[allow(dead_code)]
-    fn build(self) -> Tool {
+    pub fn build(self) -> Tool {
         let parameters_value = if let Some(schema) = self.raw_schema {
             schema
         } else {
