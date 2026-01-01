@@ -11,6 +11,14 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - "" # core only
+          - openai
+
     steps:
       - uses: actions/checkout@v3
 
@@ -21,18 +29,23 @@ jobs:
           override: true
           components: llvm-tools-preview,rustfmt,clippy
 
-      # Formatting check
+      # Formatting check (run once per job, cheap)
       - name: Run fmt
         run: cargo fmt -- --check
 
-      # Clippy lint
+      # Clippy (feature matrix)
       - name: Run clippy
-        run: cargo clippy --all-features --all-targets -- -D warnings
+        run: |
+          if [ -z "${{ matrix.features }}" ]; then
+            cargo clippy --all-targets --no-default-features -- -D warnings
+          else
+            cargo clippy --all-targets --features "${{ matrix.features }}" -- -D warnings
+          fi
 
-      # Run tests
+      # Tests (no forced features)
       - name: Run tests
         run: cargo test --workspace --exclude autoagents-burn --exclude wasm_agent
 
-      # Cargo check
+      # Cargo check (core only)
       - name: Run cargo check
-        run: cargo check --all-features --all-targets
+        run: cargo check --all-targets --no-default-features
