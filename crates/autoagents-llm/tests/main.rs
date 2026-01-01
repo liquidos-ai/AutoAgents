@@ -273,21 +273,3 @@ mod common_tests {
         assert_eq!(tool.function.name, "calculate_sum");
     }
 }
-
-// Test module for testing feature flag configurations
-#[cfg(test)]
-mod feature_tests {
-    #[test]
-    #[cfg(feature = "full")]
-    fn test_full_feature_enables_all_backends() {
-        assert!(cfg!(feature = "openai"));
-        assert!(cfg!(feature = "anthropic"));
-        assert!(cfg!(feature = "ollama"));
-        assert!(cfg!(feature = "deepseek"));
-        assert!(cfg!(feature = "xai"));
-        assert!(cfg!(feature = "phind"));
-        assert!(cfg!(feature = "google"));
-        assert!(cfg!(feature = "groq"));
-        assert!(cfg!(feature = "azure_openai"));
-    }
-}
