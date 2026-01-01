@@ -11,15 +11,14 @@ use crate::{
 use autoagents_llm::{
     async_trait,
     chat::{
-        ChatMessage, ChatProvider, ChatResponse, StreamChoice, StreamDelta, StreamResponse,
-        StreamToolCallDelta, StreamToolCallFunction, StructuredOutputFormat, Tool,
-        Usage as ChatUsage,
+        ChatMessage, ChatProvider, ChatResponse, StreamChoice, StreamChunk, StreamDelta,
+        StreamResponse, StructuredOutputFormat, Tool, Usage as ChatUsage,
     },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
     error::LLMError,
     models::ModelsProvider,
-    LLMProvider,
+    FunctionCall, LLMProvider, ToolCall,
 };
 use futures::{stream::Stream, StreamExt};
 use mistralrs::{
@@ -28,7 +27,7 @@ use mistralrs::{
     TextMessageRole, TextModelBuilder, ToolCallResponse, ToolCallType,
     ToolChoice as MistralToolChoice, ToolType, Usage as MistralUsage, VisionModelBuilder,
 };
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 use tokio::sync::mpsc;
 
 /// MistralRs provider for local LLM inference
@@ -282,12 +281,13 @@ impl MistralRsProvider {
                 let tool_calls = choice.delta.tool_calls.map(|calls| {
                     calls
                         .into_iter()
-                        .map(|call| StreamToolCallDelta {
-                            index: call.index,
-                            function: Some(StreamToolCallFunction {
+                        .map(|call| ToolCall {
+                            id: call.id,
+                            call_type: call.tp.to_string(),
+                            function: FunctionCall {
                                 name: call.function.name,
                                 arguments: call.function.arguments,
-                            }),
+                            },
                         })
                         .collect::<Vec<_>>()
                 });
@@ -608,7 +608,7 @@ fn build_request_builder(
 
 #[async_trait]
 impl ChatProvider for MistralRsProvider {
-    async fn chat(
+    async fn chat_with_tools(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
@@ -687,11 +687,10 @@ impl ChatProvider for MistralRsProvider {
     async fn chat_stream(
         &self,
         messages: &[ChatMessage],
-        tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
-        let request_builder = self.build_stream_request(messages, tools, json_schema)?;
+        let request_builder = self.build_stream_request(messages, None, json_schema)?;
         let response_stream = Self::spawn_response_stream(self.model.clone(), request_builder);
 
         let content_stream = response_stream.filter_map(|event| async move {
@@ -733,6 +732,16 @@ impl ChatProvider for MistralRsProvider {
         });
 
         Ok(Box::pin(struct_stream))
+    }
+
+    async fn chat_stream_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError> {
+        //TODO: Fix this to be compatable with ReAct Agent Executor
+        todo!()
     }
 }
 

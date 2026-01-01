@@ -54,7 +54,6 @@ impl Groq {
         max_tokens: Option<u32>,
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
-        system: Option<String>,
         top_p: Option<f32>,
         top_k: Option<u32>,
         tool_choice: Option<ToolChoice>,
@@ -63,6 +62,7 @@ impl Groq {
         reasoning_effort: Option<String>,
         parallel_tool_calls: Option<bool>,
         normalize_response: Option<bool>,
+        extra_body: Option<serde_json::Value>,
     ) -> Self {
         OpenAICompatibleProvider::<GroqConfig>::new(
             api_key,
@@ -71,12 +71,12 @@ impl Groq {
             max_tokens,
             temperature,
             timeout_seconds,
-            system,
             top_p,
             top_k,
             tool_choice,
             reasoning_effort,
-            None, // voice - not supported by Groq
+            None, // voice - not supported by Groq,
+            extra_body,
             parallel_tool_calls,
             normalize_response,
             None, // embedding_encoding_format - not supported by Groq
@@ -150,7 +150,6 @@ impl LLMBuilder<Groq> {
             self.max_tokens,
             self.temperature,
             self.timeout_seconds,
-            self.system,
             self.top_p,
             self.top_k,
             self.tool_choice,
@@ -159,6 +158,7 @@ impl LLMBuilder<Groq> {
             self.reasoning_effort,
             self.enable_parallel_tool_use,
             self.normalize_response,
+            self.extra_body,
         );
 
         Ok(Arc::new(groq))

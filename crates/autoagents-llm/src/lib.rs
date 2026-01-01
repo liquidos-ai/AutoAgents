@@ -13,6 +13,8 @@
 //! # Architecture
 //! The crate is organized into modules that handle different aspects of LLM interactions:
 
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 
 /// Backend implementations for supported LLM providers like OpenAI, Anthropic, etc.
@@ -72,6 +74,16 @@ pub struct ToolCall {
     pub call_type: String,
     /// The function to call.
     pub function: FunctionCall,
+}
+
+impl Display for ToolCall {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ToolCall {{ id: {}, type: {}, function: {:?} }}",
+            self.id, self.call_type, self.function
+        )
+    }
 }
 
 /// FunctionCall contains details about which function to call and with what arguments.
@@ -371,6 +383,16 @@ mod tests {
         async fn chat(
             &self,
             _messages: &[ChatMessage],
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            Ok(Box::new(MockChatResponse {
+                text: Some("Mock response".into()),
+            }))
+        }
+
+        async fn chat_with_tools(
+            &self,
+            _messages: &[ChatMessage],
             _tools: Option<&[Tool]>,
             _json_schema: Option<StructuredOutputFormat>,
         ) -> Result<Box<dyn ChatResponse>, LLMError> {
@@ -440,7 +462,7 @@ mod tests {
         let provider = MockLLMProvider;
         let messages = vec![chat::ChatMessage::user().content("Test").build()];
 
-        let response = provider.chat(&messages, None, None).await.unwrap();
+        let response = provider.chat(&messages, None).await.unwrap();
         assert_eq!(response.text(), Some("Mock response".to_string()));
     }
 

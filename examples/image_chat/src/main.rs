@@ -77,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
     println!("Processing...\n");
 
     // Send the message and get response
-    let response = llm.chat(&[message], None, None).await?;
+    let response = llm.chat(&[message], None).await?;
 
     println!("Response:\n{}", response.text().unwrap_or_default());
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));

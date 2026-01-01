@@ -40,10 +40,10 @@ impl OpenRouter {
         max_tokens: Option<u32>,
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
-        system: Option<String>,
         top_p: Option<f32>,
         top_k: Option<u32>,
         tool_choice: Option<ToolChoice>,
+        extra_body: Option<serde_json::Value>,
         _embedding_encoding_format: Option<String>,
         _embedding_dimensions: Option<u32>,
         reasoning_effort: Option<String>,
@@ -57,12 +57,12 @@ impl OpenRouter {
             max_tokens,
             temperature,
             timeout_seconds,
-            system,
             top_p,
             top_k,
             tool_choice,
             reasoning_effort,
             None, // voice - not supported by OpenRouter
+            extra_body,
             parallel_tool_calls,
             normalize_response,
             None, // embedding_encoding_format - not supported by OpenRouter
@@ -138,10 +138,10 @@ impl LLMBuilder<OpenRouter> {
             self.max_tokens,
             self.temperature,
             self.timeout_seconds,
-            self.system,
             self.top_p,
             self.top_k,
             self.tool_choice,
+            self.extra_body,
             None, // embedding_encoding_format
             None, // embedding_dimensions
             self.reasoning_effort,

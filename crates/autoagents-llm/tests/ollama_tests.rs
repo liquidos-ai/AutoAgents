@@ -25,7 +25,6 @@ mod ollama_test_cases {
             .model("llama3.1")
             .max_tokens(100)
             .temperature(0.7)
-            .system("Test system prompt")
             .build()
             .expect("Failed to build Ollama client")
     }
@@ -37,7 +36,6 @@ mod ollama_test_cases {
         assert_eq!(client.model, "llama3.1");
         assert_eq!(client.max_tokens, Some(100));
         assert_eq!(client.temperature, Some(0.7));
-        assert_eq!(client.system, Some("Test system prompt".to_string()));
     }
 
     #[test]
@@ -63,7 +61,6 @@ mod ollama_test_cases {
             None,
             None,
             None,
-            None,
         );
 
         assert_eq!(client.base_url, "http://localhost:11434");
@@ -71,19 +68,18 @@ mod ollama_test_cases {
         assert!(client.api_key.is_none());
         assert!(client.max_tokens.is_none());
         assert!(client.temperature.is_none());
-        assert!(client.system.is_none());
     }
 
     #[tokio::test]
     async fn test_chat_missing_base_url() {
         let client = Ollama::new(
             "", // Empty base URL
-            None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None,
         );
 
         let messages = vec![ChatMessage::user().content("Hello").build()];
 
-        let result = client.chat(&messages, None, None).await;
+        let result = client.chat(&messages, None).await;
         assert!(result.is_err());
 
         match result.err().unwrap() {
@@ -98,7 +94,7 @@ mod ollama_test_cases {
     async fn test_completion_missing_base_url() {
         let client = Ollama::new(
             "", // Empty base URL
-            None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None,
         );
 
         let req = CompletionRequest {
@@ -122,7 +118,7 @@ mod ollama_test_cases {
     async fn test_embedding() {
         let client = Ollama::new(
             "", // Empty base URL will cause error
-            None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None,
         );
 
         let result = client.embed(vec!["test text".to_string()]).await;

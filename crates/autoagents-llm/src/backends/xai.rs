@@ -3,13 +3,10 @@
 //! This module provides integration with X.AI's models through their API.
 //! It implements chat and completion capabilities using the X.AI API endpoints.
 
+use crate::chat::Tool;
 #[cfg(feature = "xai")]
 use crate::embedding::EmbeddingBuilder;
-use crate::{
-    builder::LLMBuilder,
-    chat::{ChatResponse, Tool},
-    ToolCall,
-};
+use crate::{builder::LLMBuilder, chat::ChatResponse, ToolCall};
 use crate::{
     chat::{ChatMessage, ChatProvider, ChatRole, StructuredOutputFormat},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
@@ -37,8 +34,6 @@ pub struct XAI {
     pub max_tokens: Option<u32>,
     /// Temperature parameter for controlling response randomness (0.0 to 1.0)
     pub temperature: Option<f32>,
-    /// Optional system prompt to provide context
-    pub system: Option<String>,
     /// Request timeout duration in seconds
     pub timeout_seconds: Option<u64>,
     /// Top-p sampling parameter for controlling response diversity
@@ -254,7 +249,6 @@ impl XAI {
         max_tokens: Option<u32>,
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
-        system: Option<String>,
         top_p: Option<f32>,
         top_k: Option<u32>,
         embedding_encoding_format: Option<String>,
@@ -275,7 +269,6 @@ impl XAI {
             model: model.unwrap_or("grok-2-latest".to_string()),
             max_tokens,
             temperature,
-            system,
             timeout_seconds,
             top_p,
             top_k,
@@ -348,35 +341,24 @@ impl ChatProvider for XAI {
     async fn chat(
         &self,
         messages: &[ChatMessage],
-        _tools: Option<&[Tool]>, // XAI Does not support tools yet
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError("Missing X.AI API key".to_string()));
         }
 
-        let mut xai_msgs: Vec<XAIChatMessage> = messages
+        let xai_msgs: Vec<XAIChatMessage> = messages
             .iter()
             .map(|m| XAIChatMessage {
                 role: match m.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
-                    ChatRole::Tool => "tool",
                     ChatRole::System => "system",
+                    ChatRole::Tool => "user",
                 },
                 content: &m.content,
             })
             .collect();
-
-        if let Some(system) = &self.system {
-            xai_msgs.insert(
-                0,
-                XAIChatMessage {
-                    role: "system",
-                    content: system,
-                },
-            );
-        }
 
         // OpenAI's structured output has some [odd requirements](https://platform.openai.com/docs/guides/structured-outputs?api-mode=chat&lang=curl#supported-schemas).
         // There's currently no check for these, so we'll leave it up to the user to provide a valid schema.
@@ -451,7 +433,6 @@ impl ChatProvider for XAI {
     async fn chat_stream(
         &self,
         messages: &[ChatMessage],
-        _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
@@ -459,28 +440,18 @@ impl ChatProvider for XAI {
             return Err(LLMError::AuthError("Missing X.AI API key".to_string()));
         }
 
-        let mut xai_msgs: Vec<XAIChatMessage> = messages
+        let xai_msgs: Vec<XAIChatMessage> = messages
             .iter()
             .map(|m| XAIChatMessage {
                 role: match m.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
                     ChatRole::System => "system",
-                    ChatRole::Tool => "tool",
+                    ChatRole::Tool => "user",
                 },
                 content: &m.content,
             })
             .collect();
-
-        if let Some(system) = &self.system {
-            xai_msgs.insert(
-                0,
-                XAIChatMessage {
-                    role: "system",
-                    content: system,
-                },
-            );
-        }
 
         let body = XAIChatRequest {
             model: &self.model,
@@ -519,6 +490,15 @@ impl ChatProvider for XAI {
             response,
             parse_xai_sse_chunk,
         ))
+    }
+
+    async fn chat_with_tools(
+        &self,
+        _messages: &[ChatMessage],
+        _tools: Option<&[Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        unimplemented!("XAI Doesn't support tools yet")
     }
 }
 
@@ -642,13 +622,12 @@ impl LLMBuilder<XAI> {
             .api_key
             .ok_or_else(|| LLMError::InvalidRequest("No API key provided for XAI".to_string()))?;
 
-        let xai = crate::backends::xai::XAI::new(
+        let xai = XAI::new(
             api_key,
             self.model,
             self.max_tokens,
             self.temperature,
             self.timeout_seconds,
-            self.system,
             self.top_p,
             self.top_k,
             self.embedding_encoding_format,
@@ -678,7 +657,6 @@ impl EmbeddingBuilder<XAI> {
             None,
             None,
             self.timeout_seconds,
-            None,
             None,
             None,
             self.embedding_encoding_format,

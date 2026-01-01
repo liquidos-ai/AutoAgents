@@ -52,13 +52,6 @@ mod common_tests {
             .build();
         assert_eq!(msg.role, ChatRole::System);
         assert_eq!(msg.content, "System prompt");
-
-        // Test tool message
-        let msg = ChatMessageBuilder::new(ChatRole::Tool)
-            .content("Tool output")
-            .build();
-        assert_eq!(msg.role, ChatRole::Tool);
-        assert_eq!(msg.content, "Tool output");
     }
 
     #[test]
@@ -133,32 +126,6 @@ mod common_tests {
                 assert_eq!(calls[0].function.name, "get_weather");
             }
             _ => panic!("Expected ToolUse message type"),
-        }
-    }
-
-    #[test]
-    fn test_message_with_tool_responses() {
-        let tool_responses = vec![ToolCall {
-            id: "call_123".to_string(),
-            call_type: "function".to_string(),
-            function: FunctionCall {
-                name: "get_weather".to_string(),
-                arguments: "Sunny, 72°F".to_string(),
-            },
-        }];
-
-        let msg = ChatMessageBuilder::new(ChatRole::Tool)
-            .content("")
-            .tool_result(tool_responses.clone())
-            .build();
-
-        match &msg.message_type {
-            MessageType::ToolResult(responses) => {
-                assert_eq!(responses.len(), 1);
-                assert_eq!(responses[0].id, "call_123");
-                assert_eq!(responses[0].function.arguments, "Sunny, 72°F");
-            }
-            _ => panic!("Expected ToolResult message type"),
         }
     }
 
@@ -304,23 +271,5 @@ mod common_tests {
 
         assert_eq!(tool.tool_type, "function");
         assert_eq!(tool.function.name, "calculate_sum");
-    }
-}
-
-// Test module for testing feature flag configurations
-#[cfg(test)]
-mod feature_tests {
-    #[test]
-    #[cfg(feature = "full")]
-    fn test_full_feature_enables_all_backends() {
-        assert!(cfg!(feature = "openai"));
-        assert!(cfg!(feature = "anthropic"));
-        assert!(cfg!(feature = "ollama"));
-        assert!(cfg!(feature = "deepseek"));
-        assert!(cfg!(feature = "xai"));
-        assert!(cfg!(feature = "phind"));
-        assert!(cfg!(feature = "google"));
-        assert!(cfg!(feature = "groq"));
-        assert!(cfg!(feature = "azure_openai"));
     }
 }

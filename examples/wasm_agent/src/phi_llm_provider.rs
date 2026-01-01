@@ -10,12 +10,10 @@ use autoagents_llm::error::LLMError;
 use autoagents_llm::models::ModelsProvider;
 use autoagents_llm::LLMProvider;
 use autoagents_llm::{chat::StreamChoice, chat::StreamDelta};
-use futures::stream::{Stream, StreamExt};
-use std::any::Any;
+use futures::stream::Stream;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use wasm_bindgen::JsValue;
 
 /// Wrapper to make a stream Send for WASM compatibility
 #[cfg(target_arch = "wasm32")]
@@ -82,13 +80,90 @@ impl std::fmt::Display for PhiChatResponse {
 
 #[async_trait]
 impl ChatProvider for PhiLLMProvider {
-    async fn chat(
+    async fn chat_with_tools(
         &self,
         messages: &[ChatMessage],
-        _tools: Option<&[Tool]>,
-        _json_schema: Option<StructuredOutputFormat>,
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        unimplemented!()
+        if tools.is_some() {
+            return Err(LLMError::Generic(
+                "Tools not supported by Phi model".to_string(),
+            ));
+        }
+
+        if json_schema.is_some() {
+            return Err(LLMError::Generic(
+                "Structured output not supported by Phi model".to_string(),
+            ));
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            return Err(LLMError::Generic(
+                "This PhiLLMProvider is designed for WASM only".to_string(),
+            ));
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let prompt = self.messages_to_prompt(messages);
+
+            let model_arc = self.model.clone();
+            let mut model_guard = match model_arc.lock() {
+                Ok(guard) => guard,
+                Err(e) => {
+                    return Err(LLMError::ProviderError(format!(
+                        "Failed to lock model: {}",
+                        e
+                    )));
+                }
+            };
+
+            let init_data = PhiInitInput {
+                prompt,
+                temp: 0.7,
+                top_p: 0.9,
+                repeat_penalty: 1.1,
+                repeat_last_n: 64,
+                seed: 42,
+            };
+
+            let init_data_js = serde_wasm_bindgen::to_value(&init_data).map_err(|e| {
+                LLMError::ProviderError(format!("Failed to serialize init data: {}", e))
+            })?;
+
+            let first_token_result = model_guard.init_with_prompt(init_data_js).map_err(|e| {
+                LLMError::ProviderError(format!("Failed to initialize model: {:?}", e))
+            })?;
+
+            let first_token: PhiTokenOutput = serde_wasm_bindgen::from_value(first_token_result)
+                .map_err(|e| {
+                    LLMError::ProviderError(format!("Failed to deserialize first token: {}", e))
+                })?;
+
+            let mut output = String::new();
+            output.push_str(&first_token.token);
+
+            for _ in 0..256 {
+                let token_result = model_guard.next_token().map_err(|e| {
+                    LLMError::ProviderError(format!("Failed to generate token: {:?}", e))
+                })?;
+
+                let token: PhiTokenOutput =
+                    serde_wasm_bindgen::from_value(token_result).map_err(|e| {
+                        LLMError::ProviderError(format!("Failed to deserialize token: {}", e))
+                    })?;
+
+                if token.token == "<|endoftext|>" {
+                    break;
+                }
+
+                output.push_str(&token.token);
+            }
+
+            Ok(Box::new(PhiChatResponse { text: output }))
+        }
     }
 
     async fn chat_stream_struct(
@@ -287,7 +362,7 @@ impl CompletionProvider for PhiLLMProvider {
             content: req.prompt.clone(),
         }];
 
-        let response = self.chat(&messages, None, None).await?;
+        let response = self.chat(&messages, None).await?;
 
         Ok(CompletionResponse {
             text: response.text().unwrap_or_default(),

@@ -1,5 +1,5 @@
 use crate::protocol::{ActorID, Event, SubmissionId};
-use autoagents_llm::chat::StreamChoice;
+use autoagents_llm::chat::StreamChunk;
 use serde_json::Value;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -100,7 +100,7 @@ impl EventHelper {
     pub async fn send_stream_chunk(
         tx: &Option<mpsc::Sender<Event>>,
         sub_id: SubmissionId,
-        chunk: StreamChoice,
+        chunk: StreamChunk,
     ) {
         Self::send(tx, Event::StreamChunk { sub_id, chunk }).await;
     }

@@ -172,6 +172,15 @@ mod tests {
         async fn chat(
             &self,
             _messages: &[ChatMessage],
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            Ok(Box::new(MockChatResponse {
+                text: Some("Mock response".to_string()),
+            }))
+        }
+        async fn chat_with_tools(
+            &self,
+            _messages: &[ChatMessage],
             _tools: Option<&[autoagents_llm::chat::Tool]>,
             _json_schema: Option<StructuredOutputFormat>,
         ) -> Result<Box<dyn ChatResponse>, LLMError> {

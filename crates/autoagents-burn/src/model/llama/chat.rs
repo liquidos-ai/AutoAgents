@@ -4,7 +4,8 @@ use crate::model::llama::tokenizer::Tokenizer;
 use crate::model::llama::Llama;
 use crate::utils::{receiver_into_stream, spawn_future, CustomMutex};
 use autoagents_llm::chat::{
-    ChatMessage, ChatProvider, ChatResponse, StreamResponse, StructuredOutputFormat, Tool,
+    ChatMessage, ChatProvider, ChatResponse, StreamChunk, StreamResponse, StructuredOutputFormat,
+    Tool,
 };
 use autoagents_llm::completion::{CompletionProvider, CompletionRequest, CompletionResponse};
 use autoagents_llm::embedding::EmbeddingProvider;
@@ -117,12 +118,18 @@ impl<B: Backend, T: Tokenizer> CompletionProvider for LlamaChat<B, T> {
 
 #[async_trait]
 impl<B: Backend, T: Tokenizer> ChatProvider for LlamaChat<B, T> {
-    async fn chat(
+    async fn chat_with_tools(
         &self,
         messages: &[ChatMessage],
         _tools: Option<&[Tool]>,
-        _json_schema: Option<StructuredOutputFormat>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        if json_schema.is_some() {
+            return Err(LLMError::InvalidRequest(
+                "Structured output (json_schema) is not supported for this model".to_string(),
+            ));
+        }
+
         // Format messages into chat format
         let prompt = self.prompt(messages)?;
 
@@ -155,15 +162,12 @@ impl<B: Backend, T: Tokenizer> ChatProvider for LlamaChat<B, T> {
     async fn chat_stream(
         &self,
         messages: &[ChatMessage],
-        tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError> {
         use futures::stream::StreamExt;
 
         // Reuse chat_stream_struct and extract content from StreamResponse
-        let struct_stream = self
-            .chat_stream_struct(messages, tools, json_schema)
-            .await?;
+        let struct_stream = self.chat_stream_struct(messages, None, json_schema).await?;
 
         let content_stream = struct_stream.filter_map(|result| async move {
             match result {
@@ -187,10 +191,22 @@ impl<B: Backend, T: Tokenizer> ChatProvider for LlamaChat<B, T> {
     async fn chat_stream_struct(
         &self,
         messages: &[ChatMessage],
-        _tools: Option<&[Tool]>,
-        _json_schema: Option<StructuredOutputFormat>,
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>, LLMError>
     {
+        if tools.is_some_and(|t| !t.is_empty()) {
+            return Err(LLMError::NoToolSupport(
+                "Tools are not supported for this model".to_string(),
+            ));
+        }
+
+        if json_schema.is_some() {
+            return Err(LLMError::InvalidRequest(
+                "Structured output (json_schema) is not supported for this model".to_string(),
+            ));
+        }
+
         // Format messages into Llama chat format
         let prompt = self.prompt(messages)?;
 
@@ -244,6 +260,16 @@ impl<B: Backend, T: Tokenizer> ChatProvider for LlamaChat<B, T> {
         });
 
         Ok(receiver_into_stream(rx))
+    }
+
+    async fn chat_stream_with_tools(
+        &self,
+        _messages: &[ChatMessage],
+        _tools: Option<&[Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError> {
+        //TODO: Fix this to be compatable with ReAct Agent Executor
+        todo!()
     }
 }
 

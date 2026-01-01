@@ -14,6 +14,7 @@ use autoagents::core::utils::BoxEventStream;
 use autoagents_derive::{agent, tool, AgentHooks, ToolInput};
 use autoagents_onnx::chat::{LiquidEdgeBuilder, OnnxEdge};
 use autoagents_onnx::cpu;
+#[cfg(feature = "onnx-cuda")]
 use autoagents_onnx::device::cuda_default;
 use autoagents_onnx::onnx_model;
 use colored::*;
@@ -77,6 +78,7 @@ pub async fn edge_agent(device: EdgeDevice) -> Result<(), Error> {
     // Use CUDA device (will fallback to CPU if CUDA is not available)
     let device = match device {
         EdgeDevice::CPU => cpu(),
+        #[cfg(feature = "onnx-cuda")]
         EdgeDevice::CUDA => cuda_default(),
     };
 

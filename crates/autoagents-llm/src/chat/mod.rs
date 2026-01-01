@@ -1,17 +1,137 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::pin::Pin;
 
-use crate::{error::LLMError, ToolCall};
 use async_trait::async_trait;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use strum_macros::Display;
+
+use crate::{error::LLMError, ToolCall};
+
+/// Usage metadata for a chat response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Usage {
+    /// Number of tokens in the prompt
+    #[serde(alias = "input_tokens")]
+    pub prompt_tokens: u32,
+    /// Number of tokens in the completion
+    #[serde(alias = "output_tokens")]
+    pub completion_tokens: u32,
+    /// Total number of tokens used
+    pub total_tokens: u32,
+    /// Breakdown of completion tokens, if available
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        alias = "output_tokens_details"
+    )]
+    pub completion_tokens_details: Option<CompletionTokensDetails>,
+    /// Breakdown of prompt tokens, if available
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        alias = "input_tokens_details"
+    )]
+    pub prompt_tokens_details: Option<PromptTokensDetails>,
+}
+
+/// Stream response chunk that mimics OpenAI's streaming response format
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamResponse {
+    /// Array of choices in the response
+    pub choices: Vec<StreamChoice>,
+    /// Usage metadata, typically present in the final chunk
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
+}
+
+/// Individual choice in a streaming response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamChoice {
+    /// Delta containing the incremental content
+    pub delta: StreamDelta,
+}
+
+/// Delta content in a streaming response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamDelta {
+    /// The incremental content, if any
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    /// The incremental tool calls, if any
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
+}
+
+/// A streaming chunk that can be either text or a tool call event.
+///
+/// This enum provides a unified representation of streaming events
+/// when using `chat_stream_with_tools`. It allows callers to receive
+/// text deltas as they arrive while also handling tool use blocks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StreamChunk {
+    /// Text content delta
+    Text(String),
+
+    /// Tool use block started (contains tool id and name)
+    ToolUseStart {
+        /// The index of this content block in the response
+        index: usize,
+        /// The unique ID for this tool use
+        id: String,
+        /// The name of the tool being called
+        name: String,
+    },
+
+    /// Tool use input JSON delta (partial JSON string)
+    ToolUseInputDelta {
+        /// The index of this content block
+        index: usize,
+        /// Partial JSON string for the tool input
+        partial_json: String,
+    },
+
+    /// Tool use block complete with assembled ToolCall
+    ToolUseComplete {
+        /// The index of this content block
+        index: usize,
+        /// The complete tool call with id, name, and parsed arguments
+        tool_call: ToolCall,
+    },
+
+    /// Stream ended with stop reason
+    Done {
+        /// The reason the stream stopped (e.g., "end_turn", "tool_use")
+        stop_reason: String,
+    },
+    Usage(Usage),
+}
+
+/// Breakdown of completion tokens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompletionTokensDetails {
+    /// Tokens used for reasoning (for reasoning models)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_tokens: Option<u32>,
+    /// Tokens used for audio output
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_tokens: Option<u32>,
+}
+
+/// Breakdown of prompt tokens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromptTokensDetails {
+    /// Tokens used for cached content
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_tokens: Option<u32>,
+    /// Tokens used for audio input
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_tokens: Option<u32>,
+}
 
 /// Role of a participant in a chat conversation.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Display)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChatRole {
-    /// System
+    // The system Prompt
     System,
     /// The user/human participant in the conversation
     User,
@@ -21,8 +141,20 @@ pub enum ChatRole {
     Tool,
 }
 
+impl fmt::Display for ChatRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = match self {
+            ChatRole::System => "system",
+            ChatRole::User => "user",
+            ChatRole::Assistant => "assistant",
+            ChatRole::Tool => "tool",
+        };
+        f.write_str(value)
+    }
+}
+
 /// The supported MIME type of an image.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ImageMime {
     /// JPEG image
@@ -47,7 +179,7 @@ impl ImageMime {
 }
 
 /// The type of a message in a chat conversation.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum MessageType {
     /// A text message
     #[default]
@@ -65,7 +197,6 @@ pub enum MessageType {
 }
 
 /// The type of reasoning effort for a message in a chat conversation.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ReasoningEffort {
     /// Low reasoning effort
     Low,
@@ -242,91 +373,12 @@ impl Serialize for ToolChoice {
     }
 }
 
-/// Breakdown of completion tokens.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CompletionTokensDetails {
-    /// Tokens used for reasoning (for reasoning models)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_tokens: Option<u32>,
-    /// Tokens used for audio output
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub audio_tokens: Option<u32>,
-}
-
-/// Breakdown of prompt tokens.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PromptTokensDetails {
-    /// Tokens used for cached content
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cached_tokens: Option<u32>,
-    /// Tokens used for audio input
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub audio_tokens: Option<u32>,
-}
-
-/// Usage metadata for a chat response.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Usage {
-    /// Number of tokens in the prompt
-    pub prompt_tokens: u32,
-    /// Number of tokens in the completion
-    pub completion_tokens: u32,
-    /// Total number of tokens used
-    pub total_tokens: u32,
-    /// Breakdown of completion tokens, if available
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completion_tokens_details: Option<CompletionTokensDetails>,
-    /// Breakdown of prompt tokens, if available
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_tokens_details: Option<PromptTokensDetails>,
-}
-
-/// Stream response chunk that mimics OpenAI's streaming response format
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StreamResponse {
-    /// Array of choices in the response
-    pub choices: Vec<StreamChoice>,
-    /// Usage metadata, typically present in the final chunk
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Usage>,
-}
-
-/// Individual choice in a streaming response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StreamChoice {
-    /// Delta containing the incremental content
-    pub delta: StreamDelta,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StreamToolCallFunction {
-    pub arguments: String,
-    pub name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StreamToolCallDelta {
-    pub index: usize,
-    pub function: Option<StreamToolCallFunction>,
-}
-
-/// Delta content in a streaming response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StreamDelta {
-    /// The incremental content, if any
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<Vec<StreamToolCallDelta>>,
-}
-
 pub trait ChatResponse: std::fmt::Debug + std::fmt::Display + Send + Sync {
     fn text(&self) -> Option<String>;
     fn tool_calls(&self) -> Option<Vec<ToolCall>>;
     fn thinking(&self) -> Option<String> {
         None
     }
-
     fn usage(&self) -> Option<Usage> {
         None
     }
@@ -340,6 +392,7 @@ pub trait ChatProvider: Sync + Send {
     /// # Arguments
     ///
     /// * `messages` - The conversation history as a slice of chat messages
+    /// * `json_schema` - Optional json_schema for the response format
     ///
     /// # Returns
     ///
@@ -347,26 +400,60 @@ pub trait ChatProvider: Sync + Send {
     async fn chat(
         &self,
         messages: &[ChatMessage],
-        _tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<Box<dyn ChatResponse>, LLMError>;
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        self.chat_with_tools(messages, None, json_schema).await
+    }
 
-    /// Streams a chat request and returns a stream of response content chunks.
-    ///
-    /// This is the default simple streaming interface that yields only content.
-    /// For structured streaming responses (like tool calls), use `chat_stream_struct`.
+    /// Sends a chat request to the provider with a sequence of messages and tools.
     ///
     /// # Arguments
     ///
     /// * `messages` - The conversation history as a slice of chat messages
+    /// * `tools` - Optional slice of tools to use in the chat
+    /// * `json_schema` - Optional json_schema for the response format
     ///
     /// # Returns
     ///
-    /// A stream of content chunks or an error
+    /// The provider's response text or an error
+    async fn chat_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError>;
+
+    /// Sends a chat with web search request to the provider
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - The input message
+    ///
+    /// # Returns
+    ///
+    /// The provider's response text or an error
+    async fn chat_with_web_search(
+        &self,
+        _input: String,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        Err(LLMError::Generic(
+            "Web search not supported for this provider".to_string(),
+        ))
+    }
+
+    /// Sends a streaming chat request to the provider with a sequence of messages.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - The conversation history as a slice of chat messages
+    /// * `json_schema` - Optional json_schema for the response format
+    ///
+    /// # Returns
+    ///
+    /// A stream of text tokens or an error
     async fn chat_stream(
         &self,
         _messages: &[ChatMessage],
-        _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
@@ -377,12 +464,17 @@ pub trait ChatProvider: Sync + Send {
 
     /// Sends a streaming chat request that returns structured response chunks.
     ///
+    /// ⚠️ Getting usage metadata while streaming have been noticed to be a unstable depending on the provider
+    /// (it can be missing).
+    ///
     /// This method returns a stream of `StreamResponse` objects that mimic OpenAI's
     /// streaming response format with `.choices[0].delta.content` and `.usage`.
     ///
     /// # Arguments
     ///
     /// * `messages` - The conversation history as a slice of chat messages
+    /// * `tools` - Optional slice of tools to use in the chat
+    /// * `json_schema` - Optional json_schema for the response format
     ///
     /// # Returns
     ///
@@ -398,6 +490,61 @@ pub trait ChatProvider: Sync + Send {
     > {
         Err(LLMError::Generic(
             "Structured streaming not supported for this provider".to_string(),
+        ))
+    }
+
+    /// Sends a streaming chat request with tool support.
+    ///
+    /// Returns a stream of `StreamChunk` which can be text deltas or tool call events.
+    /// When `stop_reason` is "tool_use", the caller should execute the tool(s)
+    /// and continue the conversation.
+    ///
+    /// This method is ideal for agentic workflows where you want to stream text
+    /// output to the user while still receiving tool call requests.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - The conversation history as a slice of chat messages
+    /// * `tools` - Optional slice of tools available for the model to use
+    /// * `json_schema` - Optional json_schema for the response format
+    ///
+    /// # Returns
+    ///
+    /// A stream of `StreamChunk` items or an error
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use futures::StreamExt;
+    ///
+    /// let mut stream = client
+    ///     .chat_stream_with_tools(&messages, Some(&tools))
+    ///     .await?;
+    ///
+    /// let mut tool_calls = Vec::new();
+    /// while let Some(chunk) = stream.next().await {
+    ///     match chunk? {
+    ///         StreamChunk::Text(text) => print!("{}", text),
+    ///         StreamChunk::ToolUseComplete { tool_call, .. } => {
+    ///             tool_calls.push(tool_call);
+    ///         }
+    ///         StreamChunk::Done { stop_reason } => {
+    ///             if stop_reason == "tool_use" {
+    ///                 // Execute tool_calls and continue conversation
+    ///             }
+    ///         }
+    ///         _ => {}
+    ///     }
+    /// }
+    /// ```
+    async fn chat_stream_with_tools(
+        &self,
+        _messages: &[ChatMessage],
+        _tools: Option<&[Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError> {
+        Err(LLMError::Generic(
+            "Streaming with tools not supported for this provider".to_string(),
         ))
     }
 }
@@ -498,8 +645,6 @@ impl ChatMessageBuilder {
 /// # Returns
 ///
 /// A pinned stream of text tokens or an error
-#[cfg(not(target_arch = "wasm32"))]
-#[allow(dead_code)]
 pub(crate) fn create_sse_stream<F>(
     response: reqwest::Response,
     parser: F,
@@ -509,20 +654,53 @@ where
 {
     let stream = response
         .bytes_stream()
-        .map(move |chunk| match chunk {
-            Ok(bytes) => {
-                let text = String::from_utf8_lossy(&bytes);
-                parser(&text)
-            }
-            Err(e) => Err(LLMError::HttpError(e.to_string())),
-        })
-        .filter_map(|result| async move {
-            match result {
-                Ok(Some(content)) => Some(Ok(content)),
-                Ok(None) => None,
-                Err(e) => Some(Err(e)),
-            }
-        });
+        .scan(
+            (String::new(), Vec::new()),
+            move |(buffer, utf8_buffer), chunk| {
+                let result = match chunk {
+                    Ok(bytes) => {
+                        utf8_buffer.extend_from_slice(&bytes);
+
+                        match String::from_utf8(utf8_buffer.clone()) {
+                            Ok(text) => {
+                                buffer.push_str(&text);
+                                utf8_buffer.clear();
+                            }
+                            Err(e) => {
+                                let valid_up_to = e.utf8_error().valid_up_to();
+                                if valid_up_to > 0 {
+                                    // Safe to use from_utf8_lossy here since valid_up_to points to
+                                    // a valid UTF-8 boundary - no replacement characters will be introduced
+                                    let valid =
+                                        String::from_utf8_lossy(&utf8_buffer[..valid_up_to]);
+                                    buffer.push_str(&valid);
+                                    utf8_buffer.drain(..valid_up_to);
+                                }
+                            }
+                        }
+
+                        let mut results = Vec::new();
+
+                        while let Some(pos) = buffer.find("\n\n") {
+                            let event = buffer[..pos + 2].to_string();
+                            buffer.drain(..pos + 2);
+
+                            match parser(&event) {
+                                Ok(Some(content)) => results.push(Ok(content)),
+                                Ok(None) => {}
+                                Err(e) => results.push(Err(e)),
+                            }
+                        }
+
+                        Some(results)
+                    }
+                    Err(e) => Some(vec![Err(LLMError::HttpError(e.to_string()))]),
+                };
+
+                async move { result }
+            },
+        )
+        .flat_map(futures::stream::iter);
 
     Box::pin(stream)
 }
@@ -547,512 +725,139 @@ pub mod utils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use bytes::Bytes;
+    use futures::stream::StreamExt;
 
-    #[test]
-    fn test_chat_role_serialization() {
-        let user_role = ChatRole::User;
-        let serialized = serde_json::to_string(&user_role).unwrap();
-        assert_eq!(serialized, "\"User\"");
+    #[tokio::test]
+    async fn test_create_sse_stream_handles_split_utf8() {
+        let test_data = "data: Positive reactions\n\n".as_bytes();
 
-        let assistant_role = ChatRole::Assistant;
-        let serialized = serde_json::to_string(&assistant_role).unwrap();
-        assert_eq!(serialized, "\"Assistant\"");
+        let chunks: Vec<Result<Bytes, reqwest::Error>> = vec![
+            Ok(Bytes::from(&test_data[..10])),
+            Ok(Bytes::from(&test_data[10..])),
+        ];
 
-        let system_role = ChatRole::System;
-        let serialized = serde_json::to_string(&system_role).unwrap();
-        assert_eq!(serialized, "\"System\"");
+        let mock_response = create_mock_response(chunks);
 
-        let tool_role = ChatRole::Tool;
-        let serialized = serde_json::to_string(&tool_role).unwrap();
-        assert_eq!(serialized, "\"Tool\"");
+        let parser = |event: &str| -> Result<Option<String>, LLMError> {
+            if let Some(content) = event.strip_prefix("data: ") {
+                let content = content.trim();
+                if content.is_empty() {
+                    return Ok(None);
+                }
+                Ok(Some(content.to_string()))
+            } else {
+                Ok(None)
+            }
+        };
+
+        let mut stream = create_sse_stream(mock_response, parser);
+
+        let mut results = Vec::new();
+        while let Some(result) = stream.next().await {
+            results.push(result);
+        }
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].as_ref().unwrap(), "Positive reactions");
     }
 
-    #[test]
-    fn test_chat_role_deserialization() {
-        let deserialized: ChatRole = serde_json::from_str("\"User\"").unwrap();
-        assert_eq!(deserialized, ChatRole::User);
+    #[tokio::test]
+    async fn test_create_sse_stream_handles_split_sse_events() {
+        let event1 = "data: First event\n\n";
+        let event2 = "data: Second event\n\n";
+        let combined = format!("{}{}", event1, event2);
+        let test_data = combined.as_bytes().to_vec();
 
-        let deserialized: ChatRole = serde_json::from_str("\"Assistant\"").unwrap();
-        assert_eq!(deserialized, ChatRole::Assistant);
+        let split_point = event1.len() + 5;
+        let chunks: Vec<Result<Bytes, reqwest::Error>> = vec![
+            Ok(Bytes::from(test_data[..split_point].to_vec())),
+            Ok(Bytes::from(test_data[split_point..].to_vec())),
+        ];
 
-        let deserialized: ChatRole = serde_json::from_str("\"System\"").unwrap();
-        assert_eq!(deserialized, ChatRole::System);
+        let mock_response = create_mock_response(chunks);
 
-        let deserialized: ChatRole = serde_json::from_str("\"Tool\"").unwrap();
-        assert_eq!(deserialized, ChatRole::Tool);
+        let parser = |event: &str| -> Result<Option<String>, LLMError> {
+            if let Some(content) = event.strip_prefix("data: ") {
+                let content = content.trim();
+                if content.is_empty() {
+                    return Ok(None);
+                }
+                Ok(Some(content.to_string()))
+            } else {
+                Ok(None)
+            }
+        };
+
+        let mut stream = create_sse_stream(mock_response, parser);
+
+        let mut results = Vec::new();
+        while let Some(result) = stream.next().await {
+            results.push(result);
+        }
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].as_ref().unwrap(), "First event");
+        assert_eq!(results[1].as_ref().unwrap(), "Second event");
     }
 
-    #[test]
-    fn test_image_mime_type() {
-        assert_eq!(ImageMime::JPEG.mime_type(), "image/jpeg");
-        assert_eq!(ImageMime::PNG.mime_type(), "image/png");
-        assert_eq!(ImageMime::GIF.mime_type(), "image/gif");
-        assert_eq!(ImageMime::WEBP.mime_type(), "image/webp");
-    }
+    #[tokio::test]
+    async fn test_create_sse_stream_handles_multibyte_utf8_split() {
+        let multibyte_char = "✨";
+        let event = format!("data: Star {}\n\n", multibyte_char);
+        let test_data = event.as_bytes().to_vec();
 
-    #[test]
-    fn test_message_type_default() {
-        let default_type = MessageType::default();
-        assert_eq!(default_type, MessageType::Text);
-    }
+        let emoji_start = event.find(multibyte_char).unwrap();
+        let split_in_emoji = emoji_start + 1;
 
-    #[test]
-    fn test_message_type_serialization() {
-        let text_type = MessageType::Text;
-        let serialized = serde_json::to_string(&text_type).unwrap();
-        assert_eq!(serialized, "\"Text\"");
+        let chunks: Vec<Result<Bytes, reqwest::Error>> = vec![
+            Ok(Bytes::from(test_data[..split_in_emoji].to_vec())),
+            Ok(Bytes::from(test_data[split_in_emoji..].to_vec())),
+        ];
 
-        let image_type = MessageType::Image((ImageMime::JPEG, vec![1, 2, 3]));
-        let serialized = serde_json::to_string(&image_type).unwrap();
-        assert!(serialized.contains("Image"));
-    }
+        let mock_response = create_mock_response(chunks);
 
-    #[test]
-    fn test_reasoning_effort_display() {
-        assert_eq!(ReasoningEffort::Low.to_string(), "low");
-        assert_eq!(ReasoningEffort::Medium.to_string(), "medium");
-        assert_eq!(ReasoningEffort::High.to_string(), "high");
-    }
+        let parser = |event: &str| -> Result<Option<String>, LLMError> {
+            if let Some(content) = event.strip_prefix("data: ") {
+                let content = content.trim();
+                if content.is_empty() {
+                    return Ok(None);
+                }
+                Ok(Some(content.to_string()))
+            } else {
+                Ok(None)
+            }
+        };
 
-    #[test]
-    fn test_chat_message_builder_user() {
-        let message = ChatMessage::user().content("Hello, world!").build();
+        let mut stream = create_sse_stream(mock_response, parser);
 
-        assert_eq!(message.role, ChatRole::User);
-        assert_eq!(message.content, "Hello, world!");
-        assert_eq!(message.message_type, MessageType::Text);
-    }
+        let mut results = Vec::new();
+        while let Some(result) = stream.next().await {
+            results.push(result);
+        }
 
-    #[test]
-    fn test_chat_message_builder_assistant() {
-        let message = ChatMessage::assistant().content("Hi there!").build();
-
-        assert_eq!(message.role, ChatRole::Assistant);
-        assert_eq!(message.content, "Hi there!");
-        assert_eq!(message.message_type, MessageType::Text);
-    }
-
-    #[test]
-    fn test_chat_message_builder_image() {
-        let image_data = vec![1, 2, 3, 4, 5];
-        let message = ChatMessage::user()
-            .content("Check this image")
-            .image(ImageMime::PNG, image_data.clone())
-            .build();
-
-        assert_eq!(message.role, ChatRole::User);
-        assert_eq!(message.content, "Check this image");
+        assert_eq!(results.len(), 1);
         assert_eq!(
-            message.message_type,
-            MessageType::Image((ImageMime::PNG, image_data))
+            results[0].as_ref().unwrap(),
+            &format!("Star {}", multibyte_char)
         );
     }
 
-    #[test]
-    fn test_chat_message_builder_pdf() {
-        let pdf_data = vec![0x25, 0x50, 0x44, 0x46]; // PDF header
-        let message = ChatMessage::user()
-            .content("Review this PDF")
-            .pdf(pdf_data.clone())
-            .build();
+    fn create_mock_response(chunks: Vec<Result<Bytes, reqwest::Error>>) -> reqwest::Response {
+        use http_body_util::StreamBody;
+        use reqwest::Body;
 
-        assert_eq!(message.role, ChatRole::User);
-        assert_eq!(message.content, "Review this PDF");
-        assert_eq!(message.message_type, MessageType::Pdf(pdf_data));
-    }
-
-    #[test]
-    fn test_chat_message_builder_image_url() {
-        let image_url = "https://example.com/image.jpg";
-        let message = ChatMessage::user()
-            .content("See this image")
-            .image_url(image_url)
-            .build();
-
-        assert_eq!(message.role, ChatRole::User);
-        assert_eq!(message.content, "See this image");
-        assert_eq!(
-            message.message_type,
-            MessageType::ImageURL(image_url.to_string())
-        );
-    }
-
-    #[test]
-    fn test_chat_message_builder_tool_use() {
-        let tool_calls = vec![crate::ToolCall {
-            id: "call_1".to_string(),
-            call_type: "function".to_string(),
-            function: crate::FunctionCall {
-                name: "get_weather".to_string(),
-                arguments: "{\"location\": \"New York\"}".to_string(),
-            },
-        }];
-
-        let message = ChatMessage::assistant()
-            .content("Using weather tool")
-            .tool_use(tool_calls.clone())
-            .build();
-
-        assert_eq!(message.role, ChatRole::Assistant);
-        assert_eq!(message.content, "Using weather tool");
-        assert_eq!(message.message_type, MessageType::ToolUse(tool_calls));
-    }
-
-    #[test]
-    fn test_chat_message_builder_tool_result() {
-        let tool_results = vec![crate::ToolCall {
-            id: "call_1".to_string(),
-            call_type: "function".to_string(),
-            function: crate::FunctionCall {
-                name: "get_weather".to_string(),
-                arguments: "{\"temperature\": 75, \"condition\": \"sunny\"}".to_string(),
-            },
-        }];
-
-        let message = ChatMessage::user()
-            .content("Weather result")
-            .tool_result(tool_results.clone())
-            .build();
-
-        assert_eq!(message.role, ChatRole::User);
-        assert_eq!(message.content, "Weather result");
-        assert_eq!(message.message_type, MessageType::ToolResult(tool_results));
-    }
-
-    #[test]
-    fn test_structured_output_format_serialization() {
-        let format = StructuredOutputFormat {
-            name: "Person".to_string(),
-            description: Some("A person object".to_string()),
-            schema: Some(json!({
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "age": {"type": "integer"}
-                },
-                "required": ["name", "age"]
-            })),
-            strict: Some(true),
-        };
-
-        let serialized = serde_json::to_string(&format).unwrap();
-        let deserialized: StructuredOutputFormat = serde_json::from_str(&serialized).unwrap();
-
-        assert_eq!(deserialized.name, "Person");
-        assert_eq!(
-            deserialized.description,
-            Some("A person object".to_string())
-        );
-        assert_eq!(deserialized.strict, Some(true));
-        assert!(deserialized.schema.is_some());
-    }
-
-    #[test]
-    fn test_structured_output_format_equality() {
-        let format1 = StructuredOutputFormat {
-            name: "Test".to_string(),
-            description: None,
-            schema: None,
-            strict: None,
-        };
-
-        let format2 = StructuredOutputFormat {
-            name: "Test".to_string(),
-            description: None,
-            schema: None,
-            strict: None,
-        };
-
-        assert_eq!(format1, format2);
-    }
-
-    #[test]
-    fn test_tool_choice_serialization() {
-        // Test Auto
-        let choice = ToolChoice::Auto;
-        let serialized = serde_json::to_string(&choice).unwrap();
-        assert_eq!(serialized, "\"auto\"");
-
-        // Test Any
-        let choice = ToolChoice::Any;
-        let serialized = serde_json::to_string(&choice).unwrap();
-        assert_eq!(serialized, "\"required\"");
-
-        // Test None
-        let choice = ToolChoice::None;
-        let serialized = serde_json::to_string(&choice).unwrap();
-        assert_eq!(serialized, "\"none\"");
-
-        // Test specific tool
-        let choice = ToolChoice::Tool("my_function".to_string());
-        let serialized = serde_json::to_string(&choice).unwrap();
-        // Parse back to verify structure
-        let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(parsed["type"], "function");
-        assert_eq!(parsed["function"]["name"], "my_function");
-    }
-
-    #[test]
-    fn test_tool_choice_default() {
-        let default_choice = ToolChoice::default();
-        assert!(matches!(default_choice, ToolChoice::Auto));
-    }
-
-    #[test]
-    fn test_parameter_property_serialization() {
-        let property = ParameterProperty {
-            property_type: "string".to_string(),
-            description: "A test parameter".to_string(),
-            items: None,
-            enum_list: Some(vec!["option1".to_string(), "option2".to_string()]),
-        };
-
-        let serialized = serde_json::to_string(&property).unwrap();
-        assert!(serialized.contains("\"type\":\"string\""));
-        assert!(serialized.contains("\"description\":\"A test parameter\""));
-        assert!(serialized.contains("\"enum\":[\"option1\",\"option2\"]"));
-    }
-
-    #[test]
-    fn test_parameter_property_with_items() {
-        let item_property = ParameterProperty {
-            property_type: "string".to_string(),
-            description: "Array item".to_string(),
-            items: None,
-            enum_list: None,
-        };
-
-        let array_property = ParameterProperty {
-            property_type: "array".to_string(),
-            description: "An array parameter".to_string(),
-            items: Some(Box::new(item_property)),
-            enum_list: None,
-        };
-
-        let serialized = serde_json::to_string(&array_property).unwrap();
-        assert!(serialized.contains("\"type\":\"array\""));
-        assert!(serialized.contains("\"items\""));
-    }
-
-    #[test]
-    fn test_function_tool_serialization() {
-        let mut properties = HashMap::new();
-        properties.insert(
-            "name".to_string(),
-            ParameterProperty {
-                property_type: "string".to_string(),
-                description: "Name parameter".to_string(),
-                items: None,
-                enum_list: None,
-            },
+        let frame_stream = futures::stream::iter(
+            chunks
+                .into_iter()
+                .map(|chunk| chunk.map(hyper::body::Frame::data)),
         );
 
-        let schema = ParametersSchema {
-            schema_type: "object".to_string(),
-            properties,
-            required: vec!["name".to_string()],
-        };
+        let body = StreamBody::new(frame_stream);
+        let body = Body::wrap(body);
 
-        let function = FunctionTool {
-            name: "test_function".to_string(),
-            description: "A test function".to_string(),
-            parameters: serde_json::to_value(schema).unwrap(),
-        };
+        let http_response = http::Response::builder().status(200).body(body).unwrap();
 
-        let serialized = serde_json::to_string(&function).unwrap();
-        assert!(serialized.contains("\"name\":\"test_function\""));
-        assert!(serialized.contains("\"description\":\"A test function\""));
-        assert!(serialized.contains("\"parameters\""));
+        http_response.into()
     }
-
-    #[test]
-    fn test_tool_serialization() {
-        let function = FunctionTool {
-            name: "test_tool".to_string(),
-            description: "A test tool".to_string(),
-            parameters: json!({"type": "object", "properties": {}}),
-        };
-
-        let tool = Tool {
-            tool_type: "function".to_string(),
-            function,
-        };
-
-        let serialized = serde_json::to_string(&tool).unwrap();
-        assert!(serialized.contains("\"type\":\"function\""));
-        assert!(serialized.contains("\"function\""));
-    }
-
-    #[test]
-    fn test_chat_message_serialization() {
-        let message = ChatMessage {
-            role: ChatRole::User,
-            message_type: MessageType::Text,
-            content: "Hello, world!".to_string(),
-        };
-
-        let serialized = serde_json::to_string(&message).unwrap();
-        let deserialized: ChatMessage = serde_json::from_str(&serialized).unwrap();
-
-        assert_eq!(deserialized.role, ChatRole::User);
-        assert_eq!(deserialized.message_type, MessageType::Text);
-        assert_eq!(deserialized.content, "Hello, world!");
-    }
-    //
-    // #[tokio::test]
-    // async fn test_chat_provider_summarize_history() {
-    //     struct MockChatProvider;
-    //
-    //     #[async_trait]
-    //     impl ChatProvider for MockChatProvider {
-    //         async fn chat_with_tools(
-    //             &self,
-    //             messages: &[ChatMessage],
-    //             _tools: Option<&[Tool]>,
-    //             _json_schema: Option<StructuredOutputFormat>,
-    //         ) -> Result<Box<dyn ChatResponse>, LLMError> {
-    //             // Mock implementation that returns the prompt as summary
-    //             let prompt = messages.first().unwrap().content.clone();
-    //             Ok(Box::new(MockChatResponse {
-    //                 text: Some(format!("Summary: {prompt}")),
-    //             }))
-    //         }
-    //     }
-    //
-    //     struct MockChatResponse {
-    //         text: Option<String>,
-    //     }
-    //
-    //     impl ChatResponse for MockChatResponse {
-    //         fn text(&self) -> Option<String> {
-    //             self.text.clone()
-    //         }
-    //
-    //         fn tool_calls(&self) -> Option<Vec<crate::ToolCall>> {
-    //             None
-    //         }
-    //     }
-    //
-    //     impl std::fmt::Debug for MockChatResponse {
-    //         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    //             write!(f, "MockChatResponse")
-    //         }
-    //     }
-    //
-    //     impl std::fmt::Display for MockChatResponse {
-    //         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    //             write!(f, "{}", self.text.as_deref().unwrap_or(""))
-    //         }
-    //     }
-    //
-    //     let provider = MockChatProvider;
-    //     let messages = vec![
-    //         ChatMessage::user().content("First message").build(),
-    //         ChatMessage::assistant().content("Response").build(),
-    //     ];
-    //
-    //     let summary = provider.summarize_history(&messages).await.unwrap();
-    //     assert!(summary.contains("Summary:"));
-    //     assert!(summary.contains("First message"));
-    //     assert!(summary.contains("Response"));
-    // }
-
-    // #[tokio::test]
-    // async fn test_chat_provider_default_chat_implementation() {
-    //     struct MockChatProvider;
-    //
-    //     #[async_trait]
-    //     impl ChatProvider for MockChatProvider {
-    //         async fn chat_with_tools(
-    //             &self,
-    //             _messages: &[ChatMessage],
-    //             _tools: Option<&[Tool]>,
-    //             _json_schema: Option<StructuredOutputFormat>,
-    //         ) -> Result<Box<dyn ChatResponse>, LLMError> {
-    //             Ok(Box::new(MockChatResponse {
-    //                 text: Some("Default response".to_string()),
-    //             }))
-    //         }
-    //     }
-    //
-    //     struct MockChatResponse {
-    //         text: Option<String>,
-    //     }
-    //
-    //     impl ChatResponse for MockChatResponse {
-    //         fn text(&self) -> Option<String> {
-    //             self.text.clone()
-    //         }
-    //
-    //         fn tool_calls(&self) -> Option<Vec<crate::ToolCall>> {
-    //             None
-    //         }
-    //     }
-    //
-    //     impl std::fmt::Debug for MockChatResponse {
-    //         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    //             write!(f, "MockChatResponse")
-    //         }
-    //     }
-    //
-    //     impl std::fmt::Display for MockChatResponse {
-    //         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    //             write!(f, "{}", self.text.as_deref().unwrap_or(""))
-    //         }
-    //     }
-    //
-    //     let provider = MockChatProvider;
-    //     let messages = vec![ChatMessage::user().content("Test").build()];
-    //
-    //     let response = provider.chat(&messages, None).await.unwrap();
-    //     assert_eq!(response.text(), Some("Default response".to_string()));
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_chat_provider_default_chat_stream_implementation() {
-    //     struct MockChatProvider;
-    //
-    //     #[async_trait]
-    //     impl ChatProvider for MockChatProvider {
-    //         async fn chat_with_tools(
-    //             &self,
-    //             _messages: &[ChatMessage],
-    //             _tools: Option<&[Tool]>,
-    //             _json_schema: Option<StructuredOutputFormat>,
-    //         ) -> Result<Box<dyn ChatResponse>, LLMError> {
-    //             unreachable!()
-    //         }
-    //     }
-    //
-    //     let provider = MockChatProvider;
-    //     let messages = vec![ChatMessage::user().content("Test").build()];
-    //
-    //     let result = provider.chat_stream(&messages).await;
-    //     assert!(result.is_err());
-    //     if let Err(error) = result {
-    //         assert!(error.to_string().contains("Streaming not supported"));
-    //     }
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_chat_provider_default_memory_contents() {
-    //     struct MockChatProvider;
-    //
-    //     #[async_trait]
-    //     impl ChatProvider for MockChatProvider {
-    //         async fn chat_with_tools(
-    //             &self,
-    //             _messages: &[ChatMessage],
-    //             _tools: Option<&[Tool]>,
-    //             _json_schema: Option<StructuredOutputFormat>,
-    //         ) -> Result<Box<dyn ChatResponse>, LLMError> {
-    //             unreachable!()
-    //         }
-    //     }
-    //
-    //     let provider = MockChatProvider;
-    //     let memory_contents = provider.memory_contents().await;
-    //     assert!(memory_contents.is_none());
-    // }
 }

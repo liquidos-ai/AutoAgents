@@ -5,7 +5,9 @@ use autoagents::prelude::*;
 mod actor;
 mod basic;
 mod hooks;
+mod llm;
 mod manual_tool_agent;
+#[cfg(any(feature = "onnx", feature = "onnx-cuda"))]
 mod onnx;
 mod streaming;
 mod toolkit;
@@ -15,17 +17,21 @@ mod utils;
 enum UseCase {
     Simple,
     Basic,
+    #[cfg(any(feature = "onnx", feature = "onnx-cuda"))]
     Edge,
     Streaming,
     Actor,
     Hooks,
     ManualToolAgent,
     Toolkit,
+    Llm,
 }
 
+#[cfg(any(feature = "onnx", feature = "onnx-cuda"))]
 #[derive(Debug, Clone, ValueEnum)]
 enum EdgeDevice {
     CPU,
+    #[cfg(feature = "onnx-cuda")]
     CUDA,
 }
 
@@ -35,6 +41,7 @@ enum EdgeDevice {
 struct Args {
     #[arg(short, long, help = "use case")]
     usecase: UseCase,
+    #[cfg(any(feature = "onnx", feature = "onnx-cuda"))]
     #[arg(short, long, help = "device", default_value = "cpu")]
     device: EdgeDevice,
     #[arg(
@@ -66,12 +73,14 @@ async fn main() -> Result<(), Error> {
     match args.usecase {
         UseCase::Simple => simple::simple_agent(llm).await?,
         UseCase::Basic => basic::basic_agent(llm).await?,
+        #[cfg(any(feature = "onnx", feature = "onnx-cuda"))]
         UseCase::Edge => onnx::edge_agent(args.device).await?,
         UseCase::Streaming => streaming::run(llm).await?,
         UseCase::Actor => actor::run(llm).await?,
         UseCase::Hooks => hooks::hooks_agent(llm).await?,
         UseCase::ManualToolAgent => manual_tool_agent::run_agent(llm, &args.mode).await?,
         UseCase::Toolkit => toolkit::run_agent(llm).await?,
+        UseCase::Llm => llm::run_llm(llm).await?,
     }
 
     Ok(())

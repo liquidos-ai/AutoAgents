@@ -2,12 +2,15 @@
 //!
 //! This module provides integration with Azure OpenAI's GPT models through their API.
 
+use std::sync::Arc;
+
 use crate::{
     builder::LLMBuilder,
     chat::{ChatResponse, ToolChoice},
     embedding::EmbeddingBuilder,
     FunctionCall, ToolCall,
 };
+#[cfg(feature = "azure_openai")]
 use crate::{
     chat::Tool,
     chat::{ChatMessage, ChatProvider, ChatRole, MessageType, StructuredOutputFormat},
@@ -18,11 +21,9 @@ use crate::{
     LLMProvider,
 };
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use either::*;
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 /// Client for interacting with Azure OpenAI's API.
 ///
@@ -34,7 +35,6 @@ pub struct AzureOpenAI {
     pub model: String,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
-    pub system: Option<String>,
     pub timeout_seconds: Option<u64>,
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,
@@ -67,27 +67,15 @@ impl<'a> From<&'a ChatMessage> for AzureOpenAIChatMessage<'a> {
         Self {
             role: match chat_msg.role {
                 ChatRole::User => "user",
-                ChatRole::Assistant => "assistant",
                 ChatRole::System => "system",
-                ChatRole::Tool => "tool",
+                ChatRole::Assistant => "assistant",
+                ChatRole::Tool => "user",
             },
             tool_call_id: None,
             content: match &chat_msg.message_type {
                 MessageType::Text => Some(Right(chat_msg.content.clone())),
-                MessageType::Image((image_mime, raw_bytes)) => {
-                    // Convert raw bytes to base64 data URL
-                    let base64_data = BASE64_STANDARD.encode(raw_bytes);
-                    let data_url =
-                        format!("data:{};base64,{}", image_mime.mime_type(), base64_data);
-                    let data_url_str = Box::leak(data_url.into_boxed_str());
-                    Some(Left(vec![AzureMessageContent {
-                        message_type: Some("image_url"),
-                        text: None,
-                        image_url: Some(ImageUrlContent { url: data_url_str }),
-                        tool_output: None,
-                        tool_call_id: None,
-                    }]))
-                }
+                // Image case is handled separately above
+                MessageType::Image(_) => unreachable!(),
                 MessageType::Pdf(_) => unimplemented!(),
                 MessageType::ImageURL(url) => {
                     // Clone the URL to create an owned version
@@ -333,16 +321,13 @@ impl AzureOpenAI {
     /// * `max_tokens` - Maximum tokens to generate
     /// * `temperature` - Sampling temperature
     /// * `timeout_seconds` - Request timeout in seconds
-    /// * `system` - System prompt
     /// * `stream` - Whether to stream responses
     /// * `top_p` - Top-p sampling parameter
     /// * `top_k` - Top-k sampling parameter
     /// * `embedding_encoding_format` - Format for embedding outputs
     /// * `embedding_dimensions` - Dimensions for embedding vectors
-    /// * `tools` - Function tools that the model can use
     /// * `tool_choice` - Determines how the model uses tools
     /// * `reasoning_effort` - Reasoning effort level
-    /// * `json_schema` - JSON schema for structured output
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         api_key: impl Into<String>,
@@ -353,7 +338,6 @@ impl AzureOpenAI {
         max_tokens: Option<u32>,
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
-        system: Option<String>,
         top_p: Option<f32>,
         top_k: Option<u32>,
         embedding_encoding_format: Option<String>,
@@ -377,7 +361,6 @@ impl AzureOpenAI {
             model: model.unwrap_or("gpt-3.5-turbo".to_string()),
             max_tokens,
             temperature,
-            system,
             timeout_seconds,
             top_p,
             top_k,
@@ -388,78 +371,10 @@ impl AzureOpenAI {
             reasoning_effort,
         }
     }
+}
 
-    fn build_chat_completion_request<'a>(
-        &'a self,
-        messages: &'a [ChatMessage],
-        tools: Option<&'a [Tool]>,
-        json_schema: Option<StructuredOutputFormat>,
-        _stream: bool,
-        _stream_options: Option<AzureOpenAIChatRequest>,
-    ) -> Result<AzureOpenAIChatRequest<'a>, LLMError> {
-        let mut openai_msgs: Vec<AzureOpenAIChatMessage> = vec![];
-
-        for msg in messages {
-            if let MessageType::ToolResult(ref results) = msg.message_type {
-                for result in results {
-                    openai_msgs.push(
-                        // Clone strings to own them
-                        AzureOpenAIChatMessage {
-                            role: "tool",
-                            tool_call_id: Some(result.id.clone()),
-                            tool_calls: None,
-                            content: Some(Right(result.function.arguments.clone())),
-                        },
-                    );
-                }
-            } else {
-                openai_msgs.push(msg.into())
-            }
-        }
-
-        if let Some(system) = &self.system {
-            openai_msgs.insert(
-                0,
-                AzureOpenAIChatMessage {
-                    role: "system",
-                    content: Some(Left(vec![AzureMessageContent {
-                        message_type: Some("text"),
-                        text: Some(system),
-                        image_url: None,
-                        tool_call_id: None,
-                        tool_output: None,
-                    }])),
-                    tool_calls: None,
-                    tool_call_id: None,
-                },
-            );
-        }
-
-        // Build the response format object
-        let response_format: Option<OpenAIResponseFormat> = json_schema.clone().map(|s| s.into());
-
-        let request_tools = tools.map(|t| t.to_vec());
-        let request_tool_choice = if request_tools.is_some() {
-            self.tool_choice.clone()
-        } else {
-            None
-        };
-
-        Ok(AzureOpenAIChatRequest {
-            model: &self.model,
-            messages: openai_msgs,
-            max_tokens: self.max_tokens,
-            temperature: self.temperature,
-            stream: false,
-            top_p: self.top_p,
-            top_k: self.top_k,
-            tools: request_tools,
-            tool_choice: request_tool_choice,
-            reasoning_effort: self.reasoning_effort.clone(),
-            response_format,
-        })
-    }
-
+#[async_trait]
+impl ChatProvider for AzureOpenAI {
     /// Sends a chat request to OpenAI's API.
     ///
     /// # Arguments
@@ -481,11 +396,53 @@ impl AzureOpenAI {
             ));
         }
 
-        let body = self.build_chat_completion_request(messages, tools, json_schema, false, None)?;
+        let mut openai_msgs: Vec<AzureOpenAIChatMessage> = vec![];
+
+        for msg in messages {
+            if let MessageType::ToolResult(ref results) = msg.message_type {
+                for result in results {
+                    openai_msgs.push(
+                        // Clone strings to own them
+                        AzureOpenAIChatMessage {
+                            role: "tool",
+                            tool_call_id: Some(result.id.clone()),
+                            tool_calls: None,
+                            content: Some(Right(result.function.arguments.clone())),
+                        },
+                    );
+                }
+            } else {
+                openai_msgs.push(msg.into())
+            }
+        }
+
+        // Build the response format object
+        let response_format: Option<OpenAIResponseFormat> = json_schema.clone().map(|s| s.into());
+
+        let request_tools = tools.map(|t| t.to_vec());
+        let request_tool_choice = if request_tools.is_some() {
+            self.tool_choice.clone()
+        } else {
+            None
+        };
+
+        let body = AzureOpenAIChatRequest {
+            model: &self.model,
+            messages: openai_msgs,
+            max_tokens: self.max_tokens,
+            temperature: self.temperature,
+            stream: false,
+            top_p: self.top_p,
+            top_k: self.top_k,
+            tools: request_tools,
+            tool_choice: request_tool_choice,
+            reasoning_effort: self.reasoning_effort.clone(),
+            response_format,
+        };
 
         if log::log_enabled!(log::Level::Trace) {
             if let Ok(json) = serde_json::to_string(&body) {
-                log::trace!("Azure OpenAI request payload: {json}");
+                log::trace!("Azure OpenAI request payload: {}", json);
             }
         }
 
@@ -535,17 +492,13 @@ impl AzureOpenAI {
             }),
         }
     }
-}
 
-#[async_trait]
-impl ChatProvider for AzureOpenAI {
     async fn chat(
         &self,
         messages: &[ChatMessage],
-        tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        self.chat_with_tools(messages, tools, json_schema).await
+        self.chat_with_tools(messages, None, json_schema).await
     }
 }
 
@@ -564,6 +517,8 @@ impl CompletionProvider for AzureOpenAI {
         })
     }
 }
+
+impl LLMProvider for AzureOpenAI {}
 
 #[cfg(feature = "azure_openai")]
 #[async_trait]
@@ -609,8 +564,6 @@ impl EmbeddingProvider for AzureOpenAI {
     }
 }
 
-impl LLMProvider for AzureOpenAI {}
-
 #[async_trait]
 impl ModelsProvider for AzureOpenAI {}
 
@@ -641,7 +594,6 @@ impl LLMBuilder<AzureOpenAI> {
             self.max_tokens,
             self.temperature,
             self.timeout_seconds,
-            self.system,
             self.top_p,
             self.top_k,
             self.embedding_encoding_format,
@@ -682,7 +634,6 @@ impl EmbeddingBuilder<AzureOpenAI> {
             None,
             None,
             self.timeout_seconds,
-            None,
             None,
             None,
             self.embedding_encoding_format,

@@ -28,8 +28,6 @@ pub struct Phind {
     pub max_tokens: Option<u32>,
     /// Temperature for controlling randomness (0.0-1.0)
     pub temperature: Option<f32>,
-    /// System prompt to prepend to conversations
-    pub system: Option<String>,
     /// Request timeout in seconds
     pub timeout_seconds: Option<u64>,
     /// Top-p sampling parameter
@@ -71,7 +69,6 @@ impl Phind {
         max_tokens: Option<u32>,
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
-        system: Option<String>,
         top_p: Option<f32>,
         top_k: Option<u32>,
         api_base_url: Option<String>,
@@ -84,7 +81,6 @@ impl Phind {
             model: model.unwrap_or_else(|| "Phind-70B".to_string()),
             max_tokens,
             temperature,
-            system,
             timeout_seconds,
             top_p,
             top_k,
@@ -180,34 +176,20 @@ impl ChatProvider for Phind {
     async fn chat(
         &self,
         messages: &[ChatMessage],
-        tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        if tools.is_some() {
-            return Err(LLMError::NoToolSupport("No Tool Support as of now.".into()));
-        }
         let mut message_history = vec![];
         for m in messages {
             let role_str = match m.role {
                 ChatRole::User => "user",
                 ChatRole::Assistant => "assistant",
-                ChatRole::Tool => "tool",
                 ChatRole::System => "system",
+                ChatRole::Tool => "user",
             };
             message_history.push(json!({
                 "content": m.content,
                 "role": role_str
             }));
-        }
-
-        if let Some(system_prompt) = &self.system {
-            message_history.insert(
-                0,
-                json!({
-                    "content": system_prompt,
-                    "role": "system"
-                }),
-            );
         }
 
         let payload = json!({
@@ -245,6 +227,15 @@ impl ChatProvider for Phind {
 
         self.interpret_response(response).await
     }
+
+    async fn chat_with_tools(
+        &self,
+        _messages: &[ChatMessage],
+        _tools: Option<&[Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        unimplemented!("TODO: Yet to be implented")
+    }
 }
 
 /// Implementation of completion functionality for Phind.
@@ -260,7 +251,6 @@ impl CompletionProvider for Phind {
                 &[crate::chat::ChatMessage::user()
                     .content(_req.prompt.clone())
                     .build()],
-                None,
                 json_schema,
             )
             .await?;
@@ -293,12 +283,11 @@ impl LLMProvider for Phind {}
 
 impl LLMBuilder<Phind> {
     pub fn build(self) -> Result<Arc<Phind>, LLMError> {
-        let phind = crate::backends::phind::Phind::new(
+        let phind = Phind::new(
             self.model,
             self.max_tokens,
             self.temperature,
             self.timeout_seconds,
-            self.system,
             self.top_p,
             self.top_k,
             self.base_url,

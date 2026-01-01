@@ -17,6 +17,7 @@ use autoagents::core::{
     protocol::Event,
     tool::{shared_tools_to_boxes, ToolT},
 };
+use autoagents::llm::chat::StreamChunk;
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::sync::{
@@ -210,14 +211,15 @@ impl DirectWorkflow {
             while let Some(event) = event_stream.next().await {
                 match event {
                     Event::StreamChunk { chunk, .. } => {
-                        if let Some(content) = chunk.delta.content {
-                            if !content.is_empty()
-                                && tx_for_events
+                        if let StreamChunk::Text(content) = chunk {
+                            if !content.is_empty() {
+                                if tx_for_events
                                     .send(Ok(WorkflowStreamEvent::Chunk { content }))
                                     .await
                                     .is_err()
-                            {
-                                break;
+                                {
+                                    break;
+                                }
                             }
                             event_chunk_seen_events.store(true, Ordering::SeqCst);
                         }
