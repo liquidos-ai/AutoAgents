@@ -26,7 +26,6 @@ pub struct DeepSeek {
     pub model: String,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
-    pub system: Option<String>,
     pub timeout_seconds: Option<u64>,
     client: Client,
 }
@@ -89,7 +88,6 @@ impl DeepSeek {
         max_tokens: Option<u32>,
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
-        system: Option<String>,
     ) -> Self {
         let mut builder = Client::builder();
         if let Some(sec) = timeout_seconds {
@@ -100,7 +98,6 @@ impl DeepSeek {
             model: model.unwrap_or("deepseek-chat".to_string()),
             max_tokens,
             temperature,
-            system,
             timeout_seconds,
             client: builder.build().expect("Failed to build reqwest Client"),
         }
@@ -121,17 +118,10 @@ impl ChatProvider for DeepSeek {
     async fn chat(
         &self,
         messages: &[ChatMessage],
-        tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError("Missing DeepSeek API key".to_string()));
-        }
-
-        if tools.is_some() {
-            return Err(LLMError::NoToolSupport(
-                "Currently Dont Support Tools".to_string(),
-            ));
         }
 
         let mut deepseek_msgs: Vec<DeepSeekChatMessage> = messages
@@ -140,22 +130,11 @@ impl ChatProvider for DeepSeek {
                 role: match m.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
-                    ChatRole::Tool => "tool",
                     ChatRole::System => "system",
                 },
                 content: &m.content,
             })
             .collect();
-
-        if let Some(system) = &self.system {
-            deepseek_msgs.insert(
-                0,
-                DeepSeekChatMessage {
-                    role: "system",
-                    content: system,
-                },
-            );
-        }
 
         let body = DeepSeekChatRequest {
             model: &self.model,
@@ -189,6 +168,26 @@ impl ChatProvider for DeepSeek {
         let json_resp: DeepSeekChatResponse = resp.json().await?;
 
         Ok(Box::new(json_resp))
+    }
+
+    /// Sends a chat request to DeepSeek's API with tools.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - The conversation history as a slice of chat messages
+    /// * `tools` - Optional slice of tools to use in the chat
+    /// * `json_schema` - Optional response json format
+    ///
+    /// # Returns
+    ///
+    /// The provider's response text or an error
+    async fn chat_with_tools(
+        &self,
+        _messages: &[ChatMessage],
+        _tools: Option<&[Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        unimplemented!("TODO: Yet to be implented")
     }
 }
 
@@ -234,7 +233,6 @@ impl LLMBuilder<DeepSeek> {
             self.max_tokens,
             self.temperature,
             self.timeout_seconds,
-            self.system,
         );
 
         Ok(Arc::new(deepseek))

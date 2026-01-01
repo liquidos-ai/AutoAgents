@@ -64,3 +64,10 @@ getrandom = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+rodio = { version = "0.20.1", default-features = false, features = ["symphonia-all"]}
+rstest = "0.26"
+bytes = "1.9"
+http = "1.2"
+http-body-util = "0.1"
+hyper = "1.5"

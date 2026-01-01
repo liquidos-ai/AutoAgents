@@ -239,17 +239,15 @@ impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
         let agent_config = context.config();
         let tools_serialized: Vec<Tool> = tools.iter().map(to_llm_tool).collect();
 
-        llm.chat(
-            messages,
-            if tools.is_empty() {
-                None
-            } else {
-                Some(&tools_serialized)
-            },
-            agent_config.output_schema.clone(),
-        )
-        .await
-        .map_err(|e| ReActExecutorError::LLMError(e.to_string()))
+        if tools.is_empty() {
+            llm.chat(messages, agent_config.output_schema.clone())
+                .await
+                .map_err(|e| ReActExecutorError::LLMError(e.to_string()))
+        } else {
+            llm.chat_with_tools(messages, Some(tools), agent_config.output_schema.clone())
+                .await
+                .map_err(|e| ReActExecutorError::LLMError(e.to_string()))
+        }
     }
 
     /// Handle tool calls and return the result

@@ -12,8 +12,7 @@ use autoagents_llm::{
     async_trait,
     chat::{
         ChatMessage, ChatProvider, ChatResponse, StreamChoice, StreamDelta, StreamResponse,
-        StreamToolCallDelta, StreamToolCallFunction, StructuredOutputFormat, Tool,
-        Usage as ChatUsage,
+        StructuredOutputFormat, Tool, Usage as ChatUsage,
     },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,

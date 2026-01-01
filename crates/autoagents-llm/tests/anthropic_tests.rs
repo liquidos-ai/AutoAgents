@@ -25,7 +25,6 @@ mod anthropic_test_cases {
             .model("claude-3-sonnet-20240229")
             .max_tokens(100)
             .temperature(0.7)
-            .system("Test system prompt")
             .build()
             .expect("Failed to build Anthropic client")
     }
@@ -37,7 +36,6 @@ mod anthropic_test_cases {
         assert_eq!(client.model, "claude-3-sonnet-20240229");
         assert_eq!(client.max_tokens, 100);
         assert_eq!(client.temperature, 0.7);
-        assert_eq!(client.system, "Test system prompt");
     }
 
     #[test]
@@ -72,13 +70,12 @@ mod anthropic_test_cases {
     #[test]
     fn test_anthropic_default_values() {
         let client = Anthropic::new(
-            "test-key", None, None, None, None, None, None, None, None, None, None,
+            "test-key", None, None, None, None, None, None, None, None, None,
         );
 
         assert_eq!(client.model, "claude-3-sonnet-20240229");
         assert_eq!(client.max_tokens, 300);
         assert_eq!(client.temperature, 0.7);
-        assert_eq!(client.system, "You are a helpful assistant.");
         assert_eq!(client.timeout_seconds, 30);
         assert!(!client.reasoning);
     }
@@ -87,12 +84,12 @@ mod anthropic_test_cases {
     async fn test_chat_auth_error() {
         let client = Anthropic::new(
             "", // Empty API key
-            None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None,
         );
 
         let messages = vec![ChatMessage::user().content("Hello").build()];
 
-        let result = client.chat(&messages, None, None).await;
+        let result = client.chat(&messages, None).await;
         assert!(result.is_err());
 
         match result.err().unwrap() {
@@ -126,7 +123,6 @@ mod anthropic_test_cases {
             .top_p(0.95)
             .top_k(60)
             .timeout_seconds(120)
-            .system("Custom system prompt")
             .reasoning(true)
             .reasoning_budget_tokens(10000)
             .build()
@@ -139,7 +135,6 @@ mod anthropic_test_cases {
         assert_eq!(client.top_p, Some(0.95));
         assert_eq!(client.top_k, Some(60));
         assert_eq!(client.timeout_seconds, 120);
-        assert_eq!(client.system, "Custom system prompt");
         assert!(client.reasoning);
         assert_eq!(client.thinking_budget_tokens, Some(10000));
     }
@@ -155,7 +150,6 @@ mod anthropic_test_cases {
         assert_eq!(client.model, "claude-3-sonnet-20240229");
         assert_eq!(client.max_tokens, 300);
         assert_eq!(client.temperature, 0.7);
-        assert_eq!(client.system, "You are a helpful assistant.");
     }
 
     #[test]
@@ -166,7 +160,6 @@ mod anthropic_test_cases {
             Some(500),
             Some(0.5),
             Some(60),
-            Some("Custom system".to_string()),
             Some(0.8),
             Some(30),
             Some(ToolChoice::Auto),
@@ -179,7 +172,6 @@ mod anthropic_test_cases {
         assert_eq!(client.max_tokens, 500);
         assert_eq!(client.temperature, 0.5);
         assert_eq!(client.timeout_seconds, 60);
-        assert_eq!(client.system, "Custom system");
         assert_eq!(client.top_p, Some(0.8));
         assert_eq!(client.top_k, Some(30));
         assert!(client.reasoning);
@@ -192,7 +184,7 @@ mod anthropic_test_cases {
     async fn test_completion_auth_error() {
         let client = Anthropic::new(
             "", // Empty API key
-            None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None,
         );
 
         let request = CompletionRequest {
@@ -216,7 +208,7 @@ mod anthropic_test_cases {
     async fn test_chat_with_tools_auth_error() {
         let client = Anthropic::new(
             "", // Empty API key
-            None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None,
         );
 
         let messages = vec![ChatMessage::user().content("Use a tool").build()];
@@ -239,7 +231,7 @@ mod anthropic_test_cases {
             },
         }];
 
-        let result = client.chat(&messages, Some(&tools), None).await;
+        let result = client.chat_with_tools(&messages, Some(&tools), None).await;
         assert!(result.is_err());
     }
 
@@ -247,7 +239,7 @@ mod anthropic_test_cases {
     async fn test_chat_with_structured_output() {
         let client = Anthropic::new(
             "", // Will trigger auth error
-            None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None,
         );
 
         let messages = vec![ChatMessage::user().content("Give me JSON").build()];
@@ -265,7 +257,7 @@ mod anthropic_test_cases {
             strict: Some(true),
         };
 
-        let result = client.chat(&messages, None, Some(structured_format)).await;
+        let result = client.chat(&messages, Some(structured_format)).await;
         assert!(result.is_err());
     }
 
@@ -291,7 +283,6 @@ mod anthropic_test_cases {
             Some(0),
             Some(0.0),
             Some(0),
-            None,
             Some(0.0),
             Some(0),
             None,
@@ -316,7 +307,6 @@ mod anthropic_test_cases {
             Some(u32::MAX),
             Some(1.0),
             Some(u64::MAX),
-            Some("Very long system prompt that contains many words and characters to test the system's ability to handle longer prompts that may exceed normal lengths".to_string()),
             Some(1.0),
             Some(u32::MAX),
             None,
@@ -337,7 +327,7 @@ mod anthropic_test_cases {
     async fn test_chat_with_multiple_message_types() {
         let client = Anthropic::new(
             "", // Will trigger auth error
-            None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None,
         );
 
         let messages = vec![
@@ -358,7 +348,7 @@ mod anthropic_test_cases {
             },
         ];
 
-        let result = client.chat(&messages, None, None).await;
+        let result = client.chat(&messages, None).await;
         assert!(result.is_err());
     }
 
@@ -366,7 +356,7 @@ mod anthropic_test_cases {
     async fn test_completion_with_suffix() {
         let client = Anthropic::new(
             "", // Will trigger auth error
-            None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None,
         );
 
         let request = CompletionRequest {
@@ -383,7 +373,7 @@ mod anthropic_test_cases {
     async fn test_completion_with_structured_output() {
         let client = Anthropic::new(
             "", // Will trigger auth error
-            None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None,
         );
 
         let request = CompletionRequest {
@@ -470,7 +460,6 @@ mod anthropic_test_cases {
             Some(client1.max_tokens),
             Some(client1.temperature),
             Some(client1.timeout_seconds),
-            Some(client1.system.clone()),
             client1.top_p,
             client1.top_k,
             client1.tool_choice.clone(),
@@ -482,7 +471,6 @@ mod anthropic_test_cases {
         assert_eq!(client1.model, client2.model);
         assert_eq!(client1.max_tokens, client2.max_tokens);
         assert_eq!(client1.temperature, client2.temperature);
-        assert_eq!(client1.system, client2.system);
         assert_eq!(client1.reasoning, client2.reasoning);
     }
 
@@ -501,7 +489,6 @@ mod anthropic_test_cases {
             let client = Anthropic::new(
                 "test-key",
                 Some(model.to_string()),
-                None,
                 None,
                 None,
                 None,
@@ -569,7 +556,6 @@ mod anthropic_test_cases {
         for prompt in prompts {
             let client = LLMBuilder::<Anthropic>::new()
                 .api_key("test-key")
-                .system(prompt)
                 .build()
                 .expect("Failed to build Anthropic client");
 

@@ -295,7 +295,6 @@ impl OnnxEdge {
                     ChatRole::System => "system",
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
-                    ChatRole::Tool => "tool",
                 };
 
                 serde_json::json!({
@@ -523,7 +522,6 @@ impl ChatProvider for OnnxEdge {
     async fn chat(
         &self,
         messages: &[ChatMessage],
-        _tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         let mut modified_messages = messages.to_vec();
@@ -568,6 +566,14 @@ impl ChatProvider for OnnxEdge {
                 cleaned_response
             },
         }))
+    }
+    async fn chat_with_tools(
+        &self,
+        _messages: &[ChatMessage],
+        _tools: Option<&[Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        unimplemented!("TODO")
     }
 }
 

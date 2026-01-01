@@ -78,6 +78,14 @@ mod tests {
     impl ChatProvider for MockLLMProvider {
         async fn chat(
             &self,
+            messages: &[ChatMessage],
+            json_schema: Option<crate::chat::StructuredOutputFormat>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            self.chat_with_tools(messages, None, json_schema).await
+        }
+
+        async fn chat_with_tools(
+            &self,
             _messages: &[ChatMessage],
             _tools: Option<&[Tool]>,
             _json_schema: Option<crate::chat::StructuredOutputFormat>,

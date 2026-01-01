@@ -59,7 +59,7 @@ impl LLMEvaluator {
     ) -> Result<Vec<EvalResult>, LLMError> {
         let mut results = Vec::new();
         for llm in &self.llms {
-            let response = llm.chat(messages, None, None).await?;
+            let response = llm.chat(messages, None).await?;
             let score = self.compute_score(&response.text().unwrap_or_default());
             results.push(EvalResult {
                 text: response.text().unwrap_or_default(),
@@ -99,6 +99,7 @@ mod tests {
     use super::*;
     use crate::chat::{
         ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StructuredOutputFormat,
+        Tool,
     };
     use crate::completion::{CompletionProvider, CompletionRequest, CompletionResponse};
     use crate::embedding::EmbeddingProvider;
@@ -134,7 +135,20 @@ mod tests {
         async fn chat(
             &self,
             _messages: &[ChatMessage],
-            _tools: Option<&[crate::chat::Tool]>,
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            if self.should_fail {
+                return Err(LLMError::ProviderError("Mock provider failed".to_string()));
+            }
+            Ok(Box::new(MockChatResponse {
+                text: Some(self.response_text.clone()),
+            }))
+        }
+
+        async fn chat_with_tools(
+            &self,
+            _messages: &[ChatMessage],
+            _tools: Option<&[Tool]>,
             _json_schema: Option<StructuredOutputFormat>,
         ) -> Result<Box<dyn ChatResponse>, LLMError> {
             if self.should_fail {

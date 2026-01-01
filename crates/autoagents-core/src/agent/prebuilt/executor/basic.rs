@@ -208,7 +208,7 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
         messages.push(chat_msg);
         let response = context
             .llm()
-            .chat(&messages, None, context.config().output_schema.clone())
+            .chat(&messages, context.config().output_schema.clone())
             .await
             .map_err(|e| BasicExecutorError::LLMError(e.to_string()))?;
         let response_text = response.text().unwrap_or_default();

@@ -47,8 +47,6 @@ pub struct Google {
     pub max_tokens: Option<u32>,
     /// Sampling temperature between 0.0 and 1.0
     pub temperature: Option<f32>,
-    /// Optional system prompt to set context
-    pub system: Option<String>,
     /// Request timeout in seconds
     pub timeout_seconds: Option<u64>,
     /// Top-p sampling parameter
@@ -421,7 +419,6 @@ impl Google {
         max_tokens: Option<u32>,
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
-        system: Option<String>,
         top_p: Option<f32>,
         top_k: Option<u32>,
     ) -> Self {
@@ -434,7 +431,6 @@ impl Google {
             model: model.unwrap_or_else(|| "gemini-1.5-flash".to_string()),
             max_tokens,
             temperature,
-            system,
             timeout_seconds,
             top_p,
             top_k,
@@ -464,14 +460,6 @@ impl Google {
 
         let mut chat_contents = Vec::with_capacity(messages.len());
 
-        // Add system message if present
-        if let Some(system) = &self.system {
-            chat_contents.push(GoogleChatContent {
-                role: "user",
-                parts: vec![GoogleContentPart::Text(system)],
-            });
-        }
-
         // Add conversation messages in pairs to maintain context
         for msg in messages {
             // For tool results, we need to use "function" role
@@ -480,8 +468,7 @@ impl Google {
                 _ => match msg.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "model",
-                    ChatRole::Tool => "tool",
-                    ChatRole::System => "system",
+                    ChatRole::System => "user", //System is user in Google API
                 },
             };
 
@@ -627,11 +614,20 @@ impl ChatProvider for Google {
     /// # Arguments
     ///
     /// * `messages` - Slice of chat messages representing the conversation
+    /// * `json_schema` - Optional Response json schema
     ///
     /// # Returns
     ///
     /// The model's response text or an error
     async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        self.chat_with_tools(messages, None, json_schema).await
+    }
+
+    async fn chat_with_tools(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
@@ -645,6 +641,7 @@ impl ChatProvider for Google {
     /// # Arguments
     ///
     /// * `messages` - Slice of chat messages representing the conversation
+    /// * `json_schema` - Optional Response json schema
     ///
     /// # Returns
     ///
@@ -652,7 +649,6 @@ impl ChatProvider for Google {
     async fn chat_stream(
         &self,
         messages: &[ChatMessage],
-        _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
@@ -662,19 +658,11 @@ impl ChatProvider for Google {
 
         let mut chat_contents = Vec::with_capacity(messages.len());
 
-        if let Some(system) = &self.system {
-            chat_contents.push(GoogleChatContent {
-                role: "user",
-                parts: vec![GoogleContentPart::Text(system)],
-            });
-        }
-
         for msg in messages {
             let role = match msg.role {
                 ChatRole::User => "user",
                 ChatRole::Assistant => "model",
-                ChatRole::Tool => "tool",
-                ChatRole::System => "system",
+                ChatRole::System => "user", //System is user in Google API
             };
 
             chat_contents.push(GoogleChatContent {
@@ -768,7 +756,7 @@ impl CompletionProvider for Google {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<CompletionResponse, LLMError> {
         let chat_message = ChatMessage::user().content(req.prompt.clone()).build();
-        if let Some(text) = self.chat(&[chat_message], None, json_schema).await?.text() {
+        if let Some(text) = self.chat(&[chat_message], json_schema).await?.text() {
             Ok(CompletionResponse { text })
         } else {
             Err(LLMError::ProviderError(
@@ -871,7 +859,6 @@ impl LLMBuilder<Google> {
             self.max_tokens,
             self.temperature,
             self.timeout_seconds,
-            self.system,
             self.top_p,
             self.top_k,
         );
@@ -893,7 +880,6 @@ impl EmbeddingBuilder<Google> {
             None,
             None,
             self.timeout_seconds,
-            None,
             None,
             None,
         );

@@ -3,7 +3,7 @@
 //! This module provides a generic base for OpenAI-compatible APIs that can be reused
 //! across multiple providers like OpenAI, Mistral, XAI, Groq, DeepSeek, etc.
 
-use crate::chat::{StreamChoice, StreamDelta, StreamToolCallDelta, StreamToolCallFunction};
+use crate::chat::{StreamChoice, StreamChunk as ChatStreamChunk, StreamDelta};
 use crate::error::LLMError;
 use crate::FunctionCall;
 use crate::{
@@ -19,7 +19,9 @@ use either::*;
 use futures::{stream::Stream, StreamExt};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::pin::Pin;
 
 /// Generic OpenAI-compatible provider
 ///
@@ -31,18 +33,15 @@ pub struct OpenAICompatibleProvider<T: OpenAIProviderConfig> {
     pub model: String,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
-    pub system: Option<String>,
     pub timeout_seconds: Option<u64>,
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,
     pub tool_choice: Option<ToolChoice>,
     pub reasoning_effort: Option<String>,
-    #[allow(dead_code)]
     pub voice: Option<String>,
+    pub extra_body: serde_json::Map<String, serde_json::Value>,
     pub parallel_tool_calls: bool,
-    #[allow(dead_code)]
     pub embedding_encoding_format: Option<String>,
-    #[allow(dead_code)]
     pub embedding_dimensions: Option<u32>,
     pub normalize_response: bool,
     pub client: Client,
@@ -136,6 +135,8 @@ pub struct OpenAIChatRequest<'a> {
     pub stream_options: Option<OpenAIStreamOptions>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parallel_tool_calls: Option<bool>,
+    #[serde(flatten)]
+    pub extra_body: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Generic OpenAI-compatible chat response
@@ -152,7 +153,6 @@ pub struct OpenAIChatChoice {
 
 #[derive(Deserialize, Debug)]
 pub struct OpenAIChatMsg {
-    #[allow(dead_code)]
     pub role: String,
     pub content: Option<String>,
     pub tool_calls: Option<Vec<ToolCall>>,
@@ -225,20 +225,10 @@ pub struct StreamFunctionCall {
 
 impl From<StructuredOutputFormat> for OpenAIResponseFormat {
     fn from(structured_response_format: StructuredOutputFormat) -> Self {
-        // Ensure description is present (required by some providers like Groq)
-        let description = structured_response_format
-            .description
-            .or_else(|| Some("Generated schema".to_string()));
-
         match structured_response_format.schema {
             None => OpenAIResponseFormat {
                 response_type: OpenAIResponseType::JsonSchema,
-                json_schema: Some(StructuredOutputFormat {
-                    name: structured_response_format.name,
-                    description,
-                    schema: structured_response_format.schema,
-                    strict: structured_response_format.strict,
-                }),
+                json_schema: Some(structured_response_format),
             },
             Some(mut schema) => {
                 schema = if schema.get("additionalProperties").is_none() {
@@ -251,7 +241,7 @@ impl From<StructuredOutputFormat> for OpenAIResponseFormat {
                     response_type: OpenAIResponseType::JsonSchema,
                     json_schema: Some(StructuredOutputFormat {
                         name: structured_response_format.name,
-                        description,
+                        description: structured_response_format.description,
                         schema: Some(schema),
                         strict: structured_response_format.strict,
                     }),
@@ -285,14 +275,14 @@ impl std::fmt::Display for OpenAIChatResponse {
         ) {
             (Some(content), Some(tool_calls)) => {
                 for tool_call in tool_calls {
-                    write!(f, "{tool_call:?}")?;
+                    write!(f, "{tool_call}")?;
                 }
                 write!(f, "{content}")
             }
             (Some(content), None) => write!(f, "{content}"),
             (None, Some(tool_calls)) => {
                 for tool_call in tool_calls {
-                    write!(f, "{tool_call:?}")?;
+                    write!(f, "{tool_call}")?;
                 }
                 Ok(())
             }
@@ -303,7 +293,6 @@ impl std::fmt::Display for OpenAIChatResponse {
 
 impl<T: OpenAIProviderConfig> OpenAICompatibleProvider<T> {
     #[allow(clippy::too_many_arguments)]
-    #[allow(dead_code)]
     pub fn new(
         api_key: impl Into<String>,
         base_url: Option<String>,
@@ -311,12 +300,12 @@ impl<T: OpenAIProviderConfig> OpenAICompatibleProvider<T> {
         max_tokens: Option<u32>,
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
-        system: Option<String>,
         top_p: Option<f32>,
         top_k: Option<u32>,
         tool_choice: Option<ToolChoice>,
         reasoning_effort: Option<String>,
         voice: Option<String>,
+        extra_body: Option<serde_json::Value>,
         parallel_tool_calls: Option<bool>,
         normalize_response: Option<bool>,
         embedding_encoding_format: Option<String>,
@@ -326,20 +315,29 @@ impl<T: OpenAIProviderConfig> OpenAICompatibleProvider<T> {
         if let Some(sec) = timeout_seconds {
             builder = builder.timeout(std::time::Duration::from_secs(sec));
         }
+        let extra_body = match extra_body {
+            Some(serde_json::Value::Object(map)) => map,
+            _ => serde_json::Map::new(), // Should we panic here?
+        };
         Self {
             api_key: api_key.into(),
-            base_url: Url::parse(&base_url.unwrap_or_else(|| T::DEFAULT_BASE_URL.to_owned()))
-                .expect("Failed to parse base URL"),
+            base_url: Url::parse(&format!(
+                "{}/",
+                base_url
+                    .unwrap_or_else(|| T::DEFAULT_BASE_URL.to_owned())
+                    .trim_end_matches("/")
+            ))
+            .expect("Failed to parse base URL"),
             model: model.unwrap_or_else(|| T::DEFAULT_MODEL.to_string()),
             max_tokens,
             temperature,
-            system,
             timeout_seconds,
             top_p,
             top_k,
             tool_choice,
             reasoning_effort,
             voice,
+            extra_body,
             parallel_tool_calls: parallel_tool_calls.unwrap_or(false),
             normalize_response: normalize_response.unwrap_or(true),
             embedding_encoding_format,
@@ -370,31 +368,14 @@ impl<T: OpenAIProviderConfig> OpenAICompatibleProvider<T> {
                 }
             })
             .collect();
-        if let Some(system) = &self.system {
-            openai_msgs.insert(
-                0,
-                OpenAIChatMessage {
-                    role: "system",
-                    content: Some(Left(vec![OpenAIMessageContent {
-                        message_type: Some("text"),
-                        text: Some(system.as_str()),
-                        image_url: None,
-                        tool_call_id: None,
-                        tool_output: None,
-                    }])),
-                    tool_calls: None,
-                    tool_call_id: None,
-                },
-            );
-        }
         openai_msgs
     }
 }
 
 #[async_trait]
 impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
-    /// Perform a chat request
-    async fn chat(
+    /// Perform a chat request with tool calls
+    async fn chat_with_tools(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
@@ -408,10 +389,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
         }
         let openai_msgs = self.prepare_messages(messages);
         let response_format: Option<OpenAIResponseFormat> = if T::SUPPORTS_STRUCTURED_OUTPUT {
-            json_schema
-                .clone()
-                .or_else(|| json_schema.clone())
-                .map(|s| s.into())
+            json_schema.clone().map(|s| s.into())
         } else {
             None
         };
@@ -445,6 +423,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
             response_format,
             stream_options: None,
             parallel_tool_calls,
+            extra_body: self.extra_body.clone(),
         };
         let url = self
             .base_url
@@ -487,17 +466,23 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
         }
     }
 
+    /// Perform a chat request without tool calls
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        self.chat_with_tools(messages, None, json_schema).await
+    }
+
     /// Stream chat responses as a stream of strings
     async fn chat_stream(
         &self,
         messages: &[ChatMessage],
-        tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
-        let struct_stream = self
-            .chat_stream_struct(messages, tools, json_schema)
-            .await?;
+        let struct_stream = self.chat_stream_struct(messages, None, json_schema).await?;
         let content_stream = struct_stream.filter_map(|result| async move {
             match result {
                 Ok(stream_response) => {
@@ -534,19 +519,13 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
         }
         let openai_msgs = self.prepare_messages(messages);
         let request_tools = tools.map(|t| t.to_vec());
-        let request_tool_choice = if request_tools.is_some() {
-            self.tool_choice.clone()
-        } else {
-            None
-        };
+
         let response_format: Option<OpenAIResponseFormat> = if T::SUPPORTS_STRUCTURED_OUTPUT {
-            json_schema
-                .clone()
-                .or_else(|| json_schema.clone())
-                .map(|s| s.into())
+            json_schema.clone().map(|s| s.into())
         } else {
             None
         };
+
         let body = OpenAIChatRequest {
             model: &self.model,
             messages: openai_msgs,
@@ -556,13 +535,13 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
             top_p: self.top_p,
             top_k: self.top_k,
             tools: request_tools,
-            tool_choice: request_tool_choice,
+            tool_choice: self.tool_choice.clone(),
             reasoning_effort: if T::SUPPORTS_REASONING_EFFORT {
                 self.reasoning_effort.clone()
             } else {
                 None
             },
-            response_format,
+            response_format: response_format,
             stream_options: if T::SUPPORTS_STREAM_OPTIONS {
                 Some(OpenAIStreamOptions {
                     include_usage: true,
@@ -575,6 +554,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
             } else {
                 None
             },
+            extra_body: self.extra_body.clone(),
         };
         let url = self
             .base_url
@@ -586,10 +566,16 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
                 request = request.header(key, value);
             }
         }
+        if log::log_enabled!(log::Level::Trace) {
+            if let Ok(json) = serde_json::to_string(&body) {
+                log::trace!("{} request payload: {}", T::PROVIDER_NAME, json);
+            }
+        }
         if let Some(timeout) = self.timeout_seconds {
             request = request.timeout(std::time::Duration::from_secs(timeout));
         }
         let response = request.send().await?;
+        log::debug!("{} HTTP status: {}", T::PROVIDER_NAME, response.status());
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await?;
@@ -600,6 +586,333 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
         }
         Ok(create_sse_stream(response, self.normalize_response))
     }
+
+    /// Sends a streaming chat request with tool support.
+    ///
+    /// Returns a stream of `StreamChunk` which can be text deltas or tool call events.
+    /// This method provides a unified interface for streaming with tools across
+    /// OpenAI-compatible providers.
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - Slice of chat messages representing the conversation
+    /// * `tools` - Optional slice of tools available for the model to use
+    ///
+    /// # Returns
+    ///
+    /// A stream of `StreamChunk` items or an error
+    async fn chat_stream_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatStreamChunk, LLMError>> + Send>>, LLMError>
+    {
+        if self.api_key.is_empty() {
+            return Err(LLMError::AuthError(format!(
+                "Missing {} API key",
+                T::PROVIDER_NAME
+            )));
+        }
+
+        let openai_msgs = self.prepare_messages(messages);
+
+        let requested_tools = tools.map(|t| t.to_vec());
+
+        let response_format: Option<OpenAIResponseFormat> = if T::SUPPORTS_STRUCTURED_OUTPUT {
+            json_schema.clone().map(|s| s.into())
+        } else {
+            None
+        };
+
+        let body = OpenAIChatRequest {
+            model: &self.model,
+            messages: openai_msgs,
+            max_tokens: self.max_tokens,
+            temperature: self.temperature,
+            stream: true,
+            top_p: self.top_p,
+            top_k: self.top_k,
+            tools: requested_tools,
+            tool_choice: self.tool_choice.clone(),
+            reasoning_effort: if T::SUPPORTS_REASONING_EFFORT {
+                self.reasoning_effort.clone()
+            } else {
+                None
+            },
+            response_format: response_format,
+            stream_options: if T::SUPPORTS_STREAM_OPTIONS {
+                Some(OpenAIStreamOptions {
+                    include_usage: true,
+                })
+            } else {
+                None
+            },
+            parallel_tool_calls: if T::SUPPORTS_PARALLEL_TOOL_CALLS {
+                Some(self.parallel_tool_calls)
+            } else {
+                None
+            },
+            extra_body: self.extra_body.clone(),
+        };
+
+        let url = self
+            .base_url
+            .join(T::CHAT_ENDPOINT)
+            .map_err(|e| LLMError::HttpError(e.to_string()))?;
+
+        let mut request = self.client.post(url).bearer_auth(&self.api_key).json(&body);
+
+        if let Some(headers) = T::custom_headers() {
+            for (key, value) in headers {
+                request = request.header(key, value);
+            }
+        }
+
+        if log::log_enabled!(log::Level::Trace) {
+            if let Ok(json) = serde_json::to_string(&body) {
+                log::trace!(
+                    "{} streaming with tools request: {}",
+                    T::PROVIDER_NAME,
+                    json
+                );
+            }
+        }
+
+        if let Some(timeout) = self.timeout_seconds {
+            request = request.timeout(std::time::Duration::from_secs(timeout));
+        }
+
+        log::debug!(
+            "{} request: POST {} (streaming with tools)",
+            T::PROVIDER_NAME,
+            T::CHAT_ENDPOINT
+        );
+        let response = request.send().await?;
+        log::debug!("{} HTTP status: {}", T::PROVIDER_NAME, response.status());
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await?;
+            return Err(LLMError::ResponseFormatError {
+                message: format!("{} API returned error status: {status}", T::PROVIDER_NAME),
+                raw_response: error_text,
+            });
+        }
+
+        Ok(create_openai_tool_stream(response))
+    }
+}
+
+/// State for tracking tool use blocks during OpenAI-compatible streaming
+#[derive(Debug, Default)]
+struct OpenAIToolUseState {
+    /// Tool ID
+    id: String,
+    /// Tool name
+    name: String,
+    /// Accumulated JSON arguments
+    arguments_buffer: String,
+    /// Whether we've emitted the start event
+    started: bool,
+}
+
+/// Creates an SSE stream that parses OpenAI-compatible tool use events into ChatStreamChunk.
+fn create_openai_tool_stream(
+    response: reqwest::Response,
+) -> Pin<Box<dyn Stream<Item = Result<ChatStreamChunk, LLMError>> + Send>> {
+    let stream = response
+        .bytes_stream()
+        .scan(
+            (String::new(), HashMap::<usize, OpenAIToolUseState>::new()),
+            move |(buffer, tool_states), chunk| {
+                let result = match chunk {
+                    Ok(bytes) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        buffer.push_str(&text);
+
+                        let mut results = Vec::new();
+
+                        // Process complete SSE events (separated by double newlines)
+                        while let Some(pos) = buffer.find("\n\n") {
+                            let event = buffer[..pos].to_string();
+                            buffer.drain(..pos + 2);
+
+                            // Also handle \r\n\r\n
+                            let event = event.trim();
+                            if event.is_empty() {
+                                continue;
+                            }
+
+                            match parse_openai_sse_chunk_with_tools(event, tool_states) {
+                                Ok(chunks) => results.extend(chunks.into_iter().map(Ok)),
+                                Err(e) => results.push(Err(e)),
+                            }
+                        }
+
+                        Some(results)
+                    }
+                    Err(e) => Some(vec![Err(LLMError::HttpError(e.to_string()))]),
+                };
+
+                async move { result }
+            },
+        )
+        .flat_map(futures::stream::iter);
+
+    Box::pin(stream)
+}
+
+/// Parses OpenAI-compatible SSE chunks with tool use support.
+///
+/// OpenAI streams tool calls as deltas with:
+/// - `tool_calls[].index` - identifies which tool call
+/// - `tool_calls[].id` - tool call ID (first chunk only)
+/// - `tool_calls[].function.name` - function name (first chunk only)
+/// - `tool_calls[].function.arguments` - partial JSON arguments (streamed)
+/// - `finish_reason: "tool_calls"` - signals completion
+fn parse_openai_sse_chunk_with_tools(
+    event: &str,
+    tool_states: &mut HashMap<usize, OpenAIToolUseState>,
+) -> Result<Vec<ChatStreamChunk>, LLMError> {
+    let mut results = Vec::new();
+
+    for line in event.lines() {
+        let line = line.trim();
+        if let Some(data) = line.strip_prefix("data: ") {
+            if data == "[DONE]" {
+                // Emit any remaining tool completions
+                for (index, state) in tool_states.drain() {
+                    if state.started {
+                        results.push(ChatStreamChunk::ToolUseComplete {
+                            index,
+                            tool_call: ToolCall {
+                                id: state.id,
+                                call_type: "function".to_string(),
+                                function: FunctionCall {
+                                    name: state.name,
+                                    arguments: state.arguments_buffer,
+                                },
+                            },
+                        });
+                    }
+                }
+                results.push(ChatStreamChunk::Done {
+                    stop_reason: "end_turn".to_string(),
+                });
+                return Ok(results);
+            }
+
+            if let Ok(chunk) = serde_json::from_str::<OpenAIToolStreamChunk>(data) {
+                for choice in &chunk.choices {
+                    // Handle text content
+                    if let Some(content) = &choice.delta.content {
+                        if !content.is_empty() {
+                            results.push(ChatStreamChunk::Text(content.clone()));
+                        }
+                    }
+
+                    // Handle tool calls
+                    if let Some(tool_calls) = &choice.delta.tool_calls {
+                        for tc in tool_calls {
+                            let index = tc.index.unwrap_or(0);
+                            let state = tool_states.entry(index).or_default();
+
+                            // First chunk has id and name
+                            if let Some(id) = &tc.id {
+                                state.id = id.clone();
+                            }
+                            if let Some(name) = &tc.function.name {
+                                state.name = name.clone();
+
+                                // Emit ToolUseStart
+                                if !state.started {
+                                    state.started = true;
+                                    results.push(ChatStreamChunk::ToolUseStart {
+                                        index,
+                                        id: state.id.clone(),
+                                        name: state.name.clone(),
+                                    });
+                                }
+                            }
+
+                            // Accumulate arguments
+                            if !tc.function.arguments.is_empty() {
+                                state.arguments_buffer.push_str(&tc.function.arguments);
+                                results.push(ChatStreamChunk::ToolUseInputDelta {
+                                    index,
+                                    partial_json: tc.function.arguments.clone(),
+                                });
+                            }
+                        }
+                    }
+
+                    // Handle finish_reason
+                    if let Some(finish_reason) = &choice.finish_reason {
+                        // Emit tool completions before done
+                        for (index, state) in tool_states.drain() {
+                            if state.started {
+                                results.push(ChatStreamChunk::ToolUseComplete {
+                                    index,
+                                    tool_call: ToolCall {
+                                        id: state.id,
+                                        call_type: "function".to_string(),
+                                        function: FunctionCall {
+                                            name: state.name,
+                                            arguments: state.arguments_buffer,
+                                        },
+                                    },
+                                });
+                            }
+                        }
+
+                        let stop_reason = match finish_reason.as_str() {
+                            "tool_calls" => "tool_use",
+                            "stop" => "end_turn",
+                            other => other,
+                        };
+                        results.push(ChatStreamChunk::Done {
+                            stop_reason: stop_reason.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(results)
+}
+
+/// OpenAI streaming chunk structure for tool parsing
+#[derive(Debug, Deserialize)]
+struct OpenAIToolStreamChunk {
+    choices: Vec<OpenAIToolStreamChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIToolStreamChoice {
+    delta: OpenAIToolStreamDelta,
+    finish_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIToolStreamDelta {
+    content: Option<String>,
+    tool_calls: Option<Vec<OpenAIToolStreamToolCall>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIToolStreamToolCall {
+    index: Option<usize>,
+    id: Option<String>,
+    function: OpenAIToolStreamFunction,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIToolStreamFunction {
+    name: Option<String>,
+    #[serde(default)]
+    arguments: String,
 }
 
 /// Create OpenAICompatibleChatMessage` that doesn't borrow from any temporary variables
@@ -609,7 +922,6 @@ pub fn chat_message_to_openai_message(chat_msg: ChatMessage) -> OpenAIChatMessag
             ChatRole::User => "user",
             ChatRole::Assistant => "assistant",
             ChatRole::System => "system",
-            ChatRole::Tool => "tool",
         },
         tool_call_id: None,
         content: match &chat_msg.message_type {
@@ -681,19 +993,11 @@ pub fn create_sse_stream(
         /// Push the current `tool_buffer` as a `StreamResponse` and reset it
         fn push_tool_call(&mut self) {
             if self.normalize_response && !self.tool_buffer.function.name.is_empty() {
-                // Convert ToolCall to StreamToolCallDelta for normalized output
-                let tool_call_delta = StreamToolCallDelta {
-                    index: 0,
-                    function: Some(StreamToolCallFunction {
-                        name: self.tool_buffer.function.name.clone(),
-                        arguments: self.tool_buffer.function.arguments.clone(),
-                    }),
-                };
                 self.results.push(Ok(StreamResponse {
                     choices: vec![StreamChoice {
                         delta: StreamDelta {
                             content: None,
-                            tool_calls: Some(vec![tool_call_delta]),
+                            tool_calls: Some(vec![self.tool_buffer.clone()]),
                         },
                     }],
                     usage: None,
@@ -743,25 +1047,23 @@ pub fn create_sse_stream(
                 }
                 for choice in &response.choices {
                     let content = choice.delta.content.clone();
-
-                    if self.normalize_response {
-                        // Map StreamToolCall (some fields are optional) to ToolCall for normalization
-                        let tool_calls: Option<Vec<ToolCall>> =
-                            choice.delta.tool_calls.clone().map(|calls| {
-                                calls
-                                    .into_iter()
-                                    .map(|c| ToolCall {
-                                        id: c.id.unwrap_or_default(),
-                                        call_type: c.call_type,
-                                        function: FunctionCall {
-                                            name: c.function.name.unwrap_or_default(),
-                                            arguments: c.function.arguments,
-                                        },
-                                    })
-                                    .collect::<Vec<ToolCall>>()
-                            });
-
-                        if content.is_some() || tool_calls.is_some() {
+                    // Map StreamToolCall (some fields are optional) to ToolCall
+                    let tool_calls: Option<Vec<ToolCall>> =
+                        choice.delta.tool_calls.clone().map(|calls| {
+                            calls
+                                .into_iter()
+                                .map(|c| ToolCall {
+                                    id: c.id.unwrap_or_default(),
+                                    call_type: c.call_type,
+                                    function: FunctionCall {
+                                        name: c.function.name.unwrap_or_default(),
+                                        arguments: c.function.arguments,
+                                    },
+                                })
+                                .collect::<Vec<ToolCall>>()
+                        });
+                    if content.is_some() || tool_calls.is_some() {
+                        if self.normalize_response && tool_calls.is_some() {
                             // If normalize_response is enabled, accumulate tool call outputs
                             if let Some(calls) = &tool_calls {
                                 for call in calls {
@@ -784,33 +1086,13 @@ pub fn create_sse_stream(
                                     }
                                 }
                             }
-                        }
-                    } else {
-                        // When not normalizing, convert StreamToolCall to StreamToolCallDelta
-                        let tool_call_deltas: Option<Vec<StreamToolCallDelta>> =
-                            choice.delta.tool_calls.clone().map(|calls| {
-                                calls
-                                    .into_iter()
-                                    .enumerate()
-                                    .map(|(idx, c)| StreamToolCallDelta {
-                                        index: idx,
-                                        function: c.function.name.map(|name| {
-                                            StreamToolCallFunction {
-                                                name,
-                                                arguments: c.function.arguments,
-                                            }
-                                        }),
-                                    })
-                                    .collect()
-                            });
-
-                        if content.is_some() || tool_call_deltas.is_some() {
+                        } else {
                             self.push_tool_call();
                             self.results.push(Ok(StreamResponse {
                                 choices: vec![StreamChoice {
                                     delta: StreamDelta {
                                         content,
-                                        tool_calls: tool_call_deltas,
+                                        tool_calls,
                                     },
                                 }],
                                 usage: None,
@@ -847,4 +1129,294 @@ pub fn create_sse_stream(
         })
         .flat_map(futures::stream::iter);
     Box::pin(stream)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_openai_stream_text_delta() {
+        let event = r#"data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}"#;
+        let mut tool_states = HashMap::new();
+        let results = parse_openai_sse_chunk_with_tools(event, &mut tool_states).unwrap();
+
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            ChatStreamChunk::Text(text) => assert_eq!(text, "Hello"),
+            _ => panic!("Expected Text chunk, got {:?}", results[0]),
+        }
+    }
+
+    #[test]
+    fn test_parse_openai_stream_tool_call_start() {
+        let event = r#"data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_abc123","type":"function","function":{"name":"get_weather","arguments":""}}]},"finish_reason":null}]}"#;
+        let mut tool_states = HashMap::new();
+        let results = parse_openai_sse_chunk_with_tools(event, &mut tool_states).unwrap();
+
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            ChatStreamChunk::ToolUseStart { index, id, name } => {
+                assert_eq!(*index, 0);
+                assert_eq!(id, "call_abc123");
+                assert_eq!(name, "get_weather");
+            }
+            _ => panic!("Expected ToolUseStart chunk, got {:?}", results[0]),
+        }
+
+        // Verify state was stored
+        assert!(tool_states.contains_key(&0));
+        assert_eq!(tool_states[&0].id, "call_abc123");
+        assert_eq!(tool_states[&0].name, "get_weather");
+        assert!(tool_states[&0].started);
+    }
+
+    #[test]
+    fn test_parse_openai_stream_tool_call_arguments_delta() {
+        // First, set up tool state as if start was already processed
+        let mut tool_states = HashMap::new();
+        tool_states.insert(
+            0,
+            OpenAIToolUseState {
+                id: "call_abc123".to_string(),
+                name: "get_weather".to_string(),
+                arguments_buffer: String::new(),
+                started: true,
+            },
+        );
+
+        let event = r#"data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"location\":"}}]},"finish_reason":null}]}"#;
+        let results = parse_openai_sse_chunk_with_tools(event, &mut tool_states).unwrap();
+
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            ChatStreamChunk::ToolUseInputDelta {
+                index,
+                partial_json,
+            } => {
+                assert_eq!(*index, 0);
+                assert_eq!(partial_json, "{\"location\":");
+            }
+            _ => panic!("Expected ToolUseInputDelta chunk, got {:?}", results[0]),
+        }
+
+        // Verify arguments were accumulated
+        assert_eq!(tool_states[&0].arguments_buffer, "{\"location\":");
+    }
+
+    #[test]
+    fn test_parse_openai_stream_finish_reason_tool_calls() {
+        let mut tool_states = HashMap::new();
+        tool_states.insert(
+            0,
+            OpenAIToolUseState {
+                id: "call_abc123".to_string(),
+                name: "get_weather".to_string(),
+                arguments_buffer: r#"{"location": "Paris"}"#.to_string(),
+                started: true,
+            },
+        );
+
+        let event = r#"data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#;
+        let results = parse_openai_sse_chunk_with_tools(event, &mut tool_states).unwrap();
+
+        // Should have ToolUseComplete and Done
+        assert_eq!(results.len(), 2);
+
+        match &results[0] {
+            ChatStreamChunk::ToolUseComplete { index, tool_call } => {
+                assert_eq!(*index, 0);
+                assert_eq!(tool_call.id, "call_abc123");
+                assert_eq!(tool_call.function.name, "get_weather");
+                assert_eq!(tool_call.function.arguments, r#"{"location": "Paris"}"#);
+            }
+            _ => panic!("Expected ToolUseComplete chunk, got {:?}", results[0]),
+        }
+
+        match &results[1] {
+            ChatStreamChunk::Done { stop_reason } => {
+                assert_eq!(stop_reason, "tool_use");
+            }
+            _ => panic!("Expected Done chunk, got {:?}", results[1]),
+        }
+
+        // Verify state was cleared
+        assert!(tool_states.is_empty());
+    }
+
+    #[test]
+    fn test_parse_openai_stream_finish_reason_stop() {
+        let event = r#"data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#;
+        let mut tool_states = HashMap::new();
+        let results = parse_openai_sse_chunk_with_tools(event, &mut tool_states).unwrap();
+
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            ChatStreamChunk::Done { stop_reason } => {
+                assert_eq!(stop_reason, "end_turn");
+            }
+            _ => panic!("Expected Done chunk, got {:?}", results[0]),
+        }
+    }
+
+    #[test]
+    fn test_parse_openai_stream_done_marker() {
+        let event = "data: [DONE]";
+        let mut tool_states = HashMap::new();
+        let results = parse_openai_sse_chunk_with_tools(event, &mut tool_states).unwrap();
+
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            ChatStreamChunk::Done { stop_reason } => {
+                assert_eq!(stop_reason, "end_turn");
+            }
+            _ => panic!("Expected Done chunk, got {:?}", results[0]),
+        }
+    }
+
+    #[test]
+    fn test_parse_openai_stream_done_marker_with_pending_tool() {
+        let mut tool_states = HashMap::new();
+        tool_states.insert(
+            0,
+            OpenAIToolUseState {
+                id: "call_xyz".to_string(),
+                name: "some_function".to_string(),
+                arguments_buffer: "{}".to_string(),
+                started: true,
+            },
+        );
+
+        let event = "data: [DONE]";
+        let results = parse_openai_sse_chunk_with_tools(event, &mut tool_states).unwrap();
+
+        // Should emit ToolUseComplete before Done
+        assert_eq!(results.len(), 2);
+        assert!(matches!(
+            &results[0],
+            ChatStreamChunk::ToolUseComplete { .. }
+        ));
+        assert!(matches!(&results[1], ChatStreamChunk::Done { .. }));
+    }
+
+    #[test]
+    fn test_parse_openai_stream_full_tool_sequence() {
+        let mut tool_states = HashMap::new();
+
+        // 1. Tool call start with name
+        let start_event = r#"data: {"id":"chatcmpl-123","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_abc","type":"function","function":{"name":"get_weather","arguments":""}}]},"finish_reason":null}]}"#;
+        let results = parse_openai_sse_chunk_with_tools(start_event, &mut tool_states).unwrap();
+        assert!(
+            matches!(&results[0], ChatStreamChunk::ToolUseStart { name, .. } if name == "get_weather")
+        );
+
+        // 2. Arguments delta 1
+        let delta1 = r#"data: {"id":"chatcmpl-123","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"loc"}}]},"finish_reason":null}]}"#;
+        let _ = parse_openai_sse_chunk_with_tools(delta1, &mut tool_states).unwrap();
+
+        // 3. Arguments delta 2
+        let delta2 = r#"data: {"id":"chatcmpl-123","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ation\":\"Tokyo\"}"}}]},"finish_reason":null}]}"#;
+        let _ = parse_openai_sse_chunk_with_tools(delta2, &mut tool_states).unwrap();
+
+        // Verify accumulated arguments
+        assert_eq!(tool_states[&0].arguments_buffer, "{\"location\":\"Tokyo\"}");
+
+        // 4. Finish reason
+        let finish_event = r#"data: {"id":"chatcmpl-123","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#;
+        let results = parse_openai_sse_chunk_with_tools(finish_event, &mut tool_states).unwrap();
+
+        assert_eq!(results.len(), 2);
+        match &results[0] {
+            ChatStreamChunk::ToolUseComplete { tool_call, .. } => {
+                assert_eq!(tool_call.function.arguments, "{\"location\":\"Tokyo\"}");
+            }
+            _ => panic!("Expected ToolUseComplete"),
+        }
+        assert!(matches!(
+            &results[1],
+            ChatStreamChunk::Done { stop_reason } if stop_reason == "tool_use"
+        ));
+    }
+
+    #[test]
+    fn test_parse_openai_stream_parallel_tool_calls() {
+        let mut tool_states = HashMap::new();
+
+        // Two tool calls in one chunk
+        let event = r#"data: {"id":"chatcmpl-123","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_weather","arguments":""}},{"index":1,"id":"call_2","type":"function","function":{"name":"get_time","arguments":""}}]},"finish_reason":null}]}"#;
+        let results = parse_openai_sse_chunk_with_tools(event, &mut tool_states).unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(
+            matches!(&results[0], ChatStreamChunk::ToolUseStart { index: 0, name, .. } if name == "get_weather")
+        );
+        assert!(
+            matches!(&results[1], ChatStreamChunk::ToolUseStart { index: 1, name, .. } if name == "get_time")
+        );
+
+        // Verify both states exist
+        assert!(tool_states.contains_key(&0));
+        assert!(tool_states.contains_key(&1));
+    }
+
+    #[test]
+    fn test_parse_openai_stream_ignores_empty_content() {
+        let event = r#"data: {"id":"chatcmpl-123","choices":[{"index":0,"delta":{"content":""},"finish_reason":null}]}"#;
+        let mut tool_states = HashMap::new();
+        let results = parse_openai_sse_chunk_with_tools(event, &mut tool_states).unwrap();
+
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_parse_vllm_stream_tool_calls() {
+        // vLLM includes extra fields like reasoning_content, type, token_ids
+        let mut tool_states = HashMap::new();
+
+        // First chunk from vLLM - just role, empty content
+        let first_chunk = r#"data: {"id":"chatcmpl-be8d6d925ff14741","object":"chat.completion.chunk","created":1765374283,"model":"Qwen/Qwen2.5-Coder-7B-Instruct-AWQ","choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning_content":null},"logprobs":null,"finish_reason":null}],"prompt_token_ids":null}"#;
+        let results = parse_openai_sse_chunk_with_tools(first_chunk, &mut tool_states).unwrap();
+        assert!(results.is_empty(), "First chunk should produce no results");
+
+        // Second chunk - tool call start with id, type, index, function.name and function.arguments
+        let tool_start = r#"data: {"id":"chatcmpl-be8d6d925ff14741","object":"chat.completion.chunk","created":1765374283,"model":"Qwen/Qwen2.5-Coder-7B-Instruct-AWQ","choices":[{"index":0,"delta":{"reasoning_content":null,"tool_calls":[{"id":"chatcmpl-tool-a331788bab1045a8","type":"function","index":0,"function":{"name":"db_list_databases","arguments":"{\"catalog\":"}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}"#;
+        let results = parse_openai_sse_chunk_with_tools(tool_start, &mut tool_states).unwrap();
+
+        // Should have ToolUseStart and ToolUseInputDelta
+        assert!(
+            results.len() >= 1,
+            "Expected at least 1 result, got {:?}",
+            results
+        );
+        assert!(
+            matches!(&results[0], ChatStreamChunk::ToolUseStart { name, .. } if name == "db_list_databases"),
+            "Expected ToolUseStart, got {:?}",
+            results[0]
+        );
+
+        // Arguments delta
+        let args_delta = r#"data: {"id":"chatcmpl-be8d6d925ff14741","object":"chat.completion.chunk","created":1765374283,"model":"Qwen/Qwen2.5-Coder-7B-Instruct-AWQ","choices":[{"index":0,"delta":{"reasoning_content":null,"tool_calls":[{"index":0,"function":{"arguments":"\"default\"}"}}]},"logprobs":null,"finish_reason":null,"token_ids":null}]}"#;
+        let results = parse_openai_sse_chunk_with_tools(args_delta, &mut tool_states).unwrap();
+        assert!(
+            matches!(&results[0], ChatStreamChunk::ToolUseInputDelta { partial_json, .. } if partial_json == "\"default\"}"),
+            "Expected ToolUseInputDelta, got {:?}",
+            results
+        );
+
+        // Finish with stop reason
+        let finish = r#"data: {"id":"chatcmpl-be8d6d925ff14741","object":"chat.completion.chunk","created":1765374283,"model":"Qwen/Qwen2.5-Coder-7B-Instruct-AWQ","choices":[{"index":0,"delta":{"reasoning_content":null,"tool_calls":[{"index":0,"function":{"arguments":""}}]},"logprobs":null,"finish_reason":"stop","stop_reason":null,"token_ids":null}]}"#;
+        let results = parse_openai_sse_chunk_with_tools(finish, &mut tool_states).unwrap();
+
+        // Should have ToolUseComplete and Done
+        assert!(
+            results.len() >= 2,
+            "Expected ToolUseComplete and Done, got {:?}",
+            results
+        );
+        assert!(
+            matches!(&results[0], ChatStreamChunk::ToolUseComplete { tool_call, .. } if tool_call.function.name == "db_list_databases"),
+            "Expected ToolUseComplete, got {:?}",
+            results[0]
+        );
+    }
 }

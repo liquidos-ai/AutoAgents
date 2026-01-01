@@ -104,8 +104,6 @@ pub struct LLMBuilder<L: LLMProvider> {
     pub max_tokens: Option<u32>,
     /// Temperature parameter for controlling response randomness (0.0-1.0)
     pub temperature: Option<f32>,
-    /// System prompt/context to guide model behavior
-    pub system: Option<String>,
     /// Request timeout duration in seconds
     pub(crate) timeout_seconds: Option<u64>,
     /// Top-p (nucleus) sampling parameter
@@ -140,6 +138,8 @@ pub struct LLMBuilder<L: LLMProvider> {
     /// Whether to normalize response format
     #[allow(dead_code)]
     pub(crate) normalize_response: Option<bool>,
+    /// ExtraBody
+    pub(crate) extra_body: Option<serde_json::Value>,
 }
 
 impl<L: LLMProvider> Default for LLMBuilder<L> {
@@ -151,7 +151,6 @@ impl<L: LLMProvider> Default for LLMBuilder<L> {
             model: None,
             max_tokens: None,
             temperature: None,
-            system: None,
             timeout_seconds: None,
             top_p: None,
             top_k: None,
@@ -168,6 +167,7 @@ impl<L: LLMProvider> Default for LLMBuilder<L> {
             deployment_id: None,
             voice: None,
             normalize_response: None,
+            extra_body: None,
         }
     }
 }
@@ -202,15 +202,15 @@ impl<L: LLMProvider> LLMBuilder<L> {
         self
     }
 
-    /// Sets the temperature for controlling response randomness (0.0-1.0).
-    pub fn temperature(mut self, temperature: f32) -> Self {
-        self.temperature = Some(temperature);
+    /// Sets the request timeout in seconds.
+    pub fn normalize_response(mut self, normalize_response: bool) -> Self {
+        self.normalize_response = Some(normalize_response);
         self
     }
 
-    /// Sets the system prompt/context.
-    pub fn system(mut self, system: impl Into<String>) -> Self {
-        self.system = Some(system.into());
+    /// Sets the temperature for controlling response randomness (0.0-1.0).
+    pub fn temperature(mut self, temperature: f32) -> Self {
+        self.temperature = Some(temperature);
         self
     }
 
@@ -316,6 +316,12 @@ impl<L: LLMProvider> LLMBuilder<L> {
     /// Set the deployment id. Used in Azure OpenAI.
     pub fn deployment_id(mut self, deployment_id: impl Into<String>) -> Self {
         self.deployment_id = Some(deployment_id.into());
+        self
+    }
+
+    pub fn extra_body(mut self, extra_body: impl serde::Serialize) -> Self {
+        let value = serde_json::to_value(extra_body).ok();
+        self.extra_body = value;
         self
     }
 }
@@ -661,6 +667,14 @@ mod tests {
         async fn chat(
             &self,
             _messages: &[ChatMessage],
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            unimplemented!()
+        }
+
+        async fn chat_with_tools(
+            &self,
+            _messages: &[ChatMessage],
             _tools: Option<&[Tool]>,
             _json_schema: Option<StructuredOutputFormat>,
         ) -> Result<Box<dyn ChatResponse>, LLMError> {
@@ -699,7 +713,6 @@ mod tests {
         assert!(builder.model.is_none());
         assert!(builder.max_tokens.is_none());
         assert!(builder.temperature.is_none());
-        assert!(builder.system.is_none());
         assert!(builder.timeout_seconds.is_none());
         assert!(builder.tool_choice.is_none());
     }
@@ -744,15 +757,6 @@ mod tests {
     fn test_llm_builder_temperature() {
         let builder = LLMBuilder::<MockLLMProvider>::new().temperature(0.7);
         assert_eq!(builder.temperature, Some(0.7));
-    }
-
-    #[test]
-    fn test_llm_builder_system() {
-        let builder = LLMBuilder::<MockLLMProvider>::new().system("You are a helpful assistant");
-        assert_eq!(
-            builder.system,
-            Some("You are a helpful assistant".to_string())
-        );
     }
 
     #[test]
@@ -859,7 +863,6 @@ mod tests {
             .model("gpt-4")
             .max_tokens(2000)
             .temperature(0.8)
-            .system("You are helpful")
             .timeout_seconds(60)
             .top_p(0.95)
             .top_k(40)
@@ -875,7 +878,6 @@ mod tests {
         assert_eq!(builder.model, Some("gpt-4".to_string()));
         assert_eq!(builder.max_tokens, Some(2000));
         assert_eq!(builder.temperature, Some(0.8));
-        assert_eq!(builder.system, Some("You are helpful".to_string()));
         assert_eq!(builder.timeout_seconds, Some(60));
         assert_eq!(builder.top_p, Some(0.95));
         assert_eq!(builder.top_k, Some(40));

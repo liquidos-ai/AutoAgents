@@ -26,7 +26,6 @@ pub struct Ollama {
     pub model: String,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
-    pub system: Option<String>,
     pub timeout_seconds: Option<u64>,
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,
@@ -267,7 +266,6 @@ impl Ollama {
         max_tokens: Option<u32>,
         temperature: Option<f32>,
         timeout_seconds: Option<u64>,
-        system: Option<String>,
         top_p: Option<f32>,
         top_k: Option<u32>,
     ) -> Self {
@@ -282,7 +280,6 @@ impl Ollama {
             temperature,
             max_tokens,
             timeout_seconds,
-            system,
             top_p,
             top_k,
             client: builder.build().expect("Failed to build reqwest Client"),
@@ -299,28 +296,17 @@ impl Ollama {
             return Err(LLMError::InvalidRequest("Missing base_url".to_string()));
         }
 
-        let mut chat_messages: Vec<OllamaChatMessage> = messages
+        let chat_messages: Vec<OllamaChatMessage> = messages
             .iter()
             .map(|msg| OllamaChatMessage {
                 role: match msg.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
-                    ChatRole::Tool => "tool",
                     ChatRole::System => "system",
                 },
                 content: &msg.content,
             })
             .collect();
-
-        if let Some(system) = &self.system {
-            chat_messages.insert(
-                0,
-                OllamaChatMessage {
-                    role: "system",
-                    content: system,
-                },
-            );
-        }
 
         // Convert tools to Ollama format if provided
         let ollama_tools = tools.map(|t| t.iter().map(OllamaTool::from).collect());
@@ -383,6 +369,14 @@ impl ChatProvider for Ollama {
     ///
     /// The model's response text or an error
     async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        self.chat_with_tools(messages, None, json_schema).await
+    }
+
+    async fn chat_with_tools(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
@@ -482,7 +476,6 @@ impl LLMBuilder<Ollama> {
             self.max_tokens,
             self.temperature,
             self.timeout_seconds,
-            self.system,
             self.top_p,
             self.top_k,
         );
@@ -506,7 +499,6 @@ impl EmbeddingBuilder<Ollama> {
             None,
             None,
             self.timeout_seconds,
-            None,
             None,
             None,
         );
