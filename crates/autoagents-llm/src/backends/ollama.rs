@@ -29,6 +29,7 @@ pub struct Ollama {
     pub timeout_seconds: Option<u64>,
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,
+    pub keep_alive: Option<String>,
     client: Client,
 }
 
@@ -42,6 +43,7 @@ struct OllamaChatRequest<'a> {
     format: Option<OllamaResponseFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<OllamaTool>>,
+    keep_alive: String,
 }
 
 #[derive(Serialize)]
@@ -268,6 +270,7 @@ impl Ollama {
         timeout_seconds: Option<u64>,
         top_p: Option<f32>,
         top_k: Option<u32>,
+        keep_alive: Option<String>,
     ) -> Self {
         let mut builder = Client::builder();
         if let Some(sec) = timeout_seconds {
@@ -282,6 +285,7 @@ impl Ollama {
             timeout_seconds,
             top_p,
             top_k,
+            keep_alive,
             client: builder.build().expect("Failed to build reqwest Client"),
         }
     }
@@ -321,6 +325,8 @@ impl Ollama {
             None
         };
 
+        let keep_alive: String = self.keep_alive.clone().unwrap_or_else(|| "0".into());
+
         let req_body = OllamaChatRequest {
             model: self.model.clone(),
             messages: chat_messages,
@@ -329,6 +335,7 @@ impl Ollama {
                 top_p: self.top_p,
                 top_k: self.top_k,
             }),
+            keep_alive,
             format,
             tools: ollama_tools,
         };
@@ -466,10 +473,16 @@ impl ModelsProvider for Ollama {}
 impl crate::LLMProvider for Ollama {}
 
 impl LLMBuilder<Ollama> {
+    pub fn kep_alive(mut self, keep_alive: impl Into<String>) -> Self {
+        self.keep_alive = Some(keep_alive.into());
+        self
+    }
+
     pub fn build(self) -> Result<Arc<Ollama>, LLMError> {
         let url = self
             .base_url
             .unwrap_or("http://localhost:11434".to_string());
+
         let ollama = Ollama::new(
             url,
             self.api_key,
@@ -479,6 +492,7 @@ impl LLMBuilder<Ollama> {
             self.timeout_seconds,
             self.top_p,
             self.top_k,
+            self.keep_alive,
         );
 
         Ok(Arc::new(ollama))
@@ -500,6 +514,7 @@ impl EmbeddingBuilder<Ollama> {
             None,
             None,
             self.timeout_seconds,
+            None,
             None,
             None,
         );
