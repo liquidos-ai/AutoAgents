@@ -61,6 +61,7 @@ mod ollama_test_cases {
             None,
             None,
             None,
+            None,
         );
 
         assert_eq!(client.base_url, "http://localhost:11434");
@@ -74,7 +75,7 @@ mod ollama_test_cases {
     async fn test_chat_missing_base_url() {
         let client = Ollama::new(
             "", // Empty base URL
-            None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None,
         );
 
         let messages = vec![ChatMessage::user().content("Hello").build()];
@@ -94,7 +95,7 @@ mod ollama_test_cases {
     async fn test_completion_missing_base_url() {
         let client = Ollama::new(
             "", // Empty base URL
-            None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None,
         );
 
         let req = CompletionRequest {
@@ -118,7 +119,7 @@ mod ollama_test_cases {
     async fn test_embedding() {
         let client = Ollama::new(
             "", // Empty base URL will cause error
-            None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None,
         );
 
         let result = client.embed(vec!["test text".to_string()]).await;

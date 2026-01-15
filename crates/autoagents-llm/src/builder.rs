@@ -140,6 +140,8 @@ pub struct LLMBuilder<L: LLMProvider> {
     pub(crate) normalize_response: Option<bool>,
     /// ExtraBody
     pub(crate) extra_body: Option<serde_json::Value>,
+    /// Keep Alive
+    pub(crate) keep_alive: Option<String>,
 }
 
 impl<L: LLMProvider> Default for LLMBuilder<L> {
@@ -168,6 +170,7 @@ impl<L: LLMProvider> Default for LLMBuilder<L> {
             voice: None,
             normalize_response: Some(true), //Defaulting so it accumilates tool calls in streams, easy for agent handling
             extra_body: None,
+            keep_alive: None,
         }
     }
 }
