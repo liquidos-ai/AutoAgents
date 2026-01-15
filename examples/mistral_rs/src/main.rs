@@ -82,6 +82,7 @@ struct Args {
 }
 
 #[tokio::main]
+#[allow(clippy::result_large_err)]
 async fn main() -> Result<(), Error> {
     // Initialize logging
     autoagents::init_logging();

@@ -161,7 +161,7 @@ async fn serve_workflows(
     }
 
     let server = HTTPServer::new(config, workflows);
-    let _ = server.serve().await?;
+    server.serve().await?;
 
     Ok(())
 }

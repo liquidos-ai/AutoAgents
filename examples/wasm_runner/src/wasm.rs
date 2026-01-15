@@ -129,7 +129,7 @@ pub async fn wasm_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     // Send WASM computation tasks
     println!("\n📤 Sending WASM computation tasks...");
 
-    let tasks = vec![
+    let tasks = [
         "Calculate 2 + 2 using the WASM addition tool",
         "What is 15 + 27? Use the WASM tool for this calculation",
         "Compute 100 + 200 and explain how WASM tools work",

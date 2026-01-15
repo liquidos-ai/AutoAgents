@@ -7,6 +7,7 @@ use std::sync::Arc;
 mod wasm;
 
 #[tokio::main]
+#[allow(clippy::result_large_err)]
 async fn main() -> Result<(), Error> {
     init_logging();
     // Check if API key is set

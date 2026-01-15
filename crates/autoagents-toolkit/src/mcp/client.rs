@@ -121,9 +121,7 @@ impl McpToolsManager {
         server_config: &McpServerConfig,
     ) -> Result<McpServerConnection, McpError> {
         // Validate configuration
-        server_config
-            .validate()
-            .map_err(|e| McpError::ConfigError(e))?;
+        server_config.validate().map_err(McpError::ConfigError)?;
 
         let service = match server_config.protocol.as_str() {
             "stdio" => self.connect_stdio_server(server_config).await?,
@@ -313,6 +311,7 @@ mod tests {
         // ClientInfo is an InitializeRequestParam with default implementation values
         // We can't directly test the field values without knowing the internal structure
         // but we can ensure it can be created
-        assert!(std::ptr::addr_of!(client_info) as usize % std::mem::align_of::<ClientInfo>() == 0);
+        assert!((std::ptr::addr_of!(client_info) as usize)
+            .is_multiple_of(std::mem::align_of::<ClientInfo>()));
     }
 }

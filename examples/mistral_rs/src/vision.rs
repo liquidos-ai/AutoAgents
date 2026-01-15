@@ -65,8 +65,7 @@ pub async fn run_example(llm: Arc<MistralRsProvider>) -> Result<(), Error> {
             local_path
         } else {
             // Fall back to path when running from project root
-            let fallback = PathBuf::from("./examples/mistral_rs/test_img.jpg");
-            fallback
+            PathBuf::from("./examples/mistral_rs/test_img.jpg")
         }
     };
 

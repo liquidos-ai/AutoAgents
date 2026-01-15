@@ -9,6 +9,7 @@ use autoagents_toolkit::tools::search::BraveSearch;
 pub struct ToolRegistry;
 
 impl ToolRegistry {
+    #[allow(clippy::result_large_err)]
     pub fn create_tool(config: &ToolConfig) -> Result<Arc<dyn ToolT>> {
         match config.name.as_str() {
             #[cfg(feature = "search-tools")]
@@ -23,6 +24,7 @@ impl ToolRegistry {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn create_tools(configs: &[ToolConfig]) -> Result<Vec<Arc<dyn ToolT>>> {
         configs
             .iter()

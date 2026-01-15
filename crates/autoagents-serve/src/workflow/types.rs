@@ -45,6 +45,7 @@ pub enum Workflow {
 }
 
 impl Workflow {
+    #[allow(clippy::result_large_err)]
     pub fn from_config(config: WorkflowConfig) -> Result<Self> {
         let stream = config.stream;
 

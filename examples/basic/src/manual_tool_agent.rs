@@ -167,19 +167,18 @@ impl AgentHooks for Agent {}
 pub async fn run_agent(llm: Arc<dyn LLMProvider>, mode: &str) -> Result<(), Error> {
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
-    let agent: ReActAgent<Agent>;
     // Dynamically insert the tools at runtime
-    if mode == "addition" {
+    let agent: ReActAgent<Agent> = if mode == "addition" {
         let addition_tool = Arc::new(AdditionTool {});
-        agent = ReActAgent::new(Agent {
+        ReActAgent::new(Agent {
             tools: vec![addition_tool],
-        });
+        })
     } else {
         let subtract_tool = Arc::new(SubtractTool {});
-        agent = ReActAgent::new(Agent {
+        ReActAgent::new(Agent {
             tools: vec![subtract_tool],
-        });
-    }
+        })
+    };
     let agent_handle = AgentBuilder::<_, DirectAgent>::new(agent)
         .llm(llm)
         .memory(sliding_window_memory)

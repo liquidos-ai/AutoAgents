@@ -2,7 +2,7 @@ use crate::{
     config::{AgentConfig, ExecutorKind, OutputType},
     error::Result,
     tools::ToolRegistry,
-    workflow::llm_factory::LLMFactory,
+    workflow::{llm_factory::LLMFactory, MemoryCache},
 };
 use autoagents::core::{
     agent::{
@@ -74,13 +74,7 @@ impl ParallelWorkflow {
         &self,
         input: String,
         _model_cache: Option<&crate::workflow::ModelCache>,
-        _memory_cache: Option<
-            &std::sync::Arc<
-                tokio::sync::RwLock<
-                    std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
-                >,
-            >,
-        >,
+        _memory_cache: Option<&MemoryCache>,
         _workflow_name: Option<&str>,
         _memory_persistence: bool,
     ) -> Result<Vec<String>> {

@@ -102,11 +102,10 @@ impl LlamaConfig {
             let n_kv_heads = self.num_key_value_heads.unwrap_or(n_heads);
             let wk_dim = self.d_model * n_kv_heads / n_heads;
             let permute = |w: Tensor<B, 2>, n_heads: usize, dim1: usize, dim2: usize| {
-                let w = w // [2048, 256]
+                w // [2048, 256]
                     .reshape([dim1, n_heads, 2, dim2 / n_heads / 2]) // [2048, 4, 2, 32]
                     .swap_dims(2, 3) // [2048, 4, 32, 2]
-                    .reshape([dim1, dim2]);
-                w
+                    .reshape([dim1, dim2])
             };
 
             record.layers = record

@@ -1,6 +1,7 @@
 use super::schema::{WorkflowConfig, WorkflowKind};
 use crate::error::{Result, WorkflowError};
 
+#[allow(clippy::result_large_err)]
 pub fn validate_workflow(config: &WorkflowConfig) -> Result<()> {
     match config.kind {
         WorkflowKind::Direct => validate_direct_workflow(config)?,
@@ -11,6 +12,7 @@ pub fn validate_workflow(config: &WorkflowConfig) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_direct_workflow(config: &WorkflowConfig) -> Result<()> {
     if config.workflow.agent.is_none() {
         return Err(WorkflowError::MissingField(
@@ -20,6 +22,7 @@ fn validate_direct_workflow(config: &WorkflowConfig) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_sequential_workflow(config: &WorkflowConfig) -> Result<()> {
     if config.workflow.agents.is_none() {
         return Err(WorkflowError::MissingField(
@@ -35,6 +38,7 @@ fn validate_sequential_workflow(config: &WorkflowConfig) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_parallel_workflow(config: &WorkflowConfig) -> Result<()> {
     if config.workflow.agents.is_none() {
         return Err(WorkflowError::MissingField(
@@ -50,6 +54,7 @@ fn validate_parallel_workflow(config: &WorkflowConfig) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_routing_workflow(config: &WorkflowConfig) -> Result<()> {
     if config.workflow.router.is_none() {
         return Err(WorkflowError::MissingField(

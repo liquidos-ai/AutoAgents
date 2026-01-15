@@ -144,8 +144,8 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = MistralRsConfig::default();
-        assert_eq!(config.paged_attention, false);
-        assert_eq!(config.logging, false);
+        assert!(!config.paged_attention);
+        assert!(!config.logging);
         assert_eq!(config.max_tokens, Some(512));
         assert_eq!(config.temperature, Some(0.7));
     }
@@ -181,8 +181,8 @@ mod tests {
             .build();
 
         assert_eq!(config.model_source, source);
-        assert_eq!(config.paged_attention, true);
-        assert_eq!(config.logging, true);
+        assert!(config.paged_attention);
+        assert!(config.logging);
         assert_eq!(config.max_tokens, Some(2048));
         assert_eq!(config.temperature, Some(0.9));
         assert_eq!(config.top_p, Some(0.95));

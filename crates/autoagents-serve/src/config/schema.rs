@@ -44,18 +44,13 @@ pub struct WorkflowSpec {
     pub output: Option<OutputConfig>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "PascalCase")]
 pub enum ExecutorKind {
     Basic,
     #[serde(rename = "ReAct")]
+    #[default]
     ReAct,
-}
-
-impl Default for ExecutorKind {
-    fn default() -> Self {
-        ExecutorKind::ReAct
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

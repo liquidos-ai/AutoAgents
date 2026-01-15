@@ -89,13 +89,7 @@ impl QdrantVectorStore {
         payload
             .get("source_id")
             .and_then(|value| serde_json::to_value(value).ok())
-            .and_then(|v| {
-                if let Some(id) = v.as_str() {
-                    Some(id.to_string())
-                } else {
-                    None
-                }
-            })
+            .and_then(|v| v.as_str().map(|id| id.to_string()))
     }
 
     fn decode_raw<T>(
@@ -191,7 +185,7 @@ impl VectorStoreIndex for QdrantVectorStore {
         };
 
         let mut search =
-            SearchPointsBuilder::new(self.collection_name.clone(), vector, req.samples() as u64)
+            SearchPointsBuilder::new(self.collection_name.clone(), vector, req.samples())
                 .with_payload(with_payload_selector::SelectorOptions::Enable(true));
 
         if let Some(filter) = req.filter() {
@@ -237,7 +231,7 @@ impl VectorStoreIndex for QdrantVectorStore {
         };
 
         let mut search =
-            SearchPointsBuilder::new(self.collection_name.clone(), vector, req.samples() as u64)
+            SearchPointsBuilder::new(self.collection_name.clone(), vector, req.samples())
                 .with_payload(with_payload_selector::SelectorOptions::Enable(true));
 
         if let Some(filter) = req.filter() {
@@ -315,8 +309,7 @@ fn to_qdrant_filter(filter: Filter<serde_json::Value>) -> Result<QdrantFilter, V
             let right = to_qdrant_filter(*rhs)?;
 
             left.must.extend(right.must);
-            left.must
-                .extend(right.should.into_iter().map(Condition::from));
+            left.must.extend(right.should);
             Ok(left)
         }
         Or(lhs, rhs) => {

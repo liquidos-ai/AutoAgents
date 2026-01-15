@@ -49,6 +49,7 @@ impl AgentDeriveT for McpAgent {
 }
 
 #[tokio::main]
+#[allow(clippy::result_large_err)]
 pub async fn main() -> Result<(), Error> {
     env_logger::init();
 

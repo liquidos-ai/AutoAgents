@@ -39,7 +39,7 @@ pub(crate) fn generate_model_key(config: &ModelConfig) -> String {
         .or(config.source.as_ref())
         .map(|s| {
             // Take last part of path/repo
-            s.split('/').last().unwrap_or(s).to_string()
+            s.split('/').next_back().unwrap_or(s).to_string()
         })
         .unwrap_or_else(|| "unknown".to_string());
 

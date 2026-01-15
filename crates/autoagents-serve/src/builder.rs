@@ -12,6 +12,7 @@ pub struct WorkflowBuilder {
 
 impl WorkflowBuilder {
     /// Create a new WorkflowBuilder from a YAML file path
+    #[allow(clippy::result_large_err)]
     pub fn from_yaml_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let config = parse_yaml_file(path)?;
         validate_workflow(&config)?;
@@ -19,6 +20,7 @@ impl WorkflowBuilder {
     }
 
     /// Create a new WorkflowBuilder from a YAML string
+    #[allow(clippy::result_large_err)]
     pub fn from_yaml_str(yaml: &str) -> Result<Self> {
         let config = parse_yaml_str(yaml)?;
         validate_workflow(&config)?;
@@ -26,6 +28,7 @@ impl WorkflowBuilder {
     }
 
     /// Build the workflow from the configuration
+    #[allow(clippy::result_large_err)]
     pub fn build(self) -> Result<BuiltWorkflow> {
         let workflow = Workflow::from_config(self.config.clone())?;
         let memory_persistence_enabled = self.config.memory_persistence.is_some();
@@ -40,6 +43,7 @@ impl WorkflowBuilder {
     }
 
     /// Build the workflow with a model cache for preloaded models
+    #[allow(clippy::result_large_err)]
     pub fn build_with_cache(self, model_cache: ModelCache) -> Result<BuiltWorkflow> {
         let workflow = Workflow::from_config(self.config.clone())?;
         let memory_persistence_enabled = self.config.memory_persistence.is_some();
@@ -54,6 +58,7 @@ impl WorkflowBuilder {
     }
 
     /// Build the workflow with both model and memory caches
+    #[allow(clippy::result_large_err)]
     pub fn build_with_caches(
         self,
         model_cache: ModelCache,

@@ -4,6 +4,7 @@ use autoagents::{
     llm::{chat::ChatMessage, LLMProvider},
     prelude::Error,
 };
+use std::slice;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 
@@ -11,15 +12,15 @@ pub async fn run_llm(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     let message = ChatMessage::user().content("Hello, Who are you?").build();
 
     //Single Chat Request
-    let chat_response = llm.chat(&[message.clone()], None).await?;
+    let chat_response = llm.chat(slice::from_ref(&message), None).await?;
     println!("Chat Response: {:?}", chat_response);
 
     //Stream without structured output
-    let mut stream = llm.chat_stream(&[message.clone()], None).await?;
+    let mut stream = llm.chat_stream(slice::from_ref(&message), None).await?;
     while let Some(result) = stream.next().await {
         match result {
             Ok(output) => {
-                println!("{}", format!("Streaming Response: {}", output));
+                println!("Streaming Response: {}", output);
             }
             _ => {
                 //
@@ -30,12 +31,12 @@ pub async fn run_llm(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     //Stream with structured output
     let mut stream = llm
-        .chat_stream_struct(&[message.clone()], None, None)
+        .chat_stream_struct(slice::from_ref(&message), None, None)
         .await?;
     while let Some(result) = stream.next().await {
         match result {
             Ok(output) => {
-                println!("{}", format!("Streaming Response: {:?}", output));
+                println!("Streaming Response: {:?}", output);
             }
             _ => {
                 //
@@ -59,12 +60,16 @@ pub async fn run_llm(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         .content("Hello, What is the current weather in new york?")
         .build();
     let mut stream = llm
-        .chat_stream_struct(&[message.clone()], Some(&[tool.clone()]), None)
+        .chat_stream_struct(
+            slice::from_ref(&message),
+            Some(slice::from_ref(&tool)),
+            None,
+        )
         .await?;
     while let Some(result) = stream.next().await {
         match result {
             Ok(output) => {
-                println!("{}", format!("Streaming Response: {:?}", output));
+                println!("Streaming Response: {:?}", output);
             }
             _ => {
                 //
@@ -78,12 +83,12 @@ pub async fn run_llm(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         .content("Hello, What is the current weather in new york?")
         .build();
     let mut stream = llm
-        .chat_stream_with_tools(&[message.clone()], Some(&[tool]), None)
+        .chat_stream_with_tools(slice::from_ref(&message), Some(&[tool]), None)
         .await?;
     while let Some(result) = stream.next().await {
         match result {
             Ok(output) => {
-                println!("{}", format!("Streaming Response: {:?}", output));
+                println!("Streaming Response: {:?}", output);
             }
             _ => {
                 //

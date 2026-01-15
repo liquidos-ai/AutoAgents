@@ -10,9 +10,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Supported Llama3 model variants
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum Llama3Model {
     /// Llama-3-8B-Instruct model
+    #[default]
     Llama3_8B,
     /// Llama-3.1-8B-Instruct model
     Llama3_1_8B,
@@ -22,12 +23,6 @@ pub enum Llama3Model {
     Llama3_2_1B,
     /// Llama-3.2-1B-Instruct quantized model
     Llama3_2_1bQ4,
-}
-
-impl Default for Llama3Model {
-    fn default() -> Self {
-        Self::Llama3_2_3B
-    }
 }
 
 pub struct LLama3ModelConfig {
@@ -56,15 +51,14 @@ impl Default for LLama3ModelConfig {
     }
 }
 
+#[derive(Default)]
 pub struct Llama3Builder {
     config: LLama3ModelConfig,
 }
 
 impl Llama3Builder {
     pub fn new() -> Self {
-        Self {
-            config: LLama3ModelConfig::default(),
-        }
+        Self::default()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -180,7 +174,7 @@ impl Llama3Builder {
             }
         })
         .await
-        .map_err(|e| LLMError::Generic(e))?
+        .map_err(LLMError::Generic)?
         .map_err(|e| LLMError::Generic(format!("Failed to load model: {}", e)))?;
 
         Ok(Arc::new(LlamaChat {
@@ -230,7 +224,7 @@ impl Llama3Builder {
             )
         })
         .await
-        .map_err(|e| LLMError::Generic(e))?
+        .map_err(LLMError::Generic)?
         .map_err(|e| LLMError::Generic(format!("Failed to load model: {}", e)))?;
 
         Ok(Arc::new(LlamaChat {

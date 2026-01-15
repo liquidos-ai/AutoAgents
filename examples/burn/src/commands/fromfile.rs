@@ -72,11 +72,8 @@ pub async fn run_fromfile(
     println!("Response:\n");
 
     while let Some(result) = stream.next().await {
-        match result {
-            Ok(output) => {
-                print!("{}", format!("{}", output));
-            }
-            _ => {}
+        if let Ok(output) = result {
+            print!("{}", output);
         }
     }
 

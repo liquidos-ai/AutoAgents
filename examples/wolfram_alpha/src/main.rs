@@ -30,6 +30,7 @@ impl AgentHooks for WolframAgent {
 }
 
 #[tokio::main]
+#[allow(clippy::result_large_err)]
 async fn main() -> Result<(), Error> {
     init_logging();
 

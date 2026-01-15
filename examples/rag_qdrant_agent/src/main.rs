@@ -12,7 +12,6 @@ use autoagents::prelude::AgentHooks;
 use autoagents_derive::agent;
 use autoagents_qdrant::QdrantVectorStore;
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::env;
 use std::sync::Arc;
 
@@ -130,14 +129,14 @@ async fn main() -> anyhow::Result<()> {
         context, question
     );
 
-    let agent = BasicAgent::new(SupportAgent::default());
+    let agent = BasicAgent::new(SupportAgent {});
     let handle = AgentBuilder::<_, DirectAgent>::new(agent)
         .llm(llm)
         .build()
         .await?;
 
     let output = handle.agent.run(Task::new(prompt)).await?;
-    println!("\nAnswer:\n{}", String::from(output));
+    println!("\nAnswer:\n{}", output);
 
     Ok(())
 }

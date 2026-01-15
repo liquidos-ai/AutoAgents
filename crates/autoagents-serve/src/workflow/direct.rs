@@ -210,18 +210,22 @@ impl DirectWorkflow {
         tokio::spawn(async move {
             while let Some(event) = event_stream.next().await {
                 match event {
-                    Event::StreamChunk { chunk, .. } => {
-                        if let StreamChunk::Text(content) = chunk {
-                            if !content.is_empty() {
-                                if tx_for_events
-                                    .send(Ok(WorkflowStreamEvent::Chunk { content }))
-                                    .await
-                                    .is_err()
-                                {
-                                    break;
-                                }
-                            }
-                            event_chunk_seen_events.store(true, Ordering::SeqCst);
+                    Event::StreamChunk {
+                        chunk: StreamChunk::Text(content),
+                        ..
+                    } => {
+                        event_chunk_seen_events.store(true, Ordering::SeqCst);
+
+                        if content.is_empty() {
+                            return;
+                        }
+
+                        if tx_for_events
+                            .send(Ok(WorkflowStreamEvent::Chunk { content }))
+                            .await
+                            .is_err()
+                        {
+                            break;
                         }
                     }
                     Event::StreamToolCall { tool_call, .. } => {
@@ -396,13 +400,7 @@ impl DirectWorkflow {
         &self,
         input: String,
         model_cache: Option<&crate::workflow::ModelCache>,
-        memory_cache: Option<
-            &std::sync::Arc<
-                tokio::sync::RwLock<
-                    std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
-                >,
-            >,
-        >,
+        memory_cache: Option<&MemoryCache>,
         workflow_name: Option<&str>,
         memory_persistence: bool,
     ) -> Result<String> {
@@ -498,13 +496,7 @@ impl DirectWorkflow {
         &self,
         input: String,
         model_cache: Option<&crate::workflow::ModelCache>,
-        memory_cache: Option<
-            &std::sync::Arc<
-                tokio::sync::RwLock<
-                    std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
-                >,
-            >,
-        >,
+        memory_cache: Option<&MemoryCache>,
         workflow_name: Option<&str>,
         memory_persistence: bool,
     ) -> Result<WorkflowStream> {

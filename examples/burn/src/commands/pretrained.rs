@@ -62,11 +62,8 @@ pub async fn run_pretrained(model_type: Model, prompt: String) -> Result<(), Err
     println!("Response:\n");
 
     while let Some(result) = stream.next().await {
-        match result {
-            Ok(output) => {
-                print!("{}", format!("{}", output));
-            }
-            _ => {}
+        if let Ok(output) = result {
+            print!("{}", output);
         }
     }
 

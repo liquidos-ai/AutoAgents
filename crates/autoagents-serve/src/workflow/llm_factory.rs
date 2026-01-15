@@ -41,6 +41,7 @@ impl LLMFactory {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     fn create_openai(config: &ModelConfig) -> Result<Arc<dyn LLMProvider>> {
         let api_key = std::env::var("OPENAI_API_KEY")
             .map_err(|_| WorkflowError::ConfigError("OPENAI_API_KEY not set".to_string()))?;
@@ -69,6 +70,7 @@ impl LLMFactory {
         Ok(llm as Arc<dyn LLMProvider>)
     }
 
+    #[allow(clippy::result_large_err)]
     fn create_anthropic(config: &ModelConfig) -> Result<Arc<dyn LLMProvider>> {
         let api_key = std::env::var("ANTHROPIC_API_KEY")
             .map_err(|_| WorkflowError::ConfigError("ANTHROPIC_API_KEY not set".to_string()))?;
@@ -97,6 +99,7 @@ impl LLMFactory {
         Ok(llm as Arc<dyn LLMProvider>)
     }
 
+    #[allow(clippy::result_large_err)]
     fn create_ollama(config: &ModelConfig) -> Result<Arc<dyn LLMProvider>> {
         let base_url = config
             .backend
@@ -128,6 +131,7 @@ impl LLMFactory {
         Ok(llm as Arc<dyn LLMProvider>)
     }
 
+    #[allow(clippy::result_large_err)]
     fn create_groq(config: &ModelConfig) -> Result<Arc<dyn LLMProvider>> {
         let api_key = std::env::var("GROQ_API_KEY")
             .map_err(|_| WorkflowError::ConfigError("GROQ_API_KEY not set".to_string()))?;
@@ -228,6 +232,7 @@ impl LLMFactory {
         Ok(Arc::new(provider) as Arc<dyn LLMProvider>)
     }
 
+    #[allow(clippy::result_large_err)]
     fn parse_gguf_quant(quant_str: &str) -> Result<GgufQuant> {
         match quant_str.to_lowercase().as_str() {
             "q4" | "q4_k_m" | "q4km" => Ok(GgufQuant::Q4_K_M),
@@ -244,6 +249,7 @@ impl LLMFactory {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     fn parse_isq_quant(quant_str: &str) -> Result<IsqType> {
         match quant_str.to_lowercase().as_str() {
             "q4" | "q4_0" => Ok(IsqType::Q4_0),

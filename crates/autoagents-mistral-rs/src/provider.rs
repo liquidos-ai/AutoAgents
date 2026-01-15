@@ -736,9 +736,9 @@ impl ChatProvider for MistralRsProvider {
 
     async fn chat_stream_with_tools(
         &self,
-        messages: &[ChatMessage],
-        tools: Option<&[Tool]>,
-        json_schema: Option<StructuredOutputFormat>,
+        _messages: &[ChatMessage],
+        _tools: Option<&[Tool]>,
+        _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError> {
         //TODO: Fix this to be compatable with ReAct Agent Executor
         todo!()

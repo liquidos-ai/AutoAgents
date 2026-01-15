@@ -34,11 +34,17 @@ pub struct BraveSearch {
     api_key: String,
 }
 
-impl BraveSearch {
-    pub fn new() -> Self {
+impl Default for BraveSearch {
+    fn default() -> Self {
         Self {
             api_key: BRAVE_SEARCH_API_KEY.clone(),
         }
+    }
+}
+
+impl BraveSearch {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn new_with_key(api_key: String) -> Self {

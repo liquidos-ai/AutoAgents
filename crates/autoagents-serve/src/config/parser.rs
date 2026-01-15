@@ -2,11 +2,13 @@ use super::schema::WorkflowConfig;
 use crate::error::Result;
 use std::path::Path;
 
+#[allow(clippy::result_large_err)]
 pub fn parse_yaml_file<P: AsRef<Path>>(path: P) -> Result<WorkflowConfig> {
     let content = std::fs::read_to_string(path)?;
     parse_yaml_str(&content)
 }
 
+#[allow(clippy::result_large_err)]
 pub fn parse_yaml_str(yaml: &str) -> Result<WorkflowConfig> {
     let config: WorkflowConfig = serde_yaml::from_str(yaml)?;
     Ok(config)

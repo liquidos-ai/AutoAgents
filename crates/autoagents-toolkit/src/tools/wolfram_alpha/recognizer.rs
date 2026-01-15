@@ -11,18 +11,13 @@ use super::{wolfram_app_id, wolfram_input_url};
 
 const RECOGNIZER_ENDPOINT: &str = "https://www.wolframalpha.com/queryrecognizer/query.jsp";
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub enum RecognizerMode {
     #[serde(rename = "Default")]
+    #[default]
     Default,
     #[serde(rename = "Voice")]
     Voice,
-}
-
-impl Default for RecognizerMode {
-    fn default() -> Self {
-        RecognizerMode::Default
-    }
 }
 
 impl RecognizerMode {
@@ -53,9 +48,15 @@ pub struct WolframAlphaQueryRecognizer {
     client: Client,
 }
 
+impl Default for WolframAlphaQueryRecognizer {
+    fn default() -> Self {
+        Self::new_with_app_id(wolfram_app_id())
+    }
+}
+
 impl WolframAlphaQueryRecognizer {
     pub fn new() -> Self {
-        Self::new_with_app_id(wolfram_app_id())
+        Self::default()
     }
 
     pub fn new_with_app_id(app_id: String) -> Self {

@@ -36,9 +36,9 @@ jobs:
       - name: Run clippy
         run: |
           if [ -z "${{ matrix.features }}" ]; then
-            cargo clippy --all-targets --no-default-features -- -D warnings
+            cargo clippy --workspace --all-targets --no-default-features -- -D warnings
           else
-            cargo clippy --all-targets --features "${{ matrix.features }}" -- -D warnings
+            cargo clippy --workspace --all-targets --features "${{ matrix.features }}" -- -D warnings
           fi
 
       # Tests (no forced features)

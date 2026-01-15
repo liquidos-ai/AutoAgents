@@ -36,15 +36,14 @@ impl Default for TinyLLamaModelConfig {
     }
 }
 
+#[derive(Default)]
 pub struct TinyLlamaBuilder {
     config: TinyLLamaModelConfig,
 }
 
 impl TinyLlamaBuilder {
     pub fn new() -> Self {
-        Self {
-            config: TinyLLamaModelConfig::default(),
-        }
+        Self::default()
     }
 
     #[cfg(not(target_arch = "wasm32"))]

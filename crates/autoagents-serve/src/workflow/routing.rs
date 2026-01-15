@@ -5,6 +5,7 @@ use crate::{
     workflow::{
         llm_factory::LLMFactory,
         types::{WorkflowStream, WorkflowStreamEvent},
+        MemoryCache,
     },
 };
 use autoagents::{
@@ -69,7 +70,7 @@ impl AgentHooks for RouterAgent {
     async fn on_run_complete(&self, _task: &Task, result: &Self::Output, ctx: &Context) {
         // Router publishes its decision to a topic named after the condition
         let condition = result.trim().to_lowercase();
-        let topic = Topic::<Task>::new(&format!("handler_{}", condition));
+        let topic = Topic::<Task>::new(format!("handler_{}", condition));
 
         // Forward the original task to the appropriate handler
         let _ = ctx.publish(topic, _task.clone()).await;
@@ -153,13 +154,7 @@ impl RoutingWorkflow {
         &self,
         input: String,
         _model_cache: Option<&crate::workflow::ModelCache>,
-        _memory_cache: Option<
-            &std::sync::Arc<
-                tokio::sync::RwLock<
-                    std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
-                >,
-            >,
-        >,
+        _memory_cache: Option<&MemoryCache>,
         _workflow_name: Option<&str>,
         _memory_persistence: bool,
     ) -> Result<String> {
@@ -227,7 +222,7 @@ impl RoutingWorkflow {
             );
 
             let agent = BasicAgent::new(handler_agent);
-            let handler_topic = Topic::<Task>::new(&format!("handler_{}", handler.condition));
+            let handler_topic = Topic::<Task>::new(format!("handler_{}", handler.condition));
 
             let handler_window_size = handler
                 .agent
@@ -275,13 +270,7 @@ impl RoutingWorkflow {
         &self,
         input: String,
         _model_cache: Option<&crate::workflow::ModelCache>,
-        _memory_cache: Option<
-            &std::sync::Arc<
-                tokio::sync::RwLock<
-                    std::collections::HashMap<String, Vec<autoagents::llm::chat::ChatMessage>>,
-                >,
-            >,
-        >,
+        _memory_cache: Option<&MemoryCache>,
         _workflow_name: Option<&str>,
         _memory_persistence: bool,
     ) -> Result<WorkflowStream> {
@@ -360,7 +349,7 @@ impl RoutingWorkflow {
             );
 
             let agent = BasicAgent::new(handler_agent);
-            let handler_topic = Topic::<Task>::new(&format!("handler_{}", handler.condition));
+            let handler_topic = Topic::<Task>::new(format!("handler_{}", handler.condition));
 
             let handler_window_size = handler
                 .agent
