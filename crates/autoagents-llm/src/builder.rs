@@ -141,6 +141,7 @@ pub struct LLMBuilder<L: LLMProvider> {
     /// ExtraBody
     pub(crate) extra_body: Option<serde_json::Value>,
     /// Keep Alive
+    #[allow(dead_code)]
     pub(crate) keep_alive: Option<String>,
 }
 

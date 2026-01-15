@@ -645,6 +645,7 @@ impl ChatMessageBuilder {
 /// # Returns
 ///
 /// A pinned stream of text tokens or an error
+#[allow(dead_code)]
 pub(crate) fn create_sse_stream<F>(
     response: reqwest::Response,
     parser: F,

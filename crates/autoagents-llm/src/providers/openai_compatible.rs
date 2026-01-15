@@ -38,6 +38,7 @@ pub struct OpenAICompatibleProvider<T: OpenAIProviderConfig> {
     pub top_k: Option<u32>,
     pub tool_choice: Option<ToolChoice>,
     pub reasoning_effort: Option<String>,
+    #[allow(dead_code)]
     pub voice: Option<String>,
     pub extra_body: serde_json::Map<String, serde_json::Value>,
     pub parallel_tool_calls: bool,

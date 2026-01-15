@@ -16,8 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         features:
-          - "" # core only
-          - openai
+          - openai #This will also include core
 
     steps:
       - uses: actions/checkout@v3
