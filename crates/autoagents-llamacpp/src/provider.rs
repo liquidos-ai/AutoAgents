@@ -265,7 +265,8 @@ impl LlamaCppProvider {
                             })?;
                         emitted_any.store(true, Ordering::Relaxed);
                         Ok(())
-                    }) as TokenCallback);
+                    })
+                        as TokenCallback);
                     generate_text(
                         &model,
                         &backend,

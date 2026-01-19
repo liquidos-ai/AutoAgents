@@ -54,7 +54,12 @@ pub(crate) fn resolve_hf_model(
         return Ok(model_path.to_string_lossy().to_string());
     }
 
-    download_file(repo_id, &filename, config.hf_revision.as_deref(), &model_path)?;
+    download_file(
+        repo_id,
+        &filename,
+        config.hf_revision.as_deref(),
+        &model_path,
+    )?;
     Ok(model_path.to_string_lossy().to_string())
 }
 
@@ -116,16 +121,16 @@ fn fetch_model_info(
 
     let request = ureq::get(&url);
     let request = apply_hf_auth(request);
-    let response = request.call().map_err(|err| {
-        LlamaCppProviderError::Other(format!("HuggingFace API error: {}", err))
+    let response = request
+        .call()
+        .map_err(|err| LlamaCppProviderError::Other(format!("HuggingFace API error: {}", err)))?;
+    let body = response.into_body().read_to_string().map_err(|err| {
+        LlamaCppProviderError::Other(format!("Failed to read HF response: {}", err))
     })?;
-    let body = response
-        .into_body()
-        .read_to_string()
-        .map_err(|err| LlamaCppProviderError::Other(format!("Failed to read HF response: {}", err)))?;
 
-    serde_json::from_str(&body)
-        .map_err(|err| LlamaCppProviderError::Other(format!("Failed to parse HF response: {}", err)))
+    serde_json::from_str(&body).map_err(|err| {
+        LlamaCppProviderError::Other(format!("Failed to parse HF response: {}", err))
+    })
 }
 
 fn select_gguf_filename(info: &HfModelInfo) -> Result<String, LlamaCppProviderError> {
@@ -184,7 +189,11 @@ fn download_file(
 
     let mut reader = response.into_body().into_reader();
     let mut file = fs::File::create(&tmp_path).map_err(|err| {
-        LlamaCppProviderError::Other(format!("Failed to create file {}: {}", tmp_path.display(), err))
+        LlamaCppProviderError::Other(format!(
+            "Failed to create file {}: {}",
+            tmp_path.display(),
+            err
+        ))
     })?;
     eprintln!("Downloading {}...", filename);
     let mut buffer = [0u8; 1024 * 128];

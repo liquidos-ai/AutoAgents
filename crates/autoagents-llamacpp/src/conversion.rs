@@ -112,23 +112,15 @@ pub(crate) fn build_prompt(
         let role = convert_role(&msg.role);
         let content = convert_content(msg);
         let llama_msg = LlamaChatMessage::new(role, content).map_err(|err| {
-            LlamaCppProviderError::Template(format!(
-                "Invalid chat message for template: {}",
-                err
-            ))
+            LlamaCppProviderError::Template(format!("Invalid chat message for template: {}", err))
         })?;
         llama_messages.push(llama_msg);
     }
 
     let template = if let Some(template) = template_override {
-        Some(
-            LlamaChatTemplate::new(template).map_err(|err| {
-                LlamaCppProviderError::Template(format!(
-                    "Invalid chat template override: {}",
-                    err
-                ))
-            })?,
-        )
+        Some(LlamaChatTemplate::new(template).map_err(|err| {
+            LlamaCppProviderError::Template(format!("Invalid chat template override: {}", err))
+        })?)
     } else {
         model.chat_template(None).ok()
     };
@@ -137,10 +129,7 @@ pub(crate) fn build_prompt(
         let prompt = model
             .apply_chat_template(&template, &llama_messages, true)
             .map_err(|err| {
-                LlamaCppProviderError::Template(format!(
-                    "Failed to apply chat template: {}",
-                    err
-                ))
+                LlamaCppProviderError::Template(format!("Failed to apply chat template: {}", err))
             })?;
         Ok(PromptData {
             prompt,

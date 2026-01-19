@@ -69,10 +69,9 @@ impl From<LlamaCppProviderError> for LLMError {
                 LLMError::ProviderError(format!("Embedding failed: {}", e))
             }
             LlamaCppProviderError::Unsupported(e) => LLMError::NoToolSupport(e),
-            LlamaCppProviderError::Other(e) => LLMError::ProviderError(format!(
-                "llama.cpp error: {}",
-                e
-            )),
+            LlamaCppProviderError::Other(e) => {
+                LLMError::ProviderError(format!("llama.cpp error: {}", e))
+            }
         }
     }
 }
