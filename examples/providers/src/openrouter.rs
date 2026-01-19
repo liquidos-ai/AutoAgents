@@ -50,7 +50,7 @@ pub async fn run() -> Result<(), Error> {
     // Initialize and configure the LLM client
     let llm: Arc<OpenRouter> = LLMBuilder::<OpenRouter>::new()
         .api_key(api_key) // Set the API key
-        .model("openai/gpt-oss-120b") // Use a free OpenRouter model
+        .model("openai/gpt-oss-20b") // Use a free OpenRouter model
         .max_tokens(512) // Limit response length
         .temperature(0.2) // Control response randomness (0.0-1.0)
         .build()

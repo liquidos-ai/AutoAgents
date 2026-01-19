@@ -51,19 +51,6 @@ optimum-cli export onnx \
       --task text-generation ./models/tinyllama
 ```
 
-For CPU usage
-
-```sh
-cargo run --package basic-example -- --usecase edge --device cpu
-```
-
-For CUDA usage - Make use cuDNN and cuda drivers are installed properly
-
-```sh
-cargo run --package basic-example -- --usecase edge --device cuda
-```
-
-
 
 ### ToolKit
 

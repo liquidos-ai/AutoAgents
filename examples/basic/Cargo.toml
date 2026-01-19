@@ -6,13 +6,10 @@ publish = false
 
 [features]
 default = []
-onnx = ["autoagents-onnx"]
-onnx-cuda = ["autoagents-onnx/cuda"]
 
 [dependencies]
 autoagents-derive.workspace = true
 autoagents = { workspace = true, features = ["openai", "logging"] }
-autoagents-onnx = { workspace = true, optional = true }
 autoagents-toolkit = { workspace = true, features = ["search"] }
 tokio = { workspace = true }
 serde = { workspace = true }

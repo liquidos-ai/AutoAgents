@@ -30,8 +30,10 @@ impl RuntimeManager {
         let runtimes = self.runtimes.read().await;
         let tasks = runtimes
             .values()
-            .cloned()
-            .map(|runtime| tokio::spawn(async move { runtime.run().await }))
+            .map(|runtime| {
+                let runtime = Arc::clone(runtime);
+                tokio::spawn(async move { runtime.run().await })
+            })
             .collect::<Vec<_>>();
         // Await all in parallel and propagate the first error
         let _ = try_join_all(tasks).await.map_err(RuntimeError::JoinError)?;
@@ -41,13 +43,14 @@ impl RuntimeManager {
     /// Spawn all runtimes and return immediately without waiting for completion
     pub async fn run_background(&self) -> Result<(), RuntimeError> {
         let runtimes = self.runtimes.read().await;
-        let _ = runtimes.values().cloned().map(|runtime| {
+        for runtime in runtimes.values() {
+            let runtime = Arc::clone(runtime);
             tokio::spawn(async move {
                 if let Err(err) = runtime.run().await {
                     error!("Runtime {} failed: {:?}", runtime.id(), err);
                 }
             });
-        });
+        }
         Ok(())
     }
 
@@ -56,8 +59,10 @@ impl RuntimeManager {
         // Call `stop()` on all runtimes
         let tasks = runtimes
             .values()
-            .cloned()
-            .map(|runtime| tokio::spawn(async move { runtime.stop().await }))
+            .map(|runtime| {
+                let runtime = Arc::clone(runtime);
+                tokio::spawn(async move { runtime.stop().await })
+            })
             .collect::<Vec<_>>();
 
         // Wait for all to finish and propagate first error if any

@@ -29,9 +29,8 @@ autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.3.0" }
 
 # LLM and Providers
 autoagents-llm = { path = "crates/autoagents-llm", version = "0.3.0" }
-autoagents-onnx = { path = "crates/autoagents-onnx", version = "0.3.0" }
-autoagents-burn = { path = "crates/autoagents-burn", version = "0.3.0", default-features = false }
 autoagents-mistral-rs = { path = "crates/autoagents-mistral-rs" }
+autoagents-llamacpp = { path = "crates/autoagents-llamacpp", version = "0.3.0" }
 
 # Store
 autoagents-qdrant = { path = "crates/autoagents-qdrant", version = "0.3.0" }

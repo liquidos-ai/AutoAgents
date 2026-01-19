@@ -78,10 +78,16 @@ AutoAgents supports a wide range of LLM providers, allowing you to choose the be
 
 | Provider       | Status               |
 | -------------- | -------------------- |
+| **Ollama**     | ✅                   |
 | **Mistral-rs** | ⚠️ Under Development |
+| **Llama-Cpp**  | ⚠️ Under Development |
+
+### Experimental Providers
+Checkout https://github.com/liquidos-ai/AutoAgents-Experimental-Backends
+| Provider       | Status               |
+| -------------- | -------------------- |
 | **Burn**       | ⚠️ Experimental      |
 | **Onnx**       | ⚠️ Experimental      |
-| **Ollama**     | ✅                   |
 
 _Provider support is actively expanding based on community needs._
 

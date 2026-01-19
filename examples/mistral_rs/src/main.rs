@@ -22,6 +22,7 @@
 //! ```
 
 mod gguf;
+mod stream;
 mod text;
 mod tool;
 mod vision;
@@ -39,6 +40,8 @@ enum ModelTypeArg {
     Gguf,
     /// Tool calling model (Mistral-7B-Instruct)
     Tools,
+    ///Streaming
+    Stream,
 }
 
 #[derive(Parser, Debug)]
@@ -147,6 +150,9 @@ async fn main() -> Result<(), Error> {
             let llm = tool::load_model(&tool_args).await?;
             println!("Model loaded successfully!\n");
             tool::run_example(llm).await?;
+        }
+        ModelTypeArg::Stream => {
+            //TODO
         }
     }
 
