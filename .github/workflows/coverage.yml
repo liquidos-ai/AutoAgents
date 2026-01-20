@@ -17,6 +17,9 @@ on:
 jobs:
   coverage:
     name: Coverage
+    permissions:
+      contents: read
+      pull-requests: write
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: "-C target-cpu=native"
