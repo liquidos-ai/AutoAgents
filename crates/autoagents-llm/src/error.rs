@@ -162,7 +162,7 @@ mod tests {
         let reqwest_error = rt
             .block_on(async {
                 client
-                    .get("http://invalid-url-that-does-not-exist-12345.com/")
+                    .get("https://invalid-url-that-does-not-exist-12345.com/")
                     .timeout(std::time::Duration::from_millis(100))
                     .send()
                     .await
