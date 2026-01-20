@@ -96,5 +96,5 @@ qdrant-client = { version = "1.14.0", default-features = false, features = [
     "serde",
 ] }
 httpmock = "0.7.0"
-testcontainers = "0.24.0"
+testcontainers = "0.26.3"
 surrealdb = "2.3.8"
