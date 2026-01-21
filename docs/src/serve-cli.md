@@ -2,6 +2,8 @@
 
 AutoAgents includes a serving library (`autoagents-serve`) and a CLI (`autoagents-cli`) for running agent workflows defined in YAML.
 
+Repository: https://github.com/liquidos-ai/AutoAgents-CLI
+
 To install the CLI, clone the AutoAgents repository and run:
 
 ```rs
@@ -139,4 +141,3 @@ server.serve().await?;
 ```
 
 See crate docs for endpoint details and streaming support.
-
