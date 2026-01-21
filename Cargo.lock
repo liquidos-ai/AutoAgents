@@ -456,7 +456,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "autoagents"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "autoagents-core",
@@ -470,7 +470,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "autoagents-llm",
@@ -496,7 +496,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-derive"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -508,7 +508,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-llamacpp"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "autoagents-llm",
@@ -524,7 +524,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-llm"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -556,7 +556,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-mistral-rs"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -571,7 +571,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-qdrant"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-test-utils"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "autoagents",
  "autoagents-derive",
@@ -600,7 +600,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-toolkit"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "autoagents",
  "autoagents-derive",
@@ -2260,7 +2260,7 @@ dependencies = [
 
 [[package]]
 name = "design_patterns"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "autoagents",
@@ -4246,7 +4246,7 @@ dependencies = [
 
 [[package]]
 name = "llamacpp_agent"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "autoagents",
  "autoagents-derive",
@@ -4438,7 +4438,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-example"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "autoagents",
  "autoagents-derive",
@@ -4577,7 +4577,7 @@ dependencies = [
 
 [[package]]
 name = "mistral_rs"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "autoagents",
  "autoagents-derive",
@@ -5735,7 +5735,7 @@ dependencies = [
 
 [[package]]
 name = "providers"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "autoagents",

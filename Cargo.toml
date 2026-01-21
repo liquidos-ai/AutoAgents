@@ -12,7 +12,7 @@ members = ["crates/*", "examples/*"]
 exclude = ["examples/wasm_tool"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Agent Framework for Building Autonomous Agents"
@@ -22,25 +22,21 @@ categories = []
 
 [workspace.dependencies]
 # Core Crates
-autoagents = { path = "crates/autoagents", version = "0.3.0" }
-autoagents-derive = { path = "crates/autoagents-derive", version = "0.3.0" }
-autoagents-core = { path = "crates/autoagents-core", version = "0.3.0" }
-autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.3.0" }
+autoagents = { path = "crates/autoagents", version = "0.3.1" }
+autoagents-derive = { path = "crates/autoagents-derive", version = "0.3.1" }
+autoagents-core = { path = "crates/autoagents-core", version = "0.3.1" }
+autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.3.1" }
 
 # LLM and Providers
-autoagents-llm = { path = "crates/autoagents-llm", version = "0.3.0" }
+autoagents-llm = { path = "crates/autoagents-llm", version = "0.3.1" }
 autoagents-mistral-rs = { path = "crates/autoagents-mistral-rs" }
-autoagents-llamacpp = { path = "crates/autoagents-llamacpp", version = "0.3.0" }
+autoagents-llamacpp = { path = "crates/autoagents-llamacpp", version = "0.3.1" }
 
 # Store
-autoagents-qdrant = { path = "crates/autoagents-qdrant", version = "0.3.0" }
+autoagents-qdrant = { path = "crates/autoagents-qdrant", version = "0.3.1" }
 
 # Test Utils
 autoagents-test-utils = { path = "crates/autoagents-test-utils" }
-
-# CLI and Serve
-autoagents-cli = { path = "crates/autoagents-cli", version = "0.3.0" }
-autoagents-serve = { path = "crates/autoagents-serve", version = "0.3.0" }
 
 syn = { version = "2.0.98", features = ["full"] }
 tokio = { version = "1.43.0", features = ["full"] }

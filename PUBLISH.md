@@ -20,16 +20,11 @@ cargo publish
 ```
 
 ```shell
-cd ../autoagents-onnx
+cd ../autoagents-llamacpp
 cargo publish --dry-run
 cargo publish
 ```
 
-```shell
-cd ../autoagents-burn
-cargo publish --dry-run
-cargo publish
-```
 ---
 Cannot publish yet as mistral-rs is not on crates
 ```shell
@@ -53,19 +48,6 @@ cargo publish
 
 ```shell
 cd ../autoagents-toolkit
-cargo publish --dry-run
-cargo publish
-```
----
-Cannot publish yet as mistral-rs is not on crates
-```shell
-cd ../autoagents-serve
-cargo publish --dry-run
-cargo publish
-```
-
-```shell
-cd ../autoagents-cli
 cargo publish --dry-run
 cargo publish
 ```
