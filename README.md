@@ -79,11 +79,13 @@ AutoAgents supports a wide range of LLM providers, allowing you to choose the be
 | Provider       | Status               |
 | -------------- | -------------------- |
 | **Ollama**     | ✅                   |
-| **Mistral-rs** | ⚠️ Under Development |
-| **Llama-Cpp**  | ⚠️ Under Development |
+| **Mistral-rs** | ✅                   |
+| **Llama-Cpp**  | ✅                   |
 
 ### Experimental Providers
+
 Checkout https://github.com/liquidos-ai/AutoAgents-Experimental-Backends
+
 | Provider       | Status               |
 | -------------- | -------------------- |
 | **Burn**       | ⚠️ Experimental      |
@@ -306,6 +308,10 @@ A sophisticated ReAct-based coding agent with file manipulation capabilities.
 
 Compile agent runtime into WASM module and load it in a browser web app.
 
+### [Android Local Agent](https://github.com/liquidos-ai/AutoAgents-Android-Example)
+
+Example App that runs AutoAgents with Local models in Android using AutoAgents-llamacpp backend
+
 ---
 
 ## 🏗️ Components
@@ -319,7 +325,6 @@ AutoAgents/
 │   ├── autoagents-core/           # Core agent framework
 │   ├── autoagents-llm/            # LLM provider implementations
 │   ├── autoagents-toolkit/        # Collection of Ready to use Tools
-│   ├── autoagents-burn/           # LLM provider implementations using Burn
 │   ├── autoagents-mistral-rs/     # LLM provider implementations using Mistral-rs
 │   ├── autoagents-llamacpp/       # Edge Runtime Implementation using LlamaCpp
 │   ├── autoagents-qdrant/         # Qdrant vector store
