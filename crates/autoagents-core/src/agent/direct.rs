@@ -47,8 +47,18 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> AgentBuilder<T, DirectAgent> 
             "LLM provider is required".to_string(),
         ))?;
         let (tx, rx): (Sender<Event>, Receiver<Event>) = channel(DEFAULT_CHANNEL_BUFFER);
+        
+        #[cfg(feature = "tts")]
+        let agent: BaseAgent<T, DirectAgent> = {
+            let mut base_agent = BaseAgent::<T, DirectAgent>::new(self.inner, llm, self.memory, tx, self.stream).await?;
+            base_agent.tts = self.tts;
+            base_agent
+        };
+        
+        #[cfg(not(feature = "tts"))]
         let agent: BaseAgent<T, DirectAgent> =
             BaseAgent::<T, DirectAgent>::new(self.inner, llm, self.memory, tx, self.stream).await?;
+        
         let stream = receiver_into_stream(rx);
         Ok(DirectAgentHandle::new(agent, stream))
     }

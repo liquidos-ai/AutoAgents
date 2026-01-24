@@ -6,9 +6,12 @@ use crate::{protocol::ActorID, tool::ToolT};
 use async_trait::async_trait;
 use autoagents_llm::LLMProvider;
 
+#[cfg(feature = "tts")]
+use autoagents_tts::TTSProvider;
+
 use serde_json::Value;
 use std::marker::PhantomData;
-use std::{fmt::Debug, sync::Arc};
+use std::{ fmt::Debug, sync::Arc};
 
 #[cfg(target_arch = "wasm32")]
 pub use futures::lock::Mutex;
@@ -60,6 +63,9 @@ pub struct BaseAgent<T: AgentDeriveT + AgentExecutor + AgentHooks + Send + Sync,
     pub id: ActorID,
     /// Optional memory provider
     pub(crate) memory: Option<Arc<Mutex<Box<dyn MemoryProvider>>>>,
+    /// TTS provider (requires `tts` feature)
+    #[cfg(feature = "tts")]
+    pub(crate) tts: Option<Arc<dyn TTSProvider>>,
     /// Tx sender
     pub(crate) tx: Option<Sender<Event>>,
     //Stream
@@ -88,6 +94,8 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
             llm,
             tx: Some(tx),
             memory: memory.map(|m| Arc::new(Mutex::new(m))),
+            #[cfg(feature = "tts")]
+            tts: None,
             stream,
             marker: PhantomData,
         };
@@ -122,24 +130,55 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
     }
 
     pub(crate) fn create_context(&self) -> Arc<Context> {
-        Arc::new(
-            Context::new(self.llm(), self.tx.clone())
+        #[cfg(feature = "tts")]
+        {
+            let mut context = Context::new(self.llm(), self.tx.clone())
                 .with_memory(self.memory())
                 .with_tools(self.tools())
                 .with_config(self.agent_config())
-                .with_stream(self.stream()),
-        )
+                .with_stream(self.stream());
+            context = context.with_tts(self.tts.clone());
+            Arc::new(context)
+        }
+        
+        #[cfg(not(feature = "tts"))]
+        {
+            Arc::new(
+                Context::new(self.llm(), self.tx.clone())
+                    .with_memory(self.memory())
+                    .with_tools(self.tools())
+                    .with_config(self.agent_config())
+                    .with_stream(self.stream())
+            )
+        }
     }
 
     pub fn agent_config(&self) -> AgentConfig {
         let output_schema = self.inner().output_schema();
         let structured_schema =
             output_schema.and_then(|schema| serde_json::from_value(schema).ok());
-        AgentConfig {
-            name: self.name().into(),
-            description: self.description().into(),
-            id: self.id,
-            output_schema: structured_schema,
+        
+        #[cfg(feature = "tts")]
+        {
+            AgentConfig {
+                name: self.name().into(),
+                description: self.description().into(),
+                id: self.id,
+                output_schema: structured_schema,
+                tts_mode: autoagents_tts::TTSMode::default(),
+                audio_storage_policy: autoagents_tts::AudioStoragePolicy::default(),
+                default_voice: None,
+            }
+        }
+        
+        #[cfg(not(feature = "tts"))]
+        {
+            AgentConfig {
+                name: self.name().into(),
+                description: self.description().into(),
+                id: self.id,
+                output_schema: structured_schema,
+            }
         }
     }
 
@@ -172,6 +211,12 @@ mod tests {
             id: Uuid::new_v4(),
             description: "A test agent".to_string(),
             output_schema: None,
+            #[cfg(feature = "tts")]
+            tts_mode: autoagents_tts::TTSMode::Disabled,
+            #[cfg(feature = "tts")]
+            audio_storage_policy: autoagents_tts::AudioStoragePolicy::None,
+            #[cfg(feature = "tts")]
+            default_voice: None,
         };
 
         assert_eq!(config.name, "test_agent");
@@ -193,6 +238,12 @@ mod tests {
             id: Uuid::new_v4(),
             description: "A test agent".to_string(),
             output_schema: Some(schema.clone()),
+            #[cfg(feature = "tts")]
+            tts_mode: autoagents_tts::TTSMode::Disabled,
+            #[cfg(feature = "tts")]
+            audio_storage_policy: autoagents_tts::AudioStoragePolicy::None,
+            #[cfg(feature = "tts")]
+            default_voice: None,
         };
 
         assert_eq!(config.name, "test_agent");

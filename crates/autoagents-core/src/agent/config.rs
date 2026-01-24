@@ -1,6 +1,9 @@
 use crate::protocol::ActorID;
 use autoagents_llm::chat::StructuredOutputFormat;
 
+#[cfg(feature = "tts")]
+use autoagents_tts::{AudioStoragePolicy, TTSMode};
+
 #[derive(Clone, Default)]
 pub struct AgentConfig {
     /// The agent's name
@@ -11,6 +14,15 @@ pub struct AgentConfig {
     pub id: ActorID,
     /// The output schema for the agent
     pub output_schema: Option<StructuredOutputFormat>,
+    /// TTS mode (requires `tts` feature)
+    #[cfg(feature = "tts")]
+    pub tts_mode: TTSMode,
+    /// Audio storage policy (requires `tts` feature)
+    #[cfg(feature = "tts")]
+    pub audio_storage_policy: AudioStoragePolicy,
+    /// Default voice for TTS (requires `tts` feature)
+    #[cfg(feature = "tts")]
+    pub default_voice: Option<String>,
 }
 
 impl AgentConfig {
@@ -20,11 +32,35 @@ impl AgentConfig {
             description,
             id: ActorID::new_v4(),
             output_schema: None,
+            #[cfg(feature = "tts")]
+            tts_mode: TTSMode::default(),
+            #[cfg(feature = "tts")]
+            audio_storage_policy: AudioStoragePolicy::default(),
+            #[cfg(feature = "tts")]
+            default_voice: None,
         }
     }
 
     pub fn with_output_schema(mut self, schema: StructuredOutputFormat) -> Self {
         self.output_schema = Some(schema);
+        self
+    }
+
+    #[cfg(feature = "tts")]
+    pub fn with_tts_mode(mut self, mode: TTSMode) -> Self {
+        self.tts_mode = mode;
+        self
+    }
+
+    #[cfg(feature = "tts")]
+    pub fn with_audio_storage_policy(mut self, policy: AudioStoragePolicy) -> Self {
+        self.audio_storage_policy = policy;
+        self
+    }
+
+    #[cfg(feature = "tts")]
+    pub fn with_default_voice(mut self, voice: String) -> Self {
+        self.default_voice = Some(voice);
         self
     }
 }

@@ -13,9 +13,11 @@ readme.workspace = true
 default = []
 full = ["wasmtime"]
 wasmtime = ["dep:wasmtime"]
+tts = ["autoagents-tts"]
 
 [dependencies]
 autoagents-llm.workspace = true
+autoagents-tts = { workspace = true, optional = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

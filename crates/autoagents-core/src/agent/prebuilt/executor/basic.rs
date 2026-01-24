@@ -344,6 +344,12 @@ mod tests {
             name: "test_agent".to_string(),
             description: "Test agent description".to_string(),
             output_schema: None,
+            #[cfg(feature = "tts")]
+            tts_mode: autoagents_tts::TTSMode::Disabled,
+            #[cfg(feature = "tts")]
+            audio_storage_policy: autoagents_tts::AudioStoragePolicy::None,
+            #[cfg(feature = "tts")]
+            default_voice: None,
         };
 
         let context = Context::new(llm, None).with_config(config);
