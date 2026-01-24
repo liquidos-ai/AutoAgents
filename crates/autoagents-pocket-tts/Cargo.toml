@@ -1,13 +1,12 @@
 [package]
 name = "autoagents-pocket-tts"
-version = "0.3.1"
-edition = "2021"
-authors = ["AutoAgents Contributors"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 description = "Pocket-TTS provider implementation for AutoAgents TTS framework"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/Swoorup/autoagents"
-keywords = ["tts", "text-to-speech", "voice", "audio", "ai"]
-categories = ["multimedia::audio", "asynchronous"]
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 # Core dependencies
@@ -17,24 +16,24 @@ tokio = { workspace = true, features = ["full"] }
 futures = { workspace = true }
 
 # Serialization
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 # TTS engine
-pocket-tts = { path = "../../../pocket-tts/crates/pocket-tts" }
+pocket-tts = { git = "https://github.com/SKRohit/pocket-tts.git", branch = "main" }
 candle-core = "0.9.1"
 
 # Error handling
-thiserror = "2.0"
+thiserror = { workspace = true }
 
 # HTTP client for server backend
-reqwest = { version = "0.12", features = ["json", "stream"], optional = true }
+reqwest = { workspace = true, optional = true }
 
 # Utilities
-base64 = "0.22"
-dirs = "5.0"
-anyhow = "1.0"
-uuid = { version = "1.0", features = ["v4"] }
+base64 = { workspace = true }
+dirs = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 
 [features]
 default = ["library"]
@@ -43,8 +42,8 @@ server = ["reqwest"]
 metal = ["candle-core/metal"]
 
 [dev-dependencies]
-tokio-test = "0.4"
-tempfile = "3.12"
+tokio-test = { workspace = true }
+tempfile = { workspace = true }
 hound = "3.5"
-env_logger = "0.11"
+env_logger = { workspace = true }
 rodio = "0.19"

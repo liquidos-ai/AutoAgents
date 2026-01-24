@@ -35,6 +35,10 @@ autoagents-llamacpp = { path = "crates/autoagents-llamacpp", version = "0.3.1" }
 # Store
 autoagents-qdrant = { path = "crates/autoagents-qdrant", version = "0.3.1" }
 
+# TTS
+autoagents-tts = { path = "crates/autoagents-tts", version = "0.3.1" }
+autoagents-pocket-tts = { path = "crates/autoagents-pocket-tts", version = "0.3.1" }
+
 # Test Utils
 autoagents-test-utils = { path = "crates/autoagents-test-utils" }
 
@@ -94,3 +98,4 @@ qdrant-client = { version = "1.14.0", default-features = false, features = [
 httpmock = "0.7.0"
 testcontainers = "0.26.3"
 surrealdb = "2.3.8"
+hound = "3.5"
