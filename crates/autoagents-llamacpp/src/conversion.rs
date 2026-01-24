@@ -3,29 +3,46 @@
 use crate::error::LlamaCppProviderError;
 use autoagents_llm::chat::{ChatMessage, ChatResponse, ChatRole, MessageType, Usage};
 use autoagents_llm::ToolCall;
-use llama_cpp_2::model::{AddBos, LlamaChatMessage, LlamaChatTemplate, LlamaModel};
+use llama_cpp_2::model::AddBos;
+use serde_json::{json, Value};
 use std::fmt;
 
 /// Response wrapper that implements ChatResponse trait.
 #[derive(Debug, Clone)]
 pub struct LlamaCppResponse {
-    pub text: String,
+    pub content: Option<String>,
+    pub tool_calls: Option<Vec<ToolCall>>,
     pub usage: Option<Usage>,
 }
 
 impl fmt::Display for LlamaCppResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.text)
+        match (&self.content, &self.tool_calls) {
+            (Some(content), Some(tool_calls)) => {
+                for tool_call in tool_calls {
+                    write!(f, "{tool_call}")?;
+                }
+                write!(f, "{content}")
+            }
+            (Some(content), None) => write!(f, "{content}"),
+            (None, Some(tool_calls)) => {
+                for tool_call in tool_calls {
+                    write!(f, "{tool_call}")?;
+                }
+                Ok(())
+            }
+            (None, None) => write!(f, ""),
+        }
     }
 }
 
 impl ChatResponse for LlamaCppResponse {
     fn text(&self) -> Option<String> {
-        Some(self.text.clone())
+        self.content.clone()
     }
 
     fn tool_calls(&self) -> Option<Vec<ToolCall>> {
-        None
+        self.tool_calls.clone()
     }
 
     fn usage(&self) -> Option<Usage> {
@@ -82,7 +99,7 @@ fn convert_content(message: &ChatMessage) -> String {
     }
 }
 
-fn build_fallback_prompt(messages: &[ChatMessage]) -> String {
+pub(crate) fn build_fallback_prompt(messages: &[ChatMessage]) -> String {
     let mut prompt = String::new();
     for msg in messages {
         let role = match msg.role {
@@ -101,46 +118,53 @@ fn build_fallback_prompt(messages: &[ChatMessage]) -> String {
     prompt
 }
 
-/// Build a prompt string using the model chat template or a fallback prompt.
-pub(crate) fn build_prompt(
-    model: &LlamaModel,
-    messages: &[ChatMessage],
-    template_override: Option<&str>,
-) -> Result<PromptData, LlamaCppProviderError> {
-    let mut llama_messages = Vec::with_capacity(messages.len());
-    for msg in messages {
-        let role = convert_role(&msg.role);
-        let content = convert_content(msg);
-        let llama_msg = LlamaChatMessage::new(role, content).map_err(|err| {
-            LlamaCppProviderError::Template(format!("Invalid chat message for template: {}", err))
-        })?;
-        llama_messages.push(llama_msg);
-    }
-
-    let template = if let Some(template) = template_override {
-        Some(LlamaChatTemplate::new(template).map_err(|err| {
-            LlamaCppProviderError::Template(format!("Invalid chat template override: {}", err))
-        })?)
-    } else {
-        model.chat_template(None).ok()
-    };
-
-    if let Some(template) = template {
-        let prompt = model
-            .apply_chat_template(&template, &llama_messages, true)
-            .map_err(|err| {
-                LlamaCppProviderError::Template(format!("Failed to apply chat template: {}", err))
+fn build_openai_message_value(message: &ChatMessage) -> Result<Value, LlamaCppProviderError> {
+    if let MessageType::ToolUse(tool_calls) = &message.message_type {
+        let mut tool_values = Vec::with_capacity(tool_calls.len());
+        for call in tool_calls {
+            let value = serde_json::to_value(call).map_err(|err| {
+                LlamaCppProviderError::Template(format!("Failed to serialize tool call: {}", err))
             })?;
-        Ok(PromptData {
-            prompt,
-            add_bos: AddBos::Never,
-        })
-    } else {
-        Ok(PromptData {
-            prompt: build_fallback_prompt(messages),
-            add_bos: AddBos::Always,
-        })
+            tool_values.push(value);
+        }
+        let mut obj = serde_json::Map::new();
+        obj.insert("role".to_string(), json!("assistant"));
+        if !message.content.trim().is_empty() {
+            obj.insert("content".to_string(), json!(message.content));
+        }
+        obj.insert("tool_calls".to_string(), Value::Array(tool_values));
+        return Ok(Value::Object(obj));
     }
+
+    let role = convert_role(&message.role);
+    let content = convert_content(message);
+    Ok(json!({
+        "role": role,
+        "content": content,
+    }))
+}
+
+pub(crate) fn build_openai_messages_json(
+    messages: &[ChatMessage],
+) -> Result<String, LlamaCppProviderError> {
+    let mut openai_messages = Vec::new();
+    for message in messages {
+        if let MessageType::ToolResult(tool_results) = &message.message_type {
+            for result in tool_results {
+                openai_messages.push(json!({
+                    "role": "tool",
+                    "tool_call_id": result.id,
+                    "content": result.function.arguments,
+                }));
+            }
+            continue;
+        }
+        openai_messages.push(build_openai_message_value(message)?);
+    }
+
+    serde_json::to_string(&openai_messages).map_err(|err| {
+        LlamaCppProviderError::Template(format!("Failed to serialize messages: {}", err))
+    })
 }
 
 #[cfg(test)]

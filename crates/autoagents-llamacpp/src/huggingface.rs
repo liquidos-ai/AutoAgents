@@ -1,21 +1,13 @@
-//! HuggingFace GGUF downloader and cache resolver.
+//! HuggingFace GGUF resolver using hf-hub cache.
 
 use crate::config::LlamaCppConfig;
 use crate::error::LlamaCppProviderError;
-use serde::Deserialize;
+use hf_hub::api::sync::{Api, ApiBuilder};
+use hf_hub::api::Siblings;
+use hf_hub::{Cache, Repo, RepoType};
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io;
 use std::path::{Path, PathBuf};
-
-#[derive(Debug, Deserialize)]
-struct HfModelInfo {
-    siblings: Vec<HfSibling>,
-}
-
-#[derive(Debug, Deserialize)]
-struct HfSibling {
-    rfilename: String,
-}
 
 pub(crate) fn resolve_hf_model(
     repo_id: &str,
@@ -28,44 +20,54 @@ pub(crate) fn resolve_hf_model(
         ));
     }
 
-    let models_dir = resolve_models_dir(config.model_dir.as_deref())?;
-    let repo_dir = models_dir.join(repo_id);
-    fs::create_dir_all(&repo_dir).map_err(|err| {
-        LlamaCppProviderError::Other(format!(
-            "Failed to create model cache directory {}: {}",
-            repo_dir.display(),
-            err
-        ))
-    })?;
+    let cache = build_cache(config)?;
+    let api = build_api(cache.clone())?;
+    let revision = config.hf_revision.as_deref().unwrap_or("main");
+    let repo = Repo::with_revision(repo_id.to_string(), RepoType::Model, revision.to_string());
+    let api_repo = api.repo(repo.clone());
 
     let filename = match filename_override.or(config.hf_filename.as_deref()) {
         Some(filename) => filename.to_string(),
         None => {
-            if let Some(local) = pick_cached_gguf(&repo_dir)? {
+            if let Some(local) = pick_cached_gguf(&cache, &repo)? {
                 return Ok(local.to_string_lossy().to_string());
             }
-            let model_info = fetch_model_info(repo_id, config.hf_revision.as_deref())?;
-            select_gguf_filename(&model_info)?
+            let model_info = api_repo.info().map_err(|err| {
+                LlamaCppProviderError::Other(format!("HuggingFace API error: {}", err))
+            })?;
+            select_gguf_filename(&model_info.siblings)?
         }
     };
 
-    let model_path = repo_dir.join(&filename);
-    if model_path.exists() {
-        return Ok(model_path.to_string_lossy().to_string());
-    }
-
-    download_file(
-        repo_id,
-        &filename,
-        config.hf_revision.as_deref(),
-        &model_path,
-    )?;
+    let model_path = api_repo.get(&filename).map_err(|err| {
+        LlamaCppProviderError::Other(format!("HuggingFace download error: {}", err))
+    })?;
     Ok(model_path.to_string_lossy().to_string())
 }
 
-fn resolve_models_dir(model_dir: Option<&str>) -> Result<PathBuf, LlamaCppProviderError> {
-    let base = model_dir.unwrap_or("models");
-    let path = PathBuf::from(base);
+fn build_cache(config: &LlamaCppConfig) -> Result<Cache, LlamaCppProviderError> {
+    let cache = match config.model_dir.as_deref() {
+        Some(dir) => Cache::new(resolve_cache_dir(dir)?),
+        None => Cache::from_env(),
+    };
+    Ok(cache)
+}
+
+fn build_api(cache: Cache) -> Result<Api, LlamaCppProviderError> {
+    let mut builder = ApiBuilder::from_cache(cache);
+    if let Ok(endpoint) = std::env::var("HF_ENDPOINT") {
+        builder = builder.with_endpoint(endpoint);
+    }
+    if let Some(token) = hf_token() {
+        builder = builder.with_token(Some(token));
+    }
+    builder
+        .build()
+        .map_err(|err| LlamaCppProviderError::Other(format!("HuggingFace API error: {}", err)))
+}
+
+fn resolve_cache_dir(model_dir: &str) -> Result<PathBuf, LlamaCppProviderError> {
+    let path = PathBuf::from(model_dir);
     if path.is_absolute() {
         return Ok(path);
     }
@@ -75,67 +77,84 @@ fn resolve_models_dir(model_dir: Option<&str>) -> Result<PathBuf, LlamaCppProvid
     Ok(cwd.join(path))
 }
 
-fn pick_cached_gguf(repo_dir: &Path) -> Result<Option<PathBuf>, LlamaCppProviderError> {
+fn pick_cached_gguf(cache: &Cache, repo: &Repo) -> Result<Option<PathBuf>, LlamaCppProviderError> {
+    let repo_dir = cache.path().join(repo.folder_name());
     if !repo_dir.exists() {
         return Ok(None);
     }
-    let mut candidates = Vec::new();
-    for entry in fs::read_dir(repo_dir).map_err(|err| {
-        LlamaCppProviderError::Other(format!(
-            "Failed to read model cache directory {}: {}",
-            repo_dir.display(),
-            err
-        ))
-    })? {
-        let entry = entry.map_err(|err| {
-            LlamaCppProviderError::Other(format!(
-                "Failed to read model cache directory entry: {}",
+    let ref_path = repo_dir.join("refs").join(repo.revision());
+    let commit_hash = match fs::read_to_string(&ref_path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(LlamaCppProviderError::Other(format!(
+                "Failed to read HuggingFace cache ref {}: {}",
+                ref_path.display(),
                 err
-            ))
-        })?;
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) == Some("gguf") {
-            candidates.push(path);
+            )))
         }
+    };
+    let commit_hash = commit_hash.trim();
+    if commit_hash.is_empty() {
+        return Ok(None);
+    }
+    let snapshot_dir = repo_dir.join("snapshots").join(commit_hash);
+    if !snapshot_dir.exists() {
+        return Ok(None);
     }
 
+    let mut candidates = Vec::new();
+    collect_gguf_files(&snapshot_dir, &mut candidates)?;
     match candidates.len() {
         0 => Ok(None),
         1 => Ok(Some(candidates.remove(0))),
         _ => Err(LlamaCppProviderError::Config(
-            "Multiple GGUF files found in cache; set HuggingFace filename to choose one"
+            "Multiple GGUF files found in HuggingFace cache; set HuggingFace filename to choose one"
                 .to_string(),
         )),
     }
 }
 
-fn fetch_model_info(
-    repo_id: &str,
-    revision: Option<&str>,
-) -> Result<HfModelInfo, LlamaCppProviderError> {
-    let mut url = format!("https://huggingface.co/api/models/{}", repo_id);
-    if let Some(revision) = revision {
-        url.push_str("?revision=");
-        url.push_str(revision);
+fn collect_gguf_files(
+    dir: &Path,
+    candidates: &mut Vec<PathBuf>,
+) -> Result<(), LlamaCppProviderError> {
+    for entry in fs::read_dir(dir).map_err(|err| {
+        LlamaCppProviderError::Other(format!(
+            "Failed to read HuggingFace cache directory {}: {}",
+            dir.display(),
+            err
+        ))
+    })? {
+        let entry = entry.map_err(|err| {
+            LlamaCppProviderError::Other(format!(
+                "Failed to read HuggingFace cache directory entry: {}",
+                err
+            ))
+        })?;
+        let file_type = entry.file_type().map_err(|err| {
+            LlamaCppProviderError::Other(format!(
+                "Failed to inspect HuggingFace cache entry {}: {}",
+                entry.path().display(),
+                err
+            ))
+        })?;
+        let path = entry.path();
+        if file_type.is_dir() {
+            collect_gguf_files(&path, candidates)?;
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) == Some("gguf")
+            && (file_type.is_file() || file_type.is_symlink())
+        {
+            candidates.push(path);
+        }
     }
-
-    let request = ureq::get(&url);
-    let request = apply_hf_auth(request);
-    let response = request
-        .call()
-        .map_err(|err| LlamaCppProviderError::Other(format!("HuggingFace API error: {}", err)))?;
-    let body = response.into_body().read_to_string().map_err(|err| {
-        LlamaCppProviderError::Other(format!("Failed to read HF response: {}", err))
-    })?;
-
-    serde_json::from_str(&body).map_err(|err| {
-        LlamaCppProviderError::Other(format!("Failed to parse HF response: {}", err))
-    })
+    Ok(())
 }
 
-fn select_gguf_filename(info: &HfModelInfo) -> Result<String, LlamaCppProviderError> {
-    let mut gguf_files = info
-        .siblings
+fn select_gguf_filename(siblings: &[Siblings]) -> Result<String, LlamaCppProviderError> {
+    let mut gguf_files = siblings
         .iter()
         .filter_map(|sibling| {
             if sibling.rfilename.ends_with(".gguf") {
@@ -156,88 +175,6 @@ fn select_gguf_filename(info: &HfModelInfo) -> Result<String, LlamaCppProviderEr
             "Multiple GGUF files found in HuggingFace repo; set HuggingFace filename to choose one"
                 .to_string(),
         )),
-    }
-}
-
-fn download_file(
-    repo_id: &str,
-    filename: &str,
-    revision: Option<&str>,
-    dest: &Path,
-) -> Result<(), LlamaCppProviderError> {
-    let revision = revision.unwrap_or("main");
-    let url = format!(
-        "https://huggingface.co/{}/resolve/{}/{}",
-        repo_id, revision, filename
-    );
-
-    let request = ureq::get(&url);
-    let request = apply_hf_auth(request);
-    let response = request.call().map_err(|err| {
-        LlamaCppProviderError::Other(format!("HuggingFace download error: {}", err))
-    })?;
-    let total_bytes = response
-        .headers()
-        .get("content-length")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok());
-
-    let tmp_path = dest.with_extension("gguf.part");
-    if tmp_path.exists() {
-        let _ = fs::remove_file(&tmp_path);
-    }
-
-    let mut reader = response.into_body().into_reader();
-    let mut file = fs::File::create(&tmp_path).map_err(|err| {
-        LlamaCppProviderError::Other(format!(
-            "Failed to create file {}: {}",
-            tmp_path.display(),
-            err
-        ))
-    })?;
-    eprintln!("Downloading {}...", filename);
-    let mut buffer = [0u8; 1024 * 128];
-    let mut downloaded = 0u64;
-    let mut last_pct = None;
-    loop {
-        let read = reader.read(&mut buffer).map_err(|err| {
-            LlamaCppProviderError::Other(format!("Failed to download model: {}", err))
-        })?;
-        if read == 0 {
-            break;
-        }
-        file.write_all(&buffer[..read]).map_err(|err| {
-            LlamaCppProviderError::Other(format!("Failed to write model: {}", err))
-        })?;
-        downloaded += read as u64;
-        if let Some(total) = total_bytes {
-            let pct = (downloaded.saturating_mul(100) / total).min(100_u64);
-            if last_pct != Some(pct) {
-                eprint!("\rDownloading {}... {}%", filename, pct);
-                let _ = io::stderr().flush();
-                last_pct = Some(pct);
-            }
-        }
-    }
-    if total_bytes.is_some() {
-        eprintln!("\rDownloading {}... 100%", filename);
-    }
-
-    fs::rename(&tmp_path, dest).map_err(|err| {
-        LlamaCppProviderError::Other(format!(
-            "Failed to finalize model download {}: {}",
-            dest.display(),
-            err
-        ))
-    })?;
-    Ok(())
-}
-
-fn apply_hf_auth<B>(request: ureq::RequestBuilder<B>) -> ureq::RequestBuilder<B> {
-    if let Some(token) = hf_token() {
-        request.header("Authorization", format!("Bearer {}", token))
-    } else {
-        request
     }
 }
 

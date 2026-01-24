@@ -1,26 +1,23 @@
+#![allow(unused_imports)]
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentOutputT, DirectAgent};
 use autoagents::core::error::Error;
-use autoagents::init_logging;
+use autoagents::core::tool::ToolCallError;
 use autoagents::prelude::{ReActAgent, ReActAgentOutput};
-use autoagents_derive::{agent, AgentHooks, AgentOutput};
+use autoagents::prelude::{ToolInputT, ToolRuntime, ToolT};
+use autoagents::{async_trait, init_logging};
+use autoagents_derive::{agent, tool, AgentHooks, AgentOutput, ToolInput};
 use autoagents_llamacpp::{LlamaCppProvider, ModelSource};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Run an AutoAgents math agent with llama.cpp", long_about = None)]
 struct Args {
-    #[arg(
-        long,
-        default_value = "models/llama3-3b.gguf",
-        help = "Path to the GGUF model file"
-    )]
-    model_path: String,
-
     #[arg(long, default_value = "What is 20 + 10?")]
     prompt: String,
 
@@ -41,6 +38,7 @@ struct Args {
 }
 
 #[derive(Debug, Serialize, Deserialize, AgentOutput)]
+#[allow(dead_code)]
 struct MathAgentOutput {
     #[output(description = "The addition result")]
     value: i64,
@@ -66,10 +64,36 @@ impl From<ReActAgentOutput> for MathAgentOutput {
     }
 }
 
+#[derive(Serialize, Deserialize, ToolInput, Debug)]
+pub struct AdditionArgs {
+    #[input(description = "Left Operand for addition")]
+    left: i64,
+    #[input(description = "Right Operand for addition")]
+    right: i64,
+}
+
+#[tool(
+    name = "Addition",
+    description = "Use this tool to Add two numbers",
+    input = AdditionArgs,
+)]
+struct Addition {}
+
+#[async_trait]
+impl ToolRuntime for Addition {
+    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+        println!("execute tool: {:?}", args);
+        let typed_args: AdditionArgs = serde_json::from_value(args)?;
+        let result = typed_args.left + typed_args.right;
+        Ok(result.into())
+    }
+}
+
 #[agent(
     name = "math_agent",
-    description = "You are a Math agent",
-    output = MathAgentOutput
+    description = "You are a Math agent, answer user question and also explain them why you got the answer",
+    tools = [Addition],
+    // output = MathAgentOutput //Does not work properly comment for now TODO
 )]
 #[derive(Default, Clone, AgentHooks)]
 struct MathAgent {}
@@ -124,29 +148,19 @@ async fn main() -> Result<(), Error> {
         .agent
         .run_stream(Task::new(args.prompt))
         .await?;
+
     println!("🌊 Agent Streaming Example");
     println!("🔄 Processing stream tokens...\n");
-    let mut final_output: Option<MathAgentOutput> = None;
 
     while let Some(result) = stream.next().await {
         match result {
             Ok(output) => {
-                if output.value == 0 && output.generic.is_none() {
-                    if !output.explanation.is_empty() {
-                        println!("🌊 Streaming Response: {}", output.explanation);
-                    }
-                } else {
-                    final_output = Some(output);
-                }
+                print!("{}", output);
             }
             _ => {
                 //
             }
         }
-    }
-    if let Some(output) = final_output {
-        println!("✅ Streaming example completed!");
-        println!("Streaming Response: {:?}", output);
     }
 
     Ok(())

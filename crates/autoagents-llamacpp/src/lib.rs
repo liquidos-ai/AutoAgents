@@ -11,6 +11,7 @@
 //! - **Production Ready**: Robust error handling and configuration
 //!
 
+pub mod builder;
 pub mod config;
 pub mod conversion;
 pub mod error;
@@ -19,10 +20,11 @@ pub mod models;
 pub mod provider;
 
 // Re-exports for convenience
+pub use builder::LlamaCppProviderBuilder;
 pub use config::{LlamaCppConfig, LlamaCppConfigBuilder, LlamaCppSplitMode};
 pub use error::LlamaCppProviderError;
 pub use models::ModelSource;
-pub use provider::{LlamaCppProvider, LlamaCppProviderBuilder};
+pub use provider::LlamaCppProvider;
 
 // Re-export llama-cpp types that users might need
 pub use llama_cpp_2::model::params::LlamaSplitMode;

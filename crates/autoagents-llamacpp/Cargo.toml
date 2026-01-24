@@ -15,13 +15,14 @@ metal = ["llama-cpp-2/metal"]
 vulkan = ["llama-cpp-2/vulkan"]
 
 [dependencies]
-llama-cpp-2 = { version = "0.1.132", default-features = false }
+llama-cpp-2 = { git = "https://github.com/liquidos-ai/llama-cpp-rs", branch="feature/add_tool_support", default-features = false }
 autoagents-llm = { workspace = true }
 async-trait = { workspace = true }
+hf-hub = { version = "0.4.3", default-features = false, features = ["ureq"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 rand = { workspace = true }
-ureq = { workspace = true }
 log = { workspace = true }
+encoding_rs = "0.8"
