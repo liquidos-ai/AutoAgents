@@ -1,0 +1,18 @@
+[package]
+name = "autoagents-tts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "TTS provider abstractions for AutoAgents"
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+base64 = { workspace = true }
