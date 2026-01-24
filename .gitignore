@@ -9,6 +9,10 @@ target/
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
 
+# ignore wav and mp3 files
+*.wav
+*.mp3
+
 .env
 
 # RustRover

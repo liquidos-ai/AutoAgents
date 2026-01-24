@@ -94,6 +94,14 @@ where
         ))?;
         let tx = runtime.tx();
 
+        #[cfg(feature = "tts")]
+        let agent: Arc<BaseAgent<T, ActorAgent>> = {
+            let mut base_agent = BaseAgent::<T, ActorAgent>::new(self.inner, llm, self.memory, tx, self.stream).await?;
+            base_agent.tts = self.tts;
+            Arc::new(base_agent)
+        };
+        
+        #[cfg(not(feature = "tts"))]
         let agent: Arc<BaseAgent<T, ActorAgent>> = Arc::new(
             BaseAgent::<T, ActorAgent>::new(self.inner, llm, self.memory, tx, self.stream).await?,
         );
