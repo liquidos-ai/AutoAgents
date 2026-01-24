@@ -1,0 +1,13 @@
+[package]
+name = "tts-agent-example"
+version = "0.3.1"
+edition = "2021"
+publish = false
+
+[dependencies]
+autoagents-core = { workspace = true, features = ["tts"] }
+autoagents-tts = { workspace = true }
+autoagents-pocket-tts = { workspace = true }
+tokio = { workspace = true }
+hound = "3.5"
+env_logger = { workspace = true }
