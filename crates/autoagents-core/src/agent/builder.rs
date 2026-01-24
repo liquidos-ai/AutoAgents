@@ -8,6 +8,8 @@ use crate::agent::{AgentDeriveT, AgentExecutor};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::runtime::Runtime;
 use autoagents_llm::LLMProvider;
+#[cfg(feature = "tts")]
+use autoagents_tts::TTSProvider;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -17,6 +19,8 @@ pub struct AgentBuilder<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentTy
     pub(crate) stream: bool,
     pub(crate) llm: Option<Arc<dyn LLMProvider>>,
     pub(crate) memory: Option<Box<dyn MemoryProvider>>,
+    #[cfg(feature = "tts")]
+    pub(crate) tts: Option<Arc<dyn TTSProvider>>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) runtime: Option<Arc<dyn Runtime>>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -31,6 +35,8 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> AgentBuilder<T,
             inner,
             llm: None,
             memory: None,
+            #[cfg(feature = "tts")]
+            tts: None,
             #[cfg(not(target_arch = "wasm32"))]
             runtime: None,
             stream: false,
@@ -54,6 +60,13 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> AgentBuilder<T,
     /// Set the memory provider
     pub fn memory(mut self, memory: Box<dyn MemoryProvider>) -> Self {
         self.memory = Some(memory);
+        self
+    }
+
+    /// Set the TTS provider (requires `tts` feature)
+    #[cfg(feature = "tts")]
+    pub fn tts(mut self, tts: Arc<dyn TTSProvider>) -> Self {
+        self.tts = Some(tts);
         self
     }
 
