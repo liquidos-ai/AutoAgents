@@ -125,31 +125,34 @@ impl LibraryBackend {
         // Clone the model for use in the blocking task
         let model = self.model.clone();
         
-        // Run the streaming generation in a blocking task because:
-        // 1. The iterator is not Send
-        // 2. Audio generation is CPU-intensive and would block the async runtime
-        let chunks = tokio::task::spawn_blocking(move || {
-            let stream_iter = model.generate_stream(&text, &voice_state);
-            stream_iter
-                .enumerate()
-                .map(|(idx, result)| {
-                    result
-                        .map_err(|e| PocketTTSError::GenerationError(e.to_string()))
-                        .and_then(|tensor| {
-                            create_speech_response(
-                                format!("{}_{}", text, idx),
-                                &tensor,
-                                sample_rate,
-                            )
-                        })
-                })
-                .collect::<Vec<_>>()
-        })
-        .await
-        .map_err(|e| PocketTTSError::GenerationError(format!("Task join error: {}", e)))?;
+        // Create a channel to stream chunks from blocking task to async stream
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         
-        // Convert to async stream
-        Ok(futures::stream::iter(chunks))
+        // Spawn blocking task that sends chunks as they're generated
+        tokio::task::spawn_blocking(move || {
+            let stream_iter = model.generate_stream(&text, &voice_state);
+            
+            for (idx, result) in stream_iter.enumerate() {
+                let response = result
+                    .map_err(|e| PocketTTSError::GenerationError(e.to_string()))
+                    .and_then(|tensor| {
+                        create_speech_response(
+                            format!("{}_{}", text, idx),
+                            &tensor,
+                            sample_rate,
+                        )
+                    });
+                
+                // Send chunk immediately - if receiver is dropped, stop generating
+                if tx.send(response).is_err() {
+                    break;
+                }
+            }
+            // Channel is automatically closed when tx is dropped
+        });
+        
+        // Convert the receiver to a stream
+        Ok(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
     }
 
     /// Resolve a voice identifier to a ModelState
