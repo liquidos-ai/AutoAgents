@@ -1,8 +1,9 @@
 //! LlamaCppProvider implementation with LLMProvider traits.
 
 use crate::{
+    builder::LlamaCppProviderBuilder,
     config::{LlamaCppConfig, LlamaCppConfigBuilder},
-    conversion::{build_prompt, LlamaCppResponse, PromptData},
+    conversion::{build_fallback_prompt, build_openai_messages_json, LlamaCppResponse, PromptData},
     error::LlamaCppProviderError,
     models::ModelSource,
 };
@@ -16,7 +17,7 @@ use autoagents_llm::{
     embedding::EmbeddingProvider,
     error::LLMError,
     models::ModelsProvider,
-    LLMProvider,
+    FunctionCall, LLMProvider, ToolCall,
 };
 use futures::{stream::Stream, StreamExt};
 use llama_cpp_2::{
@@ -24,19 +25,19 @@ use llama_cpp_2::{
     llama_backend::LlamaBackend,
     llama_batch::LlamaBatch,
     model::params::LlamaModelParams,
-    model::{AddBos, LlamaModel, Special},
+    model::{AddBos, GrammarTriggerType, LlamaChatTemplate, LlamaModel},
+    openai::OpenAIChatTemplateParams,
     sampling::LlamaSampler,
     token::LlamaToken,
 };
+use serde::Deserialize;
 use serde_json::Value;
 use std::{
+    collections::{HashMap, HashSet},
     num::NonZeroU32,
     path::Path,
     pin::Pin,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, OnceLock,
-    },
+    sync::{Arc, OnceLock},
 };
 use tokio::sync::mpsc;
 
@@ -53,22 +54,76 @@ struct GenerationResult {
     text: String,
     prompt_tokens: u32,
     completion_tokens: u32,
+    finish_reason: String,
 }
 
 enum StreamEvent {
     Token(String),
+    Delta(String),
     Usage(ChatUsage),
-    Done,
+    Done { stop_reason: String },
 }
 
 type TokenCallback = Box<dyn FnMut(&str) -> Result<(), LlamaCppProviderError> + Send>;
+type DeltaCallback = Box<dyn FnMut(&str) -> Result<(), LlamaCppProviderError> + Send>;
 
 struct GenerationParams<'a> {
     prompt: &'a PromptData,
-    json_schema: Option<&'a StructuredOutputFormat>,
+    use_json_grammar: bool,
     max_tokens: u32,
     temperature: Option<f32>,
     on_token: Option<TokenCallback>,
+}
+
+struct ChatGenerationParams<'a> {
+    template_result: &'a llama_cpp_2::model::ChatTemplateResult,
+    max_tokens: u32,
+    temperature: Option<f32>,
+    on_delta: Option<DeltaCallback>,
+}
+
+enum ChatPrompt {
+    OpenAI(llama_cpp_2::model::ChatTemplateResult),
+    Fallback {
+        prompt: PromptData,
+        use_json_grammar: bool,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAICompatMessage {
+    content: Option<String>,
+    tool_calls: Option<Vec<ToolCall>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAICompatDelta {
+    content: Option<String>,
+    tool_calls: Option<Vec<OpenAIToolCallDelta>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIToolCallDelta {
+    index: Option<usize>,
+    id: Option<String>,
+    #[serde(rename = "type")]
+    call_type: Option<String>,
+    function: Option<OpenAIFunctionDelta>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIFunctionDelta {
+    name: Option<String>,
+    #[serde(default)]
+    arguments: String,
+}
+
+#[derive(Debug, Default)]
+struct ToolCallState {
+    id: String,
+    name: String,
+    arguments: String,
+    started: bool,
 }
 
 impl LlamaCppProvider {
@@ -99,11 +154,7 @@ impl LlamaCppProvider {
         &self.config
     }
 
-    fn prepare_messages(
-        &self,
-        messages: &[ChatMessage],
-        json_schema: Option<&StructuredOutputFormat>,
-    ) -> Vec<ChatMessage> {
+    fn prepare_messages(&self, messages: &[ChatMessage]) -> Vec<ChatMessage> {
         let mut all_messages = Vec::new();
 
         if let Some(system_prompt) = &self.config.system_prompt {
@@ -120,14 +171,25 @@ impl LlamaCppProvider {
             }
         }
 
+        all_messages.extend_from_slice(messages);
+        all_messages
+    }
+
+    fn prepare_fallback_messages(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<&StructuredOutputFormat>,
+    ) -> Vec<ChatMessage> {
+        let mut all_messages = self.prepare_messages(messages);
+
         if let Some(schema) = json_schema {
             let mut schema_hint =
                 format!("Return a valid JSON response for schema '{}'.", schema.name);
             if let Some(description) = &schema.description {
-                schema_hint.push_str(&format!(" {}", description));
+                schema_hint.push_str(&format!(" {description}"));
             }
             if let Some(json_schema) = &schema.schema {
-                schema_hint.push_str(&format!(" Schema: {}", json_schema));
+                schema_hint.push_str(&format!(" Schema: {json_schema}"));
             }
             all_messages.push(ChatMessage {
                 role: autoagents_llm::chat::ChatRole::System,
@@ -136,18 +198,98 @@ impl LlamaCppProvider {
             });
         }
 
-        all_messages.extend_from_slice(messages);
         all_messages
     }
 
-    fn prompt_for_messages(
+    fn build_chat_prompt(
         &self,
         messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
         json_schema: Option<&StructuredOutputFormat>,
-    ) -> Result<PromptData, LLMError> {
-        let messages = self.prepare_messages(messages, json_schema);
-        build_prompt(&self.model, &messages, self.config.chat_template.as_deref())
-            .map_err(LLMError::from)
+    ) -> Result<ChatPrompt, LLMError> {
+        let template = match self.resolve_chat_template() {
+            Ok(template) => Some(template),
+            Err(err) => {
+                if tools.is_some() || json_schema.is_some() || self.config.force_json_grammar {
+                    return Err(err);
+                }
+                None
+            }
+        };
+
+        if let Some(template) = template {
+            let messages = self.prepare_messages(messages);
+            let messages_json = build_openai_messages_json(&messages).map_err(LLMError::from)?;
+            let tools_json = match tools {
+                Some(tools) if !tools.is_empty() => {
+                    Some(serde_json::to_string(tools).map_err(|err| {
+                        LLMError::ProviderError(format!("Failed to serialize tools: {err}"))
+                    })?)
+                }
+                _ => None,
+            };
+
+            let json_schema_value = json_schema
+                .and_then(|schema| schema.schema.as_ref())
+                .map(Value::to_string);
+            let grammar_value = if json_schema_value.is_none() && self.config.force_json_grammar {
+                Some(JSON_GRAMMAR.to_string())
+            } else {
+                None
+            };
+
+            let parse_tool_calls =
+                tools_json.is_some() && json_schema_value.is_none() && grammar_value.is_none();
+            let params = OpenAIChatTemplateParams {
+                messages_json: messages_json.as_str(),
+                tools_json: tools_json.as_deref(),
+                tool_choice: None,
+                json_schema: json_schema_value.as_deref(),
+                grammar: grammar_value.as_deref(),
+                reasoning_format: None,
+                chat_template_kwargs: None,
+                add_generation_prompt: true,
+                use_jinja: true,
+                parallel_tool_calls: false,
+                enable_thinking: true,
+                add_bos: false,
+                add_eos: false,
+                parse_tool_calls,
+            };
+
+            let result = self
+                .model
+                .apply_chat_template_oaicompat(&template, &params)
+                .map_err(|err| {
+                    LLMError::ProviderError(format!(
+                        "Failed to apply OpenAI-compatible chat template: {err}"
+                    ))
+                })?;
+
+            Ok(ChatPrompt::OpenAI(result))
+        } else {
+            let fallback_messages = self.prepare_fallback_messages(messages, json_schema);
+            let prompt = PromptData {
+                prompt: build_fallback_prompt(&fallback_messages),
+                add_bos: AddBos::Always,
+            };
+            let use_json_grammar = json_schema.is_some() || self.config.force_json_grammar;
+            Ok(ChatPrompt::Fallback {
+                prompt,
+                use_json_grammar,
+            })
+        }
+    }
+
+    fn resolve_chat_template(&self) -> Result<LlamaChatTemplate, LLMError> {
+        if let Some(template) = self.config.chat_template.as_deref() {
+            return LlamaChatTemplate::new(template)
+                .map_err(|err| LLMError::ProviderError(format!("Invalid chat template: {err}")));
+        }
+
+        self.model.chat_template(None).map_err(|err| {
+            LLMError::ProviderError(format!("Model does not provide a chat template: {err}"))
+        })
     }
 
     fn build_usage(prompt_tokens: u32, completion_tokens: u32) -> ChatUsage {
@@ -170,10 +312,10 @@ impl LlamaCppProvider {
         temperature_override.or(self.config.temperature)
     }
 
-    async fn generate_response(
+    async fn generate_completion_response(
         &self,
         prompt: PromptData,
-        json_schema: Option<StructuredOutputFormat>,
+        use_json_grammar: bool,
         max_tokens_override: Option<u32>,
         temperature_override: Option<f32>,
     ) -> Result<GenerationResult, LLMError> {
@@ -182,7 +324,6 @@ impl LlamaCppProvider {
         let backend = self.backend.clone();
         let max_tokens = self.resolve_max_tokens(max_tokens_override);
         let temperature = self.resolve_temperature(temperature_override);
-        let has_json_schema = json_schema.is_some();
 
         let mut result = tokio::task::spawn_blocking(
             move || -> Result<GenerationResult, LlamaCppProviderError> {
@@ -192,7 +333,7 @@ impl LlamaCppProvider {
                     &config,
                     GenerationParams {
                         prompt: &prompt,
-                        json_schema: json_schema.as_ref(),
+                        use_json_grammar,
                         max_tokens,
                         temperature,
                         on_token: None,
@@ -201,10 +342,10 @@ impl LlamaCppProvider {
             },
         )
         .await
-        .map_err(|err| LLMError::ProviderError(format!("Generation task failed: {}", err)))?
+        .map_err(|err| LLMError::ProviderError(format!("Generation task failed: {err}")))?
         .map_err(LLMError::from)?;
 
-        if has_json_schema || self.config.force_json_grammar {
+        if use_json_grammar {
             if let Some(extracted) = extract_json_payload(&result.text) {
                 result.text = extracted;
             }
@@ -213,10 +354,40 @@ impl LlamaCppProvider {
         Ok(result)
     }
 
-    fn spawn_token_stream(
+    async fn generate_chat_completion(
+        &self,
+        template_result: llama_cpp_2::model::ChatTemplateResult,
+        max_tokens_override: Option<u32>,
+        temperature_override: Option<f32>,
+    ) -> Result<GenerationResult, LLMError> {
+        let config = self.config.clone();
+        let model = self.model.clone();
+        let backend = self.backend.clone();
+        let max_tokens = self.resolve_max_tokens(max_tokens_override);
+        let temperature = self.resolve_temperature(temperature_override);
+
+        tokio::task::spawn_blocking(move || -> Result<GenerationResult, LlamaCppProviderError> {
+            generate_chat_text(
+                &model,
+                &backend,
+                &config,
+                ChatGenerationParams {
+                    template_result: &template_result,
+                    max_tokens,
+                    temperature,
+                    on_delta: None,
+                },
+            )
+        })
+        .await
+        .map_err(|err| LLMError::ProviderError(format!("Generation task failed: {err}")))?
+        .map_err(LLMError::from)
+    }
+
+    fn spawn_fallback_stream(
         &self,
         prompt: PromptData,
-        json_schema: Option<StructuredOutputFormat>,
+        use_json_grammar: bool,
         max_tokens_override: Option<u32>,
         temperature_override: Option<f32>,
     ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>> {
@@ -226,8 +397,7 @@ impl LlamaCppProvider {
         let backend = self.backend.clone();
         let max_tokens = self.resolve_max_tokens(max_tokens_override);
         let temperature = self.resolve_temperature(temperature_override);
-        let should_extract = json_schema.is_some() || config.force_json_grammar;
-        let emitted_any = Arc::new(AtomicBool::new(false));
+        let emitted_any = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let tx_tokens = tx.clone();
 
         tokio::spawn(async move {
@@ -238,7 +408,7 @@ impl LlamaCppProvider {
                     let mut json_started = false;
                     let emitted_any = emitted_any_for_blocking;
                     let on_token: Option<TokenCallback> = Some(Box::new(move |token: &str| {
-                        if should_extract && !json_started {
+                        if use_json_grammar && !json_started {
                             if let Some(start) = token.find('{').or_else(|| token.find('[')) {
                                 json_started = true;
                                 let suffix = &token[start..];
@@ -250,7 +420,7 @@ impl LlamaCppProvider {
                                                 "Stream receiver dropped".to_string(),
                                             )
                                         })?;
-                                    emitted_any.store(true, Ordering::Relaxed);
+                                    emitted_any.store(true, std::sync::atomic::Ordering::Relaxed);
                                 }
                             }
                             return Ok(());
@@ -263,7 +433,7 @@ impl LlamaCppProvider {
                                     "Stream receiver dropped".to_string(),
                                 )
                             })?;
-                        emitted_any.store(true, Ordering::Relaxed);
+                        emitted_any.store(true, std::sync::atomic::Ordering::Relaxed);
                         Ok(())
                     })
                         as TokenCallback);
@@ -273,7 +443,7 @@ impl LlamaCppProvider {
                         &config,
                         GenerationParams {
                             prompt: &prompt,
-                            json_schema: json_schema.as_ref(),
+                            use_json_grammar,
                             max_tokens,
                             temperature,
                             on_token,
@@ -285,7 +455,7 @@ impl LlamaCppProvider {
 
             match result {
                 Ok(Ok(gen)) => {
-                    if should_extract && !emitted_any.load(Ordering::Relaxed) {
+                    if use_json_grammar && !emitted_any.load(std::sync::atomic::Ordering::Relaxed) {
                         let mut text = gen.text;
                         if let Some(extracted) = extract_json_payload(&text) {
                             text = extracted;
@@ -295,15 +465,114 @@ impl LlamaCppProvider {
                     let usage =
                         LlamaCppProvider::build_usage(gen.prompt_tokens, gen.completion_tokens);
                     let _ = tx.send(Ok(StreamEvent::Usage(usage)));
-                    let _ = tx.send(Ok(StreamEvent::Done));
+                    let stop_reason = if gen.finish_reason == "length" {
+                        "length".to_string()
+                    } else {
+                        "end_turn".to_string()
+                    };
+                    let _ = tx.send(Ok(StreamEvent::Done { stop_reason }));
                 }
                 Ok(Err(err)) => {
                     let _ = tx.send(Err(LLMError::from(err)));
                 }
                 Err(err) => {
                     let _ = tx.send(Err(LLMError::ProviderError(format!(
-                        "Generation task failed: {}",
-                        err
+                        "Generation task failed: {err}"
+                    ))));
+                }
+            }
+        });
+
+        let output_stream = futures::stream::unfold(rx, |mut rx| async move {
+            rx.recv().await.map(|item| (item, rx))
+        });
+
+        Box::pin(output_stream)
+    }
+
+    fn spawn_chat_stream(
+        &self,
+        template_result: llama_cpp_2::model::ChatTemplateResult,
+        max_tokens_override: Option<u32>,
+        temperature_override: Option<f32>,
+    ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>> {
+        let (tx, rx) = mpsc::unbounded_channel::<Result<StreamEvent, LLMError>>();
+        let config = self.config.clone();
+        let model = self.model.clone();
+        let backend = self.backend.clone();
+        let max_tokens = self.resolve_max_tokens(max_tokens_override);
+        let temperature = self.resolve_temperature(temperature_override);
+        let tx_deltas = tx.clone();
+
+        tokio::spawn(async move {
+            let result = tokio::task::spawn_blocking(
+                move || -> Result<(GenerationResult, String), LlamaCppProviderError> {
+                    let on_delta: Option<DeltaCallback> = Some(Box::new(move |delta: &str| {
+                        tx_deltas
+                            .send(Ok(StreamEvent::Delta(delta.to_string())))
+                            .map_err(|_| {
+                                LlamaCppProviderError::Inference(
+                                    "Stream receiver dropped".to_string(),
+                                )
+                            })?;
+                        Ok(())
+                    }));
+
+                    let gen = generate_chat_text(
+                        &model,
+                        &backend,
+                        &config,
+                        ChatGenerationParams {
+                            template_result: &template_result,
+                            max_tokens,
+                            temperature,
+                            on_delta,
+                        },
+                    )?;
+
+                    let message_json = template_result
+                        .parse_response_oaicompat(&gen.text, false)
+                        .map_err(|err| {
+                        LlamaCppProviderError::Template(format!("Failed to parse response: {err}"))
+                    })?;
+                    let message: OpenAICompatMessage = serde_json::from_str(&message_json)
+                        .map_err(|err| {
+                            LlamaCppProviderError::Template(format!(
+                                "Failed to decode parsed message: {err}"
+                            ))
+                        })?;
+
+                    let stop_reason = if gen.finish_reason == "length" {
+                        "length".to_string()
+                    } else if message
+                        .tool_calls
+                        .as_ref()
+                        .map(|calls| !calls.is_empty())
+                        .unwrap_or(false)
+                    {
+                        "tool_use".to_string()
+                    } else {
+                        "end_turn".to_string()
+                    };
+
+                    Ok((gen, stop_reason))
+                },
+            )
+            .await;
+
+            match result {
+                Ok(Ok((gen, stop_reason))) => {
+                    let usage =
+                        LlamaCppProvider::build_usage(gen.prompt_tokens, gen.completion_tokens);
+                    let _ = tx.send(Ok(StreamEvent::Usage(usage)));
+                    let _ = tx.send(Ok(StreamEvent::Done { stop_reason }));
+                }
+                Ok(Err(err)) => {
+                    let _ = tx.send(Err(LLMError::from(err)));
+                }
+                Err(err) => {
+                    let _ = tx.send(Err(LLMError::ProviderError(format!(
+                        "Generation task failed: {err}"
                     ))));
                 }
             }
@@ -317,194 +586,6 @@ impl LlamaCppProvider {
     }
 }
 
-/// Builder for LlamaCppProvider.
-pub struct LlamaCppProviderBuilder {
-    config_builder: LlamaCppConfigBuilder,
-}
-
-impl LlamaCppProviderBuilder {
-    /// Create a new builder.
-    pub fn new() -> Self {
-        Self {
-            config_builder: LlamaCppConfigBuilder::new(),
-        }
-    }
-
-    /// Set the model source.
-    pub fn model_source(mut self, source: ModelSource) -> Self {
-        self.config_builder = self.config_builder.model_source(source);
-        self
-    }
-
-    /// Set model path for GGUF.
-    pub fn model_path(mut self, path: impl Into<String>) -> Self {
-        self.config_builder = self.config_builder.model_path(path);
-        self
-    }
-
-    /// Set chat template.
-    pub fn chat_template(mut self, template: impl Into<String>) -> Self {
-        self.config_builder = self.config_builder.chat_template(template);
-        self
-    }
-
-    /// Set system prompt.
-    pub fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
-        self.config_builder = self.config_builder.system_prompt(prompt);
-        self
-    }
-
-    /// Force JSON grammar enforcement even without a structured output schema.
-    pub fn force_json_grammar(mut self, force: bool) -> Self {
-        self.config_builder = self.config_builder.force_json_grammar(force);
-        self
-    }
-
-    /// Set the model cache directory.
-    pub fn model_dir(mut self, dir: impl Into<String>) -> Self {
-        self.config_builder = self.config_builder.model_dir(dir);
-        self
-    }
-
-    /// Set the HuggingFace filename (GGUF file).
-    pub fn hf_filename(mut self, filename: impl Into<String>) -> Self {
-        self.config_builder = self.config_builder.hf_filename(filename);
-        self
-    }
-
-    /// Set the HuggingFace revision.
-    pub fn hf_revision(mut self, revision: impl Into<String>) -> Self {
-        self.config_builder = self.config_builder.hf_revision(revision);
-        self
-    }
-
-    /// Set max tokens.
-    pub fn max_tokens(mut self, tokens: u32) -> Self {
-        self.config_builder = self.config_builder.max_tokens(tokens);
-        self
-    }
-
-    /// Set temperature.
-    pub fn temperature(mut self, temp: f32) -> Self {
-        self.config_builder = self.config_builder.temperature(temp);
-        self
-    }
-
-    /// Set top-p.
-    pub fn top_p(mut self, p: f32) -> Self {
-        self.config_builder = self.config_builder.top_p(p);
-        self
-    }
-
-    /// Set top-k.
-    pub fn top_k(mut self, k: u32) -> Self {
-        self.config_builder = self.config_builder.top_k(k);
-        self
-    }
-
-    /// Set frequency penalty.
-    pub fn frequency_penalty(mut self, penalty: f32) -> Self {
-        self.config_builder = self.config_builder.frequency_penalty(penalty);
-        self
-    }
-
-    /// Set presence penalty.
-    pub fn presence_penalty(mut self, penalty: f32) -> Self {
-        self.config_builder = self.config_builder.presence_penalty(penalty);
-        self
-    }
-
-    /// Set repeat last N for penalties.
-    pub fn repeat_last_n(mut self, last_n: i32) -> Self {
-        self.config_builder = self.config_builder.repeat_last_n(last_n);
-        self
-    }
-
-    /// Set sampling seed.
-    pub fn seed(mut self, seed: u32) -> Self {
-        self.config_builder = self.config_builder.seed(seed);
-        self
-    }
-
-    /// Set context size.
-    pub fn n_ctx(mut self, n_ctx: u32) -> Self {
-        self.config_builder = self.config_builder.n_ctx(n_ctx);
-        self
-    }
-
-    /// Set batch size.
-    pub fn n_batch(mut self, n_batch: u32) -> Self {
-        self.config_builder = self.config_builder.n_batch(n_batch);
-        self
-    }
-
-    /// Set micro-batch size.
-    pub fn n_ubatch(mut self, n_ubatch: u32) -> Self {
-        self.config_builder = self.config_builder.n_ubatch(n_ubatch);
-        self
-    }
-
-    /// Set number of threads for prompt evaluation.
-    pub fn n_threads(mut self, n_threads: i32) -> Self {
-        self.config_builder = self.config_builder.n_threads(n_threads);
-        self
-    }
-
-    /// Set number of threads for batch evaluation.
-    pub fn n_threads_batch(mut self, n_threads: i32) -> Self {
-        self.config_builder = self.config_builder.n_threads_batch(n_threads);
-        self
-    }
-
-    /// Set number of GPU layers to offload.
-    pub fn n_gpu_layers(mut self, layers: u32) -> Self {
-        self.config_builder = self.config_builder.n_gpu_layers(layers);
-        self
-    }
-
-    /// Set main GPU index.
-    pub fn main_gpu(mut self, main_gpu: i32) -> Self {
-        self.config_builder = self.config_builder.main_gpu(main_gpu);
-        self
-    }
-
-    /// Set split mode.
-    pub fn split_mode(mut self, mode: crate::config::LlamaCppSplitMode) -> Self {
-        self.config_builder = self.config_builder.split_mode(mode);
-        self
-    }
-
-    /// Enable memory lock.
-    pub fn use_mlock(mut self, use_mlock: bool) -> Self {
-        self.config_builder = self.config_builder.use_mlock(use_mlock);
-        self
-    }
-
-    /// Set explicit device indices for offload.
-    pub fn devices(mut self, devices: Vec<usize>) -> Self {
-        self.config_builder = self.config_builder.devices(devices);
-        self
-    }
-
-    /// Set repeat penalty.
-    pub fn repeat_penalty(mut self, penalty: f32) -> Self {
-        self.config_builder = self.config_builder.repeat_penalty(penalty);
-        self
-    }
-
-    /// Build the provider.
-    pub async fn build(self) -> Result<LlamaCppProvider, LLMError> {
-        let config = self.config_builder.build();
-        LlamaCppProvider::from_config(config).await
-    }
-}
-
-impl Default for LlamaCppProviderBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl ChatProvider for LlamaCppProvider {
     async fn chat_with_tools(
@@ -513,26 +594,57 @@ impl ChatProvider for LlamaCppProvider {
         tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        if tools.is_some() {
-            return Err(LLMError::NoToolSupport(
-                "Tool calls are not supported by llama.cpp backend".to_string(),
-            ));
+        let prompt = self.build_chat_prompt(messages, tools, json_schema.as_ref())?;
+        match prompt {
+            ChatPrompt::Fallback {
+                prompt,
+                use_json_grammar,
+            } => {
+                if tools.is_some() {
+                    return Err(LLMError::NoToolSupport(
+                        "Tool calls require a chat template".to_string(),
+                    ));
+                }
+                let result = self
+                    .generate_completion_response(prompt, use_json_grammar, None, None)
+                    .await?;
+                let usage = Some(Self::build_usage(
+                    result.prompt_tokens,
+                    result.completion_tokens,
+                ));
+
+                Ok(Box::new(LlamaCppResponse {
+                    content: Some(result.text),
+                    tool_calls: None,
+                    usage,
+                }))
+            }
+            ChatPrompt::OpenAI(template_result) => {
+                let result = self
+                    .generate_chat_completion(template_result.clone(), None, None)
+                    .await?;
+                let message_json = template_result
+                    .parse_response_oaicompat(&result.text, false)
+                    .map_err(|err| {
+                        LLMError::ProviderError(format!("Failed to parse response: {err}"))
+                    })?;
+                let message: OpenAICompatMessage =
+                    serde_json::from_str(&message_json).map_err(|err| {
+                        LLMError::ProviderError(format!("Failed to decode response: {err}"))
+                    })?;
+
+                let usage = Some(Self::build_usage(
+                    result.prompt_tokens,
+                    result.completion_tokens,
+                ));
+
+                Ok(Box::new(LlamaCppResponse {
+                    content: message.content,
+                    tool_calls: message.tool_calls,
+                    usage,
+                }))
+            }
         }
-
-        let prompt = self.prompt_for_messages(messages, json_schema.as_ref())?;
-        let result = self
-            .generate_response(prompt, json_schema, None, None)
-            .await?;
-
-        let usage = Some(Self::build_usage(
-            result.prompt_tokens,
-            result.completion_tokens,
-        ));
-
-        Ok(Box::new(LlamaCppResponse {
-            text: result.text,
-            usage,
-        }))
     }
 
     async fn chat_stream(
@@ -541,13 +653,25 @@ impl ChatProvider for LlamaCppProvider {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
-        let prompt = self.prompt_for_messages(messages, json_schema.as_ref())?;
-        let response_stream = self.spawn_token_stream(prompt, json_schema, None, None);
+        let prompt = self.build_chat_prompt(messages, None, json_schema.as_ref())?;
+        let response_stream = match prompt {
+            ChatPrompt::Fallback {
+                prompt,
+                use_json_grammar,
+            } => self.spawn_fallback_stream(prompt, use_json_grammar, None, None),
+            ChatPrompt::OpenAI(template_result) => {
+                self.spawn_chat_stream(template_result, None, None)
+            }
+        };
 
         let content_stream = response_stream.filter_map(|event| async move {
             match event {
                 Ok(StreamEvent::Token(token)) => Some(Ok(token)),
-                Ok(StreamEvent::Usage(_)) | Ok(StreamEvent::Done) => None,
+                Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
+                    Ok(parsed) => parsed.content.filter(|content| !content.is_empty()).map(Ok),
+                    Err(err) => Some(Err(err)),
+                },
+                Ok(StreamEvent::Usage(_)) | Ok(StreamEvent::Done { .. }) => None,
                 Err(err) => Some(Err(err)),
             }
         });
@@ -564,39 +688,119 @@ impl ChatProvider for LlamaCppProvider {
         std::pin::Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>,
         LLMError,
     > {
-        if tools.is_some() {
-            return Err(LLMError::NoToolSupport(
-                "Tool calls are not supported by llama.cpp backend".to_string(),
-            ));
-        }
-
-        let prompt = self.prompt_for_messages(messages, json_schema.as_ref())?;
-        let response_stream = self.spawn_token_stream(prompt, json_schema, None, None);
-
-        let struct_stream = response_stream.filter_map(|event| async move {
-            match event {
-                Ok(StreamEvent::Token(token)) => Some(Ok(StreamResponse {
-                    choices: vec![StreamChoice {
-                        delta: StreamDelta {
-                            content: Some(token),
-                            tool_calls: None,
-                        },
-                    }],
-                    usage: None,
-                })),
-                Ok(StreamEvent::Usage(usage)) => Some(Ok(StreamResponse {
-                    choices: vec![StreamChoice {
-                        delta: StreamDelta {
-                            content: None,
-                            tool_calls: None,
-                        },
-                    }],
-                    usage: Some(usage),
-                })),
-                Ok(StreamEvent::Done) => None,
-                Err(err) => Some(Err(err)),
+        let prompt = self.build_chat_prompt(messages, tools, json_schema.as_ref())?;
+        let response_stream = match prompt {
+            ChatPrompt::Fallback {
+                prompt,
+                use_json_grammar,
+            } => self.spawn_fallback_stream(prompt, use_json_grammar, None, None),
+            ChatPrompt::OpenAI(template_result) => {
+                self.spawn_chat_stream(template_result, None, None)
             }
-        });
+        };
+
+        let struct_stream = response_stream
+            .scan(
+                HashMap::<usize, ToolCallState>::new(),
+                |tool_states, event| {
+                    let mut outputs = Vec::new();
+                    match event {
+                        Ok(StreamEvent::Token(token)) => {
+                            outputs.push(Ok(StreamResponse {
+                                choices: vec![StreamChoice {
+                                    delta: StreamDelta {
+                                        content: Some(token),
+                                        tool_calls: None,
+                                    },
+                                }],
+                                usage: None,
+                            }));
+                        }
+                        Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
+                            Ok(parsed) => {
+                                if let Some(content) = parsed.content {
+                                    if !content.is_empty() {
+                                        outputs.push(Ok(StreamResponse {
+                                            choices: vec![StreamChoice {
+                                                delta: StreamDelta {
+                                                    content: Some(content),
+                                                    tool_calls: None,
+                                                },
+                                            }],
+                                            usage: None,
+                                        }));
+                                    }
+                                }
+
+                                if let Some(tool_calls) = parsed.tool_calls {
+                                    let mut updated_calls = Vec::new();
+                                    for call in tool_calls {
+                                        let index = call.index.unwrap_or(0);
+                                        let call_type = call
+                                            .call_type
+                                            .unwrap_or_else(|| "function".to_string());
+                                        let state = tool_states.entry(index).or_default();
+                                        if let Some(id) = call.id {
+                                            state.id = id;
+                                        }
+                                        if let Some(function) = call.function {
+                                            if let Some(name) = function.name {
+                                                state.name = name;
+                                            }
+                                            if !function.arguments.is_empty() {
+                                                state.arguments.push_str(&function.arguments);
+                                            }
+                                        }
+                                        if !state.id.is_empty()
+                                            || !state.name.is_empty()
+                                            || !state.arguments.is_empty()
+                                        {
+                                            updated_calls.push(ToolCall {
+                                                id: state.id.clone(),
+                                                call_type,
+                                                function: FunctionCall {
+                                                    name: state.name.clone(),
+                                                    arguments: state.arguments.clone(),
+                                                },
+                                            });
+                                        }
+                                    }
+
+                                    if !updated_calls.is_empty() {
+                                        outputs.push(Ok(StreamResponse {
+                                            choices: vec![StreamChoice {
+                                                delta: StreamDelta {
+                                                    content: None,
+                                                    tool_calls: Some(updated_calls),
+                                                },
+                                            }],
+                                            usage: None,
+                                        }));
+                                    }
+                                }
+                            }
+                            Err(err) => {
+                                outputs.push(Err(err));
+                            }
+                        },
+                        Ok(StreamEvent::Usage(usage)) => {
+                            outputs.push(Ok(StreamResponse {
+                                choices: vec![StreamChoice {
+                                    delta: StreamDelta {
+                                        content: None,
+                                        tool_calls: None,
+                                    },
+                                }],
+                                usage: Some(usage),
+                            }));
+                        }
+                        Ok(StreamEvent::Done { .. }) => {}
+                        Err(err) => outputs.push(Err(err)),
+                    }
+                    futures::future::ready(Some(outputs))
+                },
+            )
+            .flat_map(futures::stream::iter);
 
         Ok(Box::pin(struct_stream))
     }
@@ -607,28 +811,107 @@ impl ChatProvider for LlamaCppProvider {
         tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError> {
-        if tools.is_some() {
-            return Err(LLMError::NoToolSupport(
-                "Tool calls are not supported by llama.cpp backend".to_string(),
-            ));
-        }
-
-        let prompt = self.prompt_for_messages(messages, json_schema.as_ref())?;
-        let response_stream = self.spawn_token_stream(prompt, json_schema, None, None);
-
-        let stream = response_stream.filter_map(|event| async move {
-            match event {
-                Ok(StreamEvent::Token(token)) => Some(Ok(StreamChunk::Text(token))),
-                Ok(StreamEvent::Usage(usage)) => Some(Ok(StreamChunk::Usage(usage))),
-                Ok(StreamEvent::Done) => Some(Ok(StreamChunk::Done {
-                    stop_reason: "end_turn".to_string(),
-                })),
-                Err(err) => Some(Err(err)),
+        let prompt = self.build_chat_prompt(messages, tools, json_schema.as_ref())?;
+        let response_stream = match prompt {
+            ChatPrompt::Fallback {
+                prompt,
+                use_json_grammar,
+            } => {
+                if tools.is_some() {
+                    return Err(LLMError::NoToolSupport(
+                        "Tool calls require a chat template".to_string(),
+                    ));
+                }
+                self.spawn_fallback_stream(prompt, use_json_grammar, None, None)
             }
-        });
+            ChatPrompt::OpenAI(template_result) => {
+                self.spawn_chat_stream(template_result, None, None)
+            }
+        };
+
+        let stream = response_stream
+            .scan(
+                HashMap::<usize, ToolCallState>::new(),
+                |tool_states, event| {
+                    let mut outputs = Vec::new();
+                    match event {
+                        Ok(StreamEvent::Token(token)) => {
+                            outputs.push(Ok(StreamChunk::Text(token)));
+                        }
+                        Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
+                            Ok(parsed) => {
+                                if let Some(content) = parsed.content {
+                                    if !content.is_empty() {
+                                        outputs.push(Ok(StreamChunk::Text(content)));
+                                    }
+                                }
+
+                                if let Some(tool_calls) = parsed.tool_calls {
+                                    for call in tool_calls {
+                                        let index = call.index.unwrap_or(0);
+                                        let state = tool_states.entry(index).or_default();
+                                        if let Some(id) = call.id {
+                                            state.id = id;
+                                        }
+                                        if let Some(function) = call.function {
+                                            if let Some(name) = function.name {
+                                                state.name = name;
+                                                if !state.started {
+                                                    state.started = true;
+                                                    outputs.push(Ok(StreamChunk::ToolUseStart {
+                                                        index,
+                                                        id: state.id.clone(),
+                                                        name: state.name.clone(),
+                                                    }));
+                                                }
+                                            }
+                                            if !function.arguments.is_empty() {
+                                                state.arguments.push_str(&function.arguments);
+                                                outputs.push(Ok(StreamChunk::ToolUseInputDelta {
+                                                    index,
+                                                    partial_json: function.arguments,
+                                                }));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Err(err) => outputs.push(Err(err)),
+                        },
+                        Ok(StreamEvent::Usage(usage)) => {
+                            outputs.push(Ok(StreamChunk::Usage(usage)));
+                        }
+                        Ok(StreamEvent::Done { stop_reason }) => {
+                            for (index, state) in tool_states.drain() {
+                                if state.started {
+                                    outputs.push(Ok(StreamChunk::ToolUseComplete {
+                                        index,
+                                        tool_call: ToolCall {
+                                            id: state.id,
+                                            call_type: "function".to_string(),
+                                            function: FunctionCall {
+                                                name: state.name,
+                                                arguments: state.arguments,
+                                            },
+                                        },
+                                    }));
+                                }
+                            }
+                            outputs.push(Ok(StreamChunk::Done { stop_reason }));
+                        }
+                        Err(err) => outputs.push(Err(err)),
+                    }
+                    futures::future::ready(Some(outputs))
+                },
+            )
+            .flat_map(futures::stream::iter);
 
         Ok(Box::pin(stream))
     }
+}
+
+fn parse_openai_delta(delta: &str) -> Result<OpenAICompatDelta, LLMError> {
+    serde_json::from_str(delta).map_err(|err| LLMError::JsonError(err.to_string()))
 }
 
 #[async_trait]
@@ -642,8 +925,9 @@ impl CompletionProvider for LlamaCppProvider {
             prompt: req.prompt.clone(),
             add_bos: AddBos::Always,
         };
+        let use_json_grammar = json_schema.is_some() || self.config.force_json_grammar;
         let result = self
-            .generate_response(prompt, json_schema, req.max_tokens, req.temperature)
+            .generate_completion_response(prompt, use_json_grammar, req.max_tokens, req.temperature)
             .await?;
 
         Ok(CompletionResponse { text: result.text })
@@ -666,7 +950,7 @@ impl EmbeddingProvider for LlamaCppProvider {
             Ok(embeddings)
         })
         .await
-        .map_err(|err| LLMError::ProviderError(format!("Embedding task failed: {}", err)))?
+        .map_err(|err| LLMError::ProviderError(format!("Embedding task failed: {err}")))?
         .map_err(LLMError::from)
     }
 }
@@ -683,7 +967,7 @@ fn initialize_backend() -> Result<Arc<LlamaBackend>, LlamaCppProviderError> {
     }
 
     let mut backend = LlamaBackend::init().map_err(|err| {
-        LlamaCppProviderError::Other(format!("Failed to initialize llama backend: {}", err))
+        LlamaCppProviderError::Other(format!("Failed to initialize llama backend: {err}"))
     })?;
     if !llama_logs_enabled() {
         backend.void_logs();
@@ -711,7 +995,7 @@ async fn load_model(
             .map_err(|err| LlamaCppProviderError::ModelLoad(err.to_string()))
     })
     .await
-    .map_err(|err| LLMError::ProviderError(format!("Model load task failed: {}", err)))?
+    .map_err(|err| LLMError::ProviderError(format!("Model load task failed: {err}")))?
     .map(Arc::new)
     .map_err(LLMError::from)
 }
@@ -762,13 +1046,14 @@ fn resolve_model_path(
 fn build_context_params(
     config: &LlamaCppConfig,
     embeddings: bool,
+    n_ctx_override: Option<u32>,
 ) -> Result<LlamaContextParams, LlamaCppProviderError> {
     let mut params = LlamaContextParams::default();
 
-    if let Some(n_ctx) = config.n_ctx {
+    if let Some(n_ctx) = n_ctx_override.or(config.n_ctx) {
         params = params.with_n_ctx(NonZeroU32::new(n_ctx));
     }
-    if let Some(n_batch) = config.n_batch {
+    if let Some(n_batch) = config.n_batch.or(n_ctx_override) {
         params = params.with_n_batch(n_batch);
     }
     if let Some(n_ubatch) = config.n_ubatch {
@@ -785,25 +1070,184 @@ fn build_context_params(
     Ok(params)
 }
 
+fn resolve_context_size(
+    model: &LlamaModel,
+    config: &LlamaCppConfig,
+    required_tokens: u32,
+) -> Result<u32, LlamaCppProviderError> {
+    if let Some(n_ctx) = config.n_ctx {
+        if required_tokens > n_ctx {
+            return Err(LlamaCppProviderError::Inference(format!(
+                "Prompt length ({required_tokens}) exceeds context size ({n_ctx})",
+            )));
+        }
+        return Ok(n_ctx);
+    }
+
+    Ok(model.n_ctx_train().max(required_tokens))
+}
+
 fn build_sampler(
     model: &LlamaModel,
     config: &LlamaCppConfig,
     use_json_grammar: bool,
     temperature_override: Option<f32>,
+    seed_override: Option<u32>,
 ) -> Result<LlamaSampler, LlamaCppProviderError> {
     let mut samplers = Vec::new();
 
     if use_json_grammar {
-        let trigger_tokens = json_trigger_tokens(model)?;
-        let grammar = LlamaSampler::grammar_lazy(
-            model,
-            JSON_GRAMMAR,
-            "root",
-            std::iter::empty::<&'static [u8]>(),
-            &trigger_tokens,
-        )
-        .map_err(|err| LlamaCppProviderError::Template(err.to_string()))?;
-        samplers.push(grammar);
+        let sampler = LlamaSampler::grammar(model, JSON_GRAMMAR, "root")
+            .map_err(|err| LlamaCppProviderError::Template(err.to_string()))?;
+        samplers.push(sampler);
+    }
+
+    let penalty_repeat = config.repeat_penalty.unwrap_or(1.0);
+    let penalty_freq = config.frequency_penalty.unwrap_or(0.0);
+    let penalty_present = config.presence_penalty.unwrap_or(0.0);
+    let penalty_last_n = config.repeat_last_n.unwrap_or(64);
+    if penalty_repeat != 1.0 || penalty_freq != 0.0 || penalty_present != 0.0 {
+        samplers.push(LlamaSampler::penalties(
+            penalty_last_n,
+            penalty_repeat,
+            penalty_freq,
+            penalty_present,
+        ));
+    }
+
+    if let Some(top_k) = config.top_k {
+        samplers.push(LlamaSampler::top_k(top_k as i32));
+    }
+    if let Some(top_p) = config.top_p {
+        samplers.push(LlamaSampler::top_p(top_p, 1));
+    }
+
+    let temperature = temperature_override.or(config.temperature);
+    if let Some(temp) = temperature {
+        if temp > 0.0 {
+            samplers.push(LlamaSampler::temp(temp));
+            let seed = seed_override.or(config.seed).unwrap_or_else(rand::random);
+            samplers.push(LlamaSampler::dist(seed));
+        } else {
+            samplers.push(LlamaSampler::greedy());
+        }
+    } else {
+        let seed = seed_override.or(config.seed).unwrap_or_else(rand::random);
+        samplers.push(LlamaSampler::dist(seed));
+    }
+
+    Ok(LlamaSampler::chain_simple(samplers))
+}
+
+fn regex_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '.' | '^' | '$' | '|' | '(' | ')' | '*' | '+' | '?' | '[' | ']' | '{' | '}' | '\\' => {
+                escaped.push('\\');
+                escaped.push(ch);
+            }
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
+fn anchor_pattern(pattern: &str) -> String {
+    if pattern.is_empty() {
+        return "^$".to_string();
+    }
+    let mut anchored = String::new();
+    if !pattern.starts_with('^') {
+        anchored.push('^');
+    }
+    anchored.push_str(pattern);
+    if !pattern.ends_with('$') {
+        anchored.push('$');
+    }
+    anchored
+}
+
+fn build_chat_sampler(
+    model: &LlamaModel,
+    config: &LlamaCppConfig,
+    result: &llama_cpp_2::model::ChatTemplateResult,
+    temperature_override: Option<f32>,
+) -> Result<(LlamaSampler, HashSet<LlamaToken>), LlamaCppProviderError> {
+    let mut preserved = HashSet::new();
+    for token_str in &result.preserved_tokens {
+        let tokens = model
+            .str_to_token(token_str, AddBos::Never)
+            .map_err(|err| LlamaCppProviderError::Tokenization(err.to_string()))?;
+        if tokens.len() == 1 {
+            preserved.insert(tokens[0]);
+        }
+    }
+
+    let grammar_sampler = if let Some(grammar) = result.grammar.as_deref() {
+        if result.grammar_lazy {
+            if result.grammar_triggers.is_empty() {
+                return Err(LlamaCppProviderError::Template(
+                    "grammar_lazy enabled but no triggers were provided".to_string(),
+                ));
+            }
+            let mut trigger_patterns = Vec::new();
+            let mut trigger_tokens = Vec::new();
+            for trigger in &result.grammar_triggers {
+                match trigger.trigger_type {
+                    GrammarTriggerType::Token => {
+                        if let Some(token) = trigger.token {
+                            trigger_tokens.push(token);
+                        }
+                    }
+                    GrammarTriggerType::Word => {
+                        let tokens = model
+                            .str_to_token(&trigger.value, AddBos::Never)
+                            .map_err(|err| LlamaCppProviderError::Tokenization(err.to_string()))?;
+                        if tokens.len() == 1 {
+                            if !preserved.contains(&tokens[0]) {
+                                return Err(LlamaCppProviderError::Template(format!(
+                                    "grammar trigger word not preserved: {}",
+                                    trigger.value
+                                )));
+                            }
+                            trigger_tokens.push(tokens[0]);
+                        } else {
+                            trigger_patterns.push(regex_escape(&trigger.value));
+                        }
+                    }
+                    GrammarTriggerType::Pattern => {
+                        trigger_patterns.push(trigger.value.clone());
+                    }
+                    GrammarTriggerType::PatternFull => {
+                        trigger_patterns.push(anchor_pattern(&trigger.value));
+                    }
+                }
+            }
+
+            Some(
+                LlamaSampler::grammar_lazy_patterns(
+                    model,
+                    grammar,
+                    "root",
+                    &trigger_patterns,
+                    &trigger_tokens,
+                )
+                .map_err(|err| LlamaCppProviderError::Template(err.to_string()))?,
+            )
+        } else {
+            Some(
+                LlamaSampler::grammar(model, grammar, "root")
+                    .map_err(|err| LlamaCppProviderError::Template(err.to_string()))?,
+            )
+        }
+    } else {
+        None
+    };
+
+    let mut samplers = Vec::new();
+    if let Some(grammar_sampler) = grammar_sampler {
+        samplers.push(grammar_sampler);
     }
 
     let penalty_repeat = config.repeat_penalty.unwrap_or(1.0);
@@ -840,46 +1284,126 @@ fn build_sampler(
         samplers.push(LlamaSampler::dist(seed));
     }
 
-    Ok(LlamaSampler::chain_simple(samplers))
+    Ok((LlamaSampler::chain_simple(samplers), preserved))
 }
 
-fn json_trigger_tokens(model: &LlamaModel) -> Result<Vec<LlamaToken>, LlamaCppProviderError> {
-    let mut tokens = Vec::new();
+fn generate_chat_text(
+    model: &LlamaModel,
+    backend: &LlamaBackend,
+    config: &LlamaCppConfig,
+    params: ChatGenerationParams<'_>,
+) -> Result<GenerationResult, LlamaCppProviderError> {
+    let ChatGenerationParams {
+        template_result,
+        max_tokens,
+        temperature,
+        mut on_delta,
+    } = params;
 
-    for (token, piece_result) in model.tokens(Special::Tokenize) {
-        let piece = match piece_result {
-            Ok(piece) => piece,
-            Err(_) => continue,
-        };
-        let trimmed = piece.trim_start_matches(|c: char| c.is_whitespace());
-        if (trimmed == "{" || trimmed == "[")
-            && piece[..piece.len() - trimmed.len()]
-                .chars()
-                .all(|c| c.is_whitespace())
-        {
-            tokens.push(token);
-        }
-    }
+    let prompt_tokens = model
+        .str_to_token(&template_result.prompt, AddBos::Always)
+        .map_err(|err| LlamaCppProviderError::Tokenization(err.to_string()))?;
 
-    if tokens.is_empty() {
-        for literal in ["{", "["] {
-            let mut literal_tokens = model
-                .str_to_token(literal, AddBos::Never)
-                .map_err(|err| LlamaCppProviderError::Tokenization(err.to_string()))?;
-            tokens.append(&mut literal_tokens);
-        }
-    }
-
-    tokens.sort_by_key(|token| token.0);
-    tokens.dedup_by_key(|token| token.0);
-
-    if tokens.is_empty() {
-        return Err(LlamaCppProviderError::Config(
-            "Unable to derive trigger tokens for JSON grammar".to_string(),
+    if prompt_tokens.is_empty() {
+        return Err(LlamaCppProviderError::Inference(
+            "Prompt produced no tokens".to_string(),
         ));
     }
 
-    Ok(tokens)
+    let required_tokens = prompt_tokens.len() as u32 + max_tokens;
+    let n_ctx = resolve_context_size(model, config, required_tokens)?;
+    let ctx_params = build_context_params(config, false, Some(n_ctx))?;
+    let mut ctx = model
+        .new_context(backend, ctx_params)
+        .map_err(|err| LlamaCppProviderError::ContextLoad(err.to_string()))?;
+
+    let mut batch = LlamaBatch::new(n_ctx as usize, 1);
+    let last_index = prompt_tokens.len().saturating_sub(1) as i32;
+    for (i, token) in (0_i32..).zip(prompt_tokens.iter().copied()) {
+        let is_last = i == last_index;
+        batch
+            .add(token, i, &[0], is_last)
+            .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
+    }
+
+    ctx.decode(&mut batch)
+        .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
+
+    let mut n_cur = batch.n_tokens();
+    let max_tokens_total = n_cur + max_tokens as i32;
+    let mut generated_text = String::new();
+    let mut completion_tokens = 0u32;
+    let mut decoder = encoding_rs::UTF_8.new_decoder();
+
+    let (mut sampler, preserved) = build_chat_sampler(model, config, template_result, temperature)?;
+    let additional_stops = template_result.additional_stops.clone();
+    let mut stream_state = if on_delta.is_some() {
+        Some(template_result.streaming_state_oaicompat().map_err(|err| {
+            LlamaCppProviderError::Template(format!("Failed to init streaming state: {err}"))
+        })?)
+    } else {
+        None
+    };
+
+    let mut finish_reason = "stop".to_string();
+    while n_cur < max_tokens_total {
+        let token = sampler.sample(&ctx, batch.n_tokens() - 1);
+        if model.is_eog_token(token) {
+            break;
+        }
+
+        let decode_special = preserved.contains(&token);
+        let output_string = model
+            .token_to_piece(token, &mut decoder, decode_special, None)
+            .map_err(|err| LlamaCppProviderError::Tokenization(err.to_string()))?;
+        generated_text.push_str(&output_string);
+        completion_tokens += 1;
+
+        let stop_now = additional_stops
+            .iter()
+            .any(|stop| !stop.is_empty() && generated_text.ends_with(stop));
+
+        if let (Some(state), Some(ref mut on_delta)) = (stream_state.as_mut(), on_delta.as_mut()) {
+            let deltas = state.update(&output_string, !stop_now).map_err(|err| {
+                LlamaCppProviderError::Template(format!("Streaming delta update failed: {err}"))
+            })?;
+            for delta in deltas {
+                on_delta(&delta)?;
+            }
+        }
+
+        if stop_now {
+            break;
+        }
+
+        batch.clear();
+        batch
+            .add(token, n_cur, &[0], true)
+            .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
+        n_cur += 1;
+        ctx.decode(&mut batch)
+            .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
+    }
+
+    if n_cur >= max_tokens_total {
+        finish_reason = "length".to_string();
+    }
+
+    let mut text = generated_text;
+    for stop in &additional_stops {
+        if !stop.is_empty() && text.ends_with(stop) {
+            let new_len = text.len().saturating_sub(stop.len());
+            text.truncate(new_len);
+            break;
+        }
+    }
+
+    Ok(GenerationResult {
+        text,
+        prompt_tokens: prompt_tokens.len() as u32,
+        completion_tokens,
+        finish_reason,
+    })
 }
 
 fn generate_text(
@@ -890,16 +1414,11 @@ fn generate_text(
 ) -> Result<GenerationResult, LlamaCppProviderError> {
     let GenerationParams {
         prompt,
-        json_schema,
+        use_json_grammar,
         max_tokens,
         temperature,
         mut on_token,
     } = params;
-    let use_json_grammar = json_schema.is_some() || config.force_json_grammar;
-    let params = build_context_params(config, false)?;
-    let mut ctx = model
-        .new_context(backend, params)
-        .map_err(|err| LlamaCppProviderError::ContextLoad(err.to_string()))?;
 
     let prompt_tokens = model
         .str_to_token(&prompt.prompt, prompt.add_bos)
@@ -911,34 +1430,19 @@ fn generate_text(
         ));
     }
 
+    let required_tokens = prompt_tokens.len() as u32 + max_tokens;
+    let n_ctx = resolve_context_size(model, config, required_tokens)?;
+    let ctx_params = build_context_params(config, false, Some(n_ctx))?;
+    let mut ctx = model
+        .new_context(backend, ctx_params)
+        .map_err(|err| LlamaCppProviderError::ContextLoad(err.to_string()))?;
+
     let prompt_len = prompt_tokens.len();
-    let ctx_limit = ctx.n_ctx() as usize;
-    if prompt_len >= ctx_limit {
-        return Err(LlamaCppProviderError::Inference(format!(
-            "Prompt length ({}) exceeds context size ({})",
-            prompt_len, ctx_limit
-        )));
-    }
-
-    let available = ctx_limit.saturating_sub(prompt_len);
-    if available == 0 {
-        return Err(LlamaCppProviderError::Inference(
-            "No context available for generation".to_string(),
-        ));
-    }
-
-    let max_tokens = std::cmp::min(max_tokens as usize, available);
-    let batch_size = config
-        .n_batch
-        .map(|n| n as usize)
-        .unwrap_or(ctx.n_batch() as usize)
-        .max(1);
-
-    let mut batch = LlamaBatch::new(batch_size, 1);
+    let mut batch = LlamaBatch::new(n_ctx as usize, 1);
     let mut position = 0;
     let mut last_logits_index = 0_i32;
 
-    for chunk in prompt_tokens.chunks(batch_size) {
+    for chunk in prompt_tokens.chunks(n_ctx as usize) {
         batch.clear();
         for (idx, token) in chunk.iter().enumerate() {
             let is_last = position + idx + 1 == prompt_len;
@@ -954,28 +1458,24 @@ fn generate_text(
         position += chunk.len();
     }
 
-    let mut sampler = build_sampler(model, config, use_json_grammar, temperature)?;
-    if !use_json_grammar {
-        sampler.accept_many(&prompt_tokens);
-    }
-
-    let mut generated_tokens = Vec::with_capacity(max_tokens);
+    let mut sampler = build_sampler(model, config, use_json_grammar, temperature, None)?;
+    let mut generated_text = String::new();
     let mut completion_tokens = 0_u32;
+    let mut decoder = encoding_rs::UTF_8.new_decoder();
 
     let mut next_token = sampler.sample(&ctx, last_logits_index);
     sampler.accept(next_token);
 
-    while completion_tokens < max_tokens as u32 {
+    while completion_tokens < max_tokens {
         if model.is_eog_token(next_token) {
             break;
         }
 
-        generated_tokens.push(next_token);
         completion_tokens += 1;
-
         let token_str = model
-            .token_to_str(next_token, llama_cpp_2::model::Special::Tokenize)
+            .token_to_piece(next_token, &mut decoder, true, None)
             .map_err(|err| LlamaCppProviderError::Tokenization(err.to_string()))?;
+        generated_text.push_str(&token_str);
 
         if let Some(ref mut on_token) = on_token {
             if !token_str.is_empty() {
@@ -991,7 +1491,7 @@ fn generate_text(
             .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
         position += 1;
 
-        if position >= ctx_limit {
+        if position >= n_ctx as usize {
             break;
         }
 
@@ -999,14 +1499,17 @@ fn generate_text(
         sampler.accept(next_token);
     }
 
-    let text = model
-        .tokens_to_str(&generated_tokens, llama_cpp_2::model::Special::Tokenize)
-        .map_err(|err| LlamaCppProviderError::Tokenization(err.to_string()))?;
+    let finish_reason = if completion_tokens >= max_tokens || position >= n_ctx as usize {
+        "length".to_string()
+    } else {
+        "stop".to_string()
+    };
 
     Ok(GenerationResult {
-        text,
+        text: generated_text,
         prompt_tokens: prompt_len as u32,
         completion_tokens,
+        finish_reason,
     })
 }
 
@@ -1016,7 +1519,7 @@ fn generate_embedding(
     config: &LlamaCppConfig,
     text: &str,
 ) -> Result<Vec<f32>, LlamaCppProviderError> {
-    let params = build_context_params(config, true)?;
+    let params = build_context_params(config, true, None)?;
     let mut ctx = model
         .new_context(backend, params)
         .map_err(|err| LlamaCppProviderError::ContextLoad(err.to_string()))?;
@@ -1031,11 +1534,7 @@ fn generate_embedding(
         ));
     }
 
-    let batch_size = config
-        .n_batch
-        .map(|n| n as usize)
-        .unwrap_or(ctx.n_batch() as usize)
-        .max(1);
+    let batch_size = config.n_batch.unwrap_or(tokens.len() as u32).max(1) as usize;
     let mut batch = LlamaBatch::new(batch_size, 1);
     let mut position = 0;
 

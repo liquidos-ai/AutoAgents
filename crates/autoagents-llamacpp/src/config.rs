@@ -40,7 +40,7 @@ pub struct LlamaCppConfig {
     /// Force JSON grammar enforcement even without a structured output schema.
     pub force_json_grammar: bool,
 
-    /// Optional directory for cached models (defaults to ./models).
+    /// Optional HuggingFace cache directory (defaults to HF_HOME or ~/.cache/huggingface/hub).
     pub model_dir: Option<String>,
 
     /// Optional HuggingFace filename override (GGUF file).
@@ -186,7 +186,7 @@ impl LlamaCppConfigBuilder {
         self
     }
 
-    /// Set the local model cache directory.
+    /// Set the HuggingFace cache directory.
     pub fn model_dir(mut self, dir: impl Into<String>) -> Self {
         self.config.model_dir = Some(dir.into());
         self
