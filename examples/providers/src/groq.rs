@@ -5,7 +5,7 @@ use autoagents::core::agent::{AgentBuilder, AgentOutputT, DirectAgent};
 use autoagents::core::error::Error;
 use autoagents::llm::backends::groq::Groq;
 use autoagents::llm::builder::LLMBuilder;
-use autoagents_derive::{agent, AgentHooks, AgentOutput};
+use autoagents_derive::{AgentHooks, AgentOutput, agent};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

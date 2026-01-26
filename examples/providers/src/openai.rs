@@ -5,7 +5,7 @@ use autoagents::core::agent::{AgentBuilder, DirectAgent};
 use autoagents::core::error::Error;
 use autoagents::llm::backends::openai::OpenAI;
 use autoagents::llm::builder::LLMBuilder;
-use autoagents_derive::{agent, AgentHooks};
+use autoagents_derive::{AgentHooks, agent};
 use std::sync::Arc;
 
 #[agent(

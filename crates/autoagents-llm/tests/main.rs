@@ -27,9 +27,9 @@ mod other_backends_tests;
 #[cfg(test)]
 mod common_tests {
     use autoagents_llm::{
+        FunctionCall, ToolCall,
         builder::LLMBackend,
         chat::{ChatMessage, ChatMessageBuilder, ChatRole, ImageMime, MessageType},
-        FunctionCall, ToolCall,
     };
     use serde_json::json;
 

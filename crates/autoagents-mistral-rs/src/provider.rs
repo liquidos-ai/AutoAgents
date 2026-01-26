@@ -3,13 +3,13 @@
 use crate::{
     config::{MistralRsConfig, MistralRsConfigBuilder},
     conversion::{
-        convert_messages, convert_tool_calls, convert_vision_messages, MistralRsResponse,
+        MistralRsResponse, convert_messages, convert_tool_calls, convert_vision_messages,
     },
     error::convert_anyhow_error,
     models::{ModelSource, ModelType},
 };
 use autoagents_llm::{
-    async_trait,
+    FunctionCall, LLMProvider, ToolCall, async_trait,
     chat::{
         ChatMessage, ChatProvider, ChatResponse, StreamChoice, StreamChunk, StreamDelta,
         StreamResponse, StructuredOutputFormat, Tool, Usage as ChatUsage,
@@ -18,9 +18,8 @@ use autoagents_llm::{
     embedding::EmbeddingProvider,
     error::LLMError,
     models::ModelsProvider,
-    FunctionCall, LLMProvider, ToolCall,
 };
-use futures::{stream::Stream, StreamExt};
+use futures::{StreamExt, stream::Stream};
 use mistralrs::{
     CalledFunction, ChatCompletionChunkResponse, ChatCompletionResponse, ChunkChoice, Constraint,
     Function, GgufModelBuilder, IsqType, PagedAttentionMetaBuilder, RequestBuilder, Response,
@@ -599,12 +598,11 @@ fn build_request_builder(
             .set_tool_choice(MistralToolChoice::Auto);
     }
 
-    if tools.is_none() {
-        if let Some(schema) = json_schema {
-            if let Some(json_schema) = schema.schema {
-                request = request.set_constraint(Constraint::JsonSchema(json_schema));
-            }
-        }
+    if tools.is_none()
+        && let Some(schema) = json_schema
+        && let Some(json_schema) = schema.schema
+    {
+        request = request.set_constraint(Constraint::JsonSchema(json_schema));
     }
 
     Ok(request)
@@ -847,21 +845,21 @@ impl ChatProvider for MistralRsProvider {
                     match state.inner.as_mut().next().await {
                         Some(Ok(MistralStreamEvent::Chunk(chunk))) => {
                             for choice in chunk.choices {
-                                if let Some(content) = choice.delta.content {
-                                    if !content.is_empty() {
-                                        state.pending.push_back(Ok(StreamChunk::Text(content)));
-                                    }
+                                if let Some(content) = choice.delta.content
+                                    && !content.is_empty()
+                                {
+                                    state.pending.push_back(Ok(StreamChunk::Text(content)));
                                 }
 
-                                if let Some(tool_calls) = choice.delta.tool_calls {
-                                    if !tool_calls.is_empty() {
-                                        handle_tool_calls(
-                                            tool_calls,
-                                            &mut state.tool_states,
-                                            &mut state.pending,
-                                            &mut state.saw_tool_use,
-                                        );
-                                    }
+                                if let Some(tool_calls) = choice.delta.tool_calls
+                                    && !tool_calls.is_empty()
+                                {
+                                    handle_tool_calls(
+                                        tool_calls,
+                                        &mut state.tool_states,
+                                        &mut state.pending,
+                                        &mut state.saw_tool_use,
+                                    );
                                 }
 
                                 if let Some(finish_reason) = choice.finish_reason {
@@ -869,13 +867,13 @@ impl ChatProvider for MistralRsProvider {
                                 }
                             }
 
-                            if let Some(usage) = chunk.usage {
-                                if !state.usage_emitted {
-                                    state.pending.push_back(Ok(StreamChunk::Usage(
-                                        Self::convert_usage(usage),
-                                    )));
-                                    state.usage_emitted = true;
-                                }
+                            if let Some(usage) = chunk.usage
+                                && !state.usage_emitted
+                            {
+                                state
+                                    .pending
+                                    .push_back(Ok(StreamChunk::Usage(Self::convert_usage(usage))));
+                                state.usage_emitted = true;
                             }
                         }
                         Some(Ok(MistralStreamEvent::Done(done))) => {
@@ -885,15 +883,15 @@ impl ChatProvider for MistralRsProvider {
                             }
 
                             for choice in choices {
-                                if let Some(tool_calls) = choice.message.tool_calls {
-                                    if !tool_calls.is_empty() {
-                                        handle_tool_calls(
-                                            tool_calls,
-                                            &mut state.tool_states,
-                                            &mut state.pending,
-                                            &mut state.saw_tool_use,
-                                        );
-                                    }
+                                if let Some(tool_calls) = choice.message.tool_calls
+                                    && !tool_calls.is_empty()
+                                {
+                                    handle_tool_calls(
+                                        tool_calls,
+                                        &mut state.tool_states,
+                                        &mut state.pending,
+                                        &mut state.saw_tool_use,
+                                    );
                                 }
                             }
 

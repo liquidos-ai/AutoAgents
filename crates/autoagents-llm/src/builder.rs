@@ -4,9 +4,9 @@
 //! LLM (Large Language Model) provider instances with various settings and options.
 
 use crate::{
+    LLMProvider,
     chat::{FunctionTool, ParameterProperty, ParametersSchema, ReasoningEffort, Tool, ToolChoice},
     error::LLMError,
-    LLMProvider,
 };
 use std::{collections::HashMap, marker::PhantomData};
 
@@ -527,10 +527,12 @@ mod tests {
 
         let result = LLMBackend::from_str("invalid");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Unknown LLM backend"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unknown LLM backend")
+        );
     }
 
     #[test]

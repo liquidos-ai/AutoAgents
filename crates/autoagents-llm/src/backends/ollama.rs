@@ -3,13 +3,13 @@
 //! This module provides integration with Ollama's local LLM server through its API.
 
 use crate::{
+    FunctionCall, ToolCall,
     builder::LLMBuilder,
     chat::{ChatMessage, ChatProvider, ChatResponse, ChatRole, StructuredOutputFormat, Tool},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::{EmbeddingBuilder, EmbeddingProvider},
     error::LLMError,
     models::ModelsProvider,
-    FunctionCall, ToolCall,
 };
 use async_trait::async_trait;
 use reqwest::Client;
@@ -78,16 +78,16 @@ impl std::fmt::Display for OllamaResponse {
             .unwrap_or(&empty);
 
         // Write tool calls if present
-        if let Some(message) = &self.message {
-            if let Some(tool_calls) = &message.tool_calls {
-                for tc in tool_calls {
-                    writeln!(
-                        f,
-                        "{{\"name\": \"{}\", \"arguments\": {}}}",
-                        tc.function.name,
-                        serde_json::to_string_pretty(&tc.function.arguments).unwrap_or_default()
-                    )?;
-                }
+        if let Some(message) = &self.message
+            && let Some(tool_calls) = &message.tool_calls
+        {
+            for tc in tool_calls {
+                writeln!(
+                    f,
+                    "{{\"name\": \"{}\", \"arguments\": {}}}",
+                    tc.function.name,
+                    serde_json::to_string_pretty(&tc.function.arguments).unwrap_or_default()
+                )?;
             }
         }
 
@@ -340,10 +340,10 @@ impl Ollama {
             tools: ollama_tools,
         };
 
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&req_body) {
-                log::trace!("Ollama request payload (tools): {json}");
-            }
+        if log::log_enabled!(log::Level::Trace)
+            && let Ok(json) = serde_json::to_string(&req_body)
+        {
+            log::trace!("Ollama request payload (tools): {json}");
         }
 
         let url = format!("{}/api/chat", self.base_url);

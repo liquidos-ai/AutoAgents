@@ -7,7 +7,7 @@ use autoagents::core::tool::ToolCallError;
 use autoagents::prelude::{ReActAgent, ReActAgentOutput};
 use autoagents::prelude::{ToolInputT, ToolRuntime, ToolT};
 use autoagents::{async_trait, init_logging};
-use autoagents_derive::{agent, tool, AgentHooks, AgentOutput, ToolInput};
+use autoagents_derive::{AgentHooks, AgentOutput, ToolInput, agent, tool};
 use autoagents_llamacpp::{LlamaCppProvider, ModelSource};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
@@ -51,10 +51,11 @@ struct MathAgentOutput {
 impl From<ReActAgentOutput> for MathAgentOutput {
     fn from(output: ReActAgentOutput) -> Self {
         let resp = output.response;
-        if output.done && !resp.trim().is_empty() {
-            if let Ok(value) = serde_json::from_str::<MathAgentOutput>(&resp) {
-                return value;
-            }
+        if output.done
+            && !resp.trim().is_empty()
+            && let Ok(value) = serde_json::from_str::<MathAgentOutput>(&resp)
+        {
+            return value;
         }
         MathAgentOutput {
             value: 0,

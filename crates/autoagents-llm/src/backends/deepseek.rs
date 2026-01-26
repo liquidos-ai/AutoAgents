@@ -2,19 +2,19 @@
 //!
 //! This module provides integration with DeepSeek's models through their API.
 
-use crate::chat::StructuredOutputFormat;
 use crate::ToolCall;
+use crate::chat::StructuredOutputFormat;
 use crate::{
-    builder::LLMBuilder,
-    chat::{ChatResponse, Tool},
-};
-use crate::{
+    LLMProvider,
     chat::{ChatMessage, ChatProvider, ChatRole},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
     error::LLMError,
     models::ModelsProvider,
-    LLMProvider,
+};
+use crate::{
+    builder::LLMBuilder,
+    chat::{ChatResponse, Tool},
 };
 use async_trait::async_trait;
 use reqwest::Client;
@@ -144,10 +144,10 @@ impl ChatProvider for DeepSeek {
             stream: false,
         };
 
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&body) {
-                log::trace!("DeepSeek request payload: {json}");
-            }
+        if log::log_enabled!(log::Level::Trace)
+            && let Ok(json) = serde_json::to_string(&body)
+        {
+            log::trace!("DeepSeek request payload: {json}");
         }
 
         let mut request = self

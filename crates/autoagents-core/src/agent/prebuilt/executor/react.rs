@@ -2,11 +2,11 @@ use crate::agent::executor::AgentExecutor;
 use crate::agent::task::Task;
 use crate::agent::{AgentDeriveT, Context, ExecutorConfig, TurnResult};
 use crate::protocol::{Event, StreamingTurnResult, SubmissionId};
-use crate::tool::{to_llm_tool, ToolCallResult, ToolT};
+use crate::tool::{ToolCallResult, ToolT, to_llm_tool};
 use async_trait::async_trait;
+use autoagents_llm::ToolCall;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, StreamChunk, Tool};
 use autoagents_llm::error::LLMError;
-use autoagents_llm::ToolCall;
 use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -20,9 +20,9 @@ use thiserror::Error;
 pub use tokio::sync::mpsc::error::SendError;
 
 #[cfg(target_arch = "wasm32")]
-pub use futures::lock::Mutex;
-#[cfg(target_arch = "wasm32")]
 use futures::SinkExt;
+#[cfg(target_arch = "wasm32")]
+pub use futures::lock::Mutex;
 #[cfg(target_arch = "wasm32")]
 type SendError = futures::channel::mpsc::SendError;
 
@@ -30,7 +30,7 @@ use crate::agent::executor::event_helper::EventHelper;
 use crate::agent::executor::memory_helper::MemoryHelper;
 use crate::agent::executor::tool_processor::ToolProcessor;
 use crate::agent::hooks::{AgentHooks, HookOutcome};
-use crate::channel::{channel, Sender};
+use crate::channel::{Sender, channel};
 use crate::utils::{receiver_into_stream, spawn_future};
 
 /// Output of the ReAct-style agent

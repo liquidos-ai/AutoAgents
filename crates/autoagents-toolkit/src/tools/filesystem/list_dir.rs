@@ -2,10 +2,10 @@ use autoagents::core::{
     ractor::async_trait,
     tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT},
 };
-use autoagents_derive::{tool, ToolInput};
+use autoagents_derive::{ToolInput, tool};
 use log::debug;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::fs;
 
 use super::BaseFileTool;
@@ -112,15 +112,15 @@ where
                 let is_dir = metadata.is_dir();
 
                 // Apply extension filter if provided
-                if let Some(ref ext_filter) = filter_extension {
-                    if !is_dir {
-                        if let Some(ext) = path.extension() {
-                            if ext.to_string_lossy() != *ext_filter {
-                                continue;
-                            }
-                        } else {
+                if let Some(ref ext_filter) = filter_extension
+                    && !is_dir
+                {
+                    if let Some(ext) = path.extension() {
+                        if ext.to_string_lossy() != *ext_filter {
                             continue;
                         }
+                    } else {
+                        continue;
                     }
                 }
 

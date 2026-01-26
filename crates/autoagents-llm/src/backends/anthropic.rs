@@ -5,6 +5,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
+    FunctionCall, ToolCall,
     builder::{LLMBackend, LLMBuilder},
     chat::{
         ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StreamChunk,
@@ -14,10 +15,9 @@ use crate::{
     embedding::EmbeddingProvider,
     error::LLMError,
     models::{ModelListRawEntry, ModelListRequest, ModelListResponse, ModelsProvider},
-    FunctionCall, ToolCall,
 };
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chrono::{DateTime, Utc};
 use futures::stream::Stream;
 use reqwest::Client;
@@ -363,7 +363,7 @@ impl Anthropic {
                             tool_output: None,
                         }]
                     }
-                    MessageType::ImageURL(ref url) => vec![MessageContent {
+                    MessageType::ImageURL(url) => vec![MessageContent {
                         message_type: Some("image_url"),
                         text: None,
                         image_url: Some(ImageUrlContent { url }),
@@ -436,7 +436,7 @@ impl Anthropic {
                 Some(HashMap::from([("type".to_string(), "auto".to_string())]))
             }
             Some(ToolChoice::Any) => Some(HashMap::from([("type".to_string(), "any".to_string())])),
-            Some(ToolChoice::Tool(ref tool_name)) => Some(HashMap::from([
+            Some(ToolChoice::Tool(tool_name)) => Some(HashMap::from([
                 ("type".to_string(), "tool".to_string()),
                 ("name".to_string(), tool_name.clone()),
             ])),
@@ -566,10 +566,10 @@ impl ChatProvider for Anthropic {
             request = request.timeout(std::time::Duration::from_secs(self.timeout_seconds));
         }
 
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&req_body) {
-                log::trace!("Anthropic request payload: {}", json);
-            }
+        if log::log_enabled!(log::Level::Trace)
+            && let Ok(json) = serde_json::to_string(&req_body)
+        {
+            log::trace!("Anthropic request payload: {}", json);
         }
 
         log::debug!("Anthropic request: POST /v1/messages");
@@ -780,10 +780,10 @@ impl ChatProvider for Anthropic {
             request = request.timeout(std::time::Duration::from_secs(self.timeout_seconds));
         }
 
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&req_body) {
-                log::trace!("Anthropic streaming request payload: {}", json);
-            }
+        if log::log_enabled!(log::Level::Trace)
+            && let Ok(json) = serde_json::to_string(&req_body)
+        {
+            log::trace!("Anthropic streaming request payload: {}", json);
         }
 
         log::debug!("Anthropic request: POST /v1/messages (streaming with tools)");
@@ -967,12 +967,11 @@ fn parse_anthropic_sse_chunk(chunk: &str) -> Result<Option<String>, LLMError> {
         if let Some(data) = line.strip_prefix("data: ") {
             match serde_json::from_str::<AnthropicStreamResponse>(data) {
                 Ok(response) => {
-                    if response.response_type == "content_block_delta" {
-                        if let Some(delta) = response.delta {
-                            if let Some(text) = delta.text {
-                                return Ok(Some(text));
-                            }
-                        }
+                    if response.response_type == "content_block_delta"
+                        && let Some(delta) = response.delta
+                        && let Some(text) = delta.text
+                    {
+                        return Ok(Some(text));
                     }
                     return Ok(None);
                 }
@@ -1025,25 +1024,24 @@ fn parse_anthropic_sse_chunk_with_tools(
                         "content_block_start" => {
                             if let (Some(index), Some(content_block)) =
                                 (response.index, response.content_block)
+                                && content_block.block_type == "tool_use"
                             {
-                                if content_block.block_type == "tool_use" {
-                                    let id = content_block.id.unwrap_or_default();
-                                    let name = content_block.name.unwrap_or_default();
+                                let id = content_block.id.unwrap_or_default();
+                                let name = content_block.name.unwrap_or_default();
 
-                                    // Store state for this tool use block
-                                    tool_states.insert(
-                                        index,
-                                        ToolUseState {
-                                            id: id.clone(),
-                                            name: name.clone(),
-                                            json_buffer: String::new(),
-                                        },
-                                    );
+                                // Store state for this tool use block
+                                tool_states.insert(
+                                    index,
+                                    ToolUseState {
+                                        id: id.clone(),
+                                        name: name.clone(),
+                                        json_buffer: String::new(),
+                                    },
+                                );
 
-                                    return Ok(Some(StreamChunk::ToolUseStart { index, id, name }));
-                                }
-                                // For text blocks, we just wait for content_block_delta
+                                return Ok(Some(StreamChunk::ToolUseStart { index, id, name }));
                             }
+                            // For text blocks, we just wait for content_block_delta
                         }
                         "content_block_delta" => {
                             if let (Some(index), Some(delta)) = (response.index, response.delta) {
@@ -1098,10 +1096,10 @@ fn parse_anthropic_sse_chunk_with_tools(
                             }
                         }
                         "message_delta" => {
-                            if let Some(delta) = response.delta {
-                                if let Some(stop_reason) = delta.stop_reason {
-                                    return Ok(Some(StreamChunk::Done { stop_reason }));
-                                }
+                            if let Some(delta) = response.delta
+                                && let Some(stop_reason) = delta.stop_reason
+                            {
+                                return Ok(Some(StreamChunk::Done { stop_reason }));
                             }
                         }
                         _ => {}

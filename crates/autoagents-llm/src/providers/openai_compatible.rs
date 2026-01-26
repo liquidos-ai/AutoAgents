@@ -3,20 +3,21 @@
 //! This module provides a generic base for OpenAI-compatible APIs that can be reused
 //! across multiple providers like OpenAI, Mistral, XAI, Groq, DeepSeek, etc.
 
+use crate::FunctionCall;
 use crate::chat::{StreamChoice, StreamChunk as ChatStreamChunk, StreamDelta};
 use crate::error::LLMError;
-use crate::FunctionCall;
 use crate::{
+    ToolCall,
     chat::ChatResponse,
     chat::{
         ChatMessage, ChatProvider, ChatRole, MessageType, StreamResponse, StructuredOutputFormat,
         Tool, ToolChoice, Usage,
     },
-    default_call_type, ToolCall,
+    default_call_type,
 };
 use async_trait::async_trait;
 use either::*;
-use futures::{stream::Stream, StreamExt};
+use futures::{StreamExt, stream::Stream};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -438,10 +439,10 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
                 request = request.header(key, value);
             }
         }
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&body) {
-                log::trace!("{} request payload: {}", T::PROVIDER_NAME, json);
-            }
+        if log::log_enabled!(log::Level::Trace)
+            && let Ok(json) = serde_json::to_string(&body)
+        {
+            log::trace!("{} request payload: {}", T::PROVIDER_NAME, json);
         }
         if let Some(timeout) = self.timeout_seconds {
             request = request.timeout(std::time::Duration::from_secs(timeout));
@@ -488,12 +489,11 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
         let content_stream = struct_stream.filter_map(|result| async move {
             match result {
                 Ok(stream_response) => {
-                    if let Some(choice) = stream_response.choices.first() {
-                        if let Some(content) = &choice.delta.content {
-                            if !content.is_empty() {
-                                return Some(Ok(content.clone()));
-                            }
-                        }
+                    if let Some(choice) = stream_response.choices.first()
+                        && let Some(content) = &choice.delta.content
+                        && !content.is_empty()
+                    {
+                        return Some(Ok(content.clone()));
                     }
                     None
                 }
@@ -568,10 +568,10 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
                 request = request.header(key, value);
             }
         }
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&body) {
-                log::trace!("{} request payload: {}", T::PROVIDER_NAME, json);
-            }
+        if log::log_enabled!(log::Level::Trace)
+            && let Ok(json) = serde_json::to_string(&body)
+        {
+            log::trace!("{} request payload: {}", T::PROVIDER_NAME, json);
         }
         if let Some(timeout) = self.timeout_seconds {
             request = request.timeout(std::time::Duration::from_secs(timeout));
@@ -671,14 +671,14 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
             }
         }
 
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&body) {
-                log::trace!(
-                    "{} streaming with tools request: {}",
-                    T::PROVIDER_NAME,
-                    json
-                );
-            }
+        if log::log_enabled!(log::Level::Trace)
+            && let Ok(json) = serde_json::to_string(&body)
+        {
+            log::trace!(
+                "{} streaming with tools request: {}",
+                T::PROVIDER_NAME,
+                json
+            );
         }
 
         if let Some(timeout) = self.timeout_seconds {
@@ -825,10 +825,10 @@ fn parse_openai_sse_chunk_with_tools(
 
             for choice in &chunk.choices {
                 // Handle text content
-                if let Some(content) = &choice.delta.content {
-                    if !content.is_empty() {
-                        results.push(ChatStreamChunk::Text(content.clone()));
-                    }
+                if let Some(content) = &choice.delta.content
+                    && !content.is_empty()
+                {
+                    results.push(ChatStreamChunk::Text(content.clone()));
                 }
 
                 // Handle tool calls (per-index)

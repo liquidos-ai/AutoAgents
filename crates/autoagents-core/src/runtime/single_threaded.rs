@@ -1,7 +1,7 @@
 use super::{Runtime, RuntimeError};
 use crate::agent::constants::DEFAULT_CHANNEL_BUFFER;
 use crate::protocol::InternalEvent;
-use crate::utils::{receiver_into_stream, BoxEventStream};
+use crate::utils::{BoxEventStream, receiver_into_stream};
 use crate::{
     actor::{AnyActor, Transport},
     error::Error,
@@ -13,11 +13,11 @@ use std::{
     any::{Any, TypeId},
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
-use tokio::sync::{mpsc, Mutex, Notify, RwLock};
+use tokio::sync::{Mutex, Notify, RwLock, mpsc};
 use uuid::Uuid;
 
 const DEFAULT_INTERNAL_BUFFER: usize = 1000;
@@ -327,7 +327,7 @@ mod tests {
     use crate::actor::{CloneableMessage, Topic};
     use crate::runtime::{RuntimeConfig, TypedRuntime};
     use ractor::{Actor, ActorProcessingErr, ActorRef};
-    use tokio::time::{sleep, Duration};
+    use tokio::time::{Duration, sleep};
 
     // Test message types
     #[derive(Clone, Debug)]

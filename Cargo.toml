@@ -13,7 +13,7 @@ exclude = ["examples/wasm_tool"]
 
 [workspace.package]
 version = "0.3.1"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Agent Framework for Building Autonomous Agents"
 repository = "https://github.com/liquidos-ai/AutoAgents"

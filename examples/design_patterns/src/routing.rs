@@ -4,7 +4,7 @@ use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, DirectAgent};
 use autoagents::core::error::Error;
 use autoagents::llm::LLMProvider;
-use autoagents_derive::{agent, AgentHooks};
+use autoagents_derive::{AgentHooks, agent};
 use std::sync::Arc;
 
 /// Routing agent that analyzes requests and determines the appropriate handler

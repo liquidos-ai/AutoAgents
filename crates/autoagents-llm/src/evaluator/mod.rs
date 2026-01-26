@@ -7,7 +7,7 @@ mod parallel;
 #[cfg(test)]
 mod parallel_tests;
 
-use crate::{chat::ChatMessage, error::LLMError, LLMProvider};
+use crate::{LLMProvider, chat::ChatMessage, error::LLMError};
 
 pub use parallel::{ParallelEvalResult, ParallelEvaluator};
 
@@ -97,6 +97,7 @@ pub struct EvalResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ToolCall;
     use crate::chat::{
         ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StructuredOutputFormat,
         Tool,
@@ -105,7 +106,6 @@ mod tests {
     use crate::embedding::EmbeddingProvider;
     use crate::error::LLMError;
     use crate::models::ModelsProvider;
-    use crate::ToolCall;
     use async_trait::async_trait;
 
     // Mock LLM Provider for testing
@@ -323,10 +323,12 @@ mod tests {
 
         let result = evaluator.evaluate_chat(&messages).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Mock provider failed"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Mock provider failed")
+        );
     }
 
     #[tokio::test]
@@ -349,9 +351,8 @@ mod tests {
     #[tokio::test]
     async fn test_llm_evaluator_evaluate_chat_empty_response() {
         let llm = Box::new(MockLLMProvider::new("")) as Box<dyn LLMProvider>;
-        let evaluator =
-            LLMEvaluator::new(vec![llm])
-                .scoring(|response| if response.is_empty() { -1.0 } else { 1.0 });
+        let evaluator = LLMEvaluator::new(vec![llm])
+            .scoring(|response| if response.is_empty() { -1.0 } else { 1.0 });
 
         let messages = vec![ChatMessage {
             role: ChatRole::User,
@@ -489,11 +490,7 @@ mod tests {
         let _another_scoring_fn: Box<ScoringFn> =
             Box::new(
                 |response| {
-                    if response.contains("good") {
-                        10.0
-                    } else {
-                        0.0
-                    }
+                    if response.contains("good") { 10.0 } else { 0.0 }
                 },
             );
     }

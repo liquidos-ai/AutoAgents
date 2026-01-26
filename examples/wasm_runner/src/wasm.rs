@@ -11,7 +11,7 @@ use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT, WasmRuntime};
 use autoagents::core::utils::BoxEventStream;
 use autoagents::llm::LLMProvider;
-use autoagents_derive::{agent, tool, AgentHooks, AgentOutput, ToolInput};
+use autoagents_derive::{AgentHooks, AgentOutput, ToolInput, agent, tool};
 use colored::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

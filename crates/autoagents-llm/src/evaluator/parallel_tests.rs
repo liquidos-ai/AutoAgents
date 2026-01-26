@@ -2,6 +2,7 @@
 mod tests {
     use super::super::*;
     use crate::{
+        LLMProvider, ToolCall,
         chat::{
             ChatMessage, ChatProvider, ChatResponse, ChatRole, FunctionTool, MessageType, Tool,
         },
@@ -9,11 +10,10 @@ mod tests {
         embedding::EmbeddingProvider,
         error::LLMError,
         models::{ModelListRequest, ModelListResponse, ModelsProvider},
-        LLMProvider, ToolCall,
     };
     use async_trait::async_trait;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     // Mock LLM provider for testing
     #[derive(Debug)]

@@ -1,9 +1,9 @@
 use crate::agent::CodingAgent;
 use autoagents::core::actor::Topic;
+use autoagents::core::agent::AgentBuilder;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
-use autoagents::core::agent::AgentBuilder;
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::protocol::Event;

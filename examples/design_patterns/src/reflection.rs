@@ -196,7 +196,9 @@ impl AgentHooks for CodeCritic {
 pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     println!("Starting Reflection Pattern Example");
     println!("====================================");
-    println!("This example demonstrates an AI reflection loop to progressively improve a Python function.");
+    println!(
+        "This example demonstrates an AI reflection loop to progressively improve a Python function."
+    );
     println!(
         "The agents will work together to generate, critique, and refine a factorial function.\n"
     );

@@ -1,10 +1,10 @@
 //! Type conversions between AutoAgents types and llama.cpp types.
 
 use crate::error::LlamaCppProviderError;
-use autoagents_llm::chat::{ChatMessage, ChatResponse, ChatRole, MessageType, Usage};
 use autoagents_llm::ToolCall;
+use autoagents_llm::chat::{ChatMessage, ChatResponse, ChatRole, MessageType, Usage};
 use llama_cpp_2::model::AddBos;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::fmt;
 
 /// Response wrapper that implements ChatResponse trait.

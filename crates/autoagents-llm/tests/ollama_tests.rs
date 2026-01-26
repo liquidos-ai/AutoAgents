@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 use autoagents_llm::{
+    FunctionCall, ToolCall,
     builder::LLMBuilder,
     chat::{
         ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StructuredOutputFormat,
@@ -9,7 +10,6 @@ use autoagents_llm::{
     embedding::EmbeddingProvider,
     error::LLMError,
     models::ModelsProvider,
-    FunctionCall, ToolCall,
 };
 use serde_json::json;
 use std::sync::Arc;

@@ -1,4 +1,4 @@
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 /// Trait for agent output types that can generate structured output schemas
 pub trait AgentOutputT: Serialize + DeserializeOwned + Send + Sync {

@@ -10,7 +10,7 @@ use autoagents::core::protocol::{Event, SubmissionId};
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::utils::BoxEventStream;
 use autoagents::llm::LLMProvider;
-use autoagents_derive::{agent, AgentHooks};
+use autoagents_derive::{AgentHooks, agent};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;

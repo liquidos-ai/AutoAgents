@@ -1,7 +1,7 @@
 use anyhow::{Context, Error};
 use autoagents_core::embeddings::{Embed, EmbedError, SharedEmbeddingProvider, TextEmbedder};
-use autoagents_core::vector_store::request::VectorSearchRequest;
 use autoagents_core::vector_store::VectorStoreIndex;
+use autoagents_core::vector_store::request::VectorSearchRequest;
 use autoagents_llm::backends::openai::OpenAI;
 use autoagents_llm::embedding::EmbeddingBuilder;
 use autoagents_qdrant::QdrantVectorStore;

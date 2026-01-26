@@ -8,9 +8,9 @@ use futures::Stream;
 
 use crate::agent::constants::DEFAULT_CHANNEL_BUFFER;
 
-use crate::channel::{channel, Receiver, Sender};
+use crate::channel::{Receiver, Sender, channel};
 
-use crate::utils::{receiver_into_stream, BoxEventStream};
+use crate::utils::{BoxEventStream, receiver_into_stream};
 
 /// Marker type for direct (non-actor) agents.
 ///

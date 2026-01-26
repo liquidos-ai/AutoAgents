@@ -7,7 +7,7 @@ use autoagents::core::agent::{AgentBuilder, AgentOutputT, DirectAgent};
 use autoagents::core::error::Error;
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::LLMProvider;
-use autoagents_derive::{agent, tool, AgentHooks, AgentOutput, ToolInput};
+use autoagents_derive::{AgentHooks, AgentOutput, ToolInput, agent, tool};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

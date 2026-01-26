@@ -1,8 +1,8 @@
 use strum::{Display, EnumString};
 use syn::{
+    Ident, Lit, LitInt, LitStr, Result, Token,
     parse::{Parse, ParseBuffer, ParseStream},
     punctuated::Punctuated,
-    Ident, Lit, LitInt, LitStr, Result, Token,
 };
 
 pub(crate) enum Choice {
@@ -87,7 +87,7 @@ impl Parse for FieldSchemaAttr {
                     return Err(syn::Error::new(
                         key_span,
                         format!("Unexpected field attribute key: {other}"),
-                    ))
+                    ));
                 }
             }
 

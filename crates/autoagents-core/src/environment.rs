@@ -96,8 +96,7 @@ impl Environment {
     pub fn run(&mut self) -> JoinHandle<Result<(), RuntimeError>> {
         let manager = self.runtime_manager.clone();
         // Spawn background task to run the runtimes. This will wait indefinitely
-        let handle = tokio::spawn(async move { manager.run().await });
-        handle
+        tokio::spawn(async move { manager.run().await })
     }
 
     /// Start all registered runtimes and return immediately without waiting

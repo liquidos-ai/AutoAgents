@@ -1,16 +1,16 @@
 #[cfg(not(target_arch = "wasm32"))]
 use crate::actor::{ActorMessage, Topic};
+use crate::agent::AgentConfig;
 use crate::agent::memory::MemoryProvider;
 use crate::agent::state::AgentState;
-use crate::agent::AgentConfig;
 use crate::protocol::Event;
 use crate::tool::ToolT;
-use autoagents_llm::chat::ChatMessage;
 use autoagents_llm::LLMProvider;
+use autoagents_llm::chat::ChatMessage;
 use std::any::Any;
 use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 
 #[cfg(target_arch = "wasm32")]
 use futures::channel::mpsc;

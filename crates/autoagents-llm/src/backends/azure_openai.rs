@@ -5,20 +5,20 @@
 use std::sync::Arc;
 
 use crate::{
+    FunctionCall, ToolCall,
     builder::LLMBuilder,
     chat::{ChatResponse, ToolChoice},
     embedding::EmbeddingBuilder,
-    FunctionCall, ToolCall,
 };
 #[cfg(feature = "azure_openai")]
 use crate::{
+    LLMProvider,
     chat::Tool,
     chat::{ChatMessage, ChatProvider, ChatRole, MessageType, StructuredOutputFormat},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
     error::LLMError,
     models::ModelsProvider,
-    LLMProvider,
 };
 use async_trait::async_trait;
 use either::*;
@@ -440,10 +440,10 @@ impl ChatProvider for AzureOpenAI {
             response_format,
         };
 
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&body) {
-                log::trace!("Azure OpenAI request payload: {}", json);
-            }
+        if log::log_enabled!(log::Level::Trace)
+            && let Ok(json) = serde_json::to_string(&body)
+        {
+            log::trace!("Azure OpenAI request payload: {}", json);
         }
 
         let mut url = self

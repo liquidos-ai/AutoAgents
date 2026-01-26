@@ -1,7 +1,7 @@
 // This example demonstrates various LLM Provider methods
 use autoagents::llm::builder::{FunctionBuilder, ParamBuilder};
 use autoagents::{
-    llm::{chat::ChatMessage, LLMProvider},
+    llm::{LLMProvider, chat::ChatMessage},
     prelude::Error,
 };
 use std::slice;

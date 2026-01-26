@@ -2,10 +2,10 @@ use autoagents::core::{
     ractor::async_trait,
     tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT},
 };
-use autoagents_derive::{tool, ToolInput};
+use autoagents_derive::{ToolInput, tool};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::{wolfram_app_id, wolfram_input_url};
 

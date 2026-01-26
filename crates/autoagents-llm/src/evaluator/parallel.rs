@@ -8,10 +8,10 @@ use std::time::Instant;
 use futures::future::join_all;
 
 use crate::{
+    LLMProvider,
     chat::{ChatMessage, Tool},
     completion::CompletionRequest,
     error::LLMError,
-    LLMProvider,
 };
 
 use super::ScoringFn;

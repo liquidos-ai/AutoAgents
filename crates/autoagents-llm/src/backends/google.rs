@@ -14,6 +14,7 @@
 //! ```
 
 use crate::{
+    FunctionCall, LLMProvider, ToolCall,
     builder::LLMBuilder,
     chat::{
         ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StructuredOutputFormat,
@@ -23,10 +24,9 @@ use crate::{
     embedding::{EmbeddingBuilder, EmbeddingProvider},
     error::LLMError,
     models::ModelsProvider,
-    FunctionCall, LLMProvider, ToolCall,
 };
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use futures::stream::Stream;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -564,10 +564,10 @@ impl Google {
             tools: google_tools,
         };
 
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&req_body) {
-                log::trace!("Google Gemini request payload (tool): {json}");
-            }
+        if log::log_enabled!(log::Level::Trace)
+            && let Ok(json) = serde_json::to_string(&req_body)
+        {
+            log::trace!("Google Gemini request payload (tool): {json}");
         }
 
         let url = format!(
@@ -827,14 +827,12 @@ fn parse_google_sse_chunk(chunk: &str) -> Result<Option<String>, LLMError> {
         if let Some(data) = line.strip_prefix("data: ") {
             match serde_json::from_str::<GoogleStreamResponse>(data) {
                 Ok(response) => {
-                    if let Some(candidates) = response.candidates {
-                        if let Some(candidate) = candidates.first() {
-                            if let Some(part) = candidate.content.parts.first() {
-                                if !part.text.is_empty() {
-                                    return Ok(Some(part.text.clone()));
-                                }
-                            }
-                        }
+                    if let Some(candidates) = response.candidates
+                        && let Some(candidate) = candidates.first()
+                        && let Some(part) = candidate.content.parts.first()
+                        && !part.text.is_empty()
+                    {
+                        return Ok(Some(part.text.clone()));
                     }
                     return Ok(None);
                 }

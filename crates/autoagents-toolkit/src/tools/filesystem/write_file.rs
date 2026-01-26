@@ -2,10 +2,10 @@ use autoagents::core::{
     ractor::async_trait,
     tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT},
 };
-use autoagents_derive::{tool, ToolInput};
+use autoagents_derive::{ToolInput, tool};
 use log::debug;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::fs;
 
 use super::BaseFileTool;
@@ -88,7 +88,7 @@ where
         let bytes = match encoding.as_str() {
             "utf8" | "utf-8" => content.into_bytes(),
             "base64" => {
-                use base64::{engine::general_purpose::STANDARD, Engine as _};
+                use base64::{Engine as _, engine::general_purpose::STANDARD};
                 STANDARD
                     .decode(content)
                     .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?
@@ -96,7 +96,7 @@ where
             _ => {
                 return Err(ToolCallError::RuntimeError(
                     format!("Unsupported encoding: {}", encoding).into(),
-                ))
+                ));
             }
         };
 

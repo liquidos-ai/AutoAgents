@@ -32,7 +32,7 @@ pub use builder::AgentBuilder;
 pub use context::{Context, ContextError};
 pub use direct::{DirectAgent, DirectAgentHandle};
 pub use executor::{
-    event_helper::EventHelper, memory_helper::MemoryHelper, tool_processor::ToolProcessor,
-    AgentExecutor, ExecutorConfig, TurnResult,
+    AgentExecutor, ExecutorConfig, TurnResult, event_helper::EventHelper,
+    memory_helper::MemoryHelper, tool_processor::ToolProcessor,
 };
 pub use hooks::{AgentHooks, HookOutcome};

@@ -1,6 +1,6 @@
 use crate::agent::config::AgentConfig;
 use crate::agent::memory::MemoryProvider;
-use crate::agent::{output::AgentOutputT, AgentExecutor, Context};
+use crate::agent::{AgentExecutor, Context, output::AgentOutputT};
 use crate::protocol::Event;
 use crate::{protocol::ActorID, tool::ToolT};
 use async_trait::async_trait;
@@ -162,7 +162,7 @@ mod tests {
     use autoagents_llm::chat::StructuredOutputFormat;
     use autoagents_test_utils::llm::MockLLMProvider;
     use std::sync::Arc;
-    use tokio::sync::mpsc::{channel, Receiver};
+    use tokio::sync::mpsc::{Receiver, channel};
     use uuid::Uuid;
 
     #[test]

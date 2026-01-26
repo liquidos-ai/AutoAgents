@@ -6,10 +6,11 @@ use crate::builder::{LLMBackend, LLMBuilder};
 use crate::chat::Usage;
 use crate::embedding::EmbeddingBuilder;
 use crate::providers::openai_compatible::{
-    create_sse_stream, OpenAIChatMessage, OpenAIChatResponse, OpenAICompatibleProvider,
-    OpenAIProviderConfig, OpenAIResponseFormat, OpenAIStreamOptions,
+    OpenAIChatMessage, OpenAIChatResponse, OpenAICompatibleProvider, OpenAIProviderConfig,
+    OpenAIResponseFormat, OpenAIStreamOptions, create_sse_stream,
 };
 use crate::{
+    LLMProvider, ToolCall,
     chat::{
         ChatMessage, ChatProvider, ChatResponse, StreamChunk, StreamResponse,
         StructuredOutputFormat, Tool, ToolChoice,
@@ -18,7 +19,6 @@ use crate::{
     embedding::EmbeddingProvider,
     error::LLMError,
     models::{ModelListRequest, ModelListResponse, ModelsProvider, StandardModelListResponse},
-    LLMProvider, ToolCall,
 };
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
@@ -331,10 +331,10 @@ impl ChatProvider for OpenAI {
             .post(url)
             .bearer_auth(&self.provider.api_key)
             .json(&body);
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&body) {
-                log::trace!("OpenAI request payload: {}", json);
-            }
+        if log::log_enabled!(log::Level::Trace)
+            && let Ok(json) = serde_json::to_string(&body)
+        {
+            log::trace!("OpenAI request payload: {}", json);
         }
         if let Some(timeout) = self.provider.timeout_seconds {
             request = request.timeout(std::time::Duration::from_secs(timeout));
@@ -403,12 +403,11 @@ impl ChatProvider for OpenAI {
         let content_stream = struct_stream.filter_map(|result| async move {
             match result {
                 Ok(stream_response) => {
-                    if let Some(choice) = stream_response.choices.first() {
-                        if let Some(content) = &choice.delta.content {
-                            if !content.is_empty() {
-                                return Some(Ok(content.clone()));
-                            }
-                        }
+                    if let Some(choice) = stream_response.choices.first()
+                        && let Some(content) = &choice.delta.content
+                        && !content.is_empty()
+                    {
+                        return Some(Ok(content.clone()));
                     }
                     None
                 }
@@ -612,10 +611,10 @@ impl OpenAI {
             .bearer_auth(&self.provider.api_key)
             .json(&body);
 
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&body) {
-                log::trace!("OpenAI hosted tools request payload: {}", json);
-            }
+        if log::log_enabled!(log::Level::Trace)
+            && let Ok(json) = serde_json::to_string(&body)
+        {
+            log::trace!("OpenAI hosted tools request payload: {}", json);
         }
 
         if let Some(timeout) = self.provider.timeout_seconds {
