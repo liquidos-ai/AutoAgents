@@ -129,7 +129,7 @@ impl McpToolsManager {
                 return Err(McpError::ConfigError(format!(
                     "Unsupported protocol: {}. Currently only 'stdio' is supported.",
                     server_config.protocol
-                )))
+                )));
             }
         };
 
@@ -311,7 +311,9 @@ mod tests {
         // ClientInfo is an InitializeRequestParam with default implementation values
         // We can't directly test the field values without knowing the internal structure
         // but we can ensure it can be created
-        assert!((std::ptr::addr_of!(client_info) as usize)
-            .is_multiple_of(std::mem::align_of::<ClientInfo>()));
+        assert!(
+            (std::ptr::addr_of!(client_info) as usize)
+                .is_multiple_of(std::mem::align_of::<ClientInfo>())
+        );
     }
 }

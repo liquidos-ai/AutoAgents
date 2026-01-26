@@ -7,7 +7,7 @@ use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{error::LLMError, ToolCall};
+use crate::{ToolCall, error::LLMError};
 
 /// Usage metadata for a chat response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

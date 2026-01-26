@@ -6,8 +6,8 @@ use crate::agent::context::Context;
 use crate::agent::task::Task;
 use async_trait::async_trait;
 use futures::Stream;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::error::Error;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -73,12 +73,12 @@ mod tests {
     use crate::agent::task::Task;
     use async_trait::async_trait;
     use autoagents_llm::{
+        LLMProvider, ToolCall,
         chat::{ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat},
         completion::{CompletionProvider, CompletionRequest, CompletionResponse},
         embedding::EmbeddingProvider,
         error::LLMError,
         models::ModelsProvider,
-        LLMProvider, ToolCall,
     };
     use futures::stream;
     use serde::{Deserialize, Serialize};

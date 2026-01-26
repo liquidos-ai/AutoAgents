@@ -4,6 +4,7 @@
 
 use crate::builder::LLMBuilder;
 use crate::{
+    LLMProvider,
     builder::LLMBackend,
     chat::{StructuredOutputFormat, ToolChoice},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
@@ -11,7 +12,6 @@ use crate::{
     error::LLMError,
     models::{ModelListRequest, ModelListResponse, ModelsProvider, StandardModelListResponse},
     providers::openai_compatible::{OpenAICompatibleProvider, OpenAIProviderConfig},
-    LLMProvider,
 };
 use async_trait::async_trait;
 use std::sync::Arc;

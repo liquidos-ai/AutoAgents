@@ -2,10 +2,10 @@ use autoagents::core::{
     ractor::async_trait,
     tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT},
 };
-use autoagents_derive::{tool, ToolInput};
+use autoagents_derive::{ToolInput, tool};
 use log::debug;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::fs;
 
 use super::BaseFileTool;
@@ -100,7 +100,7 @@ where
                     .await
                     .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
 
-                use base64::{engine::general_purpose::STANDARD, Engine as _};
+                use base64::{Engine as _, engine::general_purpose::STANDARD};
                 let encoded = STANDARD.encode(bytes);
 
                 Ok(json!({

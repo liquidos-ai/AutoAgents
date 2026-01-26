@@ -6,15 +6,15 @@
 use crate::chat::Tool;
 #[cfg(feature = "xai")]
 use crate::embedding::EmbeddingBuilder;
-use crate::{builder::LLMBuilder, chat::ChatResponse, ToolCall};
 use crate::{
+    LLMProvider,
     chat::{ChatMessage, ChatProvider, ChatRole, StructuredOutputFormat},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
     error::LLMError,
     models::ModelsProvider,
-    LLMProvider,
 };
+use crate::{ToolCall, builder::LLMBuilder, chat::ChatResponse};
 use async_trait::async_trait;
 use futures::stream::Stream;
 use reqwest::Client;
@@ -395,10 +395,10 @@ impl ChatProvider for XAI {
             search_parameters: Some(&search_parameters),
         };
 
-        if log::log_enabled!(log::Level::Trace) {
-            if let Ok(json) = serde_json::to_string(&body) {
-                log::trace!("XAI request payload: {json}");
-            }
+        if log::log_enabled!(log::Level::Trace)
+            && let Ok(json) = serde_json::to_string(&body)
+        {
+            log::trace!("XAI request payload: {json}");
         }
 
         let mut request = self
@@ -601,10 +601,10 @@ fn parse_xai_sse_chunk(chunk: &str) -> Result<Option<String>, LLMError> {
 
             match serde_json::from_str::<XAIStreamResponse>(data) {
                 Ok(response) => {
-                    if let Some(choice) = response.choices.first() {
-                        if let Some(content) = &choice.delta.content {
-                            return Ok(Some(content.clone()));
-                        }
+                    if let Some(choice) = response.choices.first()
+                        && let Some(content) = &choice.delta.content
+                    {
+                        return Ok(Some(content.clone()));
                     }
                     return Ok(None);
                 }

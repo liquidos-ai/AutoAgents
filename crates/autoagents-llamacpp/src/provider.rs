@@ -3,12 +3,12 @@
 use crate::{
     builder::LlamaCppProviderBuilder,
     config::{LlamaCppConfig, LlamaCppConfigBuilder},
-    conversion::{build_fallback_prompt, build_openai_messages_json, LlamaCppResponse, PromptData},
+    conversion::{LlamaCppResponse, PromptData, build_fallback_prompt, build_openai_messages_json},
     error::LlamaCppProviderError,
     models::ModelSource,
 };
 use autoagents_llm::{
-    async_trait,
+    FunctionCall, LLMProvider, ToolCall, async_trait,
     chat::{
         ChatMessage, ChatProvider, ChatResponse, StreamChoice, StreamChunk, StreamDelta,
         StreamResponse, StructuredOutputFormat, Tool, Usage as ChatUsage,
@@ -17,9 +17,8 @@ use autoagents_llm::{
     embedding::EmbeddingProvider,
     error::LLMError,
     models::ModelsProvider,
-    FunctionCall, LLMProvider, ToolCall,
 };
-use futures::{stream::Stream, StreamExt};
+use futures::{StreamExt, stream::Stream};
 use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
@@ -345,10 +344,8 @@ impl LlamaCppProvider {
         .map_err(|err| LLMError::ProviderError(format!("Generation task failed: {err}")))?
         .map_err(LLMError::from)?;
 
-        if use_json_grammar {
-            if let Some(extracted) = extract_json_payload(&result.text) {
-                result.text = extracted;
-            }
+        if use_json_grammar && let Some(extracted) = extract_json_payload(&result.text) {
+            result.text = extracted;
         }
 
         Ok(result)
@@ -454,18 +451,20 @@ impl LlamaCppProvider {
             .await;
 
             match result {
-                Ok(Ok(gen)) => {
+                Ok(Ok(generation)) => {
                     if use_json_grammar && !emitted_any.load(std::sync::atomic::Ordering::Relaxed) {
-                        let mut text = gen.text;
+                        let mut text = generation.text;
                         if let Some(extracted) = extract_json_payload(&text) {
                             text = extracted;
                         }
                         let _ = tx.send(Ok(StreamEvent::Token(text)));
                     }
-                    let usage =
-                        LlamaCppProvider::build_usage(gen.prompt_tokens, gen.completion_tokens);
+                    let usage = LlamaCppProvider::build_usage(
+                        generation.prompt_tokens,
+                        generation.completion_tokens,
+                    );
                     let _ = tx.send(Ok(StreamEvent::Usage(usage)));
-                    let stop_reason = if gen.finish_reason == "length" {
+                    let stop_reason = if generation.finish_reason == "length" {
                         "length".to_string()
                     } else {
                         "end_turn".to_string()
@@ -518,7 +517,7 @@ impl LlamaCppProvider {
                         Ok(())
                     }));
 
-                    let gen = generate_chat_text(
+                    let generation = generate_chat_text(
                         &model,
                         &backend,
                         &config,
@@ -531,10 +530,12 @@ impl LlamaCppProvider {
                     )?;
 
                     let message_json = template_result
-                        .parse_response_oaicompat(&gen.text, false)
+                        .parse_response_oaicompat(&generation.text, false)
                         .map_err(|err| {
-                        LlamaCppProviderError::Template(format!("Failed to parse response: {err}"))
-                    })?;
+                            LlamaCppProviderError::Template(format!(
+                                "Failed to parse response: {err}"
+                            ))
+                        })?;
                     let message: OpenAICompatMessage = serde_json::from_str(&message_json)
                         .map_err(|err| {
                             LlamaCppProviderError::Template(format!(
@@ -542,7 +543,7 @@ impl LlamaCppProvider {
                             ))
                         })?;
 
-                    let stop_reason = if gen.finish_reason == "length" {
+                    let stop_reason = if generation.finish_reason == "length" {
                         "length".to_string()
                     } else if message
                         .tool_calls
@@ -555,15 +556,17 @@ impl LlamaCppProvider {
                         "end_turn".to_string()
                     };
 
-                    Ok((gen, stop_reason))
+                    Ok((generation, stop_reason))
                 },
             )
             .await;
 
             match result {
-                Ok(Ok((gen, stop_reason))) => {
-                    let usage =
-                        LlamaCppProvider::build_usage(gen.prompt_tokens, gen.completion_tokens);
+                Ok(Ok((generation, stop_reason))) => {
+                    let usage = LlamaCppProvider::build_usage(
+                        generation.prompt_tokens,
+                        generation.completion_tokens,
+                    );
                     let _ = tx.send(Ok(StreamEvent::Usage(usage)));
                     let _ = tx.send(Ok(StreamEvent::Done { stop_reason }));
                 }
@@ -718,18 +721,18 @@ impl ChatProvider for LlamaCppProvider {
                         }
                         Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
                             Ok(parsed) => {
-                                if let Some(content) = parsed.content {
-                                    if !content.is_empty() {
-                                        outputs.push(Ok(StreamResponse {
-                                            choices: vec![StreamChoice {
-                                                delta: StreamDelta {
-                                                    content: Some(content),
-                                                    tool_calls: None,
-                                                },
-                                            }],
-                                            usage: None,
-                                        }));
-                                    }
+                                if let Some(content) = parsed.content
+                                    && !content.is_empty()
+                                {
+                                    outputs.push(Ok(StreamResponse {
+                                        choices: vec![StreamChoice {
+                                            delta: StreamDelta {
+                                                content: Some(content),
+                                                tool_calls: None,
+                                            },
+                                        }],
+                                        usage: None,
+                                    }));
                                 }
 
                                 if let Some(tool_calls) = parsed.tool_calls {
@@ -840,10 +843,10 @@ impl ChatProvider for LlamaCppProvider {
                         }
                         Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
                             Ok(parsed) => {
-                                if let Some(content) = parsed.content {
-                                    if !content.is_empty() {
-                                        outputs.push(Ok(StreamChunk::Text(content)));
-                                    }
+                                if let Some(content) = parsed.content
+                                    && !content.is_empty()
+                                {
+                                    outputs.push(Ok(StreamChunk::Text(content)));
                                 }
 
                                 if let Some(tool_calls) = parsed.tool_calls {
@@ -1477,10 +1480,10 @@ fn generate_text(
             .map_err(|err| LlamaCppProviderError::Tokenization(err.to_string()))?;
         generated_text.push_str(&token_str);
 
-        if let Some(ref mut on_token) = on_token {
-            if !token_str.is_empty() {
-                on_token(&token_str)?;
-            }
+        if let Some(ref mut on_token) = on_token
+            && !token_str.is_empty()
+        {
+            on_token(&token_str)?;
         }
 
         batch.clear();

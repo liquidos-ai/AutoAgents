@@ -1,9 +1,9 @@
 use async_trait::async_trait;
 
 use crate::{
+    ToolCall,
     chat::{ChatResponse, StructuredOutputFormat},
     error::LLMError,
-    ToolCall,
 };
 
 /// A request for text completion from an LLM provider.

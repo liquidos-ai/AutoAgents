@@ -1,7 +1,7 @@
 use crate::agent::memory::MemoryProvider;
 use crate::tool::ToolCallResult;
-use autoagents_llm::chat::{ChatMessage, ChatRole, ImageMime, MessageType};
 use autoagents_llm::ToolCall;
+use autoagents_llm::chat::{ChatMessage, ChatRole, ImageMime, MessageType};
 use std::sync::Arc;
 
 use super::tool_processor::ToolProcessor;
@@ -105,10 +105,10 @@ impl MemoryHelper {
     pub async fn recall_messages(
         memory: &Option<Arc<Mutex<Box<dyn MemoryProvider>>>>,
     ) -> Vec<ChatMessage> {
-        if let Some(mem) = memory {
-            if let Ok(messages) = mem.lock().await.recall("", None).await {
-                return messages;
-            }
+        if let Some(mem) = memory
+            && let Ok(messages) = mem.lock().await.recall("", None).await
+        {
+            return messages;
         }
         Vec::new()
     }

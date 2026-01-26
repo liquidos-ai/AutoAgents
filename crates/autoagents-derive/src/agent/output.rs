@@ -1,12 +1,12 @@
 use super::super::tool::{field::FieldSchemaAttr, json::JsonType};
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use serde::Serialize;
 use std::collections::HashMap;
 use strum::{Display, EnumString};
 use syn::{
-    parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Field, Ident, LitStr,
-    Result, Type,
+    Attribute, Data, DataStruct, DeriveInput, Error, Field, Ident, LitStr, Result, Type,
+    parse_macro_input,
 };
 
 #[derive(EnumString, Display)]
@@ -89,16 +89,15 @@ impl OutputParser {
             if attr.path().is_ident("doc") {
                 // Extract documentation comments as description
                 // Doc comments are stored as #[doc = "content"] attributes
-                if let syn::Meta::NameValue(meta) = &attr.meta {
-                    if let syn::Expr::Lit(syn::ExprLit {
+                if let syn::Meta::NameValue(meta) = &attr.meta
+                    && let syn::Expr::Lit(syn::ExprLit {
                         lit: syn::Lit::Str(lit_str),
                         ..
                     }) = &meta.value
-                    {
-                        let doc_value = lit_str.value().trim().to_string();
-                        if !doc_value.is_empty() {
-                            self.output_data.description = Some(doc_value);
-                        }
+                {
+                    let doc_value = lit_str.value().trim().to_string();
+                    if !doc_value.is_empty() {
+                        self.output_data.description = Some(doc_value);
                     }
                 }
             } else if attr.path().is_ident("strict") {
@@ -210,16 +209,13 @@ impl OutputParser {
     }
 
     fn extract_option_type<'a>(&self, ty: &'a Type) -> (bool, Option<&'a Type>) {
-        if let Type::Path(type_path) = ty {
-            if let Some(segment) = type_path.path.segments.last() {
-                if segment.ident == "Option" {
-                    if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                        if let Some(syn::GenericArgument::Type(inner_type)) = args.args.first() {
-                            return (true, Some(inner_type));
-                        }
-                    }
-                }
-            }
+        if let Type::Path(type_path) = ty
+            && let Some(segment) = type_path.path.segments.last()
+            && segment.ident == "Option"
+            && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+            && let Some(syn::GenericArgument::Type(inner_type)) = args.args.first()
+        {
+            return (true, Some(inner_type));
         }
         (false, None)
     }

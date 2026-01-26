@@ -5,7 +5,7 @@ use autoagents::core::agent::prebuilt::executor::BasicAgent;
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, DirectAgent};
 use autoagents::core::error::Error;
-use autoagents_derive::{agent, AgentHooks};
+use autoagents_derive::{AgentHooks, agent};
 use autoagents_mistral_rs::models::ModelType;
 use autoagents_mistral_rs::{IsqType, MistralRsProvider, ModelSource};
 use std::sync::Arc;

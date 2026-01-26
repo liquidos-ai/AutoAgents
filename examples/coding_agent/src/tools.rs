@@ -1,6 +1,6 @@
 use autoagents::async_trait;
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
-use autoagents_derive::{tool, ToolInput};
+use autoagents_derive::{ToolInput, tool};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -59,19 +59,19 @@ impl ToolRuntime for GrepTool {
             let path = entry.path();
             if path.is_file() {
                 let relative_path = path.strip_prefix(&args.base_dir).unwrap_or(path);
-                if file_pattern.matches_path(relative_path) {
-                    if let Ok(content) = fs::read_to_string(path) {
-                        for (line_num, line) in content.lines().enumerate() {
-                            if regex.is_match(line) {
-                                results.push(format!(
-                                    "{}:{}: {}",
-                                    relative_path.display(),
-                                    line_num + 1,
-                                    line.trim()
-                                ));
-                                if results.len() >= max_results {
-                                    break;
-                                }
+                if file_pattern.matches_path(relative_path)
+                    && let Ok(content) = fs::read_to_string(path)
+                {
+                    for (line_num, line) in content.lines().enumerate() {
+                        if regex.is_match(line) {
+                            results.push(format!(
+                                "{}:{}: {}",
+                                relative_path.display(),
+                                line_num + 1,
+                                line.trim()
+                            ));
+                            if results.len() >= max_results {
+                                break;
                             }
                         }
                     }

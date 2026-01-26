@@ -131,9 +131,9 @@ where
 
 impl Filter<serde_json::Value> {
     pub fn satisfies(&self, value: &serde_json::Value) -> bool {
-        use serde_json::{json, Value, Value::*};
-        use std::cmp::Ordering;
         use Filter::*;
+        use serde_json::{Value, Value::*, json};
+        use std::cmp::Ordering;
 
         fn compare_pair(l: &Value, r: &Value) -> Option<std::cmp::Ordering> {
             match (l, r) {

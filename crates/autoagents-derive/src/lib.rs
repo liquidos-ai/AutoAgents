@@ -1,9 +1,9 @@
 extern crate proc_macro;
-use agent::{output::OutputParser, AgentParser};
+use agent::{AgentParser, output::OutputParser};
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput};
-use tool::{input::InputParser, ToolParser};
+use syn::{DeriveInput, parse_macro_input};
+use tool::{ToolParser, input::InputParser};
 
 mod agent;
 mod tool;

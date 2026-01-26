@@ -8,8 +8,8 @@ use serde::Serialize;
 use std::collections::HashMap;
 use strum::{Display, EnumString};
 use syn::{
-    parse_macro_input, Attribute, Data, DataStruct, DeriveInput, Error, Field, GenericArgument,
-    Ident, LitStr, PathArguments, Result, Type,
+    Attribute, Data, DataStruct, DeriveInput, Error, Field, GenericArgument, Ident, LitStr,
+    PathArguments, Result, Type, parse_macro_input,
 };
 
 #[derive(EnumString, Display)]
@@ -163,14 +163,15 @@ impl InputParser {
                     ));
                 };
 
-                if segment.ident == "Option" {
-                    if let PathArguments::AngleBracketed(args) = &segment.arguments {
-                        if let Some(GenericArgument::Type(inner)) = args.args.first() {
-                            let (json_type, _) = self.get_json_type(inner)?;
-                            return Ok((json_type, true));
-                        }
-                    }
+                if segment.ident == "Option"
+                    && let PathArguments::AngleBracketed(args) = &segment.arguments
+                    && let Some(GenericArgument::Type(inner)) = args.args.first()
+                {
+                    let (json_type, _) = self.get_json_type(inner)?;
+                    return Ok((json_type, true));
+                }
 
+                if segment.ident == "Option" {
                     return Err(Error::new(
                         proc_macro2::Span::call_site(),
                         "Unsupported Option type",

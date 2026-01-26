@@ -278,10 +278,12 @@ mod tests {
 
         let result = tool.execute(input).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Mock tool failure"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Mock tool failure")
+        );
     }
 
     #[tokio::test]

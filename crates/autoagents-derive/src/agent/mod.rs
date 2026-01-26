@@ -2,8 +2,8 @@ use proc_macro::TokenStream;
 use quote::quote;
 use strum::{Display, EnumString};
 use syn::{
-    bracketed, parse::Parse, parse_macro_input, punctuated::Punctuated, Expr, Ident, ItemStruct,
-    LitStr, Token, Type,
+    Expr, Ident, ItemStruct, LitStr, Token, Type, bracketed, parse::Parse, parse_macro_input,
+    punctuated::Punctuated,
 };
 
 pub(crate) mod output;
@@ -76,7 +76,7 @@ impl Parse for AgentAttributes {
                     return Err(syn::Error::new(
                         key_span,
                         format!("Unexpected attribute key: {other}"),
-                    ))
+                    ));
                 }
             }
             if input.peek(Token![,]) {

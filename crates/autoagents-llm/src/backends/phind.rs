@@ -1,23 +1,23 @@
-/// Implementation of the Phind LLM provider.
-/// This module provides integration with Phind's language model API.
 use crate::{
-    builder::LLMBuilder,
-    chat::{ChatResponse, StructuredOutputFormat, Tool},
-    ToolCall,
-};
-use crate::{
+    LLMProvider,
     chat::{ChatMessage, ChatProvider, ChatRole},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
     error::LLMError,
     models::ModelsProvider,
-    LLMProvider,
+};
+/// Implementation of the Phind LLM provider.
+/// This module provides integration with Phind's language model API.
+use crate::{
+    ToolCall,
+    builder::LLMBuilder,
+    chat::{ChatResponse, StructuredOutputFormat, Tool},
 };
 use async_trait::async_trait;
-use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::StatusCode;
+use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, Response};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 /// Represents a Phind LLM client with configuration options.

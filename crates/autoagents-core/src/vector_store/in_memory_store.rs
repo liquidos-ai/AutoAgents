@@ -8,8 +8,8 @@ use crate::embeddings::distance::VectorDistance;
 use crate::embeddings::{Embedding, EmbeddingError, SharedEmbeddingProvider};
 use crate::vector_store::request::Filter;
 use crate::vector_store::{
-    embed_documents, normalize_id, PreparedDocument, VectorSearchRequest, VectorStoreError,
-    VectorStoreIndex,
+    PreparedDocument, VectorSearchRequest, VectorStoreError, VectorStoreIndex, embed_documents,
+    normalize_id,
 };
 
 #[derive(Clone)]
@@ -114,17 +114,17 @@ impl VectorStoreIndex for InMemoryVectorStore {
         let mut matches = Vec::new();
 
         for (id, entry) in guard.iter() {
-            if let Some(filter) = req.filter() {
-                if !filter.satisfies(&entry.raw) {
-                    continue;
-                }
+            if let Some(filter) = req.filter()
+                && !filter.satisfies(&entry.raw)
+            {
+                continue;
             }
 
             if let Some(score) = Self::best_similarity(entry, &query_embedding) {
-                if let Some(threshold) = req.threshold() {
-                    if (score as f64) < threshold {
-                        continue;
-                    }
+                if let Some(threshold) = req.threshold()
+                    && (score as f64) < threshold
+                {
+                    continue;
                 }
 
                 let parsed: T = serde_json::from_value(entry.raw.clone())?;
@@ -161,17 +161,17 @@ impl VectorStoreIndex for InMemoryVectorStore {
         let mut matches = Vec::new();
 
         for (id, entry) in guard.iter() {
-            if let Some(filter) = req.filter() {
-                if !filter.satisfies(&entry.raw) {
-                    continue;
-                }
+            if let Some(filter) = req.filter()
+                && !filter.satisfies(&entry.raw)
+            {
+                continue;
             }
 
             if let Some(score) = Self::best_similarity(entry, &query_embedding) {
-                if let Some(threshold) = req.threshold() {
-                    if (score as f64) < threshold {
-                        continue;
-                    }
+                if let Some(threshold) = req.threshold()
+                    && (score as f64) < threshold
+                {
+                    continue;
                 }
 
                 matches.push((score as f64, id.clone()));

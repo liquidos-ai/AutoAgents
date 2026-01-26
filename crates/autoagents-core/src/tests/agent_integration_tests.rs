@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::actor::Topic;
-    use crate::agent::{memory::SlidingWindowMemory, task::Task, AgentBuilder};
+    use crate::agent::{AgentBuilder, memory::SlidingWindowMemory, task::Task};
     use crate::environment::Environment;
     use crate::protocol::Event;
     use crate::runtime::{SingleThreadedRuntime, TypedRuntime};
@@ -11,7 +11,7 @@ mod tests {
     use autoagents_test_utils::llm::MockLLMProvider;
     use serde_json::Value;
     use std::sync::Arc;
-    use tokio::time::{timeout, Duration};
+    use tokio::time::{Duration, timeout};
     use tokio_stream::StreamExt;
 
     // Implement ToolT trait for MockTool

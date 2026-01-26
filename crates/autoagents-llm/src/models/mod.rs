@@ -383,10 +383,12 @@ mod tests {
 
         let result = provider.list_models(None).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Mock provider failed"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Mock provider failed")
+        );
     }
 
     #[tokio::test]
@@ -407,10 +409,12 @@ mod tests {
 
         let result = provider.list_models(None).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("List Models not supported"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("List Models not supported")
+        );
     }
 
     #[tokio::test]
@@ -422,10 +426,12 @@ mod tests {
 
         let result = provider.list_models(Some(&request)).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("List Models not supported"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("List Models not supported")
+        );
     }
 
     #[test]

@@ -540,10 +540,12 @@ mod tests {
 
         let result = provider.remember(&message).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Mock memory error"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Mock memory error")
+        );
     }
 
     #[tokio::test]
@@ -599,10 +601,12 @@ mod tests {
 
         let result = provider.recall("", None).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Mock recall error"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Mock recall error")
+        );
     }
 
     #[tokio::test]
@@ -800,7 +804,7 @@ pub trait MemoryProvider: Send + Sync {
     /// * `Ok(Vec<ChatMessage>)` containing relevant messages
     /// * `Err(LLMError)` if retrieval failed
     async fn recall(&self, query: &str, limit: Option<usize>)
-        -> Result<Vec<ChatMessage>, LLMError>;
+    -> Result<Vec<ChatMessage>, LLMError>;
 
     /// Clear all stored messages from memory.
     ///

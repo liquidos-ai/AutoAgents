@@ -2,8 +2,8 @@
 
 use crate::config::LlamaCppConfig;
 use crate::error::LlamaCppProviderError;
-use hf_hub::api::sync::{Api, ApiBuilder};
 use hf_hub::api::Siblings;
+use hf_hub::api::sync::{Api, ApiBuilder};
 use hf_hub::{Cache, Repo, RepoType};
 use std::fs;
 use std::io;
@@ -91,7 +91,7 @@ fn pick_cached_gguf(cache: &Cache, repo: &Repo) -> Result<Option<PathBuf>, Llama
                 "Failed to read HuggingFace cache ref {}: {}",
                 ref_path.display(),
                 err
-            )))
+            )));
         }
     };
     let commit_hash = commit_hash.trim();

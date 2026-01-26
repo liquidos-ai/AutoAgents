@@ -1,7 +1,7 @@
 use strum::{Display, EnumString};
 use syn::{
-    parse::{Parse, ParseStream},
     Ident, LitStr, Result, Token, Type,
+    parse::{Parse, ParseStream},
 };
 
 pub(crate) struct ToolAttributes {
@@ -58,7 +58,7 @@ impl Parse for ToolAttributes {
                     return Err(syn::Error::new(
                         key_span,
                         format!("Unexpected attribute key: {other}"),
-                    ))
+                    ));
                 }
             }
             if input.peek(Token![,]) {

@@ -73,7 +73,7 @@ impl SimpleDirectoryReader {
                     return Err(ReaderError::Io {
                         path: self.root.clone(),
                         source: std::io::Error::other(err),
-                    })
+                    });
                 }
             };
 
@@ -94,13 +94,13 @@ impl SimpleDirectoryReader {
             let content = match fs::read_to_string(entry.path()) {
                 Ok(content) => content,
                 Err(err) if err.kind() == std::io::ErrorKind::InvalidData => {
-                    return Err(ReaderError::Utf8(entry.path().to_path_buf()))
+                    return Err(ReaderError::Utf8(entry.path().to_path_buf()));
                 }
                 Err(source) => {
                     return Err(ReaderError::Io {
                         path: entry.path().to_path_buf(),
                         source,
-                    })
+                    });
                 }
             };
 

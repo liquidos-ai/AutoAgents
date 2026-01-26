@@ -5,16 +5,16 @@ use autoagents_core::embeddings::{Embed, Embedding, EmbeddingError, SharedEmbedd
 use autoagents_core::one_or_many::OneOrMany;
 use autoagents_core::vector_store::request::{Filter, FilterError};
 use autoagents_core::vector_store::{
-    embed_documents, normalize_id, PreparedDocument, VectorSearchRequest, VectorStoreError,
-    VectorStoreIndex,
-};
-use qdrant_client::client::Payload;
-use qdrant_client::qdrant::{
-    condition, with_payload_selector, Condition, CreateCollectionBuilder, Distance,
-    Filter as QdrantFilter, PointStruct, Range, SearchPointsBuilder, UpsertPointsBuilder,
-    VectorParamsBuilder,
+    PreparedDocument, VectorSearchRequest, VectorStoreError, VectorStoreIndex, embed_documents,
+    normalize_id,
 };
 use qdrant_client::Qdrant;
+use qdrant_client::client::Payload;
+use qdrant_client::qdrant::{
+    Condition, CreateCollectionBuilder, Distance, Filter as QdrantFilter, PointStruct, Range,
+    SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder, condition,
+    with_payload_selector,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]

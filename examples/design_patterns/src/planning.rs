@@ -208,7 +208,9 @@ impl AgentHooks for PlanExecutor {
                 let revision_task = format!(
                     "REVISE PLAN due to execution roadblock:\n\nORIGINAL TASK: {}\n\nBLOCKED AT STEP: {}\n\nISSUE: {}\n\n\
                     Create a revised plan that addresses this roadblock.",
-                    extract_original_task(&task.prompt), step_num, result
+                    extract_original_task(&task.prompt),
+                    step_num,
+                    result
                 );
                 let _ = ctx
                     .publish(

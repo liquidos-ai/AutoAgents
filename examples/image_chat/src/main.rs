@@ -11,7 +11,7 @@ use autoagents::llm::{
     builder::LLMBuilder,
     chat::{ChatMessage, ChatProvider, ImageMime},
 };
-use autoagents_derive::{agent, AgentHooks};
+use autoagents_derive::{AgentHooks, agent};
 use clap::Parser;
 use std::path::PathBuf;
 use tokio::fs;

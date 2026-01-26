@@ -6,7 +6,7 @@ use rmcp::{
     model::{CallToolRequestParam, CallToolResult, ClientInfo, Tool as McpTool},
     service::{RoleClient, RunningService},
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -72,7 +72,7 @@ impl ToolRuntime for McpToolAdapter {
             None => {
                 return Err(ToolCallError::RuntimeError(
                     "Arguments must be a JSON object".to_string().into(),
-                ))
+                ));
             }
         };
 

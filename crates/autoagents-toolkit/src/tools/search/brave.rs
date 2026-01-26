@@ -2,11 +2,11 @@ use autoagents::core::{
     ractor::async_trait,
     tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT},
 };
-use autoagents_derive::{tool, ToolInput};
+use autoagents_derive::{ToolInput, tool};
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::env;
 
 use crate::utils::constant::RestHeaders;
@@ -105,10 +105,10 @@ impl ToolRuntime for BraveSearch {
                     .to_string();
 
                 let mut snippet_parts: Vec<String> = Vec::new();
-                if let Some(description) = item.get("description").and_then(Value::as_str) {
-                    if !description.is_empty() {
-                        snippet_parts.push(description.to_string());
-                    }
+                if let Some(description) = item.get("description").and_then(Value::as_str)
+                    && !description.is_empty()
+                {
+                    snippet_parts.push(description.to_string());
                 }
 
                 if let Some(extra_snippets) = item.get("extra_snippets").and_then(Value::as_array) {

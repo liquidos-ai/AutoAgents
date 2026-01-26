@@ -1,11 +1,11 @@
 use autoagents::async_trait;
 use autoagents_llm::{
+    LLMProvider, ToolCall,
     chat::{ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat, Tool},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
     error::LLMError,
     models::ModelsProvider,
-    LLMProvider, ToolCall,
 };
 
 // Mock LLM Provider
