@@ -82,7 +82,7 @@ RULES:
 Example for \"What is (20 + 30) * 10?\":
 - Step 1: Call addition(20, 30) → get 50
 - Step 2: Call multiplication(50, 10) → get 500
-- Step 3: Return \"First added 20+30=10, then multiplied 50*100=500\"
+- Step 3: Return \"First added 20+30=50, then multiplied 50*10=500\"
 
 CRITICAL: Your final response MUST be valid JSON with 'value' and 'explanation' fields.",
     tools = [Addition, Multiplication],
