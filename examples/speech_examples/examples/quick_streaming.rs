@@ -6,8 +6,10 @@
 mod common;
 use common::audio_playback;
 
-use autoagents_pocket_tts::{PocketTTSConfig, PocketTTSProvider};
-use autoagents_tts::{AudioFormat, SpeechRequest, TTSSpeechProvider, VoiceIdentifier};
+use autoagents_speech::{
+    AudioFormat, PocketTTSConfig, PocketTTSProvider, SpeechRequest, TTSSpeechProvider,
+    VoiceIdentifier,
+};
 use futures::StreamExt;
 
 #[tokio::main]
@@ -37,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create speech request
     let request = SpeechRequest {
         text: text.to_string(),
-        voice: VoiceIdentifier::Predefined("alba".to_string()),
+        voice: VoiceIdentifier::new("alba"),
         format: AudioFormat::Wav,
         sample_rate: Some(24000),
     };
@@ -58,15 +60,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(chunk) => {
                 chunk_count += 1;
                 let chunk_samples = chunk.samples.len();
-                
+
                 // Play chunk immediately if audio player is available
                 if let Some(ref player) = audio_player {
                     player.play_samples(&chunk.samples, sample_rate);
-                    println!("  🔊 Chunk {}: {} samples (playing...)", chunk_count, chunk_samples);
+                    println!(
+                        "  🔊 Chunk {}: {} samples (playing...)",
+                        chunk_count, chunk_samples
+                    );
                 } else {
                     println!("  Chunk {}: {} samples", chunk_count, chunk_samples);
                 }
-                
+
                 // Also collect for saving to file
                 all_samples.extend_from_slice(&chunk.samples);
             }
@@ -89,7 +94,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✓ Streaming complete!");
     println!("  Total chunks: {}", chunk_count);
     println!("  Total samples: {}", all_samples.len());
-    println!("  Duration: {:.2} seconds", all_samples.len() as f32 / sample_rate as f32);
+    println!(
+        "  Duration: {:.2} seconds",
+        all_samples.len() as f32 / sample_rate as f32
+    );
     println!();
 
     // Save the complete audio
@@ -114,11 +122,11 @@ fn save_audio_to_file(
     };
 
     let mut writer = hound::WavWriter::create(path, spec)?;
-    
+
     for &sample in samples {
         writer.write_sample(sample)?;
     }
-    
+
     writer.finalize()?;
     Ok(())
 }

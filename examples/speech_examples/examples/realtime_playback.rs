@@ -4,17 +4,19 @@
 //! playing as soon as the first chunk is generated, minimizing latency.
 //!
 //! Usage:
-//!   cargo run --release --example realtime_playback --features library
+//!   cargo run --release --example realtime_playback
 //!
 //! To disable audio playback:
-//!   NO_PLAY=1 cargo run --release --example realtime_playback --features library
+//!   NO_PLAY=1 cargo run --release --example realtime_playback
 
 #[path = "common/mod.rs"]
 mod common;
 use common::audio_playback;
 
-use autoagents_pocket_tts::{PocketTTSConfig, PocketTTSProvider};
-use autoagents_tts::{AudioFormat, SpeechRequest, TTSSpeechProvider, VoiceIdentifier};
+use autoagents_speech::{
+    AudioFormat, PocketTTSConfig, PocketTTSProvider, SpeechRequest, TTSSpeechProvider,
+    VoiceIdentifier,
+};
 use futures::StreamExt;
 use std::time::Instant;
 
@@ -62,14 +64,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create speech request
     let request = SpeechRequest {
         text: text.to_string(),
-        voice: VoiceIdentifier::Predefined("alba".to_string()),
+        voice: VoiceIdentifier::new("alba"),
         format: AudioFormat::Wav,
         sample_rate: Some(24000),
     };
 
     println!("🎙️  Starting real-time generation...");
     let gen_start = Instant::now();
-    
+
     // Get the audio stream
     let mut stream = provider.generate_speech_stream(request).await?;
 
@@ -78,7 +80,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut chunk_count = 0;
     let sample_rate = 24000;
     let mut first_chunk_time: Option<f64> = None;
-    let mut total_gen_time = 0.0;
 
     // Process each chunk as it arrives - THIS IS REAL-TIME!
     while let Some(result) = stream.next().await {
@@ -86,7 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(chunk) => {
                 chunk_count += 1;
                 let chunk_samples = chunk.samples.len();
-                
+
                 // Record time to first chunk (latency)
                 if first_chunk_time.is_none() {
                     let latency = gen_start.elapsed().as_secs_f64();
@@ -96,19 +97,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("🔊 Audio playback starting NOW...");
                     println!();
                 }
-                
+
                 // Play chunk IMMEDIATELY - this is real-time streaming!
                 if let Some(ref player) = audio_player {
                     player.play_samples(&chunk.samples, sample_rate);
                 }
-                
+
                 // Also collect for saving to file
                 all_samples.extend_from_slice(&chunk.samples);
-                
+
                 // Show progress
                 let duration_so_far = all_samples.len() as f32 / sample_rate as f32;
-                print!("\r  Chunk {}: {} samples | {:.2}s audio generated", 
-                       chunk_count, chunk_samples, duration_so_far);
+                print!(
+                    "\r  Chunk {}: {} samples | {:.2}s audio generated",
+                    chunk_count, chunk_samples, duration_so_far
+                );
                 std::io::Write::flush(&mut std::io::stdout()).ok();
             }
             Err(e) => {
@@ -117,8 +120,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    
-    total_gen_time = gen_start.elapsed().as_secs_f64();
+
+    let total_gen_time = gen_start.elapsed().as_secs_f64();
     println!();
     println!();
 
@@ -137,7 +140,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!();
     println!("📊 Performance Metrics:");
-    println!("   ├─ Time to first chunk: {:.2}s (latency)", first_chunk_time.unwrap_or(0.0));
+    println!(
+        "   ├─ Time to first chunk: {:.2}s (latency)",
+        first_chunk_time.unwrap_or(0.0)
+    );
     println!("   ├─ Total generation time: {:.2}s", total_gen_time);
     println!("   ├─ Audio duration: {:.2}s", total_duration);
     println!("   ├─ Real-Time Factor (RTF): {:.2}x", rtf);
@@ -174,11 +180,11 @@ fn save_audio_to_file(
     };
 
     let mut writer = hound::WavWriter::create(path, spec)?;
-    
+
     for &sample in samples {
         writer.write_sample(sample)?;
     }
-    
+
     writer.finalize()?;
     Ok(())
 }

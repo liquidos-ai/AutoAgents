@@ -12,7 +12,6 @@ readme.workspace = true
 [features]
 default = []
 full = ["autoagents-core/full", "autoagents-llm/full", "wasmtime", "logging"]
-tts = ["autoagents-core/tts"]
 openai = ["autoagents-llm/openai"]
 anthropic = ["autoagents-llm/anthropic"]
 ollama = ["autoagents-llm/ollama"]

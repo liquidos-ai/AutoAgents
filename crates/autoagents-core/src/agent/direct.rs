@@ -12,11 +12,6 @@ use crate::channel::{Receiver, Sender, channel};
 
 use crate::utils::{BoxEventStream, receiver_into_stream};
 
-/// Marker type for direct (non-actor) agents.
-///
-/// Direct agents execute immediately within the caller's task without
-/// requiring a runtime or event wiring. Use this for simple one-shot
-/// invocations and unit tests.
 pub struct DirectAgent {}
 
 impl AgentType for DirectAgent {
@@ -25,9 +20,7 @@ impl AgentType for DirectAgent {
     }
 }
 
-/// Handle for a direct agent containing the agent instance and an event stream
-/// receiver. Use `agent.run(...)` for one-shot calls or `agent.run_stream(...)`
-/// to receive streaming outputs.
+/// Handle for an agent that includes both the agent and its actor reference
 pub struct DirectAgentHandle<T: AgentDeriveT + AgentExecutor + AgentHooks + Send + Sync> {
     pub agent: BaseAgent<T, DirectAgent>,
     pub rx: BoxEventStream<Event>,
@@ -47,25 +40,14 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> AgentBuilder<T, DirectAgent> 
             "LLM provider is required".to_string(),
         ))?;
         let (tx, rx): (Sender<Event>, Receiver<Event>) = channel(DEFAULT_CHANNEL_BUFFER);
-        
-        #[cfg(feature = "tts")]
-        let agent: BaseAgent<T, DirectAgent> = {
-            let mut base_agent = BaseAgent::<T, DirectAgent>::new(self.inner, llm, self.memory, tx, self.stream).await?;
-            base_agent.tts = self.tts;
-            base_agent
-        };
-        
-        #[cfg(not(feature = "tts"))]
         let agent: BaseAgent<T, DirectAgent> =
             BaseAgent::<T, DirectAgent>::new(self.inner, llm, self.memory, tx, self.stream).await?;
-        
         let stream = receiver_into_stream(rx);
         Ok(DirectAgentHandle::new(agent, stream))
     }
 }
 
 impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
-    /// Execute the agent for a single task and return the final agent output.
     pub async fn run(&self, task: Task) -> Result<<T as AgentDeriveT>::Output, RunnableAgentError>
     where
         <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
@@ -100,8 +82,6 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
         }
     }
 
-    /// Execute the agent with streaming enabled and receive a stream of
-    /// partial outputs which culminate in a final chunk with `done=true`.
     pub async fn run_stream(
         &self,
         task: Task,

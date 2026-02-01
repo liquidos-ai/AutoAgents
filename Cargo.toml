@@ -35,9 +35,8 @@ autoagents-llamacpp = { path = "crates/autoagents-llamacpp", version = "0.3.1" }
 # Store
 autoagents-qdrant = { path = "crates/autoagents-qdrant", version = "0.3.1" }
 
-# TTS
-autoagents-tts = { path = "crates/autoagents-tts", version = "0.3.1" }
-autoagents-pocket-tts = { path = "crates/autoagents-pocket-tts", version = "0.3.1" }
+# Speech (TTS/STT)
+autoagents-speech = { path = "crates/autoagents-speech", version = "0.3.1" }
 
 # Test Utils
 autoagents-test-utils = { path = "crates/autoagents-test-utils" }

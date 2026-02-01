@@ -3,10 +3,11 @@
 use serde::{Deserialize, Serialize};
 
 /// Available Pocket-TTS model variants
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelVariant {
     /// Default model variant (b6369a24)
+    #[default]
     #[serde(rename = "b6369a24")]
     B6369a24,
 }
@@ -24,12 +25,6 @@ impl ModelVariant {
         match self {
             ModelVariant::B6369a24 => "Default Pocket-TTS model (24kHz, 6 layers)",
         }
-    }
-}
-
-impl Default for ModelVariant {
-    fn default() -> Self {
-        ModelVariant::B6369a24
     }
 }
 

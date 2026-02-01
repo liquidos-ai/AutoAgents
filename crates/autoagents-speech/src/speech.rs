@@ -29,7 +29,9 @@ pub trait TTSSpeechProvider: Send + Sync {
     ) -> TTSResult<Pin<Box<dyn Stream<Item = TTSResult<AudioChunk>> + Send>>> {
         // Default implementation: not supported
         let _ = request;
-        Err(crate::error::TTSError::StreamingNotSupported)
+        Err(crate::error::TTSError::StreamingNotSupported(
+            "default implementation".to_string(),
+        ))
     }
 
     /// Check if streaming is supported (default: false)

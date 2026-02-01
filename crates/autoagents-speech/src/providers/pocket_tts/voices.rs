@@ -6,10 +6,11 @@ use serde::{Deserialize, Serialize};
 ///
 /// These voices are available from the kyutai/pocket-tts-without-voice-cloning
 /// HuggingFace repository as pre-computed .safetensors embeddings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum PredefinedVoice {
     /// Alba - default voice
+    #[default]
     Alba,
     /// Marius
     Marius,
@@ -62,12 +63,6 @@ impl PredefinedVoice {
             PredefinedVoice::Eponine,
             PredefinedVoice::Azelma,
         ]
-    }
-}
-
-impl Default for PredefinedVoice {
-    fn default() -> Self {
-        PredefinedVoice::Alba
     }
 }
 

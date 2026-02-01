@@ -17,24 +17,6 @@ use futures::channel::mpsc;
 #[cfg(target_arch = "wasm32")]
 use futures::lock::Mutex;
 
-#[cfg(feature = "tts")]
-use autoagents_tts::{AudioStoragePolicy, SharedAudioData, SpeechRequest, SpeechResponse, TTSProvider, VoiceIdentifier};
-
-#[cfg(feature = "tts")]
-/// Audio output with metadata
-#[derive(Clone, Debug)]
-pub struct AudioOutput {
-    pub audio: Option<SharedAudioData>,
-    pub text: String,
-    pub duration_ms: u64,
-}
-
-/// Execution context shared across an agent run.
-///
-/// Holds the configured LLM provider, accumulated chat messages, optional
-/// memory and tools, agent configuration, ephemeral execution state, and
-/// an optional event transmitter used by actor-based agents to emit protocol
-/// `Event`s. Also carries a `stream` flag to indicate streaming mode.
 pub struct Context {
     llm: Arc<dyn LLMProvider>,
     messages: Vec<ChatMessage>,
@@ -44,10 +26,6 @@ pub struct Context {
     state: Arc<Mutex<AgentState>>,
     tx: Option<mpsc::Sender<Event>>,
     stream: bool,
-    #[cfg(feature = "tts")]
-    tts: Option<Arc<dyn TTSProvider>>,
-    #[cfg(feature = "tts")]
-    audio_outputs: Vec<AudioOutput>,
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
@@ -57,14 +35,6 @@ pub enum ContextError {
     /// Error when sending events
     #[error("Failed to send event: {0}")]
     EventSendError(String),
-    /// TTS provider is not configured
-    #[cfg(feature = "tts")]
-    #[error("TTS provider is not configured")]
-    MissingTTS,
-    /// TTS error
-    #[cfg(feature = "tts")]
-    #[error("TTS error: {0}")]
-    TTSError(String),
 }
 
 impl Context {
@@ -78,10 +48,6 @@ impl Context {
             state: Arc::new(Mutex::new(AgentState::new())),
             stream: false,
             tx,
-            #[cfg(feature = "tts")]
-            tts: None,
-            #[cfg(feature = "tts")]
-            audio_outputs: vec![],
         }
     }
 
@@ -128,12 +94,6 @@ impl Context {
         self
     }
 
-    #[cfg(feature = "tts")]
-    pub fn with_tts(mut self, tts: Option<Arc<dyn TTSProvider>>) -> Self {
-        self.tts = tts;
-        self
-    }
-
     // Getters
     pub fn llm(&self) -> &Arc<dyn LLMProvider> {
         &self.llm
@@ -159,82 +119,12 @@ impl Context {
         self.state.clone()
     }
 
-    /// Get a clone of the event transmitter (only present for Actor agents).
     pub fn tx(&self) -> Result<mpsc::Sender<Event>, ContextError> {
         Ok(self.tx.as_ref().ok_or(ContextError::EmptyTx)?.clone())
     }
 
     pub fn stream(&self) -> bool {
         self.stream
-    }
-
-    #[cfg(feature = "tts")]
-    pub fn tts(&self) -> Option<&Arc<dyn TTSProvider>> {
-        self.tts.as_ref()
-    }
-
-    #[cfg(feature = "tts")]
-    pub fn audio_outputs(&self) -> &[AudioOutput] {
-        &self.audio_outputs
-    }
-
-    #[cfg(feature = "tts")]
-    pub fn latest_audio(&self) -> Option<&AudioOutput> {
-        self.audio_outputs.last()
-    }
-
-    /// Generate speech from text (requires `tts` feature)
-    #[cfg(feature = "tts")]
-    pub async fn speak(&mut self, text: &str, voice: Option<VoiceIdentifier>) -> Result<Option<SharedAudioData>, ContextError> {
-        let tts = self.tts.as_ref().ok_or(ContextError::MissingTTS)?;
-        
-        // Get voice identifier
-        let voice_id = if let Some(v) = voice {
-            v
-        } else if let Some(default_voice) = &self.config.default_voice {
-            VoiceIdentifier::Predefined(default_voice.clone())
-        } else {
-            // Use provider's default voice
-            VoiceIdentifier::Predefined(tts.default_voice())
-        };
-
-        // Create speech request
-        let request = SpeechRequest {
-            text: text.to_string(),
-            voice: voice_id,
-            format: autoagents_tts::AudioFormat::Wav,
-            sample_rate: Some(tts.default_sample_rate()),
-        };
-
-        // Generate speech
-        let response: SpeechResponse = tts
-            .generate_speech(request)
-            .await
-            .map_err(|e| ContextError::TTSError(e.to_string()))?;
-
-        let audio = Arc::new(response.audio);
-        
-        // Apply storage policy
-        match self.config.audio_storage_policy {
-            AudioStoragePolicy::None => Ok(None),
-            AudioStoragePolicy::OutputOnly => Ok(Some(Arc::clone(&audio))),
-            AudioStoragePolicy::HistoryOnly => {
-                self.audio_outputs.push(AudioOutput {
-                    audio: Some(Arc::clone(&audio)),
-                    text: response.text,
-                    duration_ms: response.duration_ms,
-                });
-                Ok(None)
-            }
-            AudioStoragePolicy::Full => {
-                self.audio_outputs.push(AudioOutput {
-                    audio: Some(Arc::clone(&audio)),
-                    text: response.text,
-                    duration_ms: response.duration_ms,
-                });
-                Ok(Some(Arc::clone(&audio)))
-            }
-        }
     }
 }
 
