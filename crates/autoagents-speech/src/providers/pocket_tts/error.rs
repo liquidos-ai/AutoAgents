@@ -6,15 +6,21 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum PocketTTSError {
     /// Model initialization error
-    #[error("Model initialization failed: {0}\nModel variant: {1}\nDevice: {2}\nSuggestion: Ensure sufficient memory available and model files are accessible")]
+    #[error(
+        "Model initialization failed: {0}\nModel variant: {1}\nDevice: {2}\nSuggestion: Ensure sufficient memory available and model files are accessible"
+    )]
     ModelInitError(String, String, String),
 
     /// Voice processing error  
-    #[error("Voice processing failed: {0}\nVoice name: {1}\nOperation: {2}\nSuggestion: Check voice name spelling and ensure voice embeddings are downloaded")]
+    #[error(
+        "Voice processing failed: {0}\nVoice name: {1}\nOperation: {2}\nSuggestion: Check voice name spelling and ensure voice embeddings are downloaded"
+    )]
     VoiceError(String, String, String),
 
     /// Audio generation error
-    #[error("Audio generation failed: {0}\nStage: {1}\nDetails: {2}\nSuggestion: Check input text encoding and model state")]
+    #[error(
+        "Audio generation failed: {0}\nStage: {1}\nDetails: {2}\nSuggestion: Check input text encoding and model state"
+    )]
     GenerationError(String, String, String),
 
     /// IO error
@@ -26,15 +32,21 @@ pub enum PocketTTSError {
     PocketTTSLibraryError(String, String, String),
 
     /// Cache error
-    #[error("Cache operation failed: {0}\nCache type: {1}\nSuggestion: This may indicate a concurrency issue or corrupted cache")]
+    #[error(
+        "Cache operation failed: {0}\nCache type: {1}\nSuggestion: This may indicate a concurrency issue or corrupted cache"
+    )]
     CacheError(String, String),
 
     /// Tensor processing error
-    #[error("Tensor processing failed: {0}\nExpected shape: {1}\nActual shape: {2}\nSuggestion: This indicates a model output format mismatch")]
+    #[error(
+        "Tensor processing failed: {0}\nExpected shape: {1}\nActual shape: {2}\nSuggestion: This indicates a model output format mismatch"
+    )]
     TensorError(String, String, String),
 
     /// Download error
-    #[error("Download failed: {0}\nResource: {1}\nURL: {2}\nSuggestion: Check internet connection and HuggingFace access token")]
+    #[error(
+        "Download failed: {0}\nResource: {1}\nURL: {2}\nSuggestion: Check internet connection and HuggingFace access token"
+    )]
     DownloadError(String, String, String),
 
     /// Other errors
