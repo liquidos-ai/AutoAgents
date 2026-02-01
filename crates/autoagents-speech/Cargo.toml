@@ -21,10 +21,11 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 base64 = { workspace = true }
+candle-transformers = { version = "0.9.2", optional = true }
 
 # Pocket-TTS dependencies (optional, enabled by feature)
 pocket-tts = { version = "0.3.1", optional = true }
-candle-core = { version = "0.9.1", optional = true }
+candle-core = { version = "0.9.2", optional = true }
 uuid = { workspace = true, features = ["v4"], optional = true }
 anyhow = { workspace = true, optional = true }
 tokio-stream = { workspace = true, optional = true }
