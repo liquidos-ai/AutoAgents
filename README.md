@@ -389,7 +389,7 @@ and [Code of Conduct](CODE_OF_CONDUCT.md) for details.
 
 - **GitHub Issues**: Bug reports and feature requests
 - **Discussions**: Community Q&A and ideas
-- **Discord**: Join our Discord Community using https://discord.gg/Ghau8xYn
+- **Discord**: Join our Discord Community using https://discord.gg/zfAF9MkEtK
 
 ---
 
