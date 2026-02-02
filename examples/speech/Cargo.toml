@@ -1,0 +1,16 @@
+[package]
+name = "speech-examples"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Examples for AutoAgents Speech functionality"
+repository.workspace = true
+publish = false
+
+[dependencies]
+autoagents-speech = { workspace = true, features = ["pocket-tts", "playback"] }
+tokio = { workspace = true }
+hound = { workspace = true }
+env_logger = { workspace = true }
+futures = { workspace = true }
+clap = { workspace = true }
