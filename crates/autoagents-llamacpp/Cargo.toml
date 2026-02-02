@@ -13,6 +13,7 @@ cuda = ["llama-cpp-2/cuda"]
 cuda-no-vmm = ["llama-cpp-2/cuda-no-vmm"]
 metal = ["llama-cpp-2/metal"]
 vulkan = ["llama-cpp-2/vulkan"]
+mtmd = ["llama-cpp-2/mtmd"]
 
 [dependencies]
 llama-cpp-2 = { git = "https://github.com/liquidos-ai/llama-cpp-rs", branch="feature/add_tool_support", default-features = false }

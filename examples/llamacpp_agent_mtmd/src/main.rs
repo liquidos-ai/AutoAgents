@@ -12,7 +12,9 @@ use autoagents_llamacpp::{LlamaCppProvider, ModelSource};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::fs;
 use tokio_stream::StreamExt;
 
 #[derive(Parser, Debug)]
@@ -27,6 +29,9 @@ struct Args {
     #[arg(long, help = "Context size override")]
     n_ctx: Option<u32>,
 
+    #[arg(long, help = "Batch size override")]
+    n_batch: Option<u32>,
+
     #[arg(long, help = "Thread count override")]
     n_threads: Option<i32>,
 
@@ -35,66 +40,27 @@ struct Args {
 
     #[arg(long, default_value_t = 0.2, help = "Sampling temperature")]
     temperature: f32,
-}
 
-#[derive(Debug, Serialize, Deserialize, AgentOutput)]
-#[allow(dead_code)]
-struct MathAgentOutput {
-    #[output(description = "The addition result")]
-    value: i64,
-    #[output(description = "Explanation of the logic")]
-    explanation: String,
-    #[output(description = "If user asks other than math questions, use this to answer them.")]
-    generic: Option<String>,
-}
+    #[arg(long, help = "Path to an image for multimodal prompts")]
+    image: PathBuf,
 
-impl From<ReActAgentOutput> for MathAgentOutput {
-    fn from(output: ReActAgentOutput) -> Self {
-        let resp = output.response;
-        if output.done
-            && !resp.trim().is_empty()
-            && let Ok(value) = serde_json::from_str::<MathAgentOutput>(&resp)
-        {
-            return value;
-        }
-        MathAgentOutput {
-            value: 0,
-            explanation: resp,
-            generic: None,
-        }
-    }
-}
+    #[arg(long, help = "Path to the MTMD mmproj file")]
+    mmproj: Option<PathBuf>,
 
-#[derive(Serialize, Deserialize, ToolInput, Debug)]
-pub struct AdditionArgs {
-    #[input(description = "Left Operand for addition")]
-    left: i64,
-    #[input(description = "Right Operand for addition")]
-    right: i64,
-}
+    #[arg(long, help = "MTMD media marker override")]
+    media_marker: Option<String>,
 
-#[tool(
-    name = "Addition",
-    description = "Use this tool to Add two numbers",
-    input = AdditionArgs,
-)]
-struct Addition {}
-
-#[async_trait]
-impl ToolRuntime for Addition {
-    async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        println!("execute tool: {:?}", args);
-        let typed_args: AdditionArgs = serde_json::from_value(args)?;
-        let result = typed_args.left + typed_args.right;
-        Ok(result.into())
-    }
+    #[arg(
+        long,
+        default_value_t = true,
+        help = "Enable GPU offload for MTMD projection"
+    )]
+    mmproj_use_gpu: bool,
 }
 
 #[agent(
-    name = "math_agent",
-    description = "You are a Math agent, answer user question and also explain them why you got the answer",
-    tools = [Addition],
-    // output = MathAgentOutput //Does not work properly comment for now TODO
+    name = "mtmd_agent",
+    description = "You are an helpful agent, answer user question and also explain them why you got the answer"
 )]
 #[derive(Default, Clone, AgentHooks)]
 struct MathAgent {}
@@ -107,9 +73,9 @@ async fn main() -> Result<(), Error> {
 
     let mut builder = LlamaCppProvider::builder()
         .model_source(ModelSource::HuggingFace {
-            repo_id: "unsloth/Llama-3.2-3B-Instruct-GGUF".to_string(),
-            filename: Some("Llama-3.2-3B-Instruct-Q8_0.gguf".to_string()),
-            mmproj_filename: None,
+            repo_id: "Qwen/Qwen3-VL-2B-Instruct-GGUF".to_string(),
+            filename: Some("Qwen3VL-2B-Instruct-Q8_0.gguf".to_string()),
+            mmproj_filename: Some("mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf".to_string()),
         })
         .max_tokens(args.max_tokens)
         .temperature(args.temperature);
@@ -120,9 +86,19 @@ async fn main() -> Result<(), Error> {
     if let Some(n_ctx) = args.n_ctx {
         builder = builder.n_ctx(n_ctx);
     }
+    if let Some(n_batch) = args.n_batch {
+        builder = builder.n_batch(n_batch);
+    }
     if let Some(n_threads) = args.n_threads {
         builder = builder.n_threads(n_threads);
     }
+    if let Some(mmproj) = &args.mmproj {
+        builder = builder.mmproj_path(mmproj.to_string_lossy().to_string());
+    }
+    if let Some(marker) = &args.media_marker {
+        builder = builder.media_marker(marker.clone());
+    }
+    builder = builder.mmproj_use_gpu(args.mmproj_use_gpu);
 
     let llm = builder
         .build()
@@ -139,31 +115,46 @@ async fn main() -> Result<(), Error> {
         .build()
         .await?;
 
+    let image_bytes = fs::read(&args.image)
+        .await
+        .map_err(|err| Error::CustomError(err.to_string()))?;
+
     let result = agent_handle
         .agent
-        .run(Task::new(args.prompt.clone()))
+        .run(Task::new_with_image(
+            args.prompt.clone(),
+            autoagents::llm::chat::ImageMime::JPEG,
+            image_bytes.clone(),
+        ))
         .await?;
+
     println!("Result: {:?}", result);
 
     // Process the stream directly
-    let mut stream = agent_handle
-        .agent
-        .run_stream(Task::new(args.prompt))
-        .await?;
+    {
+        let mut stream = agent_handle
+            .agent
+            .run_stream(Task::new_with_image(
+                args.prompt.clone(),
+                autoagents::llm::chat::ImageMime::JPEG,
+                image_bytes,
+            ))
+            .await?;
 
-    println!("🌊 Agent Streaming Example");
-    println!("🔄 Processing stream tokens...\n");
+        println!("🌊 Agent Streaming Example");
+        println!("🔄 Processing stream tokens...\n");
 
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(output) => {
-                print!("{}", output);
-            }
-            _ => {
-                //
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(output) => {
+                    print!("{}", output);
+                }
+                _ => {
+                    //
+                }
             }
         }
-    }
+    };
 
     Ok(())
 }

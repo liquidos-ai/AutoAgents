@@ -45,6 +45,33 @@ pub(crate) fn resolve_hf_model(
     Ok(model_path.to_string_lossy().to_string())
 }
 
+pub(crate) fn resolve_hf_file(
+    repo_id: &str,
+    filename: &str,
+    config: &LlamaCppConfig,
+) -> Result<String, LlamaCppProviderError> {
+    if repo_id.is_empty() {
+        return Err(LlamaCppProviderError::Config(
+            "HuggingFace repo_id is required".to_string(),
+        ));
+    }
+    if filename.is_empty() {
+        return Err(LlamaCppProviderError::Config(
+            "HuggingFace filename is required".to_string(),
+        ));
+    }
+
+    let cache = build_cache(config)?;
+    let api = build_api(cache.clone())?;
+    let revision = config.hf_revision.as_deref().unwrap_or("main");
+    let repo = Repo::with_revision(repo_id.to_string(), RepoType::Model, revision.to_string());
+    let api_repo = api.repo(repo);
+    let file_path = api_repo.get(filename).map_err(|err| {
+        LlamaCppProviderError::Other(format!("HuggingFace download error: {}", err))
+    })?;
+    Ok(file_path.to_string_lossy().to_string())
+}
+
 fn build_cache(config: &LlamaCppConfig) -> Result<Cache, LlamaCppProviderError> {
     let cache = match config.model_dir.as_deref() {
         Some(dir) => Cache::new(resolve_cache_dir(dir)?),

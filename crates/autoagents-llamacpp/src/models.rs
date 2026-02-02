@@ -16,6 +16,8 @@ pub enum ModelSource {
         repo_id: String,
         /// Optional GGUF filename override.
         filename: Option<String>,
+        /// Optional MTMD mmproj filename override.
+        mmproj_filename: Option<String>,
     },
 }
 
@@ -32,6 +34,7 @@ impl ModelSource {
         Self::HuggingFace {
             repo_id: repo_id.into(),
             filename: None,
+            mmproj_filename: None,
         }
     }
 
@@ -43,6 +46,20 @@ impl ModelSource {
         Self::HuggingFace {
             repo_id: repo_id.into(),
             filename: Some(filename.into()),
+            mmproj_filename: None,
+        }
+    }
+
+    /// Convenience constructor for a HuggingFace repo with a GGUF + mmproj filename override.
+    pub fn huggingface_with_mmproj(
+        repo_id: impl Into<String>,
+        filename: impl Into<String>,
+        mmproj_filename: impl Into<String>,
+    ) -> Self {
+        Self::HuggingFace {
+            repo_id: repo_id.into(),
+            filename: Some(filename.into()),
+            mmproj_filename: Some(mmproj_filename.into()),
         }
     }
 
@@ -74,6 +91,7 @@ mod tests {
             ModelSource::HuggingFace {
                 repo_id: "org/model".to_string(),
                 filename: None,
+                mmproj_filename: None,
             }
         );
     }

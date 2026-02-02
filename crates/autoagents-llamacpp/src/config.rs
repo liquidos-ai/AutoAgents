@@ -49,6 +49,15 @@ pub struct LlamaCppConfig {
     /// Optional HuggingFace revision (defaults to "main").
     pub hf_revision: Option<String>,
 
+    /// Optional multimodal projection file for MTMD models.
+    pub mmproj_path: Option<String>,
+
+    /// Optional MTMD media marker override.
+    pub media_marker: Option<String>,
+
+    /// Enable GPU offload for MTMD projection.
+    pub mmproj_use_gpu: Option<bool>,
+
     /// Maximum tokens to generate.
     pub max_tokens: Option<u32>,
 
@@ -119,6 +128,9 @@ impl Default for LlamaCppConfig {
             model_dir: None,
             hf_filename: None,
             hf_revision: None,
+            mmproj_path: None,
+            media_marker: None,
+            mmproj_use_gpu: None,
             max_tokens: Some(512),
             temperature: Some(0.7),
             top_p: None,
@@ -201,6 +213,24 @@ impl LlamaCppConfigBuilder {
     /// Set the HuggingFace revision.
     pub fn hf_revision(mut self, revision: impl Into<String>) -> Self {
         self.config.hf_revision = Some(revision.into());
+        self
+    }
+
+    /// Set the multimodal projection (mmproj) file path.
+    pub fn mmproj_path(mut self, path: impl Into<String>) -> Self {
+        self.config.mmproj_path = Some(path.into());
+        self
+    }
+
+    /// Set MTMD media marker.
+    pub fn media_marker(mut self, marker: impl Into<String>) -> Self {
+        self.config.media_marker = Some(marker.into());
+        self
+    }
+
+    /// Enable or disable GPU offload for MTMD projection.
+    pub fn mmproj_use_gpu(mut self, use_gpu: bool) -> Self {
+        self.config.mmproj_use_gpu = Some(use_gpu);
         self
     }
 

@@ -37,6 +37,7 @@ With our native WASM compilation support, You can depoloy the agent orchestratio
 - **Multiple Executors**: ReAct (Reasoning + Acting) and Basic executors with streaming support
 - **Structured Outputs**: Type-safe JSON schema validation and custom output types
 - **Memory Systems**: Configurable memory backends (sliding window, persistent storage - Coming Soon)
+- **TTS**: Out of the support for Text to Speech with Realtime Playback
 
 ### 🔧 **Tool Integration**
 
@@ -52,8 +53,8 @@ With our native WASM compilation support, You can depoloy the agent orchestratio
 ### 🌐 **Deployment Options**
 
 - **Native**: High-performance server and desktop applications
-- **Browser**: Run agents directly in web browsers via WebAssembly
-- **Edge**: Local inference with ONNX models
+- **Browser**: Run agents directly in web browsers via WebAssembly (Coming Soon!)
+- **Edge**: Local inference with Llamacpp
 
 ---
 
@@ -327,7 +328,8 @@ AutoAgents/
 │   ├── autoagents-llm/            # LLM provider implementations
 │   ├── autoagents-toolkit/        # Collection of Ready to use Tools
 │   ├── autoagents-mistral-rs/     # LLM provider implementations using Mistral-rs
-│   ├── autoagents-llamacpp/       # Edge Runtime Implementation using LlamaCpp
+│   ├── autoagents-llamacpp/       # LLM provider Implementation using LlamaCpp
+│   ├── autoagents-speech/         # Speech Model support for TTS and STT
 │   ├── autoagents-qdrant/         # Qdrant vector store
 │   ├── autoagents-test-utils/     # Common test utils
 │   └── autoagents-derive/         # Procedural macros

@@ -63,6 +63,24 @@ impl LlamaCppProviderBuilder {
         self
     }
 
+    /// Set the multimodal projection (mmproj) file path.
+    pub fn mmproj_path(mut self, path: impl Into<String>) -> Self {
+        self.config_builder = self.config_builder.mmproj_path(path);
+        self
+    }
+
+    /// Set MTMD media marker.
+    pub fn media_marker(mut self, marker: impl Into<String>) -> Self {
+        self.config_builder = self.config_builder.media_marker(marker);
+        self
+    }
+
+    /// Enable or disable GPU offload for MTMD projection.
+    pub fn mmproj_use_gpu(mut self, use_gpu: bool) -> Self {
+        self.config_builder = self.config_builder.mmproj_use_gpu(use_gpu);
+        self
+    }
+
     /// Set max tokens.
     pub fn max_tokens(mut self, tokens: u32) -> Self {
         self.config_builder = self.config_builder.max_tokens(tokens);
