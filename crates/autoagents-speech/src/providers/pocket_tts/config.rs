@@ -1,6 +1,6 @@
 //! Configuration for Pocket-TTS provider
 
-use super::models::ModelVariant;
+use super::model::ModelVariant;
 use super::voices::PredefinedVoice;
 use serde::{Deserialize, Serialize};
 
@@ -12,15 +12,12 @@ pub struct PocketTTSConfig {
     pub model_variant: ModelVariant,
 
     /// Temperature for generation (0.0 - 1.0, default: 0.7)
-    #[serde(default = "default_temperature")]
     pub temperature: f32,
 
     /// Number of LSD decode steps (default: 1)
-    #[serde(default = "default_lsd_steps")]
     pub lsd_decode_steps: usize,
 
     /// End-of-sequence threshold (default: -4.0)
-    #[serde(default = "default_eos_threshold")]
     pub eos_threshold: f32,
 
     /// Optional noise clamping value
@@ -32,26 +29,13 @@ pub struct PocketTTSConfig {
     pub default_voice: Option<PredefinedVoice>,
 }
 
-// Default value functions
-fn default_temperature() -> f32 {
-    0.7
-}
-
-fn default_lsd_steps() -> usize {
-    1
-}
-
-fn default_eos_threshold() -> f32 {
-    -4.0
-}
-
 impl Default for PocketTTSConfig {
     fn default() -> Self {
         Self {
             model_variant: ModelVariant::default(),
-            temperature: default_temperature(),
-            lsd_decode_steps: default_lsd_steps(),
-            eos_threshold: default_eos_threshold(),
+            temperature: 0.7,
+            lsd_decode_steps: 1,
+            eos_threshold: -4.0,
             noise_clamp: None,
             default_voice: Some(PredefinedVoice::default()),
         }

@@ -31,7 +31,7 @@
 //!
 //! ## Example
 //!
-//! ```rust,ignore
+//! ```rust
 //! use autoagents_speech::{TTSProvider, SpeechRequest, VoiceIdentifier, AudioFormat};
 //!
 //! async fn generate_speech(provider: &dyn TTSProvider, text: &str) {
@@ -41,34 +41,26 @@
 //!         format: AudioFormat::Wav,
 //!         sample_rate: Some(24000),
 //!     };
-//!     
+//!
 //!     let response = provider.generate_speech(request).await.unwrap();
 //!     println!("Generated {} samples", response.audio.samples.len());
 //! }
 //! ```
 
 pub mod error;
-pub mod models;
-pub mod provider;
-pub mod speech;
+mod provider;
 pub mod types;
 
-// Provider implementations (when features are enabled)
-#[cfg(feature = "pocket-tts")]
+// Provider implementations
 pub mod providers;
 
 // Re-export main types
 pub use error::{TTSError, TTSResult};
-pub use models::{ModelInfo, TTSModelsProvider};
-pub use provider::TTSProvider;
-pub use speech::TTSSpeechProvider;
+pub use provider::{TTSModelsProvider, TTSProvider, TTSSpeechProvider};
 pub use types::{
-    AudioChunk, AudioData, AudioFormat, SharedAudioData, SpeechRequest, SpeechResponse,
+    AudioChunk, AudioData, AudioFormat, ModelInfo, SharedAudioData, SpeechRequest, SpeechResponse,
     VoiceIdentifier,
 };
 
-// Re-export provider types when enabled
-#[cfg(feature = "pocket-tts")]
-pub use providers::pocket_tts::{
-    ModelVariant, PocketTTSConfig, PocketTTSProvider, PredefinedVoice,
-};
+#[cfg(feature = "playback")]
+pub mod playback;

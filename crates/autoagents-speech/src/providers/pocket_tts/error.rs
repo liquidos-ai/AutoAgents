@@ -11,7 +11,7 @@ pub enum PocketTTSError {
     )]
     ModelInitError(String, String, String),
 
-    /// Voice processing error  
+    /// Voice processing error
     #[error(
         "Voice processing failed: {0}\nVoice name: {1}\nOperation: {2}\nSuggestion: Check voice name spelling and ensure voice embeddings are downloaded"
     )]

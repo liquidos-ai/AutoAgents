@@ -1,11 +1,24 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::Arc;
 
+/// Model information
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ModelInfo {
+    /// Model identifier
+    pub id: String,
+    /// Model name
+    pub name: String,
+    /// Model description
+    pub description: Option<String>,
+    /// Supported languages
+    pub languages: Vec<String>,
+}
+
 /// Audio data with normalized samples
 #[derive(Clone, Debug)]
 pub struct AudioData {
     /// Audio samples normalized to [-1.0, 1.0]
-    pub samples: Vec<f32>,
+    pub samples: Vec<f32>, //TODO: Need to check if we can optimize it using lower precission
     /// Number of audio channels (typically 1 for mono)
     pub channels: usize,
     /// Sample rate in Hz

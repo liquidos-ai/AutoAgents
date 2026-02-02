@@ -7,33 +7,28 @@
 //! - Save the audio to a WAV file
 //!
 //! Usage:
-//!   cargo run --example basic_generation
+//!   cargo run -p speech-examples -- --usecase basic
 //!
-//! To disable audio playback:
-//!   NO_PLAY=1 cargo run --example basic_generation
-
-#[path = "common/mod.rs"]
-mod common;
-use common::audio_playback;
 
 use autoagents_speech::{
-    AudioFormat, PocketTTSConfig, PocketTTSProvider, SpeechRequest, TTSSpeechProvider,
-    VoiceIdentifier,
+    AudioFormat, SpeechRequest, TTSSpeechProvider, VoiceIdentifier, playback::AudioPlayer,
+    providers::pocket_tts::PocketTTS,
 };
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+use crate::util::save_audio_to_file;
+
+pub async fn run(output: bool) -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::init();
 
     println!("Initializing Pocket-TTS provider...");
     println!("Note: First run requires downloading ~100MB model from HuggingFace.");
-    println!("      Set HF_TOKEN environment variable if you get a 401 error.");
+    println!("Set HF_TOKEN environment variable if you get a 401 error.");
     println!();
 
     // Create provider with default configuration
     // This will download the model from HuggingFace on first run
-    let provider = match PocketTTSProvider::new(PocketTTSConfig::default()) {
+    let provider = match PocketTTS::new(None) {
         Ok(p) => {
             println!("Provider initialized successfully!");
             println!();
@@ -50,15 +45,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Check if audio playback is enabled
-    audio_playback::print_playback_info();
-
     // Initialize audio player if playback is enabled
-    let audio_player = if audio_playback::is_playback_enabled() {
-        audio_playback::AudioPlayer::try_new()
-    } else {
-        None
-    };
+    let audio_player = AudioPlayer::try_new().ok();
 
     // Example 1: Generate speech with Alba voice (female, French)
     println!("Example 1: Generating speech with Alba voice...");
@@ -77,20 +65,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Play audio if available
     if let Some(ref player) = audio_player {
-        println!("  🔊 Playing audio...");
+        println!("  Playing audio...");
         player.play_samples(&response.audio.samples, response.audio.sample_rate);
         player.wait_until_end();
     }
 
     // Save to file
-    let output_path = "output_alba.wav";
-    save_audio_to_file(
-        &response.audio.samples,
-        response.audio.sample_rate,
-        output_path,
-    )?;
-    println!("  ✓ Saved to: {}", output_path);
-    println!();
+    if output {
+        let output_path = "output_alba.wav";
+        save_audio_to_file(
+            &response.audio.samples,
+            response.audio.sample_rate,
+            output_path,
+        )?;
+        println!("  ✓ Saved to: {}", output_path);
+        println!();
+    }
 
     // Example 2: Generate speech with Marius voice (male, French)
     println!("Example 2: Generating speech with Marius voice...");
@@ -108,44 +98,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Play audio if available
     if let Some(ref player) = audio_player {
-        println!("  🔊 Playing audio...");
+        println!("  Playing audio...");
         player.play_samples(&response.audio.samples, response.audio.sample_rate);
         player.wait_until_end();
     }
 
-    let output_path = "output_marius.wav";
-    save_audio_to_file(
-        &response.audio.samples,
-        response.audio.sample_rate,
-        output_path,
-    )?;
-    println!("  ✓ Saved to: {}", output_path);
-    println!();
-
-    println!("✓ Done! Check the output WAV files.");
-    Ok(())
-}
-
-/// Save audio samples to a WAV file
-fn save_audio_to_file(
-    samples: &[f32],
-    sample_rate: u32,
-    path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Simple WAV writer (mono, f32 PCM)
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate,
-        bits_per_sample: 32,
-        sample_format: hound::SampleFormat::Float,
-    };
-
-    let mut writer = hound::WavWriter::create(path, spec)?;
-
-    for &sample in samples {
-        writer.write_sample(sample)?;
+    if output {
+        let output_path = "output_marius.wav";
+        save_audio_to_file(
+            &response.audio.samples,
+            response.audio.sample_rate,
+            output_path,
+        )?;
+        println!("  ✓ Saved to: {}", output_path);
+        println!();
     }
 
-    writer.finalize()?;
+    println!("Done. Check the output WAV files.");
     Ok(())
 }

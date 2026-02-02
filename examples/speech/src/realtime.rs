@@ -4,60 +4,37 @@
 //! playing as soon as the first chunk is generated, minimizing latency.
 //!
 //! Usage:
-//!   cargo run --release --example realtime_playback
+//!   cargo run -p speech-examples --release -- --usecase realtime
 //!
-//! To disable audio playback:
-//!   NO_PLAY=1 cargo run --release --example realtime_playback
-
-#[path = "common/mod.rs"]
-mod common;
-use common::audio_playback;
 
 use autoagents_speech::{
-    AudioFormat, PocketTTSConfig, PocketTTSProvider, SpeechRequest, TTSSpeechProvider,
-    VoiceIdentifier,
+    AudioFormat, SpeechRequest, TTSSpeechProvider, VoiceIdentifier, playback::AudioPlayer,
+    providers::pocket_tts::PocketTTS,
 };
 use futures::StreamExt;
 use std::time::Instant;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+use crate::util::save_audio_to_file;
+
+pub async fn run(output: bool) -> Result<(), Box<dyn std::error::Error>> {
     println!("Real-Time Audio Generation & Playback");
     println!("=====================================");
     println!();
 
     // Initialize provider
-    println!("⏳ Initializing TTS provider...");
+    println!("Initializing TTS provider...");
     let start = Instant::now();
-    let provider = PocketTTSProvider::new(PocketTTSConfig::default())?;
-    println!("✓ Provider ready in {:.2}s", start.elapsed().as_secs_f64());
+    let provider = PocketTTS::new(None)?;
+    println!("Provider ready in {:.2}s", start.elapsed().as_secs_f64());
     println!();
-
-    // Check if audio playback is enabled
-    audio_playback::print_playback_info();
 
     // Initialize audio player if playback is enabled
-    let audio_player = if audio_playback::is_playback_enabled() {
-        match audio_playback::AudioPlayer::try_new() {
-            Some(player) => {
-                println!("✓ Audio player initialized");
-                Some(player)
-            }
-            None => {
-                println!("⚠️  Audio player unavailable - will save to file only");
-                None
-            }
-        }
-    } else {
-        println!("🔇 Audio playback disabled");
-        None
-    };
-    println!();
+    let audio_player = AudioPlayer::try_new().ok();
 
     // Text to generate
-    let text = "Testing Metal acceleration with real-time playback. This combines GPU acceleration with live audio output";
+    let text = "Hello! This is a test of the Autoagents speech realtime playback.";
 
-    println!("📝 Input text ({} chars):", text.len());
+    println!("Input text ({} chars):", text.len());
     println!("   \"{}\"", text);
     println!();
 
@@ -69,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sample_rate: Some(24000),
     };
 
-    println!("🎙️  Starting real-time generation...");
+    println!("Starting real-time generation...");
     let gen_start = Instant::now();
 
     // Get the audio stream
@@ -81,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sample_rate = 24000;
     let mut first_chunk_time: Option<f64> = None;
 
-    // Process each chunk as it arrives - THIS IS REAL-TIME!
+    // Process each chunk as it arrives.
     while let Some(result) = stream.next().await {
         match result {
             Ok(chunk) => {
@@ -93,12 +70,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let latency = gen_start.elapsed().as_secs_f64();
                     first_chunk_time = Some(latency);
                     println!();
-                    println!("⚡ First chunk received in {:.2}s (latency)", latency);
-                    println!("🔊 Audio playback starting NOW...");
+                    println!("First chunk received in {:.2}s (latency)", latency);
+                    println!("Audio playback starting.");
                     println!();
                 }
 
-                // Play chunk IMMEDIATELY - this is real-time streaming!
+                // Play chunk immediately for real-time streaming.
                 if let Some(ref player) = audio_player {
                     player.play_samples(&chunk.samples, sample_rate);
                 }
@@ -115,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::io::Write::flush(&mut std::io::stdout()).ok();
             }
             Err(e) => {
-                eprintln!("\n❌ Error receiving chunk: {}", e);
+                eprintln!("\nError receiving chunk: {}", e);
                 break;
             }
         }
@@ -126,12 +103,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // Wait for audio playback to complete (if playing)
-    if let Some(ref player) = audio_player {
-        if player.is_playing() {
-            println!("⏳ Waiting for audio playback to finish...");
-            player.wait_until_end();
-            println!("✓ Playback complete");
-        }
+    if let Some(ref player) = audio_player
+        && player.is_playing()
+    {
+        println!("Waiting for audio playback to finish...");
+        player.wait_until_end();
+        println!("Playback complete.");
     }
 
     // Calculate metrics
@@ -139,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rtf = total_gen_time / total_duration as f64; // Real-Time Factor
 
     println!();
-    println!("📊 Performance Metrics:");
+    println!("Performance metrics:");
     println!(
         "   ├─ Time to first chunk: {:.2}s (latency)",
         first_chunk_time.unwrap_or(0.0)
@@ -152,39 +129,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     if rtf < 1.0 {
-        println!("✅ Real-time capable! (RTF < 1.0 means generation is faster than playback)");
+        println!("Real-time capable (RTF < 1.0 means generation is faster than playback).");
     } else {
-        println!("⚠️  Not quite real-time (RTF > 1.0 means generation is slower than playback)");
+        println!("Not real-time (RTF > 1.0 means generation is slower than playback).");
     }
     println!();
 
-    // Save the complete audio
-    let output_path = "output_realtime.wav";
-    save_audio_to_file(&all_samples, sample_rate, output_path)?;
-    println!("💾 Saved complete audio to: {}", output_path);
-
-    Ok(())
-}
-
-/// Save audio samples to a WAV file
-fn save_audio_to_file(
-    samples: &[f32],
-    sample_rate: u32,
-    path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate,
-        bits_per_sample: 32,
-        sample_format: hound::SampleFormat::Float,
-    };
-
-    let mut writer = hound::WavWriter::create(path, spec)?;
-
-    for &sample in samples {
-        writer.write_sample(sample)?;
+    if output {
+        // Save the complete audio
+        let output_path = "output_realtime.wav";
+        save_audio_to_file(&all_samples, sample_rate, output_path)?;
+        println!("Saved complete audio to: {}", output_path);
     }
 
-    writer.finalize()?;
     Ok(())
 }

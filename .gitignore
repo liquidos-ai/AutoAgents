@@ -31,5 +31,4 @@ demo_models
 .aider*
 build_rs_cov.profraw
 cobertura.xml
-burn-lm
 models

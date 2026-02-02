@@ -33,17 +33,41 @@ pub enum TTSError {
     )]
     StreamingNotSupported(String),
 
+    /// Format not supported
+    #[error(
+        "Audio format not supported: {0:?}\nProvider: {1}\nSupported formats: {2}\nSuggestion: Use one of the supported formats"
+    )]
+    FormatNotSupported(crate::types::AudioFormat, String, String),
+
     /// IO error
     #[error(
         "IO error during TTS operation: {0}\nOperation: {1}\nPath: {2}\nSuggestion: Check file permissions and disk space"
     )]
     IoError(std::io::Error, String, String),
 
+    /// Serialization error
+    #[error(
+        "Serialization error: {0}\nData type: {1}\nSuggestion: Check that data structure is serializable"
+    )]
+    SerializationError(String, String),
+
     /// Model not found
     #[error(
         "Model not found: '{0}'\nModel path: {1}\nSuggestion: Ensure model is downloaded from HuggingFace. Check HUGGINGFACE_TOKEN environment variable"
     )]
     ModelNotFound(String, String),
+
+    /// Invalid configuration
+    #[error(
+        "Invalid configuration: {0}\nParameter: {1}\nValid range: {2}\nSuggestion: Review configuration documentation"
+    )]
+    InvalidConfiguration(String, String, String),
+
+    /// Provider not ready
+    #[error(
+        "Provider not ready: {0}\nProvider: {1}\nInitialization state: {2}\nSuggestion: Wait for provider initialization or check logs for errors"
+    )]
+    ProviderNotReady(String, String, String),
 
     /// Other errors
     #[error("TTS error: {0}\nContext: {1}")]

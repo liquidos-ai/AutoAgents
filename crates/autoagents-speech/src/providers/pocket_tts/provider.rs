@@ -4,7 +4,7 @@
 
 use super::config::PocketTTSConfig;
 use super::error::Result;
-use super::library::LibraryBackend;
+use super::tts::PocketTTSBackend;
 use crate::{
     AudioChunk, ModelInfo, SpeechRequest, SpeechResponse, TTSError, TTSModelsProvider, TTSProvider,
     TTSResult, TTSSpeechProvider,
@@ -14,15 +14,16 @@ use futures::Stream;
 use std::pin::Pin;
 
 /// Pocket-TTS provider
-pub struct PocketTTSProvider {
+pub struct PocketTTS {
     config: PocketTTSConfig,
-    backend: LibraryBackend,
+    backend: PocketTTSBackend,
 }
 
-impl PocketTTSProvider {
+impl PocketTTS {
     /// Create a new Pocket-TTS provider
-    pub fn new(config: PocketTTSConfig) -> Result<Self> {
-        let backend = LibraryBackend::new(
+    pub fn new(config: Option<PocketTTSConfig>) -> Result<Self> {
+        let config = config.unwrap_or_default();
+        let backend = PocketTTSBackend::new(
             config.model_variant,
             config.temperature,
             config.lsd_decode_steps,
@@ -58,26 +59,18 @@ impl PocketTTSProvider {
 }
 
 // Implement the marker trait
-impl TTSProvider for PocketTTSProvider {
-    fn provider_name(&self) -> &str {
-        "pocket-tts"
-    }
-
-    fn provider_version(&self) -> &str {
-        "0.3.1"
-    }
-}
+impl TTSProvider for PocketTTS {}
 
 #[async_trait]
-impl TTSSpeechProvider for PocketTTSProvider {
+impl TTSSpeechProvider for PocketTTS {
     async fn generate_speech(&self, request: SpeechRequest) -> TTSResult<SpeechResponse> {
         self.backend.generate(request).await.map_err(TTSError::from)
     }
 
-    async fn generate_speech_stream(
-        &self,
+    async fn generate_speech_stream<'a>(
+        &'a self,
         request: SpeechRequest,
-    ) -> TTSResult<Pin<Box<dyn Stream<Item = TTSResult<AudioChunk>> + Send>>> {
+    ) -> TTSResult<Pin<Box<dyn Stream<Item = TTSResult<AudioChunk>> + Send + 'a>>> {
         let stream = self
             .backend
             .generate_stream(request)
@@ -86,7 +79,7 @@ impl TTSSpeechProvider for PocketTTSProvider {
         let audio_stream = futures::stream::StreamExt::map(stream, |result| {
             result.map_err(TTSError::from).map(|response| AudioChunk {
                 samples: response.audio.samples,
-                is_final: false, // In streaming, we don't know when it's final
+                is_final: false, // In streaming, we don't know when it's final, TODO: Can we improve this
             })
         });
         Ok(Box::pin(audio_stream))
@@ -94,7 +87,7 @@ impl TTSSpeechProvider for PocketTTSProvider {
 }
 
 #[async_trait]
-impl TTSModelsProvider for PocketTTSProvider {
+impl TTSModelsProvider for PocketTTS {
     async fn list_models(&self) -> TTSResult<Vec<ModelInfo>> {
         // For now, we only support one model variant
         Ok(vec![self.get_current_model()])
@@ -105,7 +98,6 @@ impl TTSModelsProvider for PocketTTSProvider {
         ModelInfo {
             id: variant.to_string(),
             name: variant.to_string(),
-            version: Some("0.3.1".to_string()),
             description: Some(variant.description().to_string()),
             languages: vec!["en".to_string()],
         }
@@ -119,16 +111,14 @@ mod tests {
     #[test]
     #[ignore = "requires HuggingFace model download"]
     fn test_provider_creation() {
-        let config = PocketTTSConfig::default();
-        let result = PocketTTSProvider::new(config);
+        let result = PocketTTS::new(None);
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     #[ignore = "requires HuggingFace model download"]
     async fn test_list_models() {
-        let config = PocketTTSConfig::default();
-        let provider = PocketTTSProvider::new(config).unwrap();
+        let provider = PocketTTS::new(None).unwrap();
         let models = provider.list_models().await.unwrap();
         assert!(!models.is_empty());
     }

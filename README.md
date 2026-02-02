@@ -304,9 +304,9 @@ A simple agent which can run tools in WASM runtime.
 
 A sophisticated ReAct-based coding agent with file manipulation capabilities.
 
-### [Wasm Agent](examples/wasm_agent/)
+### [Speech](examples/speech/)
 
-Compile agent runtime into WASM module and load it in a browser web app.
+Run AutoAgents Speech Example with realtime TTS.
 
 ### [Android Local Agent](https://github.com/liquidos-ai/AutoAgents-Android-Example)
 

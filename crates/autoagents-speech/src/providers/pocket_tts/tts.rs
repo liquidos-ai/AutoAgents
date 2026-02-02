@@ -1,16 +1,15 @@
 //! Library backend - runs Pocket-TTS model locally
 
-use super::conversion::samples_to_audio_data;
 use super::error::{PocketTTSError, Result};
-use super::models::ModelVariant;
+use super::model::ModelVariant;
 use super::voices::PredefinedVoice;
-use crate::{SpeechRequest, SpeechResponse, VoiceIdentifier};
+use crate::{AudioData, SpeechRequest, SpeechResponse, VoiceIdentifier};
 use pocket_tts::TTSModel;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 /// Library backend that runs Pocket-TTS locally
-pub struct LibraryBackend {
+pub struct PocketTTSBackend {
     /// Loaded TTS model
     pub(crate) model: TTSModel,
     /// Temperature for generation
@@ -29,7 +28,7 @@ pub struct LibraryBackend {
     voice_cache: Arc<RwLock<HashMap<String, pocket_tts::ModelState>>>,
 }
 
-impl LibraryBackend {
+impl PocketTTSBackend {
     /// Create a new library backend
     pub fn new(
         model_variant: ModelVariant,
@@ -58,6 +57,15 @@ impl LibraryBackend {
             noise_clamp,
             voice_cache: Arc::new(RwLock::new(HashMap::new())),
         })
+    }
+
+    /// Convert pocket-tts audio samples to AudioData
+    fn samples_to_audio_data(samples: Vec<f32>, sample_rate: u32) -> AudioData {
+        AudioData {
+            samples,
+            channels: 1, // Pocket-TTS outputs mono audio
+            sample_rate,
+        }
     }
 
     /// Generate speech from text with a voice identifier
@@ -111,7 +119,7 @@ impl LibraryBackend {
             )
         })?;
 
-        let audio_data = samples_to_audio_data(samples, sample_rate);
+        let audio_data = Self::samples_to_audio_data(samples, sample_rate);
 
         // Calculate duration
         let duration_ms =
@@ -171,7 +179,7 @@ impl LibraryBackend {
                             )
                         })?;
 
-                        let audio_data = samples_to_audio_data(samples, sample_rate);
+                        let audio_data = Self::samples_to_audio_data(samples, sample_rate);
                         let duration_ms = (audio_data.samples.len() as f64
                             / audio_data.sample_rate as f64
                             * 1000.0) as u64;
@@ -262,7 +270,7 @@ mod tests {
     #[test]
     #[ignore = "requires HuggingFace model download"]
     fn test_backend_creation() {
-        let result = LibraryBackend::new(ModelVariant::default(), 0.7, 1, -4.0, None);
+        let result = PocketTTSBackend::new(ModelVariant::default(), 0.7, 1, -4.0, None);
         assert!(result.is_ok());
     }
 }
