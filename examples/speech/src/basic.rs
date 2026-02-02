@@ -114,6 +114,5 @@ pub async fn run(output: bool) -> Result<(), Box<dyn std::error::Error>> {
         println!();
     }
 
-    println!("Done. Check the output WAV files.");
     Ok(())
 }
