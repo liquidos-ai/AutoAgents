@@ -1,6 +1,6 @@
 # llama.cpp Agent Multimodal Example
 
-This example runs a simple AutoAgents math agent using the `autoagents-llamacpp` backend.
+This example runs a simple AutoAgents agent using the `autoagents-llamacpp` backend with image input.
 
 ## Requirements
 
