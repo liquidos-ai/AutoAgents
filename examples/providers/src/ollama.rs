@@ -52,7 +52,7 @@ pub async fn run() -> Result<(), Error> {
     let llm: Arc<Ollama> = LLMBuilder::<Ollama>::new()
         .base_url("http://localhost:11434") // Local Ollama server
         .model("gemma3")
-        .kep_alive("0")
+        .keep_alive("0")
         .max_tokens(512) // Limit response length
         .temperature(0.2) // Control response randomness (0.0-1.0)
         .build()

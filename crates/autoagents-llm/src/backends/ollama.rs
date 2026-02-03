@@ -473,7 +473,7 @@ impl ModelsProvider for Ollama {}
 impl crate::LLMProvider for Ollama {}
 
 impl LLMBuilder<Ollama> {
-    pub fn kep_alive(mut self, keep_alive: impl Into<String>) -> Self {
+    pub fn keep_alive(mut self, keep_alive: impl Into<String>) -> Self {
         self.keep_alive = Some(keep_alive.into());
         self
     }
