@@ -5,7 +5,10 @@
 use crate::{
     FunctionCall, ToolCall,
     builder::LLMBuilder,
-    chat::{ChatMessage, ChatProvider, ChatResponse, ChatRole, StructuredOutputFormat, Tool},
+    chat::{
+        ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StructuredOutputFormat,
+        Tool,
+    },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::{EmbeddingBuilder, EmbeddingProvider},
     error::LLMError,
@@ -57,6 +60,8 @@ struct OllamaOptions {
 struct OllamaChatMessage<'a> {
     role: &'a str,
     content: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<OllamaToolCallRequest>>,
 }
 
 /// Response from Ollama's API endpoints.
@@ -237,12 +242,64 @@ struct OllamaToolCall {
     function: OllamaFunctionCall,
 }
 
+#[derive(Serialize, Debug)]
+struct OllamaToolCallRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    #[serde(rename = "type")]
+    call_type: String,
+    function: OllamaFunctionCallRequest,
+}
+
+#[derive(Serialize, Debug)]
+struct OllamaFunctionCallRequest {
+    name: String,
+    arguments: Value,
+}
+
 #[derive(Deserialize, Debug)]
 struct OllamaFunctionCall {
     /// Name of the tool that was called
     name: String,
     /// Arguments provided to the tool
     arguments: Value,
+}
+
+fn tool_args_to_value(args: &str) -> Value {
+    serde_json::from_str(args).unwrap_or_else(|_| Value::String(args.to_string()))
+}
+
+fn chat_message_to_ollama_message<'a>(msg: &'a ChatMessage) -> OllamaChatMessage<'a> {
+    OllamaChatMessage {
+        role: match msg.role {
+            ChatRole::User => "user",
+            ChatRole::Assistant => "assistant",
+            ChatRole::System => "system",
+            ChatRole::Tool => "tool",
+        },
+        content: match msg.message_type {
+            MessageType::Text => &msg.content,
+            MessageType::ToolUse(_) => "",
+            MessageType::ToolResult(_) => &msg.content,
+            _ => &msg.content,
+        },
+        tool_calls: match &msg.message_type {
+            MessageType::ToolUse(calls) => Some(
+                calls
+                    .iter()
+                    .map(|call| OllamaToolCallRequest {
+                        id: Some(call.id.clone()),
+                        call_type: "function".to_string(),
+                        function: OllamaFunctionCallRequest {
+                            name: call.function.name.clone(),
+                            arguments: tool_args_to_value(&call.function.arguments),
+                        },
+                    })
+                    .collect(),
+            ),
+            _ => None,
+        },
+    }
 }
 
 impl Ollama {
@@ -302,14 +359,19 @@ impl Ollama {
 
         let chat_messages: Vec<OllamaChatMessage> = messages
             .iter()
-            .map(|msg| OllamaChatMessage {
-                role: match msg.role {
-                    ChatRole::User => "user",
-                    ChatRole::Assistant => "assistant",
-                    ChatRole::System => "system",
-                    ChatRole::Tool => "user",
-                },
-                content: &msg.content,
+            .flat_map(|msg| {
+                if let MessageType::ToolResult(ref results) = msg.message_type {
+                    results
+                        .iter()
+                        .map(|result| OllamaChatMessage {
+                            role: "tool",
+                            content: &result.function.arguments,
+                            tool_calls: None,
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    vec![chat_message_to_ollama_message(msg)]
+                }
             })
             .collect();
 
