@@ -1,0 +1,38 @@
+[package]
+name = "autoagents-telemetry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+tracing-opentelemetry = "0.32.1"
+opentelemetry = "0.31.0"
+opentelemetry-appender-tracing = "0.31.1"
+opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "metrics", "experimental_metrics_periodicreader_with_async_runtime", "experimental_trace_batch_span_processor_with_async_runtime"] }
+opentelemetry-otlp = { version = "0.31.0", features = [
+  "http-proto",
+  "reqwest-client",
+] }
+opentelemetry-http = { version = "0.31.0", features = ["reqwest"] }
+reqwest = { workspace = true }
+autoagents-core = { workspace = true }
+futures-util = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true, features = ["sync"] }
+thiserror = { workspace = true }
+base64 = { workspace = true, optional = true }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
+
+[features]
+default = []
+langfuse = ["dep:base64"]
+
+[dev-dependencies]
+opentelemetry_sdk = { version = "0.31.0", features = ["testing"] }

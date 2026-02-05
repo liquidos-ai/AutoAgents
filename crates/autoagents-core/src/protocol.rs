@@ -65,6 +65,8 @@ pub enum Event {
 
     /// Tool call requested (with ID)
     ToolCallRequested {
+        sub_id: SubmissionId,
+        actor_id: ActorID,
         id: String,
         tool_name: String,
         arguments: String,
@@ -72,6 +74,8 @@ pub enum Event {
 
     /// Tool call completed (with ID and result)
     ToolCallCompleted {
+        sub_id: SubmissionId,
+        actor_id: ActorID,
         id: String,
         tool_name: String,
         result: serde_json::Value,
@@ -79,6 +83,8 @@ pub enum Event {
 
     /// Tool call has failed
     ToolCallFailed {
+        sub_id: SubmissionId,
+        actor_id: ActorID,
         id: String,
         tool_name: String,
         error: String,
@@ -86,12 +92,16 @@ pub enum Event {
 
     /// A turn has started
     TurnStarted {
+        sub_id: SubmissionId,
+        actor_id: ActorID,
         turn_number: usize,
         max_turns: usize,
     },
 
     /// A turn has completed
     TurnCompleted {
+        sub_id: SubmissionId,
+        actor_id: ActorID,
         turn_number: usize,
         final_turn: bool,
     },
@@ -179,6 +189,8 @@ mod tests {
     #[test]
     fn test_event_serialization_tool_calls() {
         let tool_call_requested = Event::ToolCallRequested {
+            sub_id: Uuid::new_v4(),
+            actor_id: Uuid::new_v4(),
             id: "call_123".to_string(),
             tool_name: "test_tool".to_string(),
             arguments: "{\"param\": \"value\"}".to_string(),
@@ -192,6 +204,7 @@ mod tests {
                 id,
                 tool_name,
                 arguments,
+                ..
             } => {
                 assert_eq!(id, "call_123");
                 assert_eq!(tool_name, "test_tool");
@@ -205,6 +218,8 @@ mod tests {
     fn test_event_serialization_tool_call_completed() {
         let result = json!({"output": "tool result"});
         let event = Event::ToolCallCompleted {
+            sub_id: Uuid::new_v4(),
+            actor_id: Uuid::new_v4(),
             id: "call_456".to_string(),
             tool_name: "completed_tool".to_string(),
             result: result.clone(),
@@ -218,6 +233,7 @@ mod tests {
                 id,
                 tool_name,
                 result: res,
+                ..
             } => {
                 assert_eq!(id, "call_456");
                 assert_eq!(tool_name, "completed_tool");
@@ -230,6 +246,8 @@ mod tests {
     #[test]
     fn test_event_serialization_tool_call_failed() {
         let event = Event::ToolCallFailed {
+            sub_id: Uuid::new_v4(),
+            actor_id: Uuid::new_v4(),
             id: "call_789".to_string(),
             tool_name: "failed_tool".to_string(),
             error: "Tool execution failed".to_string(),
@@ -243,6 +261,7 @@ mod tests {
                 id,
                 tool_name,
                 error,
+                ..
             } => {
                 assert_eq!(id, "call_789");
                 assert_eq!(tool_name, "failed_tool");
@@ -255,6 +274,8 @@ mod tests {
     #[test]
     fn test_event_serialization_turn_events() {
         let turn_started = Event::TurnStarted {
+            sub_id: Uuid::new_v4(),
+            actor_id: Uuid::new_v4(),
             turn_number: 1,
             max_turns: 10,
         };
@@ -266,6 +287,7 @@ mod tests {
             Event::TurnStarted {
                 turn_number,
                 max_turns,
+                ..
             } => {
                 assert_eq!(turn_number, 1);
                 assert_eq!(max_turns, 10);
@@ -274,6 +296,8 @@ mod tests {
         }
 
         let turn_completed = Event::TurnCompleted {
+            sub_id: Uuid::new_v4(),
+            actor_id: Uuid::new_v4(),
             turn_number: 1,
             final_turn: false,
         };
@@ -285,6 +309,7 @@ mod tests {
             Event::TurnCompleted {
                 turn_number,
                 final_turn,
+                ..
             } => {
                 assert_eq!(turn_number, 1);
                 assert!(!final_turn);

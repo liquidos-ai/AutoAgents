@@ -2,8 +2,29 @@
 
 ## Project Structure & Module Organization
 - Workspace layout: `crates/*` (core libraries), `examples/*` (runnable crates), `docs/` (documentation), `assets/` (images), `demo_models/` (sample models).
-- Key crates: `autoagents` (entry), `autoagents-core`, `autoagents-llm`, `autoagents-derive`, `autoagents-toolkit`, optional: `autoagents-burn`, `autoagents-onnx`.
+- Key crates: `autoagents` (entry), `autoagents-core`, `autoagents-llm`, `autoagents-derive`, `autoagents-toolkit`. 
 - Tests live alongside code (`mod tests`) and as integration tests under each crate’s `tests/`.
+
+## Code Quality
+- Code should be production ready and modular
+- Should not implement half baked work or TODO.
+- The code whould be fully functional
+
+### Naming conventions
+- `snake_case` for functions, variables, modules.
+- `CamelCase` for types, traits, enums.
+- `SCREAMING_SNAKE_CASE` for constants.
+- Use descriptive, domain-focused names; avoid abbreviations.
+
+### Error handling
+- Propagate errors with `?` and define meaningful error types.
+- Add context to errors when it helps debugging.
+- Avoid panics in library code; in binaries, panic only for truly fatal states.
+
+### Logging and diagnostics
+- Use structured logging when a logging crate is introduced.
+- Do not print with `println!` in library code; reserve for examples or CLI output.
+
 
 ## Build, Test, and Development Commands
 - Build workspace: `cargo build --workspace --all-features`
@@ -13,12 +34,6 @@
 - Docs: `cargo doc --all-features --no-deps`
 - Run examples: `cargo run -p basic-example` or `cargo run -p coding_agent`
 - Git hooks: install once with `lefthook install`; run locally via `lefthook run pre-commit`
-
-## Coding Style & Naming Conventions
-- Rust 2021 edition; 4-space indent; `rustfmt` required.
-- Names: crates `kebab-case`, modules/functions `snake_case`, types/traits `UpperCamelCase`, constants `SCREAMING_SNAKE_CASE`.
-- Keep warnings at zero (`-D warnings`); prefer `Result` over panics; avoid `unwrap()` in library code.
-- Feature flags mirror providers (e.g., `openai`, `anthropic`) and bundles (e.g., `full`, `logging`).
 
 ## Testing Guidelines
 - Use Rust’s built-in test harness; async tests with `#[tokio::test]` where needed.

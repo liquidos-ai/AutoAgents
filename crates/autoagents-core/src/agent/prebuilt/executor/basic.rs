@@ -179,8 +179,8 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
             &tx_event,
             task.submission_id,
             context.config().id,
-            task.prompt.clone(),
             context.config().name.clone(),
+            task.prompt.clone(),
         )
         .await;
 
@@ -212,6 +212,14 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
             .await
             .map_err(|e| BasicExecutorError::LLMError(e.to_string()))?;
         let response_text = response.text().unwrap_or_default();
+        EventHelper::send_task_completed(
+            &tx_event,
+            task.submission_id,
+            context.config().id,
+            context.config().name.clone(),
+            response_text.clone(),
+        )
+        .await;
         Ok(BasicAgentOutput {
             response: response_text,
             done: true,
@@ -231,8 +239,8 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
             &tx_event,
             task.submission_id,
             context.config().id,
-            task.prompt.clone(),
             context.config().name.clone(),
+            task.prompt.clone(),
         )
         .await;
 

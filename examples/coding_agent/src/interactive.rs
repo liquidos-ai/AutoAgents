@@ -158,6 +158,7 @@ fn handle_events(mut event_stream: BoxEventStream<Event>) {
                 Event::TurnStarted {
                     turn_number,
                     max_turns,
+                    ..
                 } => {
                     println!(
                         "{}",
@@ -167,6 +168,7 @@ fn handle_events(mut event_stream: BoxEventStream<Event>) {
                 Event::TurnCompleted {
                     turn_number,
                     final_turn,
+                    ..
                 } => {
                     println!(
                         "{}",

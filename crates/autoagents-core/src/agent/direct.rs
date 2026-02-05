@@ -10,7 +10,11 @@ use crate::agent::constants::DEFAULT_CHANNEL_BUFFER;
 
 use crate::channel::{Receiver, Sender, channel};
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::event_fanout::EventFanout;
 use crate::utils::{BoxEventStream, receiver_into_stream};
+#[cfg(not(target_arch = "wasm32"))]
+use futures_util::stream;
 
 /// Marker type for direct (non-actor) agents.
 ///
@@ -31,11 +35,32 @@ impl AgentType for DirectAgent {
 pub struct DirectAgentHandle<T: AgentDeriveT + AgentExecutor + AgentHooks + Send + Sync> {
     pub agent: BaseAgent<T, DirectAgent>,
     pub rx: BoxEventStream<Event>,
+    #[cfg(not(target_arch = "wasm32"))]
+    fanout: Option<EventFanout>,
 }
 
 impl<T: AgentDeriveT + AgentExecutor + AgentHooks> DirectAgentHandle<T> {
     pub fn new(agent: BaseAgent<T, DirectAgent>, rx: BoxEventStream<Event>) -> Self {
-        Self { agent, rx }
+        Self {
+            agent,
+            rx,
+            #[cfg(not(target_arch = "wasm32"))]
+            fanout: None,
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn subscribe_events(&mut self) -> BoxEventStream<Event> {
+        if let Some(fanout) = &self.fanout {
+            return fanout.subscribe();
+        }
+
+        let stream = std::mem::replace(&mut self.rx, Box::pin(stream::empty::<Event>()));
+        let fanout = EventFanout::new(stream, DEFAULT_CHANNEL_BUFFER);
+        self.rx = fanout.subscribe();
+        let stream = fanout.subscribe();
+        self.fanout = Some(fanout);
+        stream
     }
 }
 

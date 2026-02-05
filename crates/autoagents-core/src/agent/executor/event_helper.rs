@@ -67,12 +67,16 @@ impl EventHelper {
     /// Send turn started event
     pub async fn send_turn_started(
         tx: &Option<mpsc::Sender<Event>>,
+        sub_id: SubmissionId,
+        actor_id: ActorID,
         turn_number: usize,
         max_turns: usize,
     ) {
         Self::send(
             tx,
             Event::TurnStarted {
+                sub_id,
+                actor_id,
                 turn_number,
                 max_turns,
             },
@@ -83,12 +87,16 @@ impl EventHelper {
     /// Send turn completed event
     pub async fn send_turn_completed(
         tx: &Option<mpsc::Sender<Event>>,
+        sub_id: SubmissionId,
+        actor_id: ActorID,
         turn_number: usize,
         final_turn: bool,
     ) {
         Self::send(
             tx,
             Event::TurnCompleted {
+                sub_id,
+                actor_id,
                 turn_number,
                 final_turn,
             },

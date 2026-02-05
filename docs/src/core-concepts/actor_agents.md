@@ -71,15 +71,15 @@ These map to `autoagents::core::protocol::Event` variants emitted by actor agent
   - Final result for a task. `result` is a pretty JSON string; parse into your agent output type when needed.
 - `TaskError { sub_id, actor_id, error }`
   - Any executor/provider error surfaced during execution.
-- `TurnStarted { turn_number, max_turns }`
+- `TurnStarted { sub_id, actor_id, turn_number, max_turns }`
   - Multi-turn executors (e.g., ReAct) mark each turn start.
-- `TurnCompleted { turn_number, final_turn }`
+- `TurnCompleted { sub_id, actor_id, turn_number, final_turn }`
   - Marks turn completion; `final_turn` is true when the loop ends.
-- `ToolCallRequested { id, tool_name, arguments }`
+- `ToolCallRequested { sub_id, actor_id, id, tool_name, arguments }`
   - The LLM requested a tool call with JSON arguments (as string).
-- `ToolCallCompleted { id, tool_name, result }`
+- `ToolCallCompleted { sub_id, actor_id, id, tool_name, result }`
   - Tool finished successfully; `result` is JSON.
-- `ToolCallFailed { id, tool_name, error }`
+- `ToolCallFailed { sub_id, actor_id, id, tool_name, error }`
   - Tool failed; error string is included.
 - `StreamChunk { sub_id, chunk }`
   - Streaming delta content; `chunk` matches provider’s streaming shape.

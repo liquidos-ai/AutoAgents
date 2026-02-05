@@ -14,6 +14,8 @@ mod channel;
 pub mod document;
 pub mod embeddings;
 pub mod error;
+#[cfg(not(target_arch = "wasm32"))]
+mod event_fanout;
 pub mod one_or_many;
 pub mod protocol;
 pub mod readers;

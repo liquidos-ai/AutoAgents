@@ -72,6 +72,8 @@ pub trait Runtime: Send + Sync {
     fn tx(&self) -> mpsc::Sender<Event>;
     async fn transport(&self) -> Arc<dyn Transport>;
     async fn take_event_receiver(&self) -> Option<BoxEventStream<Event>>;
+    /// Subscribe to runtime protocol events without consuming the receiver.
+    async fn subscribe_events(&self) -> BoxEventStream<Event>;
     /// Run the runtime event loop and process internal messages until stopped.
     async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     /// Request shutdown of the runtime.

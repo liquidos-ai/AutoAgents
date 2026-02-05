@@ -1,0 +1,16 @@
+[package]
+name = "telemetry-example"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+autoagents = { workspace = true, features = ["openai", "logging"] }
+autoagents-derive.workspace = true
+autoagents-telemetry = { workspace = true, features = ["langfuse"] }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+tokio-stream = { workspace = true }
+tracing = { workspace = true }

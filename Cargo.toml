@@ -38,6 +38,9 @@ autoagents-qdrant = { path = "crates/autoagents-qdrant", version = "0.3.2" }
 # Speech (TTS/STT)
 autoagents-speech = { path = "crates/autoagents-speech", version = "0.3.2" }
 
+# Telemetry
+autoagents-telemetry = { path = "crates/autoagents-telemetry", version = "0.3.2" }
+
 # Test Utils
 autoagents-test-utils = { path = "crates/autoagents-test-utils" }
 

@@ -123,6 +123,21 @@ impl Environment {
         }
     }
 
+    /// Subscribe to runtime events without consuming the receiver.
+    pub async fn subscribe_events(
+        &self,
+        runtime_id: Option<RuntimeID>,
+    ) -> Result<BoxEventStream<Event>, EnvironmentError> {
+        let runtime = self
+            .get_runtime_or_default(runtime_id)
+            .await
+            .map_err(|err| match err {
+                Error::EnvironmentError(env_err) => env_err,
+                _ => EnvironmentError::EventError,
+            })?;
+        Ok(runtime.subscribe_events().await)
+    }
+
     /// Request shutdown on all runtimes and await the run handle if present.
     pub async fn shutdown(&mut self) {
         let _ = self.runtime_manager.stop().await;
