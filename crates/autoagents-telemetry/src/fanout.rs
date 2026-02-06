@@ -1,16 +1,18 @@
-use autoagents_core::protocol::Event;
 use autoagents_core::utils::BoxEventStream;
+use autoagents_protocol::Event;
 use futures_util::StreamExt;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 
+/// Broadcasts a single event stream to multiple subscribers.
 pub struct EventFanout {
     tx: broadcast::Sender<Event>,
     _task: JoinHandle<()>,
 }
 
 impl EventFanout {
+    /// Spawn a background task that forwards events into a broadcast channel.
     pub fn new(mut event_stream: BoxEventStream<Event>, buffer: usize) -> Self {
         let (tx, _) = broadcast::channel(buffer);
         let tx_clone = tx.clone();
@@ -23,6 +25,7 @@ impl EventFanout {
         Self { tx, _task: task }
     }
 
+    /// Create a new stream receiver over the broadcast channel.
     pub fn subscribe(&self) -> BoxEventStream<Event> {
         let rx = self.tx.subscribe();
         let stream = BroadcastStream::new(rx)

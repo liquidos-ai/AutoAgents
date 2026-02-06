@@ -1,7 +1,7 @@
 #[cfg(not(target_arch = "wasm32"))]
-use crate::protocol::Event;
-#[cfg(not(target_arch = "wasm32"))]
 use crate::utils::BoxEventStream;
+#[cfg(not(target_arch = "wasm32"))]
+use autoagents_protocol::Event;
 #[cfg(not(target_arch = "wasm32"))]
 use futures_util::StreamExt;
 #[cfg(not(target_arch = "wasm32"))]

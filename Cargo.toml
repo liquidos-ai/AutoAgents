@@ -6,6 +6,7 @@ default-members = [
     "crates/autoagents-core",
     "crates/autoagents-llm",
     "crates/autoagents-derive",
+    "crates/autoagents-protocol"
 ]
 members = ["crates/*", "examples/*"]
 
@@ -26,6 +27,7 @@ autoagents = { path = "crates/autoagents", version = "0.3.2" }
 autoagents-derive = { path = "crates/autoagents-derive", version = "0.3.2" }
 autoagents-core = { path = "crates/autoagents-core", version = "0.3.2" }
 autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.3.2" }
+autoagents-protocol = { path = "crates/autoagents-protocol", version = "0.3.2" }
 
 # LLM and Providers
 autoagents-llm = { path = "crates/autoagents-llm", version = "0.3.2" }

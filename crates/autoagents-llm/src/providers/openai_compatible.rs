@@ -16,6 +16,7 @@ use crate::{
     default_call_type,
 };
 use async_trait::async_trait;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use either::*;
 use futures::{StreamExt, stream::Stream};
 use reqwest::{Client, Url};
@@ -959,7 +960,16 @@ pub fn chat_message_to_openai_message(chat_msg: ChatMessage) -> OpenAIChatMessag
         tool_call_id: None,
         content: match &chat_msg.message_type {
             MessageType::Text => Some(Right(chat_msg.content.clone())),
-            MessageType::Image(_) => unreachable!(),
+            MessageType::Image((mime, bytes)) => {
+                let url = format!("data:{};base64,{}", mime.mime_type(), BASE64.encode(bytes));
+                Some(Left(vec![OpenAIMessageContent {
+                    message_type: Some("image_url"),
+                    text: None,
+                    image_url: Some(ImageUrlContent { url }),
+                    tool_output: None,
+                    tool_call_id: None,
+                }]))
+            }
             MessageType::Pdf(_) => unimplemented!(),
             MessageType::ImageURL(url) => Some(Left(vec![OpenAIMessageContent {
                 message_type: Some("image_url"),

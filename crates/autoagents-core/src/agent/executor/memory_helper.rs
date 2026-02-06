@@ -1,7 +1,8 @@
 use crate::agent::memory::MemoryProvider;
 use crate::tool::ToolCallResult;
 use autoagents_llm::ToolCall;
-use autoagents_llm::chat::{ChatMessage, ChatRole, ImageMime, MessageType};
+use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
+use autoagents_protocol::ImageMime;
 use std::sync::Arc;
 
 use super::tool_processor::ToolProcessor;
@@ -71,7 +72,7 @@ impl MemoryHelper {
             let message = if let Some((mime, data)) = image {
                 ChatMessage {
                     role: ChatRole::User,
-                    message_type: MessageType::Image((mime, data)),
+                    message_type: MessageType::Image((mime.into(), data)),
                     content,
                 }
             } else {

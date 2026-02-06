@@ -9,8 +9,9 @@ use autoagents::core::agent::{AgentBuilder, DirectAgent};
 use autoagents::llm::{
     backends::openai::OpenAI,
     builder::LLMBuilder,
-    chat::{ChatMessage, ChatProvider, ImageMime},
+    chat::{ChatMessage, ChatProvider},
 };
+use autoagents::protocol::ImageMime;
 use autoagents_derive::{AgentHooks, agent};
 use clap::Parser;
 use std::path::PathBuf;
@@ -70,7 +71,7 @@ async fn main() -> anyhow::Result<()> {
     // Create the message with image
     let message = ChatMessage::user()
         .content("What do you see in this image?")
-        .image(ImageMime::JPEG, image_bytes.clone())
+        .image(ImageMime::JPEG.into(), image_bytes.clone())
         .build();
 
     println!("\nSending image to OpenAI...");

@@ -20,9 +20,9 @@ pub use crate::core::tool::{ToolCallResult, ToolInputT, ToolRuntime, ToolT};
 pub use crate::core::actor::Topic;
 #[cfg(not(target_arch = "wasm32"))]
 pub use crate::core::environment::Environment;
-pub use crate::core::protocol::Event;
 #[cfg(not(target_arch = "wasm32"))]
 pub use crate::core::runtime::{SingleThreadedRuntime, TypedRuntime};
+pub use crate::protocol::Event;
 
 // Errors
 pub use crate::core::error::Error;

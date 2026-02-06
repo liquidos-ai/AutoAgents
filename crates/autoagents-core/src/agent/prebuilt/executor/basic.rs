@@ -194,7 +194,7 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
             // Task has an image, create an Image message
             ChatMessage {
                 role: ChatRole::User,
-                message_type: MessageType::Image((*mime, image_data.clone())),
+                message_type: MessageType::Image(((*mime).into(), image_data.clone())),
                 content: task.prompt.clone(),
             }
         } else {
@@ -254,7 +254,7 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
             // Task has an image, create an Image message
             ChatMessage {
                 role: ChatRole::User,
-                message_type: MessageType::Image((*mime, image_data.clone())),
+                message_type: MessageType::Image(((*mime).into(), image_data.clone())),
                 content: task.prompt.clone(),
             }
         } else {
@@ -341,7 +341,7 @@ mod tests {
     async fn test_basic_agent_execute() {
         use crate::agent::task::Task;
         use crate::agent::{AgentConfig, Context};
-        use crate::protocol::ActorID;
+        use autoagents_protocol::ActorID;
 
         let mock_agent = MockAgentImpl::new("test_agent", "Test agent description");
         let basic_agent = BasicAgent::new(mock_agent);

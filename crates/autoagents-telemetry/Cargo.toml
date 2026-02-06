@@ -8,7 +8,13 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = []
+langfuse = ["dep:base64"]
+
 [dependencies]
+autoagents-core = { workspace = true }
+autoagents-protocol = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 tracing-opentelemetry = "0.32.1"
@@ -21,7 +27,6 @@ opentelemetry-otlp = { version = "0.31.0", features = [
 ] }
 opentelemetry-http = { version = "0.31.0", features = ["reqwest"] }
 reqwest = { workspace = true }
-autoagents-core = { workspace = true }
 futures-util = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true, features = ["sync"] }
@@ -29,10 +34,6 @@ thiserror = { workspace = true }
 base64 = { workspace = true, optional = true }
 async-trait = { workspace = true }
 serde_json = { workspace = true }
-
-[features]
-default = []
-langfuse = ["dep:base64"]
 
 [dev-dependencies]
 opentelemetry_sdk = { version = "0.31.0", features = ["testing"] }

@@ -1,12 +1,12 @@
 use crate::agent::executor::AgentExecutor;
 use crate::agent::task::Task;
 use crate::agent::{AgentDeriveT, Context, ExecutorConfig, TurnResult};
-use crate::protocol::{Event, StreamingTurnResult, SubmissionId};
 use crate::tool::{ToolCallResult, ToolT, to_llm_tool};
 use async_trait::async_trait;
 use autoagents_llm::ToolCall;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, StreamChunk, Tool};
 use autoagents_llm::error::LLMError;
+use autoagents_protocol::{Event, StreamingTurnResult, SubmissionId};
 use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

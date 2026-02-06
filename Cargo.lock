@@ -497,6 +497,7 @@ dependencies = [
  "autoagents-core",
  "autoagents-derive",
  "autoagents-llm",
+ "autoagents-protocol",
  "autoagents-test-utils",
  "env_logger",
  "serde_json",
@@ -509,6 +510,7 @@ version = "0.3.2"
 dependencies = [
  "async-trait",
  "autoagents-llm",
+ "autoagents-protocol",
  "autoagents-test-utils",
  "futures",
  "futures-core",
@@ -563,6 +565,7 @@ name = "autoagents-llm"
 version = "0.3.2"
 dependencies = [
  "async-trait",
+ "autoagents-protocol",
  "base64 0.22.1",
  "bytes",
  "chrono",
@@ -603,6 +606,15 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "autoagents-protocol"
+version = "0.3.2"
+dependencies = [
+ "serde",
+ "serde_json",
+ "uuid 1.20.0",
 ]
 
 [[package]]
@@ -652,6 +664,7 @@ version = "0.3.2"
 dependencies = [
  "async-trait",
  "autoagents-core",
+ "autoagents-protocol",
  "base64 0.22.1",
  "futures-util",
  "opentelemetry",

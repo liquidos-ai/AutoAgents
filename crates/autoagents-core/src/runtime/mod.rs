@@ -1,6 +1,6 @@
 use crate::actor::{AnyActor, CloneableMessage, Transport};
-use crate::protocol::{Event, RuntimeID};
 use async_trait::async_trait;
+use autoagents_protocol::{Event, RuntimeID};
 use ractor::ActorRef;
 use std::any::{Any, TypeId};
 use std::fmt::Debug;

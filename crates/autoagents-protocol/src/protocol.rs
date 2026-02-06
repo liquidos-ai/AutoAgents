@@ -1,6 +1,6 @@
-use crate::agent::task::Task;
+use crate::StreamChunk;
+use crate::task::Task;
 use crate::tool::ToolCallResult;
-use autoagents_llm::chat::StreamChunk;
 use serde::{Deserialize, Serialize};
 use std::any::{Any, TypeId};
 use std::fmt::Debug;

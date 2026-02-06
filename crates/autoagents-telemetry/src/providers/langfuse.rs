@@ -1,8 +1,12 @@
 use crate::config::{ExporterConfig, OtlpConfig, OtlpProtocol, TelemetryConfig};
-use crate::providers::TelemetryProvider;
+use crate::providers::{TelemetryAttributeProvider, TelemetryProvider};
 use base64::{Engine as _, engine::general_purpose};
+use opentelemetry::Value;
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
+use std::sync::Arc;
 
+/// Langfuse deployment target for OTLP export.
 #[derive(Debug, Clone)]
 pub enum LangfuseRegion {
     Us,
@@ -20,6 +24,7 @@ impl LangfuseRegion {
     }
 }
 
+/// Langfuse-specific telemetry configuration builder.
 #[derive(Debug, Clone)]
 pub struct LangfuseTelemetry {
     public_key: String,
@@ -105,5 +110,95 @@ impl LangfuseTelemetry {
 impl TelemetryProvider for LangfuseTelemetry {
     fn telemetry_config(&self) -> TelemetryConfig {
         self.clone().build()
+    }
+
+    fn attribute_provider(&self) -> Option<Arc<dyn TelemetryAttributeProvider>> {
+        Some(Arc::new(LangfuseAttributeProvider))
+    }
+}
+
+#[derive(Debug)]
+struct LangfuseAttributeProvider;
+
+impl TelemetryAttributeProvider for LangfuseAttributeProvider {
+    fn task_started_attributes(
+        &self,
+        actor_name: &str,
+        task_input: &str,
+    ) -> Vec<(&'static str, Value)> {
+        vec![
+            ("langfuse.trace.name", Value::from(actor_name.to_string())),
+            (
+                "langfuse.trace.input",
+                Value::from(normalize_langfuse_json(task_input)),
+            ),
+            ("langfuse.observation.type", Value::from("span")),
+            (
+                "langfuse.observation.input",
+                Value::from(normalize_langfuse_json(task_input)),
+            ),
+        ]
+    }
+
+    fn task_completed_attributes(&self, task_output: &str) -> Vec<(&'static str, Value)> {
+        let output = normalize_langfuse_json(task_output);
+        vec![
+            ("langfuse.trace.output", Value::from(output.clone())),
+            ("langfuse.observation.output", Value::from(output)),
+        ]
+    }
+
+    fn tool_started_attributes(
+        &self,
+        tool_name: &str,
+        tool_args: &str,
+    ) -> Vec<(&'static str, Value)> {
+        vec![
+            ("langfuse.observation.type", Value::from("tool")),
+            (
+                "langfuse.observation.name",
+                Value::from(tool_name.to_string()),
+            ),
+            (
+                "langfuse.observation.input",
+                Value::from(normalize_langfuse_json(tool_args)),
+            ),
+        ]
+    }
+
+    fn tool_completed_attributes(
+        &self,
+        tool_name: &str,
+        tool_output: &str,
+    ) -> Vec<(&'static str, Value)> {
+        vec![
+            ("langfuse.observation.type", Value::from("tool")),
+            (
+                "langfuse.observation.name",
+                Value::from(tool_name.to_string()),
+            ),
+            (
+                "langfuse.observation.output",
+                Value::from(normalize_langfuse_json(tool_output)),
+            ),
+        ]
+    }
+
+    fn tool_failed_attributes(&self, tool_name: &str, _error: &str) -> Vec<(&'static str, Value)> {
+        vec![
+            ("langfuse.observation.type", Value::from("tool")),
+            (
+                "langfuse.observation.name",
+                Value::from(tool_name.to_string()),
+            ),
+        ]
+    }
+}
+
+fn normalize_langfuse_json(value: &str) -> String {
+    if serde_json::from_str::<JsonValue>(value).is_ok() {
+        value.to_string()
+    } else {
+        serde_json::to_string(value).unwrap_or_else(|_| value.to_string())
     }
 }

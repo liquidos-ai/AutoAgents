@@ -13,7 +13,17 @@ Each span is correlated using `submission_id` + `actor_id` so it works for both 
 ## Direct agents
 
 ```rust
-use autoagents_telemetry::{ExporterConfig, OtlpConfig, TelemetryConfig, attach_to_direct};
+use autoagents_telemetry::{ExporterConfig, OtlpConfig, TelemetryConfig, TelemetryProvider, Tracer};
+use std::sync::Arc;
+
+#[derive(Debug)]
+struct StaticTelemetryProvider(TelemetryConfig);
+
+impl TelemetryProvider for StaticTelemetryProvider {
+    fn telemetry_config(&self) -> TelemetryConfig {
+        self.0.clone()
+    }
+}
 
 let mut telemetry_config = TelemetryConfig::new("my-app");
 telemetry_config.exporter = ExporterConfig {
@@ -21,13 +31,25 @@ telemetry_config.exporter = ExporterConfig {
     stdout: false,
 };
 
-let _telemetry = attach_to_direct(&mut agent_handle, telemetry_config)?;
+let telemetry_provider = Arc::new(StaticTelemetryProvider(telemetry_config));
+let mut tracer = Tracer::from_direct(telemetry_provider, &mut agent_handle);
+tracer.start()?;
 ```
 
 ## Actor runtimes
 
 ```rust
-use autoagents_telemetry::{ExporterConfig, OtlpConfig, TelemetryConfig, attach_to_environment};
+use autoagents_telemetry::{ExporterConfig, OtlpConfig, TelemetryConfig, TelemetryProvider, Tracer};
+use std::sync::Arc;
+
+#[derive(Debug)]
+struct StaticTelemetryProvider(TelemetryConfig);
+
+impl TelemetryProvider for StaticTelemetryProvider {
+    fn telemetry_config(&self) -> TelemetryConfig {
+        self.0.clone()
+    }
+}
 
 let mut telemetry_config = TelemetryConfig::new("my-app");
 telemetry_config.exporter = ExporterConfig {
@@ -35,7 +57,9 @@ telemetry_config.exporter = ExporterConfig {
     stdout: false,
 };
 
-let _telemetry = attach_to_environment(&mut env, None, telemetry_config).await?;
+let telemetry_provider = Arc::new(StaticTelemetryProvider(telemetry_config));
+let mut tracer = Tracer::from_environment(telemetry_provider, &mut env, None).await?;
+tracer.start()?;
 ```
 
 ## Provider configuration (Langfuse, Honeycomb, Jaeger, etc.)

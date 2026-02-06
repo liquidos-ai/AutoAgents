@@ -1,6 +1,6 @@
-use crate::protocol::{ActorID, Event, SubmissionId};
 use crate::tool::{ToolCallResult, ToolT};
 use autoagents_llm::{FunctionCall, ToolCall};
+use autoagents_protocol::{ActorID, Event, SubmissionId};
 use serde_json::Value;
 
 #[cfg(not(target_arch = "wasm32"))]

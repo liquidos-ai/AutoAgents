@@ -1,5 +1,5 @@
 use autoagents_llm::chat::{FunctionTool, Tool};
-use serde::{Deserialize, Serialize};
+pub use autoagents_protocol::ToolCallResult;
 use serde_json::Value;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -9,16 +9,6 @@ pub use runtime::ToolRuntime;
 
 #[cfg(feature = "wasmtime")]
 pub use runtime::{WasmRuntime, WasmRuntimeError};
-
-/// Result emitted after executing a single tool call, including the tool name,
-/// success flag, original arguments, and the tool's structured result payload.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolCallResult {
-    pub tool_name: String,
-    pub success: bool,
-    pub arguments: Value,
-    pub result: Value,
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ToolCallError {

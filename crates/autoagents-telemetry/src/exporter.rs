@@ -15,6 +15,7 @@ use reqwest::Client as ReqwestClient;
 use std::fmt;
 use std::time::Duration;
 
+/// Fan-out exporter that forwards span batches to all configured backends.
 #[derive(Debug)]
 pub(crate) struct MultiSpanExporter {
     exporters: Vec<SpanExporterWrapper>,
@@ -66,6 +67,7 @@ impl SpanExporterWrapper {
     }
 }
 
+// Wrapper that logs OTLP HTTP responses for debugging.
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone)]
 struct LoggingHttpClient {
@@ -162,6 +164,7 @@ impl SpanExporter for MultiSpanExporter {
     }
 }
 
+/// Span exporter that logs span data to the tracing subscriber.
 #[derive(Debug, Default)]
 pub(crate) struct StdoutSpanExporter;
 

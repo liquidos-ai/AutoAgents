@@ -1,8 +1,8 @@
 use crate::error::Error;
-use crate::protocol::{Event, RuntimeID};
 use crate::runtime::manager::RuntimeManager;
 use crate::runtime::{Runtime, RuntimeError};
 use crate::utils::BoxEventStream;
+use autoagents_protocol::{Event, RuntimeID};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::task::JoinHandle;

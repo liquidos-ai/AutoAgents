@@ -1,5 +1,5 @@
-use autoagents::core::protocol::Event;
 use autoagents::core::utils::BoxEventStream;
+use autoagents::protocol::Event;
 use tokio_stream::StreamExt;
 
 pub fn handle_events(mut event_stream: BoxEventStream<Event>) {

@@ -1,5 +1,5 @@
 use super::{Runtime, RuntimeError};
-use crate::protocol::RuntimeID;
+use autoagents_protocol::RuntimeID;
 use futures::future::try_join_all;
 use log::error;
 use std::{collections::HashMap, sync::Arc};

@@ -3,7 +3,7 @@ use crate::agent::error::{AgentBuildError, RunnableAgentError};
 use crate::agent::task::Task;
 use crate::agent::{AgentBuilder, AgentDeriveT, AgentExecutor, AgentHooks, BaseAgent, HookOutcome};
 use crate::error::Error;
-use crate::protocol::Event;
+use autoagents_protocol::Event;
 use futures::Stream;
 
 use crate::agent::constants::DEFAULT_CHANNEL_BUFFER;

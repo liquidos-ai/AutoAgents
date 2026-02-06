@@ -5,7 +5,6 @@ use autoagents::core::agent::prebuilt::executor::BasicAgent;
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, DirectAgent};
 use autoagents::core::error::Error;
-use autoagents::llm::chat::ImageMime;
 use autoagents_mistral_rs::models::ModelType;
 use autoagents_mistral_rs::{MistralRsProvider, ModelSource};
 use std::path::PathBuf;
@@ -91,7 +90,7 @@ pub async fn run_example(llm: Arc<MistralRsProvider>) -> Result<(), Error> {
         .agent
         .run(Task::new_with_image(
             "Describe the image?",
-            ImageMime::JPEG,
+            autoagents::protocol::ImageMime::JPEG,
             image_bytes,
         ))
         .await?;

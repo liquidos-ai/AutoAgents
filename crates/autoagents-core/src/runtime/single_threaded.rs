@@ -1,13 +1,12 @@
 use super::{Runtime, RuntimeError};
 use crate::agent::constants::DEFAULT_CHANNEL_BUFFER;
-use crate::protocol::InternalEvent;
 use crate::utils::{BoxEventStream, receiver_into_stream};
 use crate::{
     actor::{AnyActor, Transport},
     error::Error,
-    protocol::{Event, RuntimeID},
 };
 use async_trait::async_trait;
+use autoagents_protocol::{Event, InternalEvent, RuntimeID};
 use futures_util::StreamExt;
 use log::{debug, error, info, warn};
 use std::{
