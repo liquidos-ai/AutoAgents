@@ -1,6 +1,6 @@
-use crate::protocol::Event;
 use crate::tool::{ToolCallResult, ToolT};
 use autoagents_llm::{FunctionCall, ToolCall};
+use autoagents_protocol::{ActorID, Event, SubmissionId};
 use serde_json::Value;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -16,17 +16,30 @@ use futures::SinkExt;
 /// Handles all tool-related operations in a centralized manner
 pub struct ToolProcessor;
 
+#[derive(Debug, Clone, Copy)]
+pub struct ToolCallContext {
+    pub sub_id: SubmissionId,
+    pub actor_id: ActorID,
+}
+
+impl ToolCallContext {
+    pub fn new(sub_id: SubmissionId, actor_id: ActorID) -> Self {
+        Self { sub_id, actor_id }
+    }
+}
+
 impl ToolProcessor {
     /// Process multiple tool calls and return results
     pub async fn process_tool_calls(
         tools: &[Box<dyn ToolT>],
         tool_calls: Vec<ToolCall>,
+        context: ToolCallContext,
         tx_event: Option<mpsc::Sender<Event>>,
     ) -> Vec<ToolCallResult> {
         let mut results = Vec::new();
 
         for call in &tool_calls {
-            let result = Self::process_single_tool_call(tools, call, &tx_event).await;
+            let result = Self::process_single_tool_call(tools, call, context, &tx_event).await;
             results.push(result);
         }
 
@@ -37,6 +50,7 @@ impl ToolProcessor {
     pub(crate) async fn process_single_tool_call_with_hooks<H: AgentHooks>(
         hooks: &H,
         context: &Context,
+        submission_id: SubmissionId,
         tools: &[Box<dyn ToolT>],
         call: &ToolCall,
         tx_event: &Option<mpsc::Sender<Event>>,
@@ -52,7 +66,8 @@ impl ToolProcessor {
         //Run the tool start hook
         hooks.on_tool_start(call, context).await;
 
-        let result = Self::process_single_tool_call(tools, call, tx_event).await;
+        let tool_context = ToolCallContext::new(submission_id, context.config().id);
+        let result = Self::process_single_tool_call(tools, call, tool_context, tx_event).await;
 
         //Run on tool result hook
         if result.success {
@@ -70,6 +85,7 @@ impl ToolProcessor {
     pub(crate) async fn process_single_tool_call(
         tools: &[Box<dyn ToolT>],
         call: &ToolCall,
+        context: ToolCallContext,
         tx_event: &Option<mpsc::Sender<Event>>,
     ) -> ToolCallResult {
         let tool_name = call.function.name.clone();
@@ -79,6 +95,8 @@ impl ToolProcessor {
         Self::send_event(
             tx_event,
             Event::ToolCallRequested {
+                sub_id: context.sub_id,
+                actor_id: context.actor_id,
                 id: call.id.clone(),
                 tool_name: tool_name.clone(),
                 arguments: tool_args.clone(),
@@ -97,7 +115,7 @@ impl ToolProcessor {
         };
 
         // Send completion or failure event
-        Self::send_tool_result_event(tx_event, call, &result).await;
+        Self::send_tool_result_event(tx_event, call, &result, context).await;
 
         result
     }
@@ -149,15 +167,20 @@ impl ToolProcessor {
         tx: &Option<mpsc::Sender<Event>>,
         call: &ToolCall,
         result: &ToolCallResult,
+        context: ToolCallContext,
     ) {
         let event = if result.success {
             Event::ToolCallCompleted {
+                sub_id: context.sub_id,
+                actor_id: context.actor_id,
                 id: call.id.clone(),
                 tool_name: result.tool_name.clone(),
                 result: result.result.clone(),
             }
         } else {
             Event::ToolCallFailed {
+                sub_id: context.sub_id,
+                actor_id: context.actor_id,
                 id: call.id.clone(),
                 tool_name: result.tool_name.clone(),
                 error: result.result.to_string(),

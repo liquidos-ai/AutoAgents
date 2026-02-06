@@ -1,12 +1,12 @@
 use crate::agent::executor::AgentExecutor;
 use crate::agent::task::Task;
 use crate::agent::{AgentDeriveT, Context, ExecutorConfig, TurnResult};
-use crate::protocol::{Event, StreamingTurnResult, SubmissionId};
 use crate::tool::{ToolCallResult, ToolT, to_llm_tool};
 use async_trait::async_trait;
 use autoagents_llm::ToolCall;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, StreamChunk, Tool};
 use autoagents_llm::error::LLMError;
+use autoagents_protocol::{Event, StreamingTurnResult, SubmissionId};
 use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -28,7 +28,7 @@ type SendError = futures::channel::mpsc::SendError;
 
 use crate::agent::executor::event_helper::EventHelper;
 use crate::agent::executor::memory_helper::MemoryHelper;
-use crate::agent::executor::tool_processor::ToolProcessor;
+use crate::agent::executor::tool_processor::{ToolCallContext, ToolProcessor};
 use crate::agent::hooks::{AgentHooks, HookOutcome};
 use crate::channel::{Sender, channel};
 use crate::utils::{receiver_into_stream, spawn_future};
@@ -214,6 +214,7 @@ impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
     async fn process_turn(
         &self,
         context: &Context,
+        submission_id: SubmissionId,
         tools: &[Box<dyn ToolT>],
     ) -> Result<TurnResult<ReActAgentOutput>, ReActExecutorError> {
         let messages = self.prepare_messages(context).await;
@@ -221,8 +222,14 @@ impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
         let response_text = response.text().unwrap_or_default();
 
         if let Some(tool_calls) = response.tool_calls() {
-            self.handle_tool_calls(context, tools, tool_calls.clone(), response_text)
-                .await
+            self.handle_tool_calls(
+                context,
+                submission_id,
+                tools,
+                tool_calls.clone(),
+                response_text,
+            )
+            .await
         } else {
             self.handle_text_response(context, response_text).await
         }
@@ -258,6 +265,7 @@ impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
     async fn handle_tool_calls(
         &self,
         context: &Context,
+        submission_id: SubmissionId,
         tools: &[Box<dyn ToolT>],
         tool_calls: Vec<ToolCall>,
         response_text: String,
@@ -268,7 +276,12 @@ impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
         let mut tool_results = Vec::new();
         for call in &tool_calls {
             if let Some(result) = ToolProcessor::process_single_tool_call_with_hooks(
-                self, context, tools, call, &tx_event,
+                self,
+                context,
+                submission_id,
+                tools,
+                call,
+                &tx_event,
             )
             .await
             {
@@ -410,8 +423,13 @@ impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
         }
 
         let tx_event = context.tx().ok();
-        let tool_results =
-            ToolProcessor::process_tool_calls(tools, tool_calls.clone(), tx_event).await;
+        let tool_results = ToolProcessor::process_tool_calls(
+            tools,
+            tool_calls.clone(),
+            ToolCallContext::new(submission_id, context.config().id),
+            tx_event,
+        )
+        .await;
 
         MemoryHelper::store_tool_interaction(
             &context.memory(),
@@ -500,8 +518,8 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
             &tx_event,
             task.submission_id,
             context.config().id,
-            task.prompt.clone(),
             context.config().name.clone(),
+            task.prompt.clone(),
         )
         .await;
 
@@ -512,13 +530,31 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
 
         for turn_num in 0..max_turns {
             let tools = context.tools();
-            EventHelper::send_turn_started(&tx_event, turn_num, max_turns).await;
+            EventHelper::send_turn_started(
+                &tx_event,
+                task.submission_id,
+                context.config().id,
+                turn_num,
+                max_turns,
+            )
+            .await;
 
             //Run Hook
             self.on_turn_start(turn_num, &context).await;
 
-            match self.process_turn(&context, tools).await? {
+            match self
+                .process_turn(&context, task.submission_id, tools)
+                .await?
+            {
                 TurnResult::Complete(result) => {
+                    EventHelper::send_task_completed(
+                        &tx_event,
+                        task.submission_id,
+                        context.config().id,
+                        context.config().name.clone(),
+                        result.response.clone(),
+                    )
+                    .await;
                     if !accumulated_tool_calls.is_empty() {
                         return Ok(ReActAgentOutput {
                             response: result.response,
@@ -526,7 +562,14 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                             tool_calls: accumulated_tool_calls,
                         });
                     }
-                    EventHelper::send_turn_completed(&tx_event, turn_num, false).await;
+                    EventHelper::send_turn_completed(
+                        &tx_event,
+                        task.submission_id,
+                        context.config().id,
+                        turn_num,
+                        false,
+                    )
+                    .await;
                     //Run Hook
                     self.on_turn_complete(turn_num, &context).await;
                     return Ok(result);
@@ -546,8 +589,8 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                 &tx_event,
                 task.submission_id,
                 context.config().id,
-                final_response.clone(),
                 context.config().name.clone(),
+                final_response.clone(),
             )
             .await;
             Ok(ReActAgentOutput {
@@ -595,8 +638,8 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
             &tx_event,
             task.submission_id,
             context.config().id,
-            task.prompt.clone(),
             context.config().name.clone(),
+            task.prompt.clone(),
         )
         .await;
 
@@ -618,7 +661,14 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
             for turn in 0..max_turns {
                 // Send turn events
                 let tx_event = context_clone.tx().ok();
-                EventHelper::send_turn_started(&tx_event, turn, max_turns).await;
+                EventHelper::send_turn_started(
+                    &tx_event,
+                    submission_id,
+                    context_clone.config().id,
+                    turn,
+                    max_turns,
+                )
+                .await;
 
                 // Process streaming turn
                 match executor
@@ -627,7 +677,14 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                 {
                     Ok(StreamingTurnResult::Complete(response)) => {
                         final_response = response;
-                        EventHelper::send_turn_completed(&tx_event, turn, true).await;
+                        EventHelper::send_turn_completed(
+                            &tx_event,
+                            submission_id,
+                            context_clone.config().id,
+                            turn,
+                            true,
+                        )
+                        .await;
                         break;
                     }
                     Ok(StreamingTurnResult::ToolCallsProcessed(tool_results)) => {
@@ -641,7 +698,14 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                             }))
                             .await;
 
-                        EventHelper::send_turn_completed(&tx_event, turn, false).await;
+                        EventHelper::send_turn_completed(
+                            &tx_event,
+                            submission_id,
+                            context_clone.config().id,
+                            turn,
+                            false,
+                        )
+                        .await;
                     }
                     Err(e) => {
                         let _ = tx.send(Err(e)).await;
@@ -656,11 +720,21 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
 
             let _ = tx
                 .send(Ok(ReActAgentOutput {
-                    response: final_response,
+                    response: final_response.clone(),
                     done: true,
-                    tool_calls: accumulated_tool_calls,
+                    tool_calls: accumulated_tool_calls.clone(),
                 }))
                 .await;
+            if !final_response.is_empty() || !accumulated_tool_calls.is_empty() {
+                EventHelper::send_task_completed(
+                    &tx_event,
+                    submission_id,
+                    context_clone.config().id,
+                    context_clone.config().name.clone(),
+                    final_response.clone(),
+                )
+                .await;
+            }
         });
 
         Ok(receiver_into_stream(rx))

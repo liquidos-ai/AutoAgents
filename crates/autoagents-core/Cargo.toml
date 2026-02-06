@@ -16,6 +16,7 @@ wasmtime = ["dep:wasmtime"]
 
 [dependencies]
 autoagents-llm.workspace = true
+autoagents-protocol = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -32,7 +33,7 @@ futures-util = { workspace = true }
 # Non-WASM dependencies (only when not targeting wasm32)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true }
-tokio-stream = { workspace = true }
+tokio-stream = { workspace = true, features = ["sync"] }
 ractor = { version = "0.15.7", features = ["serde", "async-trait"] }
 
 # WASM dependencies (only when targeting wasm32)

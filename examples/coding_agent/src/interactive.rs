@@ -6,10 +6,10 @@ use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::protocol::Event;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::utils::BoxEventStream;
 use autoagents::llm::LLMProvider;
+use autoagents::protocol::Event;
 use colored::*;
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -158,6 +158,7 @@ fn handle_events(mut event_stream: BoxEventStream<Event>) {
                 Event::TurnStarted {
                     turn_number,
                     max_turns,
+                    ..
                 } => {
                     println!(
                         "{}",
@@ -167,6 +168,7 @@ fn handle_events(mut event_stream: BoxEventStream<Event>) {
                 Event::TurnCompleted {
                     turn_number,
                     final_turn,
+                    ..
                 } => {
                     println!(
                         "{}",

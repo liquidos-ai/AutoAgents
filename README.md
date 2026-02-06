@@ -49,6 +49,7 @@ With our native WASM compilation support, You can depoloy the agent orchestratio
 - **Provider Agnostic**: Support for OpenAI, Anthropic, Ollama, and local models
 - **Multi-Platform**: Native Rust, WASM for browsers, and server deployments
 - **Multi-Agent**: Type-safe pub/sub communication and agent orchestration
+- **Telemetry**: OpenTelemetry tracing + metrics with pluggable exporters
 
 ### 🌐 **Deployment Options**
 
@@ -325,7 +326,9 @@ AutoAgents/
 ├── crates/
 │   ├── autoagents/                # Main library entry point
 │   ├── autoagents-core/           # Core agent framework
+│   ├── autoagents-protocol/       # Shared protocol/event types
 │   ├── autoagents-llm/            # LLM provider implementations
+│   ├── autoagents-telemetry/      # OpenTelemetry integration
 │   ├── autoagents-toolkit/        # Collection of Ready to use Tools
 │   ├── autoagents-mistral-rs/     # LLM provider implementations using Mistral-rs
 │   ├── autoagents-llamacpp/       # LLM provider Implementation using LlamaCpp

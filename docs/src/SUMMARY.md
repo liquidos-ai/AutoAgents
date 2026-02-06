@@ -17,6 +17,7 @@
 - [Executors: When To Use What](./core-concepts/executors_guide.md)
 - [Actor Agents](./core-concepts/actor_agents.md)
 - [Advanced Patterns](./core-concepts/advanced_patterns.md)
+- [Telemetry](./core-concepts/telemetry.md)
 
 # Serve & CLI
 

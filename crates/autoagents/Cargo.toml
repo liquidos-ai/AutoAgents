@@ -28,6 +28,7 @@ wasmtime = ["autoagents-core/wasmtime"]
 [dependencies]
 autoagents-core.workspace = true
 autoagents-llm.workspace = true
+autoagents-protocol.workspace = true
 async-trait = { workspace = true }
 env_logger = { workspace = true, optional = true }
 autoagents-derive.workspace = true

@@ -1,5 +1,6 @@
-use crate::protocol::{ActorID, Event, SubmissionId};
-use autoagents_llm::chat::StreamChunk;
+use autoagents_llm::chat::StreamChunk as LlmStreamChunk;
+use autoagents_protocol::StreamChunk;
+use autoagents_protocol::{ActorID, Event, SubmissionId};
 use serde_json::Value;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -67,12 +68,16 @@ impl EventHelper {
     /// Send turn started event
     pub async fn send_turn_started(
         tx: &Option<mpsc::Sender<Event>>,
+        sub_id: SubmissionId,
+        actor_id: ActorID,
         turn_number: usize,
         max_turns: usize,
     ) {
         Self::send(
             tx,
             Event::TurnStarted {
+                sub_id,
+                actor_id,
                 turn_number,
                 max_turns,
             },
@@ -83,12 +88,16 @@ impl EventHelper {
     /// Send turn completed event
     pub async fn send_turn_completed(
         tx: &Option<mpsc::Sender<Event>>,
+        sub_id: SubmissionId,
+        actor_id: ActorID,
         turn_number: usize,
         final_turn: bool,
     ) {
         Self::send(
             tx,
             Event::TurnCompleted {
+                sub_id,
+                actor_id,
                 turn_number,
                 final_turn,
             },
@@ -100,8 +109,9 @@ impl EventHelper {
     pub async fn send_stream_chunk(
         tx: &Option<mpsc::Sender<Event>>,
         sub_id: SubmissionId,
-        chunk: StreamChunk,
+        chunk: LlmStreamChunk,
     ) {
+        let chunk: StreamChunk = chunk.into();
         Self::send(tx, Event::StreamChunk { sub_id, chunk }).await;
     }
 
@@ -117,5 +127,34 @@ impl EventHelper {
     /// Send stream complete event
     pub async fn send_stream_complete(tx: &Option<mpsc::Sender<Event>>, sub_id: SubmissionId) {
         Self::send(tx, Event::StreamComplete { sub_id }).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use autoagents_llm::chat::StreamChunk as LlmStreamChunk;
+    use autoagents_protocol::StreamChunk as ProtocolStreamChunk;
+
+    #[tokio::test]
+    async fn stream_chunk_is_converted_to_protocol() {
+        let (tx, mut rx) = mpsc::channel::<Event>(1);
+        let tx = Some(tx);
+        let sub_id = SubmissionId::new_v4();
+        let chunk = LlmStreamChunk::Text("hello".to_string());
+
+        let expected: ProtocolStreamChunk = chunk.clone().into();
+        EventHelper::send_stream_chunk(&tx, sub_id, chunk.clone()).await;
+
+        let event = rx.recv().await.expect("event");
+        match event {
+            Event::StreamChunk { sub_id: id, chunk } => {
+                assert_eq!(id, sub_id);
+                let expected_json = serde_json::to_string(&expected).unwrap();
+                let actual_json = serde_json::to_string(&chunk).unwrap();
+                assert_eq!(actual_json, expected_json);
+            }
+            _ => panic!("unexpected event"),
+        }
     }
 }

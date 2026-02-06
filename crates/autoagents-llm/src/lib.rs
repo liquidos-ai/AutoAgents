@@ -45,6 +45,7 @@ pub mod secret_store;
 /// Listing models support
 pub mod models;
 
+mod protocol;
 pub mod providers;
 
 //Re-export for convenience

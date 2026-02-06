@@ -179,8 +179,8 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
             &tx_event,
             task.submission_id,
             context.config().id,
-            task.prompt.clone(),
             context.config().name.clone(),
+            task.prompt.clone(),
         )
         .await;
 
@@ -194,7 +194,7 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
             // Task has an image, create an Image message
             ChatMessage {
                 role: ChatRole::User,
-                message_type: MessageType::Image((*mime, image_data.clone())),
+                message_type: MessageType::Image(((*mime).into(), image_data.clone())),
                 content: task.prompt.clone(),
             }
         } else {
@@ -212,6 +212,14 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
             .await
             .map_err(|e| BasicExecutorError::LLMError(e.to_string()))?;
         let response_text = response.text().unwrap_or_default();
+        EventHelper::send_task_completed(
+            &tx_event,
+            task.submission_id,
+            context.config().id,
+            context.config().name.clone(),
+            response_text.clone(),
+        )
+        .await;
         Ok(BasicAgentOutput {
             response: response_text,
             done: true,
@@ -231,8 +239,8 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
             &tx_event,
             task.submission_id,
             context.config().id,
-            task.prompt.clone(),
             context.config().name.clone(),
+            task.prompt.clone(),
         )
         .await;
 
@@ -246,7 +254,7 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
             // Task has an image, create an Image message
             ChatMessage {
                 role: ChatRole::User,
-                message_type: MessageType::Image((*mime, image_data.clone())),
+                message_type: MessageType::Image(((*mime).into(), image_data.clone())),
                 content: task.prompt.clone(),
             }
         } else {
@@ -333,7 +341,7 @@ mod tests {
     async fn test_basic_agent_execute() {
         use crate::agent::task::Task;
         use crate::agent::{AgentConfig, Context};
-        use crate::protocol::ActorID;
+        use autoagents_protocol::ActorID;
 
         let mock_agent = MockAgentImpl::new("test_agent", "Test agent description");
         let basic_agent = BasicAgent::new(mock_agent);

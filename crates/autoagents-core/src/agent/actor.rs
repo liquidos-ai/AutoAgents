@@ -8,10 +8,10 @@ use crate::agent::task::Task;
 use crate::agent::{AgentBuilder, AgentDeriveT, AgentExecutor, BaseAgent, HookOutcome};
 use crate::channel::Sender;
 use crate::error::Error;
-use crate::protocol::Event;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::runtime::TypedRuntime;
 use async_trait::async_trait;
+use autoagents_protocol::Event;
 #[cfg(target_arch = "wasm32")]
 use futures::SinkExt;
 use futures::Stream;

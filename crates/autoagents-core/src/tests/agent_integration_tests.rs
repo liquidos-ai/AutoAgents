@@ -3,11 +3,11 @@ mod tests {
     use crate::actor::Topic;
     use crate::agent::{AgentBuilder, memory::SlidingWindowMemory, task::Task};
     use crate::environment::Environment;
-    use crate::protocol::Event;
     use crate::runtime::{SingleThreadedRuntime, TypedRuntime};
     use crate::tests::agent::{MockAgentImpl, MockTool, TestAgentOutput};
     use crate::tool::{ToolCallError, ToolRuntime, ToolT};
     use async_trait::async_trait;
+    use autoagents_protocol::Event;
     use autoagents_test_utils::llm::MockLLMProvider;
     use serde_json::Value;
     use std::sync::Arc;

@@ -6,11 +6,11 @@ use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{ActorAgent, AgentBuilder, AgentOutputT};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
-use autoagents::core::protocol::Event;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT, WasmRuntime};
 use autoagents::core::utils::BoxEventStream;
 use autoagents::llm::LLMProvider;
+use autoagents::protocol::Event;
 use autoagents_derive::{AgentHooks, AgentOutput, ToolInput, agent, tool};
 use colored::*;
 use serde::{Deserialize, Serialize};
@@ -226,6 +226,7 @@ fn handle_events(mut event_stream: BoxEventStream<Event>) {
                 Event::TurnStarted {
                     turn_number,
                     max_turns,
+                    ..
                 } => {
                     println!(
                         "{}",
@@ -235,6 +236,7 @@ fn handle_events(mut event_stream: BoxEventStream<Event>) {
                 Event::TurnCompleted {
                     turn_number,
                     final_turn,
+                    ..
                 } => {
                     println!(
                         "{}",

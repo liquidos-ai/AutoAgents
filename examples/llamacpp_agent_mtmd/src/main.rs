@@ -123,7 +123,7 @@ async fn main() -> Result<(), Error> {
         .agent
         .run(Task::new_with_image(
             args.prompt.clone(),
-            autoagents::llm::chat::ImageMime::JPEG,
+            autoagents::protocol::ImageMime::JPEG,
             image_bytes.clone(),
         ))
         .await?;
@@ -136,7 +136,7 @@ async fn main() -> Result<(), Error> {
             .agent
             .run_stream(Task::new_with_image(
                 args.prompt.clone(),
-                autoagents::llm::chat::ImageMime::JPEG,
+                autoagents::protocol::ImageMime::JPEG,
                 image_bytes,
             ))
             .await?;

@@ -1,8 +1,8 @@
 use crate::error::Error;
-use crate::protocol::{Event, RuntimeID};
 use crate::runtime::manager::RuntimeManager;
 use crate::runtime::{Runtime, RuntimeError};
 use crate::utils::BoxEventStream;
+use autoagents_protocol::{Event, RuntimeID};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -121,6 +121,21 @@ impl Environment {
         } else {
             Err(EnvironmentError::RuntimeNotFound(runtime_id.unwrap()))
         }
+    }
+
+    /// Subscribe to runtime events without consuming the receiver.
+    pub async fn subscribe_events(
+        &self,
+        runtime_id: Option<RuntimeID>,
+    ) -> Result<BoxEventStream<Event>, EnvironmentError> {
+        let runtime = self
+            .get_runtime_or_default(runtime_id)
+            .await
+            .map_err(|err| match err {
+                Error::EnvironmentError(env_err) => env_err,
+                _ => EnvironmentError::EventError,
+            })?;
+        Ok(runtime.subscribe_events().await)
     }
 
     /// Request shutdown on all runtimes and await the run handle if present.

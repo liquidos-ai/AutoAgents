@@ -1,10 +1,10 @@
 use crate::agent::config::AgentConfig;
 use crate::agent::memory::MemoryProvider;
 use crate::agent::{AgentExecutor, Context, output::AgentOutputT};
-use crate::protocol::Event;
-use crate::{protocol::ActorID, tool::ToolT};
+use crate::tool::ToolT;
 use async_trait::async_trait;
 use autoagents_llm::LLMProvider;
+use autoagents_protocol::{ActorID, Event};
 
 use serde_json::Value;
 use std::marker::PhantomData;

@@ -1,5 +1,5 @@
-use crate::protocol::ActorID;
 use autoagents_llm::chat::StructuredOutputFormat;
+use autoagents_protocol::ActorID;
 
 #[derive(Clone, Default)]
 pub struct AgentConfig {

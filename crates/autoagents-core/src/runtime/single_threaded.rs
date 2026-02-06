@@ -1,13 +1,13 @@
 use super::{Runtime, RuntimeError};
 use crate::agent::constants::DEFAULT_CHANNEL_BUFFER;
-use crate::protocol::InternalEvent;
 use crate::utils::{BoxEventStream, receiver_into_stream};
 use crate::{
     actor::{AnyActor, Transport},
     error::Error,
-    protocol::{Event, RuntimeID},
 };
 use async_trait::async_trait;
+use autoagents_protocol::{Event, InternalEvent, RuntimeID};
+use futures_util::StreamExt;
 use log::{debug, error, info, warn};
 use std::{
     any::{Any, TypeId},
@@ -17,7 +17,8 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-use tokio::sync::{Mutex, Notify, RwLock, mpsc};
+use tokio::sync::{Mutex, Notify, RwLock, broadcast, mpsc};
+use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use uuid::Uuid;
 
 const DEFAULT_INTERNAL_BUFFER: usize = 1000;
@@ -36,6 +37,8 @@ pub struct SingleThreadedRuntime {
     // External event channel for application consumption
     external_tx: mpsc::Sender<Event>,
     external_rx: Mutex<Option<mpsc::Receiver<Event>>>,
+    // Broadcast event channel for multi-subscriber consumption
+    broadcast_tx: broadcast::Sender<Event>,
     // Internal event channel for runtime processing
     internal_tx: mpsc::Sender<InternalEvent>,
     internal_rx: Mutex<Option<mpsc::Receiver<InternalEvent>>>,
@@ -63,11 +66,13 @@ impl SingleThreadedRuntime {
         // Create channels
         let (external_tx, external_rx) = mpsc::channel(buffer_size);
         let (internal_tx, internal_rx) = mpsc::channel(DEFAULT_INTERNAL_BUFFER);
+        let (broadcast_tx, _) = broadcast::channel(buffer_size);
 
         Arc::new(Self {
             id,
             external_tx,
             external_rx: Mutex::new(Some(external_rx)),
+            broadcast_tx,
             internal_tx,
             internal_rx: Mutex::new(Some(internal_rx)),
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
@@ -105,6 +110,7 @@ impl SingleThreadedRuntime {
             }
             _ => {
                 //Other protocol events are sent to external
+                let _ = self.broadcast_tx.send(event.clone());
                 self.external_tx
                     .send(event)
                     .await
@@ -298,6 +304,13 @@ impl Runtime for SingleThreadedRuntime {
     async fn take_event_receiver(&self) -> Option<BoxEventStream<Event>> {
         let mut guard = self.external_rx.lock().await;
         guard.take().map(receiver_into_stream)
+    }
+
+    async fn subscribe_events(&self) -> BoxEventStream<Event> {
+        let rx = self.broadcast_tx.subscribe();
+        let stream = BroadcastStream::new(rx)
+            .filter_map(|item: Result<Event, BroadcastStreamRecvError>| async move { item.ok() });
+        Box::pin(stream)
     }
 
     async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

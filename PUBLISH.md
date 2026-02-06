@@ -14,6 +14,12 @@ cargo publish
 ```
 
 ```shell
+cd crates/autoagents-protocol
+cargo publish --dry-run # Test first
+cargo publish
+```
+
+```shell
 cd ../autoagents-llm
 cargo publish --dry-run
 cargo publish
@@ -51,6 +57,19 @@ cd ../autoagents-toolkit
 cargo publish --dry-run
 cargo publish
 ```
+
+```shell
+cd ../autoagents-qdrant
+cargo publish --dry-run
+cargo publish
+```
+
+```shell
+cd ../autoagents-speech
+cargo publish --dry-run
+cargo publish
+```
+
 ---
 
 4. Create release tag:
