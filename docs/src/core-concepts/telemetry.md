@@ -13,25 +13,15 @@ Each span is correlated using `submission_id` + `actor_id` so it works for both 
 ## Direct agents
 
 ```rust
-use autoagents_telemetry::{ExporterConfig, OtlpConfig, TelemetryConfig, TelemetryProvider, Tracer};
+use autoagents_telemetry::{LangfuseTelemetry, LangfuseRegion, Tracer};
 use std::sync::Arc;
 
-#[derive(Debug)]
-struct StaticTelemetryProvider(TelemetryConfig);
-
-impl TelemetryProvider for StaticTelemetryProvider {
-    fn telemetry_config(&self) -> TelemetryConfig {
-        self.0.clone()
-    }
-}
-
-let mut telemetry_config = TelemetryConfig::new("my-app");
-telemetry_config.exporter = ExporterConfig {
-    otlp: Some(OtlpConfig::new("http://localhost:4318")),
-    stdout: false,
-};
-
-let telemetry_provider = Arc::new(StaticTelemetryProvider(telemetry_config));
+let telemetry_provider = Arc::new(
+    LangfuseTelemetry::new("PUBLIC_KEY", "SECRET_KEY")
+        .with_region(LangfuseRegion::Us)
+        .with_service_name("my-app")
+        .with_stdout(false),
+);
 let mut tracer = Tracer::from_direct(telemetry_provider, &mut agent_handle);
 tracer.start()?;
 ```
@@ -39,25 +29,15 @@ tracer.start()?;
 ## Actor runtimes
 
 ```rust
-use autoagents_telemetry::{ExporterConfig, OtlpConfig, TelemetryConfig, TelemetryProvider, Tracer};
+use autoagents_telemetry::{LangfuseTelemetry, LangfuseRegion, Tracer};
 use std::sync::Arc;
 
-#[derive(Debug)]
-struct StaticTelemetryProvider(TelemetryConfig);
-
-impl TelemetryProvider for StaticTelemetryProvider {
-    fn telemetry_config(&self) -> TelemetryConfig {
-        self.0.clone()
-    }
-}
-
-let mut telemetry_config = TelemetryConfig::new("my-app");
-telemetry_config.exporter = ExporterConfig {
-    otlp: Some(OtlpConfig::new("http://localhost:4318")),
-    stdout: false,
-};
-
-let telemetry_provider = Arc::new(StaticTelemetryProvider(telemetry_config));
+let telemetry_provider = Arc::new(
+    LangfuseTelemetry::new("PUBLIC_KEY", "SECRET_KEY")
+        .with_region(LangfuseRegion::Us)
+        .with_service_name("my-app")
+        .with_stdout(false),
+);
 let mut tracer = Tracer::from_environment(telemetry_provider, &mut env, None).await?;
 tracer.start()?;
 ```

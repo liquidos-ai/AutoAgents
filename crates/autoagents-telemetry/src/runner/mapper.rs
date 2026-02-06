@@ -766,9 +766,11 @@ mod tests {
         let subscriber = tracing_subscriber::Registry::default().with(otel_layer);
         let _guard = tracing::subscriber::set_default(subscriber);
 
-        let mut redaction = RedactionConfig::default();
-        redaction.redact_task_inputs = true;
-        redaction.redact_tool_arguments = true;
+        let redaction = RedactionConfig {
+            redact_task_inputs: true,
+            redact_tool_arguments: true,
+            ..Default::default()
+        };
         let mut mapper = EventMapper::new(None, redaction, None, None, None);
 
         let sub_id = SubmissionId::new_v4();
