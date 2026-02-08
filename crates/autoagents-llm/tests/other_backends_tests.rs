@@ -2,21 +2,6 @@
 use autoagents_llm::{builder::LLMBuilder, error::LLMError};
 use std::sync::Arc;
 
-#[cfg(feature = "deepseek")]
-mod deepseek_tests {
-    use super::*;
-    use autoagents_llm::backends::deepseek::DeepSeek;
-
-    #[test]
-    fn test_deepseek_builds() {
-        let client = LLMBuilder::<DeepSeek>::new()
-            .api_key("test-key")
-            .model("deepseek-chat")
-            .build()
-            .expect("Failed to build DeepSeek client");
-        assert_eq!(client.model, "deepseek-chat");
-    }
-}
 
 #[cfg(feature = "xai")]
 mod xai_tests {

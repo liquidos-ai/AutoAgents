@@ -9,7 +9,7 @@ default = []
 
 [dependencies]
 autoagents-derive.workspace = true
-autoagents = { workspace = true, features = ["openai", "logging"] }
+autoagents = { workspace = true, features = ["openai", "deepseek", "logging"] }
 autoagents-toolkit = { workspace = true, features = ["search"] }
 tokio = { workspace = true }
 serde = { workspace = true }
