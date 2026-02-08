@@ -33,13 +33,13 @@ pub trait AgentDeriveT: Send + Sync + 'static + Debug {
     type Output: AgentOutputT;
 
     /// Get the agent's description
-    fn description(&self) -> &'static str;
+    fn description(&self) -> &str;
 
     // If you provide None then its taken as String output
     fn output_schema(&self) -> Option<Value>;
 
     /// Get the agent's name
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
 
     /// Get the tools available to this agent
     fn tools(&self) -> Vec<Box<dyn ToolT>>;
@@ -103,12 +103,12 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
     }
 
     /// Get the agent's name
-    pub fn name(&self) -> &'static str {
+    pub fn name(&self) -> &str {
         self.inner.name()
     }
 
     /// Get the agent's description
-    pub fn description(&self) -> &'static str {
+    pub fn description(&self) -> &str {
         self.inner.description()
     }
 

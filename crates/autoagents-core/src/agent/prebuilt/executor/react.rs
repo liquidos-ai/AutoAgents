@@ -1,16 +1,18 @@
 use crate::agent::executor::AgentExecutor;
+use crate::agent::executor::event_helper::EventHelper;
+use crate::agent::executor::turn_engine::{
+    TurnDelta, TurnEngine, TurnEngineConfig, TurnEngineError, record_task_state,
+};
 use crate::agent::task::Task;
-use crate::agent::{AgentDeriveT, Context, ExecutorConfig, TurnResult};
-use crate::tool::{ToolCallResult, ToolT, to_llm_tool};
+use crate::agent::{AgentDeriveT, Context, ExecutorConfig};
+use crate::channel::channel;
+use crate::tool::{ToolCallResult, ToolT};
+use crate::utils::{receiver_into_stream, spawn_future};
 use async_trait::async_trait;
 use autoagents_llm::ToolCall;
-use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, StreamChunk, Tool};
-use autoagents_llm::error::LLMError;
-use autoagents_protocol::{Event, StreamingTurnResult, SubmissionId};
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashSet;
 use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -20,18 +22,10 @@ use thiserror::Error;
 pub use tokio::sync::mpsc::error::SendError;
 
 #[cfg(target_arch = "wasm32")]
-use futures::SinkExt;
-#[cfg(target_arch = "wasm32")]
-pub use futures::lock::Mutex;
-#[cfg(target_arch = "wasm32")]
 type SendError = futures::channel::mpsc::SendError;
 
-use crate::agent::executor::event_helper::EventHelper;
-use crate::agent::executor::memory_helper::MemoryHelper;
-use crate::agent::executor::tool_processor::{ToolCallContext, ToolProcessor};
 use crate::agent::hooks::{AgentHooks, HookOutcome};
-use crate::channel::{Sender, channel};
-use crate::utils::{receiver_into_stream, spawn_future};
+use autoagents_protocol::Event;
 
 /// Output of the ReAct-style agent
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,6 +103,18 @@ pub enum ReActExecutorError {
     AgentOutputError(String),
 }
 
+impl From<TurnEngineError> for ReActExecutorError {
+    fn from(error: TurnEngineError) -> Self {
+        match error {
+            TurnEngineError::LLMError(err) => ReActExecutorError::LLMError(err),
+            TurnEngineError::Aborted => {
+                ReActExecutorError::Other("Run aborted by hook".to_string())
+            }
+            TurnEngineError::Other(err) => ReActExecutorError::Other(err),
+        }
+    }
+}
+
 /// Wrapper type for the multi-turn ReAct executor with tool calling support.
 ///
 /// Use `ReActAgent<T>` when your agent needs to perform tool calls, manage
@@ -147,7 +153,7 @@ impl<T: AgentDeriveT> Deref for ReActAgent<T> {
 impl<T: AgentDeriveT> AgentDeriveT for ReActAgent<T> {
     type Output = <T as AgentDeriveT>::Output;
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         self.inner.description()
     }
 
@@ -155,7 +161,7 @@ impl<T: AgentDeriveT> AgentDeriveT for ReActAgent<T> {
         self.inner.output_schema()
     }
 
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         self.inner.name()
     }
 
@@ -209,273 +215,6 @@ where
     }
 }
 
-impl<T: AgentDeriveT + AgentHooks> ReActAgent<T> {
-    /// Process a single turn with the LLM
-    async fn process_turn(
-        &self,
-        context: &Context,
-        submission_id: SubmissionId,
-        tools: &[Box<dyn ToolT>],
-    ) -> Result<TurnResult<ReActAgentOutput>, ReActExecutorError> {
-        let messages = self.prepare_messages(context).await;
-        let response = self.get_llm_response(context, &messages, tools).await?;
-        let response_text = response.text().unwrap_or_default();
-
-        if let Some(tool_calls) = response.tool_calls() {
-            self.handle_tool_calls(
-                context,
-                submission_id,
-                tools,
-                tool_calls.clone(),
-                response_text,
-            )
-            .await
-        } else {
-            self.handle_text_response(context, response_text).await
-        }
-    }
-
-    /// Get LLM response for the given messages and tools
-    async fn get_llm_response(
-        &self,
-        context: &Context,
-        messages: &[ChatMessage],
-        tools: &[Box<dyn ToolT>],
-    ) -> Result<Box<dyn autoagents_llm::chat::ChatResponse>, ReActExecutorError> {
-        let llm = context.llm();
-        let agent_config = context.config();
-        let tools_serialized: Vec<Tool> = tools.iter().map(to_llm_tool).collect();
-
-        if tools.is_empty() {
-            llm.chat(messages, agent_config.output_schema.clone())
-                .await
-                .map_err(|e| ReActExecutorError::LLMError(e.to_string()))
-        } else {
-            llm.chat_with_tools(
-                messages,
-                Some(&tools_serialized),
-                agent_config.output_schema.clone(),
-            )
-            .await
-            .map_err(|e| ReActExecutorError::LLMError(e.to_string()))
-        }
-    }
-
-    /// Handle tool calls and return the result
-    async fn handle_tool_calls(
-        &self,
-        context: &Context,
-        submission_id: SubmissionId,
-        tools: &[Box<dyn ToolT>],
-        tool_calls: Vec<ToolCall>,
-        response_text: String,
-    ) -> Result<TurnResult<ReActAgentOutput>, ReActExecutorError> {
-        let tx_event = context.tx().ok();
-
-        // Process tool calls
-        let mut tool_results = Vec::new();
-        for call in &tool_calls {
-            if let Some(result) = ToolProcessor::process_single_tool_call_with_hooks(
-                self,
-                context,
-                submission_id,
-                tools,
-                call,
-                &tx_event,
-            )
-            .await
-            {
-                tool_results.push(result);
-            }
-        }
-
-        // Store in memory
-        MemoryHelper::store_tool_interaction(
-            &context.memory(),
-            &tool_calls,
-            &tool_results,
-            &response_text,
-        )
-        .await;
-
-        // Update state - use try_lock to avoid deadlock
-        {
-            let state = context.state();
-            #[cfg(not(target_arch = "wasm32"))]
-            if let Ok(mut guard) = state.try_lock() {
-                for result in &tool_results {
-                    guard.record_tool_call(result.clone());
-                }
-            };
-            #[cfg(target_arch = "wasm32")]
-            if let Some(mut guard) = state.try_lock() {
-                for result in &tool_results {
-                    guard.record_tool_call(result.clone());
-                }
-            };
-        }
-
-        Ok(TurnResult::Continue(Some(ReActAgentOutput {
-            response: response_text,
-            done: true,
-            tool_calls: tool_results,
-        })))
-    }
-
-    /// Handle text-only response
-    async fn handle_text_response(
-        &self,
-        context: &Context,
-        response_text: String,
-    ) -> Result<TurnResult<ReActAgentOutput>, ReActExecutorError> {
-        if !response_text.is_empty() {
-            MemoryHelper::store_assistant_response(&context.memory(), response_text.clone()).await;
-        }
-
-        Ok(TurnResult::Complete(ReActAgentOutput {
-            response: response_text,
-            done: true,
-            tool_calls: vec![],
-        }))
-    }
-
-    /// Prepare messages for the current turn
-    async fn prepare_messages(&self, context: &Context) -> Vec<ChatMessage> {
-        let mut messages = vec![ChatMessage {
-            role: ChatRole::System,
-            message_type: MessageType::Text,
-            content: context.config().description.clone(),
-        }];
-
-        let recalled = MemoryHelper::recall_messages(&context.memory()).await;
-        messages.extend(recalled);
-
-        messages
-    }
-
-    /// Process a streaming turn with tool support
-    async fn process_streaming_turn(
-        &self,
-        context: &Context,
-        tools: &[Box<dyn ToolT>],
-        tx: &mut Sender<Result<ReActAgentOutput, ReActExecutorError>>,
-        submission_id: SubmissionId,
-    ) -> Result<StreamingTurnResult, ReActExecutorError> {
-        let messages = self.prepare_messages(context).await;
-        let mut stream = self.get_llm_stream(context, &messages, tools).await?;
-
-        let mut response_text = String::new();
-        let mut tool_calls: Vec<ToolCall> = Vec::new();
-        let mut tool_call_ids: HashSet<String> = HashSet::new();
-
-        // Process stream chunks
-        while let Some(chunk_result) = stream.next().await {
-            let chunk: StreamChunk =
-                chunk_result.map_err(|e| ReActExecutorError::LLMError(e.to_string()))?;
-            let chunk_clone = chunk.clone();
-
-            match chunk {
-                StreamChunk::Text(content) => {
-                    response_text.push_str(&content);
-                    let _ = tx
-                        .send(Ok(ReActAgentOutput {
-                            response: content.to_string(),
-                            tool_calls: vec![],
-                            done: false,
-                        }))
-                        .await;
-                }
-                StreamChunk::ToolUseComplete {
-                    index: _,
-                    tool_call,
-                } => {
-                    if tool_call_ids.insert(tool_call.id.clone()) {
-                        tool_calls.push(tool_call.clone());
-
-                        let tx_event = context.tx().ok();
-                        EventHelper::send_stream_tool_call(
-                            &tx_event,
-                            submission_id,
-                            serde_json::to_value(tool_call).unwrap_or(Value::Null),
-                        )
-                        .await;
-                    }
-                }
-                StreamChunk::Usage(_) => {
-                    //TODO: Add Usage Analytics
-                }
-                _ => {
-                    //Do nothing
-                }
-            }
-            // Send stream chunk event
-            let tx_event = context.tx().ok();
-            EventHelper::send_stream_chunk(&tx_event, submission_id, chunk_clone).await;
-        }
-
-        // Process collected tool calls if any
-        if tool_calls.is_empty() {
-            if !response_text.is_empty() {
-                MemoryHelper::store_assistant_response(&context.memory(), response_text.clone())
-                    .await;
-            }
-            return Ok(StreamingTurnResult::Complete(response_text));
-        }
-
-        let tx_event = context.tx().ok();
-        let tool_results = ToolProcessor::process_tool_calls(
-            tools,
-            tool_calls.clone(),
-            ToolCallContext::new(submission_id, context.config().id),
-            tx_event,
-        )
-        .await;
-
-        MemoryHelper::store_tool_interaction(
-            &context.memory(),
-            &tool_calls,
-            &tool_results,
-            &response_text,
-        )
-        .await;
-
-        let state = context.state();
-        let mut guard = state.lock().await;
-        for result in &tool_results {
-            guard.record_tool_call(result.clone());
-        }
-
-        Ok(StreamingTurnResult::ToolCallsProcessed(tool_results))
-    }
-
-    /// Get streaming LLM response
-    async fn get_llm_stream(
-        &self,
-        context: &Context,
-        messages: &[ChatMessage],
-        tools: &[Box<dyn ToolT>],
-    ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<autoagents_llm::chat::StreamChunk, LLMError>> + Send>>,
-        ReActExecutorError,
-    > {
-        let llm = context.llm();
-        let agent_config = context.config();
-        let tools_serialized: Vec<Tool> = tools.iter().map(to_llm_tool).collect();
-
-        llm.chat_stream_with_tools(
-            messages,
-            if tools.is_empty() {
-                None
-            } else {
-                Some(&tools_serialized)
-            },
-            agent_config.output_schema.clone(),
-        )
-        .await
-        .map_err(|e| ReActExecutorError::LLMError(e.to_string()))
-    }
-}
-
 /// Implementation of AgentExecutor for the ReActExecutorWrapper
 #[async_trait]
 impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
@@ -491,28 +230,12 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
         task: &Task,
         context: Arc<Context>,
     ) -> Result<Self::Output, Self::Error> {
-        // Initialize task
-        MemoryHelper::store_user_message(
-            &context.memory(),
-            task.prompt.clone(),
-            task.image.clone(),
-        )
-        .await;
-
-        // Record task in state - use try_lock to avoid deadlock
-        {
-            let state = context.state();
-            #[cfg(not(target_arch = "wasm32"))]
-            if let Ok(mut guard) = state.try_lock() {
-                guard.record_task(task.clone());
-            };
-            #[cfg(target_arch = "wasm32")]
-            if let Some(mut guard) = state.try_lock() {
-                guard.record_task(task.clone());
-            };
+        if self.on_run_start(task, &context).await == HookOutcome::Abort {
+            return Err(ReActExecutorError::Other("Run aborted by hook".to_string()));
         }
 
-        // Send task started event
+        record_task_state(&context, task);
+
         let tx_event = context.tx().ok();
         EventHelper::send_task_started(
             &tx_event,
@@ -523,64 +246,44 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
         )
         .await;
 
-        // Execute turns
+        let engine = TurnEngine::new(TurnEngineConfig::react(self.config().max_turns));
+        let mut turn_state = engine.turn_state(&context);
         let max_turns = self.config().max_turns;
         let mut accumulated_tool_calls = Vec::new();
         let mut final_response = String::new();
 
-        for turn_num in 0..max_turns {
-            let tools = context.tools();
-            EventHelper::send_turn_started(
-                &tx_event,
-                task.submission_id,
-                context.config().id,
-                turn_num,
-                max_turns,
-            )
-            .await;
+        for turn_index in 0..max_turns {
+            let result = engine
+                .run_turn(self, task, &context, &mut turn_state, turn_index, max_turns)
+                .await?;
 
-            //Run Hook
-            self.on_turn_start(turn_num, &context).await;
-
-            match self
-                .process_turn(&context, task.submission_id, tools)
-                .await?
-            {
-                TurnResult::Complete(result) => {
+            match result {
+                crate::agent::executor::TurnResult::Complete(output) => {
+                    final_response = output.response.clone();
                     EventHelper::send_task_completed(
                         &tx_event,
                         task.submission_id,
                         context.config().id,
                         context.config().name.clone(),
-                        result.response.clone(),
+                        final_response.clone(),
                     )
                     .await;
-                    if !accumulated_tool_calls.is_empty() {
-                        return Ok(ReActAgentOutput {
-                            response: result.response,
-                            done: true,
-                            tool_calls: accumulated_tool_calls,
-                        });
-                    }
-                    EventHelper::send_turn_completed(
-                        &tx_event,
-                        task.submission_id,
-                        context.config().id,
-                        turn_num,
-                        false,
-                    )
-                    .await;
-                    //Run Hook
-                    self.on_turn_complete(turn_num, &context).await;
-                    return Ok(result);
+
+                    accumulated_tool_calls.extend(output.tool_calls);
+
+                    return Ok(ReActAgentOutput {
+                        response: final_response,
+                        done: true,
+                        tool_calls: accumulated_tool_calls,
+                    });
                 }
-                TurnResult::Continue(Some(partial_result)) => {
-                    accumulated_tool_calls.extend(partial_result.tool_calls);
-                    if !partial_result.response.is_empty() {
-                        final_response = partial_result.response;
+                crate::agent::executor::TurnResult::Continue(Some(output)) => {
+                    if !output.response.is_empty() {
+                        final_response = output.response;
                     }
+                    accumulated_tool_calls.extend(output.tool_calls);
                 }
-                TurnResult::Continue(None) => continue,
+                crate::agent::executor::TurnResult::Continue(None) => {}
             }
         }
 
@@ -593,14 +296,15 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                 final_response.clone(),
             )
             .await;
-            Ok(ReActAgentOutput {
+
+            return Ok(ReActAgentOutput {
                 response: final_response,
                 done: true,
                 tool_calls: accumulated_tool_calls,
-            })
-        } else {
-            Err(ReActExecutorError::MaxTurnsExceeded { max_turns })
+            });
         }
+
+        Err(ReActExecutorError::MaxTurnsExceeded { max_turns })
     }
 
     async fn execute_stream(
@@ -611,28 +315,12 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
         Pin<Box<dyn Stream<Item = Result<ReActAgentOutput, Self::Error>> + Send>>,
         Self::Error,
     > {
-        // Initialize task
-        MemoryHelper::store_user_message(
-            &context.memory(),
-            task.prompt.clone(),
-            task.image.clone(),
-        )
-        .await;
-
-        // Record task in state - use try_lock to avoid deadlock
-        {
-            let state = context.state();
-            #[cfg(not(target_arch = "wasm32"))]
-            if let Ok(mut guard) = state.try_lock() {
-                guard.record_task(task.clone());
-            };
-            #[cfg(target_arch = "wasm32")]
-            if let Some(mut guard) = state.try_lock() {
-                guard.record_task(task.clone());
-            };
+        if self.on_run_start(task, &context).await == HookOutcome::Abort {
+            return Err(ReActExecutorError::Other("Run aborted by hook".to_string()));
         }
 
-        // Send task started event
+        record_task_state(&context, task);
+
         let tx_event = context.tx().ok();
         EventHelper::send_task_started(
             &tx_event,
@@ -643,81 +331,101 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
         )
         .await;
 
-        // Create channel for streaming
-        let (mut tx, rx) = channel::<Result<ReActAgentOutput, ReActExecutorError>>(100);
-
-        // Clone necessary components
-        let executor = self.clone();
+        let engine = TurnEngine::new(TurnEngineConfig::react(self.config().max_turns));
+        let mut turn_state = engine.turn_state(&context);
+        let max_turns = self.config().max_turns;
         let context_clone = context.clone();
-        let submission_id = task.submission_id;
-        let max_turns = executor.config().max_turns;
+        let task = task.clone();
+        let executor = self.clone();
 
-        // Spawn streaming task
+        let (tx, rx) = channel::<Result<ReActAgentOutput, ReActExecutorError>>(100);
+
         spawn_future(async move {
             let mut accumulated_tool_calls = Vec::new();
             let mut final_response = String::new();
-            let tools = context_clone.tools();
 
-            for turn in 0..max_turns {
-                // Send turn events
-                let tx_event = context_clone.tx().ok();
-                EventHelper::send_turn_started(
-                    &tx_event,
-                    submission_id,
-                    context_clone.config().id,
-                    turn,
-                    max_turns,
-                )
-                .await;
+            for turn_index in 0..max_turns {
+                let turn_stream = engine
+                    .run_turn_stream(
+                        executor.clone(),
+                        &task,
+                        context_clone.clone(),
+                        &mut turn_state,
+                        turn_index,
+                        max_turns,
+                    )
+                    .await;
 
-                // Process streaming turn
-                match executor
-                    .process_streaming_turn(&context_clone, tools, &mut tx, submission_id)
-                    .await
-                {
-                    Ok(StreamingTurnResult::Complete(response)) => {
-                        final_response = response;
-                        EventHelper::send_turn_completed(
-                            &tx_event,
-                            submission_id,
-                            context_clone.config().id,
-                            turn,
-                            true,
-                        )
-                        .await;
-                        break;
+                let mut turn_result = None;
+
+                match turn_stream {
+                    Ok(mut stream) => {
+                        use futures::StreamExt;
+                        while let Some(delta_result) = stream.next().await {
+                            match delta_result {
+                                Ok(TurnDelta::Text(content)) => {
+                                    let _ = tx
+                                        .send(Ok(ReActAgentOutput {
+                                            response: content,
+                                            tool_calls: Vec::new(),
+                                            done: false,
+                                        }))
+                                        .await;
+                                }
+                                Ok(TurnDelta::ToolResults(tool_results)) => {
+                                    accumulated_tool_calls.extend(tool_results);
+                                    let _ = tx
+                                        .send(Ok(ReActAgentOutput {
+                                            response: String::new(),
+                                            tool_calls: accumulated_tool_calls.clone(),
+                                            done: false,
+                                        }))
+                                        .await;
+                                }
+                                Ok(TurnDelta::Done(result)) => {
+                                    turn_result = Some(result);
+                                    break;
+                                }
+                                Err(err) => {
+                                    let _ = tx.send(Err(err.into())).await;
+                                    return;
+                                }
+                            }
+                        }
                     }
-                    Ok(StreamingTurnResult::ToolCallsProcessed(tool_results)) => {
-                        accumulated_tool_calls.extend(tool_results);
-
-                        let _ = tx
-                            .send(Ok(ReActAgentOutput {
-                                response: String::new(),
-                                done: false,
-                                tool_calls: accumulated_tool_calls.clone(),
-                            }))
-                            .await;
-
-                        EventHelper::send_turn_completed(
-                            &tx_event,
-                            submission_id,
-                            context_clone.config().id,
-                            turn,
-                            false,
-                        )
-                        .await;
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Err(e)).await;
+                    Err(err) => {
+                        let _ = tx.send(Err(err.into())).await;
                         return;
                     }
                 }
+
+                let Some(result) = turn_result else {
+                    let _ = tx
+                        .send(Err(ReActExecutorError::Other(
+                            "Stream ended without final result".to_string(),
+                        )))
+                        .await;
+                    return;
+                };
+
+                match result {
+                    crate::agent::executor::TurnResult::Complete(output) => {
+                        final_response = output.response.clone();
+                        accumulated_tool_calls.extend(output.tool_calls);
+                        break;
+                    }
+                    crate::agent::executor::TurnResult::Continue(Some(output)) => {
+                        if !output.response.is_empty() {
+                            final_response = output.response;
+                        }
+                        accumulated_tool_calls.extend(output.tool_calls);
+                    }
+                    crate::agent::executor::TurnResult::Continue(None) => {}
+                }
             }
 
-            // Send final result
             let tx_event = context_clone.tx().ok();
-            EventHelper::send_stream_complete(&tx_event, submission_id).await;
-
+            EventHelper::send_stream_complete(&tx_event, task.submission_id).await;
             let _ = tx
                 .send(Ok(ReActAgentOutput {
                     response: final_response.clone(),
@@ -725,13 +433,14 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                     tool_calls: accumulated_tool_calls.clone(),
                 }))
                 .await;
+
             if !final_response.is_empty() || !accumulated_tool_calls.is_empty() {
                 EventHelper::send_task_completed(
                     &tx_event,
-                    submission_id,
+                    task.submission_id,
                     context_clone.config().id,
                     context_clone.config().name.clone(),
-                    final_response.clone(),
+                    final_response,
                 )
                 .await;
             }
