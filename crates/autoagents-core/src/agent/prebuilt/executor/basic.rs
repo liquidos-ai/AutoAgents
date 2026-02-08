@@ -1,10 +1,15 @@
+use crate::agent::executor::event_helper::EventHelper;
+use crate::agent::executor::turn_engine::{
+    TurnDelta, TurnEngine, TurnEngineConfig, TurnEngineError, TurnEngineOutput, record_task_state,
+};
 use crate::agent::hooks::HookOutcome;
 use crate::agent::task::Task;
-use crate::agent::{AgentDeriveT, AgentExecutor, AgentHooks, Context, EventHelper, ExecutorConfig};
+use crate::agent::{AgentDeriveT, AgentExecutor, AgentHooks, Context, ExecutorConfig};
+use crate::channel::channel;
 use crate::tool::{ToolCallResult, ToolT};
+use crate::utils::{receiver_into_stream, spawn_future};
 use async_trait::async_trait;
 use autoagents_llm::ToolCall;
-use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -59,6 +64,18 @@ pub enum BasicExecutorError {
     Other(String),
 }
 
+impl From<TurnEngineError> for BasicExecutorError {
+    fn from(error: TurnEngineError) -> Self {
+        match error {
+            TurnEngineError::LLMError(err) => BasicExecutorError::LLMError(err),
+            TurnEngineError::Aborted => {
+                BasicExecutorError::Other("Run aborted by hook".to_string())
+            }
+            TurnEngineError::Other(err) => BasicExecutorError::Other(err),
+        }
+    }
+}
+
 /// Wrapper type for the single-turn Basic executor.
 ///
 /// Use `BasicAgent<T>` when you want a single request/response interaction
@@ -97,7 +114,7 @@ impl<T: AgentDeriveT> Deref for BasicAgent<T> {
 impl<T: AgentDeriveT> AgentDeriveT for BasicAgent<T> {
     type Output = <T as AgentDeriveT>::Output;
 
-    fn description(&self) -> &'static str {
+    fn description(&self) -> &str {
         self.inner.description()
     }
 
@@ -105,7 +122,7 @@ impl<T: AgentDeriveT> AgentDeriveT for BasicAgent<T> {
         self.inner.output_schema()
     }
 
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         self.inner.name()
     }
 
@@ -161,7 +178,7 @@ where
 
 /// Implementation of AgentExecutor for the BasicExecutorWrapper
 #[async_trait]
-impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
+impl<T: AgentDeriveT + AgentHooks> AgentExecutor for BasicAgent<T> {
     type Output = BasicAgentOutput;
     type Error = BasicExecutorError;
 
@@ -174,6 +191,11 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
         task: &Task,
         context: Arc<Context>,
     ) -> Result<Self::Output, Self::Error> {
+        if self.on_run_start(task, &context).await == HookOutcome::Abort {
+            return Err(BasicExecutorError::Other("Run aborted by hook".to_string()));
+        }
+
+        record_task_state(&context, task);
         let tx_event = context.tx().ok();
         EventHelper::send_task_started(
             &tx_event,
@@ -184,44 +206,32 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
         )
         .await;
 
-        let mut messages = vec![ChatMessage {
-            role: ChatRole::System,
-            message_type: MessageType::Text,
-            content: context.config().description.clone(),
-        }];
+        let engine = TurnEngine::new(TurnEngineConfig::basic(self.config().max_turns));
+        let mut turn_state = engine.turn_state(&context);
+        let turn_result = engine
+            .run_turn(
+                self,
+                task,
+                &context,
+                &mut turn_state,
+                0,
+                self.config().max_turns,
+            )
+            .await?;
 
-        let chat_msg = if let Some((mime, image_data)) = &task.image {
-            // Task has an image, create an Image message
-            ChatMessage {
-                role: ChatRole::User,
-                message_type: MessageType::Image(((*mime).into(), image_data.clone())),
-                content: task.prompt.clone(),
-            }
-        } else {
-            // Text-only task
-            ChatMessage {
-                role: ChatRole::User,
-                message_type: MessageType::Text,
-                content: task.prompt.clone(),
-            }
-        };
-        messages.push(chat_msg);
-        let response = context
-            .llm()
-            .chat(&messages, context.config().output_schema.clone())
-            .await
-            .map_err(|e| BasicExecutorError::LLMError(e.to_string()))?;
-        let response_text = response.text().unwrap_or_default();
+        let output = extract_turn_output(turn_result);
+
         EventHelper::send_task_completed(
             &tx_event,
             task.submission_id,
             context.config().id,
             context.config().name.clone(),
-            response_text.clone(),
+            output.response.clone(),
         )
         .await;
+
         Ok(BasicAgentOutput {
-            response: response_text,
+            response: output.response,
             done: true,
         })
     }
@@ -232,8 +242,11 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
         context: Arc<Context>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>, Self::Error>
     {
-        use futures::StreamExt;
+        if self.on_run_start(task, &context).await == HookOutcome::Abort {
+            return Err(BasicExecutorError::Other("Run aborted by hook".to_string()));
+        }
 
+        record_task_state(&context, task);
         let tx_event = context.tx().ok();
         EventHelper::send_task_started(
             &tx_event,
@@ -244,53 +257,92 @@ impl<T: AgentDeriveT> AgentExecutor for BasicAgent<T> {
         )
         .await;
 
-        let mut messages = vec![ChatMessage {
-            role: ChatRole::System,
-            message_type: MessageType::Text,
-            content: context.config().description.clone(),
-        }];
+        let engine = TurnEngine::new(TurnEngineConfig::basic(self.config().max_turns));
+        let mut turn_state = engine.turn_state(&context);
+        let context_clone = context.clone();
+        let task = task.clone();
+        let executor = self.clone();
 
-        let chat_msg = if let Some((mime, image_data)) = &task.image {
-            // Task has an image, create an Image message
-            ChatMessage {
-                role: ChatRole::User,
-                message_type: MessageType::Image(((*mime).into(), image_data.clone())),
-                content: task.prompt.clone(),
+        let (tx, rx) = channel::<Result<BasicAgentOutput, BasicExecutorError>>(100);
+
+        spawn_future(async move {
+            let turn_stream = engine
+                .run_turn_stream(
+                    executor,
+                    &task,
+                    context_clone.clone(),
+                    &mut turn_state,
+                    0,
+                    1,
+                )
+                .await;
+
+            let mut final_response = String::new();
+
+            match turn_stream {
+                Ok(mut stream) => {
+                    use futures::StreamExt;
+                    while let Some(delta_result) = stream.next().await {
+                        match delta_result {
+                            Ok(TurnDelta::Text(content)) => {
+                                let _ = tx
+                                    .send(Ok(BasicAgentOutput {
+                                        response: content,
+                                        done: false,
+                                    }))
+                                    .await;
+                            }
+                            Ok(TurnDelta::ToolResults(_)) => {}
+                            Ok(TurnDelta::Done(result)) => {
+                                let output = extract_turn_output(result);
+                                final_response = output.response.clone();
+                                let _ = tx
+                                    .send(Ok(BasicAgentOutput {
+                                        response: output.response,
+                                        done: true,
+                                    }))
+                                    .await;
+                                break;
+                            }
+                            Err(err) => {
+                                let _ = tx.send(Err(err.into())).await;
+                                return;
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    let _ = tx.send(Err(err.into())).await;
+                    return;
+                }
             }
-        } else {
-            // Text-only task
-            ChatMessage {
-                role: ChatRole::User,
-                message_type: MessageType::Text,
-                content: task.prompt.clone(),
-            }
-        };
-        messages.push(chat_msg);
 
-        let stream = context
-            .llm()
-            .chat_stream_struct(&messages, None, context.config().output_schema.clone())
-            .await
-            .map_err(|e| BasicExecutorError::LLMError(e.to_string()))?;
-
-        let mapped_stream = stream.map(|chunk_result| match chunk_result {
-            Ok(chunk) => {
-                let content = chunk
-                    .choices
-                    .first()
-                    .and_then(|choice| choice.delta.content.as_ref())
-                    .map_or("", |v| v)
-                    .to_string();
-
-                Ok(BasicAgentOutput {
-                    response: content,
-                    done: false,
-                })
-            }
-            Err(e) => Err(BasicExecutorError::LLMError(e.to_string())),
+            let tx_event = context_clone.tx().ok();
+            EventHelper::send_stream_complete(&tx_event, task.submission_id).await;
+            EventHelper::send_task_completed(
+                &tx_event,
+                task.submission_id,
+                context_clone.config().id,
+                context_clone.config().name.clone(),
+                final_response,
+            )
+            .await;
         });
 
-        Ok(Box::pin(mapped_stream))
+        Ok(receiver_into_stream(rx))
+    }
+}
+
+fn extract_turn_output(
+    result: crate::agent::executor::TurnResult<TurnEngineOutput>,
+) -> TurnEngineOutput {
+    match result {
+        crate::agent::executor::TurnResult::Complete(output) => output,
+        crate::agent::executor::TurnResult::Continue(Some(output)) => output,
+        crate::agent::executor::TurnResult::Continue(None) => TurnEngineOutput {
+            response: String::new(),
+            tool_calls: Vec::new(),
+        },
     }
 }
 

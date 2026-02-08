@@ -9,6 +9,8 @@ use uuid::Uuid;
 pub struct Task {
     pub prompt: String,
     pub image: Option<(ImageMime, Vec<u8>)>,
+    #[serde(default)]
+    pub system_prompt: Option<String>,
     pub submission_id: SubmissionId,
     pub completed: bool,
     pub result: Option<Value>,
@@ -20,6 +22,7 @@ impl Task {
         Self {
             prompt: task.into(),
             image: None,
+            system_prompt: None,
             submission_id: Uuid::new_v4(),
             completed: false,
             result: None,
@@ -35,9 +38,15 @@ impl Task {
         Self {
             prompt: task.into(),
             image: Some((image_mime, image_data)),
+            system_prompt: None,
             submission_id: Uuid::new_v4(),
             completed: false,
             result: None,
         }
+    }
+
+    pub fn with_system_prompt<T: Into<String>>(mut self, prompt: T) -> Self {
+        self.system_prompt = Some(prompt.into());
+        self
     }
 }

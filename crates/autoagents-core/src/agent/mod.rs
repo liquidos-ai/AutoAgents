@@ -33,6 +33,6 @@ pub use context::{Context, ContextError};
 pub use direct::{DirectAgent, DirectAgentHandle};
 pub use executor::{
     AgentExecutor, ExecutorConfig, TurnResult, event_helper::EventHelper,
-    memory_helper::MemoryHelper, tool_processor::ToolProcessor,
+    memory_helper::MemoryHelper, tool_processor::ToolProcessor, turn_engine,
 };
 pub use hooks::{AgentHooks, HookOutcome};
