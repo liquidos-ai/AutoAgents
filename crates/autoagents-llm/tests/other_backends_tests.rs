@@ -2,7 +2,6 @@
 use autoagents_llm::{builder::LLMBuilder, error::LLMError};
 use std::sync::Arc;
 
-
 #[cfg(feature = "xai")]
 mod xai_tests {
     use super::*;
