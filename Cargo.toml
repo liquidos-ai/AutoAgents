@@ -19,6 +19,7 @@ license = "MIT OR Apache-2.0"
 description = "Agent Framework for Building Autonomous Agents"
 repository = "https://github.com/liquidos-ai/AutoAgents"
 keywords = ["agents", "llm"]
+readme = "README.md"
 categories = []
 
 [workspace.dependencies]
