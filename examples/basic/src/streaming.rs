@@ -83,16 +83,11 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     println!("🔄 Processing stream tokens...\n");
 
     while let Some(result) = stream.next().await {
-        match result {
-            Ok(output) => {
-                println!(
-                    "{}",
-                    format!("🌊 Streaming Response: {}", output.response).green()
-                );
-            }
-            _ => {
-                //
-            }
+        if let Ok(output) = result {
+            println!(
+                "{}",
+                format!("🌊 Streaming Response: {}", output.response).green()
+            );
         }
     }
 
