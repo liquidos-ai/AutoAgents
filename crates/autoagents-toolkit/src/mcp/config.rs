@@ -1,4 +1,3 @@
-use tempfile::tempdir;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -140,6 +139,7 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
+    use tempfile::tempdir;
 
     #[test]
     fn test_mcp_server_config_creation() {
@@ -285,7 +285,8 @@ name = "incomplete"
         let dir = tempdir().unwrap();
         let cwd_str = dir.path().to_str().unwrap();
 
-        let toml_content = format!(r#"
+        let toml_content = format!(
+            r#"
 [mcp]
 [[mcp.server]]
 name = "env_server"
@@ -296,7 +297,9 @@ cwd = "{cwd}"
 [mcp.server.env]
 PYTHONPATH = "/path/to/modules"
 DEBUG = "1"
-        "#, cwd = cwd_str);
+        "#,
+            cwd = cwd_str
+        );
 
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(toml_content.as_bytes()).unwrap();

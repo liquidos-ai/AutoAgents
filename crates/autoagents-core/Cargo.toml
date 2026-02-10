@@ -45,3 +45,4 @@ uuid = { workspace = true, features = ["serde", "v4", "js"] }
 
 [dev-dependencies]
 autoagents-test-utils = { workspace = true }
+tempfile = "3.25.0"

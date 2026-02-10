@@ -25,7 +25,7 @@ reqwest = { workspace = true, optional = true }
 log = { workspace = true }
 once_cell = { workspace = true, optional = true }
 base64 = { workspace = true }
-toml = { version = "0.8", optional = true }
+toml = { version = "0.9.11", optional = true }
 thiserror = { workspace = true }
 rmcp = { workspace = true, optional = true, features = [
   "client",
@@ -38,4 +38,4 @@ rmcp = { workspace = true, optional = true, features = [
 tokio = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.8"
+tempfile = "3.25.0"

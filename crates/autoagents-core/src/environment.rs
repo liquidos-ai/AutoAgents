@@ -150,9 +150,9 @@ impl Environment {
 
 #[cfg(test)]
 mod tests {
-    use crate::runtime::SingleThreadedRuntime;
-
     use super::*;
+    use crate::runtime::SingleThreadedRuntime;
+    use tempfile::tempdir;
     use uuid::Uuid;
 
     #[test]
@@ -165,8 +165,9 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::result_large_err)]
     fn test_environment_config_custom() -> Result<(), Error> {
-        let dir = tempdir()?;
+        let dir = tempdir().expect("Unable to create temp dir");
         let config = EnvironmentConfig {
             working_dir: dir.path().to_path_buf(),
         };
