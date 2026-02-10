@@ -145,7 +145,7 @@ impl MemoryProvider for SlidingWindowMemory {
         _query: &str,
         limit: Option<usize>,
     ) -> Result<Vec<ChatMessage>, LLMError> {
-        let limit = limit.unwrap_or_else(|| self.messages.len());
+        let limit = limit.unwrap_or(self.messages.len());
         Ok(self.recent_messages(limit))
     }
 

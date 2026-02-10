@@ -384,7 +384,7 @@ impl Anthropic {
                             tool_use_id: Some(c.id.clone()),
                             tool_input: Some(
                                 serde_json::from_str(&c.function.arguments)
-                                    .unwrap_or_else(|| c.function.arguments.clone().into()),
+                                    .unwrap_or_else(|_| c.function.arguments.clone().into()),
                             ),
                             tool_name: Some(c.function.name.clone()),
                             tool_result_id: None,
