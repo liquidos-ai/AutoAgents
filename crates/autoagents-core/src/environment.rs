@@ -165,15 +165,14 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::result_large_err)]
-    fn test_environment_config_custom() -> Result<(), Error> {
+    fn test_environment_config_custom() {
         let dir = tempdir().expect("Unable to create temp dir");
         let config = EnvironmentConfig {
             working_dir: dir.path().to_path_buf(),
         };
         assert_eq!(config.working_dir, dir.path().to_path_buf());
-        Ok(())
     }
+
     #[tokio::test]
     async fn test_environment_get_runtime() {
         let mut env = Environment::new(None);
