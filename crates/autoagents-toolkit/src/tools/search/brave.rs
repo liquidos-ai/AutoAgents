@@ -11,9 +11,12 @@ use std::env;
 
 use crate::utils::constant::RestHeaders;
 
+static ENV_BRAVE_SEARCH_API_KEY: &str = "BRAVE_SEARCH_API_KEY";
+static ENV_BRAVE_API_KEY: &str = "BRAVE_API_KEY";
+
 static BRAVE_SEARCH_API_KEY: Lazy<String> = Lazy::new(|| {
-    env::var("BRAVE_SEARCH_API_KEY")
-        .or_else(|_| env::var("BRAVE_API_KEY"))
+    env::var(ENV_BRAVE_SEARCH_API_KEY)
+        .or_else(|_| env::var(ENV_BRAVE_API_KEY))
         .expect("BRAVE_SEARCH_API_KEY or BRAVE_API_KEY must be set")
 });
 
@@ -39,6 +42,7 @@ impl Default for BraveSearch {
         Self {
             api_key: BRAVE_SEARCH_API_KEY.clone(),
         }
+    }
     }
 }
 

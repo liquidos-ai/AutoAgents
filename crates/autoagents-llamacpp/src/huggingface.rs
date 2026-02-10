@@ -80,9 +80,11 @@ fn build_cache(config: &LlamaCppConfig) -> Result<Cache, LlamaCppProviderError> 
     Ok(cache)
 }
 
+static HF_ENDPOINT_ENV: &str = "HF_ENDPOINT";
+
 fn build_api(cache: Cache) -> Result<Api, LlamaCppProviderError> {
     let mut builder = ApiBuilder::from_cache(cache);
-    if let Ok(endpoint) = std::env::var("HF_ENDPOINT") {
+    if let Ok(endpoint) = std::env::var(HF_ENDPOINT_ENV) {
         builder = builder.with_endpoint(endpoint);
     }
     if let Some(token) = hf_token() {
@@ -205,9 +207,13 @@ fn select_gguf_filename(siblings: &[Siblings]) -> Result<String, LlamaCppProvide
     }
 }
 
+static HUGGINGFACE_TOKEN_KEY: &str = "HUGGINGFACE_TOKEN";
+static HF_TOKEN_KEY: &str = "HF_TOKEN";
+static HUGGINGFACE_HUB_TOKEN_KEY: &str = "HUGGINGFACE_HUB_TOKEN";
+
 fn hf_token() -> Option<String> {
-    std::env::var("HUGGINGFACE_TOKEN")
+    std::env::var(HUGGINGFACE_TOKEN_KEY)
         .ok()
-        .or_else(|| std::env::var("HF_TOKEN").ok())
-        .or_else(|| std::env::var("HUGGINGFACE_HUB_TOKEN").ok())
+        .or_else(|| std::env::var(HF_TOKEN_KEY).ok())
+        .or_else(|| std::env::var(HUGGINGFACE_HUB_TOKEN_KEY).ok())
 }

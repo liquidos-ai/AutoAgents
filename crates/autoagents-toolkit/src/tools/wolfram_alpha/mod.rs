@@ -3,6 +3,9 @@ use once_cell::sync::Lazy;
 use reqwest::Url;
 use std::env;
 
+static WOLFRAM_ALPHA_APP_ID_KEY: &str = "WOLFRAM_ALPHA_APP_ID";
+static WOLFRAM_APP_ID_KEY: &str = "WOLFRAM_APP_ID";
+
 pub mod llm_api;
 pub mod recognizer;
 pub mod short_answer;
@@ -12,8 +15,8 @@ pub use recognizer::{RecognizerMode, WolframAlphaQueryRecognizer};
 pub use short_answer::{ShortAnswerUnits, WolframAlphaShortAnswer};
 
 static WOLFRAM_APP_ID: Lazy<String> = Lazy::new(|| {
-    env::var("WOLFRAM_ALPHA_APP_ID")
-        .or_else(|_| env::var("WOLFRAM_APP_ID"))
+    env::var(WOLFRAM_ALPHA_APP_ID_KEY)
+        .or_else(|_| env::var(WOLFRAM_APP_ID_KEY))
         .expect("WOLFRAM_ALPHA_APP_ID or WOLFRAM_APP_ID must be set")
 });
 
