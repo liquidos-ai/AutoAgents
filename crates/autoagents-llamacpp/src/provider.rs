@@ -1538,7 +1538,7 @@ fn anchor_pattern(pattern: &str) -> String {
     if pattern.is_empty() {
         return "^$".to_string();
     }
-    let mut anchored = String::new();
+    let mut anchored = String::default();
     if !pattern.starts_with('^') {
         anchored.push('^');
     }
@@ -1960,7 +1960,7 @@ fn generate_text(
     }
 
     let mut sampler = build_sampler(model, config, use_json_grammar, temperature, None)?;
-    let mut generated_text = String::new();
+    let mut generated_text = String::default();
     let mut completion_tokens = 0_u32;
     let mut decoder = encoding_rs::UTF_8.new_decoder();
 
@@ -2084,7 +2084,7 @@ fn is_valid_json(candidate: &str) -> bool {
 fn extract_from_code_fence(text: &str) -> Option<String> {
     let mut in_fence = false;
     let mut json_fence = false;
-    let mut buffer = String::new();
+    let mut buffer = String::default();
 
     for line in text.lines() {
         let line_trimmed = line.trim_start();

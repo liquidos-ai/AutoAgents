@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn test_config_builder_basic() {
-        let config = MistralRsConfigBuilder::new()
+        let config = MistralRsConfigBuilder::default()
             .max_tokens(1024)
             .temperature(0.8)
             .build();
@@ -169,7 +169,7 @@ mod tests {
             model_type: crate::models::ModelType::Auto,
         };
 
-        let config = MistralRsConfigBuilder::new()
+        let config = MistralRsConfigBuilder::default()
             .model_source(source.clone())
             .with_paged_attention()
             .with_logging()
@@ -202,7 +202,7 @@ mod tests {
             chat_template: None,
         };
 
-        let config = MistralRsConfigBuilder::new()
+        let config = MistralRsConfigBuilder::default()
             .model_source(source.clone())
             .build();
 

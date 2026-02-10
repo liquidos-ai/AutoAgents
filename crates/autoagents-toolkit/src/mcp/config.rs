@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn test_mcp_config_operations() {
-        let mut config = McpConfig::new();
+        let mut config = McpConfig::default();
         assert!(config.servers.is_empty());
         assert!(config.server_names().is_empty());
 

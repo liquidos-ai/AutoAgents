@@ -229,7 +229,7 @@ mod tests {
         std::fs::write(&src_path, "source").expect("Failed to create source file");
         std::fs::write(&dest_path, "destination").expect("Failed to create destination file");
 
-        let move_file = MoveFile::new();
+        let move_file = MoveFile::default();
         let args = json!({
             "source_path": src_path.display().to_string(),
             "destination_path": dest_path.display().to_string()

@@ -121,7 +121,7 @@ mod tests {
 
         assert!(file_path.exists());
 
-        let delete_file = DeleteFile::new();
+        let delete_file = DeleteFile::default();
         let args = json!({
             "path": file_path.display().to_string()
         });
@@ -142,7 +142,7 @@ mod tests {
         std::fs::create_dir(&dir_path).expect("Failed to create test directory");
         assert!(dir_path.exists());
 
-        let delete_file = DeleteFile::new();
+        let delete_file = DeleteFile::default();
         let args = json!({
             "path": dir_path.display().to_string()
         });
@@ -168,7 +168,7 @@ mod tests {
         assert!(dir_path.exists());
         assert!(file_in_nested.exists());
 
-        let delete_file = DeleteFile::new();
+        let delete_file = DeleteFile::default();
         let args = json!({
             "path": dir_path.display().to_string(),
             "recursive": true
@@ -187,7 +187,7 @@ mod tests {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let file_path = temp_dir.path().join("nonexistent.txt");
 
-        let delete_file = DeleteFile::new();
+        let delete_file = DeleteFile::default();
         let args = json!({
             "path": file_path.display().to_string()
         });

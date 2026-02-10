@@ -78,7 +78,7 @@ impl WasmRuntimeBuilder {
 
 impl WasmRuntime {
     pub fn builder() -> WasmRuntimeBuilder {
-        WasmRuntimeBuilder::new()
+        WasmRuntimeBuilder::default()
     }
 
     pub fn run(&self, input: Value) -> Result<Value, WasmRuntimeError> {

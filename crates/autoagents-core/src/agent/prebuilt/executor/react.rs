@@ -341,8 +341,8 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
         let (tx, rx) = channel::<Result<ReActAgentOutput, ReActExecutorError>>(100);
 
         spawn_future(async move {
-            let mut accumulated_tool_calls = Vec::new();
-            let mut final_response = String::new();
+            let mut accumulated_tool_calls = Vec::default();
+            let mut final_response = String::default();
 
             for turn_index in 0..max_turns {
                 let turn_stream = engine
@@ -367,7 +367,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                                     let _ = tx
                                         .send(Ok(ReActAgentOutput {
                                             response: content,
-                                            tool_calls: Vec::new(),
+                                            tool_calls: Vec::default(),
                                             done: false,
                                         }))
                                         .await;
@@ -376,7 +376,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                                     accumulated_tool_calls.extend(tool_results);
                                     let _ = tx
                                         .send(Ok(ReActAgentOutput {
-                                            response: String::new(),
+                                            response: String::default(),
                                             tool_calls: accumulated_tool_calls.clone(),
                                             done: false,
                                         }))
