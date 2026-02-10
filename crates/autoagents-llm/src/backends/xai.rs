@@ -266,7 +266,7 @@ impl XAI {
         }
         Self {
             api_key: api_key.into(),
-            model: model.unwrap_or("grok-2-latest".to_string()),
+            model: model.unwrap_or_else(|| "grok-2-latest".to_string()),
             max_tokens,
             temperature,
             timeout_seconds,

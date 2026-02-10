@@ -45,7 +45,7 @@ impl From<BasicAgentOutput> for MathAgentOutput {
 struct MathAgent {}
 
 pub async fn run() -> Result<(), Error> {
-    let api_key = std::env::var("OPENROUTER_API_KEY").unwrap_or("".into());
+    let api_key = std::env::var("OPENROUTER_API_KEY").unwrap_or_else(|| "".into());
 
     // Initialize and configure the LLM client
     let llm: Arc<OpenRouter> = LLMBuilder::<OpenRouter>::new()

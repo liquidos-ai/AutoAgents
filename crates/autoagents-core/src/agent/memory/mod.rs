@@ -63,7 +63,7 @@ mod tests {
             if self.should_fail {
                 return Err(LLMError::ProviderError("Mock recall error".to_string()));
             }
-            let limit = limit.unwrap_or(self.messages.len());
+            let limit = limit.unwrap_or_else(|| self.messages.len());
             Ok(self.messages.iter().take(limit).cloned().collect())
         }
 

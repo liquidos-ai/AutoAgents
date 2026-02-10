@@ -85,7 +85,7 @@ impl Environment {
         &self,
         runtime_id: Option<RuntimeID>,
     ) -> Result<Arc<dyn Runtime>, Error> {
-        let rid = runtime_id.unwrap_or(self.default_runtime.unwrap());
+        let rid = runtime_id.unwrap_or_else(|| self.default_runtime.unwrap());
         self.get_runtime(&rid)
             .await
             .ok_or_else(|| EnvironmentError::RuntimeNotFound(rid).into())

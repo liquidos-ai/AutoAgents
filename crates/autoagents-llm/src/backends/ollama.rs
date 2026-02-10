@@ -336,7 +336,7 @@ impl Ollama {
         Self {
             base_url: base_url.into(),
             api_key,
-            model: model.unwrap_or("llama3.1".to_string()),
+            model: model.unwrap_or_else(|| "llama3.1".to_string()),
             temperature,
             max_tokens,
             timeout_seconds,
@@ -543,7 +543,7 @@ impl LLMBuilder<Ollama> {
     pub fn build(self) -> Result<Arc<Ollama>, LLMError> {
         let url = self
             .base_url
-            .unwrap_or("http://localhost:11434".to_string());
+            .unwrap_or_else(|| "http://localhost:11434".to_string());
 
         let ollama = Ollama::new(
             url,

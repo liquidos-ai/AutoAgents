@@ -533,7 +533,7 @@ impl TurnEngine {
         let system_prompt = task
             .system_prompt
             .as_deref()
-            .unwrap_or(&context.config().description);
+            .unwrap_or_else(|| &context.config().description);
         let mut messages = vec![ChatMessage {
             role: ChatRole::System,
             message_type: MessageType::Text,

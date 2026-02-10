@@ -44,7 +44,7 @@ async fn main() -> Result<(), Error> {
     init_logging();
     let args = Args::parse();
     // Check if API key is set
-    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or("".into());
+    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|| "".into());
 
     // Initialize and configure the LLM client
     let llm: Arc<autoagents::llm::backends::openai::OpenAI> =

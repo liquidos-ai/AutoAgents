@@ -11,7 +11,7 @@ mod wasm;
 async fn main() -> Result<(), Error> {
     init_logging();
     // Check if API key is set
-    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or("".into());
+    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "".into());
 
     // Initialize and configure the LLM client
     let llm: Arc<OpenAI> = LLMBuilder::<OpenAI>::new()
