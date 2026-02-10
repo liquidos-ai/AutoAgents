@@ -165,13 +165,14 @@ mod tests {
     }
 
     #[test]
-    fn test_environment_config_custom() {
+    fn test_environment_config_custom() -> Result<(), Error> {
+        let dir = tempdir()?;
         let config = EnvironmentConfig {
-            working_dir: std::path::PathBuf::from("/tmp"),
+            working_dir: dir.path().to_path_buf(),
         };
-        assert_eq!(config.working_dir, std::path::PathBuf::from("/tmp"));
+        assert_eq!(config.working_dir, dir.path().to_path_buf());
+        Ok(())
     }
-
     #[tokio::test]
     async fn test_environment_get_runtime() {
         let mut env = Environment::new(None);
