@@ -150,8 +150,8 @@ fn handle_events(mut event_stream: BoxEventStream<Event>) {
                             skin.print_text(&agent_out.response);
                             println!("{}", "─".repeat(50).blue());
                         }
-                        Err(e) => {
-                            println!("{}", format!("❌ Failed to parse response: {}", e).red());
+                        Err(_) => {
+                            //Do Nothing
                         }
                     }
                 }

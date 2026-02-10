@@ -103,7 +103,8 @@ impl SingleThreadedRuntime {
             topic_type,
             topic_name,
             message,
-        } = event {
+        } = event
+        {
             self.handle_publish_message(&topic_name, topic_type, message)
                 .await?;
         } else {

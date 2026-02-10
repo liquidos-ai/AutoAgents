@@ -420,6 +420,7 @@ enum MistralStreamEvent {
 }
 
 /// Builder for MistralRsProvider
+#[derive(Default)]
 pub struct MistralRsProviderBuilder {
     config_builder: MistralRsConfigBuilder,
 }
@@ -427,9 +428,7 @@ pub struct MistralRsProviderBuilder {
 impl MistralRsProviderBuilder {
     /// Create a new builder
     pub fn new() -> Self {
-        Self {
-            config_builder: MistralRsConfigBuilder::new(),
-        }
+        Self::default()
     }
 
     /// Set the model source
@@ -490,12 +489,6 @@ impl MistralRsProviderBuilder {
     pub async fn build(self) -> Result<MistralRsProvider, LLMError> {
         let config = self.config_builder.build();
         MistralRsProvider::from_config(config).await
-    }
-}
-
-impl Default for MistralRsProviderBuilder {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
