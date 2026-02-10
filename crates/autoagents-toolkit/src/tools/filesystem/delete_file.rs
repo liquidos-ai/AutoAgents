@@ -139,7 +139,7 @@ mod tests {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let dir_path = temp_dir.path().join("test_dir");
 
-        std::fs::create_dir(&dir_path).expect("Failed to create test directory");
+        std::fs::create_dir_all(&dir_path).expect("Failed to create test directory");
         assert!(dir_path.exists());
 
         let delete_file = DeleteFile::new();
