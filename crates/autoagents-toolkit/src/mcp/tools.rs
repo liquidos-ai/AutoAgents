@@ -4,12 +4,17 @@ use std::path::Path;
 use std::sync::Arc;
 
 /// A collection of MCP tools that can be used in AutoAgents
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct McpTools {
     manager: Arc<McpToolsManager>,
 }
 
 impl McpTools {
+    /// Create an empty MCP tools instance
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Create MCP tools from a configuration file
     pub async fn from_config<P: AsRef<Path>>(config_path: P) -> Result<Self, McpError> {
         let manager = Arc::new(McpToolsManager::from_config_file(config_path).await?);
@@ -21,13 +26,6 @@ impl McpTools {
         let manager = Arc::new(McpToolsManager::new());
         manager.connect_servers(config).await?;
         Ok(Self { manager })
-    }
-
-    /// Create an empty MCP tools instance
-    pub fn new() -> Self {
-        Self {
-            manager: Arc::new(McpToolsManager::new()),
-        }
     }
 
     /// Get all available tools
@@ -63,12 +61,6 @@ impl McpTools {
     /// Get the underlying manager for advanced operations
     pub fn manager(&self) -> Arc<McpToolsManager> {
         Arc::clone(&self.manager)
-    }
-}
-
-impl Default for McpTools {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

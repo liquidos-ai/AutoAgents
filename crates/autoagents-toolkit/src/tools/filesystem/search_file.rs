@@ -24,13 +24,14 @@ pub struct SearchFileArgs {
     description = "Search for files by name pattern or content in a directory",
     input = SearchFileArgs,
 )]
+#[derive(Default)]
 pub struct SearchFile {
     root_dir: Option<String>,
 }
 
 impl SearchFile {
     pub fn new() -> Self {
-        Self { root_dir: None }
+        Self::default()
     }
 
     pub fn new_with_root_dir(root_dir: String) -> Self {
@@ -112,12 +113,6 @@ impl SearchFile {
 impl BaseFileTool for SearchFile {
     fn root_dir(&self) -> Option<String> {
         self.root_dir.clone()
-    }
-}
-
-impl Default for SearchFile {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

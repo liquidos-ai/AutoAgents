@@ -11,16 +11,16 @@ pub struct TypedSubscriber<M: CloneableMessage> {
 
 impl<M: CloneableMessage + 'static> Default for TypedSubscriber<M> {
     fn default() -> Self {
-        Self::new()
+        Self {
+            actors: Vec::new(),
+            _marker: PhantomData,
+        }
     }
 }
 
 impl<M: CloneableMessage + 'static> TypedSubscriber<M> {
     pub fn new() -> Self {
-        Self {
-            actors: Vec::new(),
-            _marker: PhantomData,
-        }
+        Self::default()
     }
 
     pub fn add(&mut self, actor: ActorRef<M>) {
@@ -43,16 +43,16 @@ pub struct SharedSubscriber<M: Send + Sync + 'static> {
 
 impl<M: Send + Sync + 'static> Default for SharedSubscriber<M> {
     fn default() -> Self {
-        Self::new()
+        Self {
+            actors: Vec::new(),
+            _marker: PhantomData,
+        }
     }
 }
 
 impl<M: Send + Sync + 'static> SharedSubscriber<M> {
     pub fn new() -> Self {
-        Self {
-            actors: Vec::new(),
-            _marker: PhantomData,
-        }
+        Self::default()
     }
 
     pub fn add(&mut self, actor: ActorRef<SharedMessage<M>>) {

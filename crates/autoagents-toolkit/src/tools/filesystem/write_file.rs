@@ -25,13 +25,14 @@ pub struct WriteFileArgs {
     description = "Write content to a file in the filesystem",
     input = WriteFileArgs,
 )]
+#[derive(Default)]
 pub struct WriteFile {
     root_dir: Option<String>,
 }
 
 impl WriteFile {
     pub fn new() -> Self {
-        Self { root_dir: None }
+        Self::default()
     }
 
     pub fn new_with_root_dir(root_dir: String) -> Self {
@@ -44,12 +45,6 @@ impl WriteFile {
 impl BaseFileTool for WriteFile {
     fn root_dir(&self) -> Option<String> {
         self.root_dir.clone()
-    }
-}
-
-impl Default for WriteFile {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
