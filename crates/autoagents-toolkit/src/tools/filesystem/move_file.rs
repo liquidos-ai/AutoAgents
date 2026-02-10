@@ -183,7 +183,7 @@ mod tests {
         let dest_dir = temp_dir.path().join("dest_dir");
 
         // Create source directory with a file
-        std::fs::create_dir(&src_dir).expect("Failed to create source directory");
+        std::fs::create_dir_all(&src_dir).expect("Failed to create source directory");
         std::fs::write(&file_in_dir, "content").expect("Failed to create file in directory");
 
         let move_file = MoveFile::new();

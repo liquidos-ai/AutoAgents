@@ -157,7 +157,7 @@ mod tests {
             .expect("Failed to create file1");
         std::fs::write(temp_dir.path().join("file2.rs"), "content2")
             .expect("Failed to create file2");
-        std::fs::create_dir(temp_dir.path().join("subdir")).expect("Failed to create subdir");
+        std::fs::create_dir_all(temp_dir.path().join("subdir")).expect("Failed to create subdir");
 
         let list_dir = ListDir::new();
         let args = json!({
