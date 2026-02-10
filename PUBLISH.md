@@ -70,6 +70,12 @@ cargo publish --dry-run
 cargo publish
 ```
 
+```shell
+cd ../autoagents-telemetry
+cargo publish --dry-run
+cargo publish
+```
+
 ---
 
 4. Create release tag:
