@@ -150,9 +150,9 @@ impl Environment {
 
 #[cfg(test)]
 mod tests {
-    use crate::runtime::SingleThreadedRuntime;
-
     use super::*;
+    use crate::runtime::SingleThreadedRuntime;
+    use tempfile::tempdir;
     use uuid::Uuid;
 
     #[test]
@@ -166,10 +166,11 @@ mod tests {
 
     #[test]
     fn test_environment_config_custom() {
+        let dir = tempdir().expect("Unable to create temp dir");
         let config = EnvironmentConfig {
-            working_dir: std::path::PathBuf::from("/tmp"),
+            working_dir: dir.path().to_path_buf(),
         };
-        assert_eq!(config.working_dir, std::path::PathBuf::from("/tmp"));
+        assert_eq!(config.working_dir, dir.path().to_path_buf());
     }
 
     #[tokio::test]

@@ -139,6 +139,7 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
+    use tempfile::tempdir;
 
     #[test]
     fn test_mcp_server_config_creation() {
@@ -157,7 +158,9 @@ mod tests {
     }
 
     #[test]
-    fn test_mcp_server_config_builder() {
+    fn test_mcp_server_config_builder() -> std::io::Result<()> {
+        let dir = tempdir()?;
+        let cwd = dir.path().to_str().unwrap().to_string();
         let mut env = HashMap::new();
         env.insert("PYTHONPATH".to_string(), "/path/to/modules".to_string());
 
@@ -168,14 +171,15 @@ mod tests {
         )
         .with_args(vec!["-m".to_string(), "my_server".to_string()])
         .with_env(env.clone())
-        .with_cwd("/tmp")
+        .with_cwd(cwd.clone())
         .with_timeout(60);
 
         assert_eq!(config.name, "builder_test");
         assert_eq!(config.args, vec!["-m", "my_server"]);
         assert_eq!(config.env, env);
-        assert_eq!(config.cwd, Some("/tmp".to_string()));
+        assert_eq!(config.cwd, Some(cwd));
         assert_eq!(config.timeout, 60);
+        Ok(())
     }
 
     #[test]
@@ -278,18 +282,24 @@ name = "incomplete"
 
     #[test]
     fn test_config_with_env_vars() {
-        let toml_content = r#"
+        let dir = tempdir().unwrap();
+        let cwd_str = dir.path().to_str().unwrap();
+
+        let toml_content = format!(
+            r#"
 [mcp]
 [[mcp.server]]
 name = "env_server"
 protocol = "stdio"
 command = "python"
-cwd = "/tmp"
+cwd = "{cwd}"
 
 [mcp.server.env]
 PYTHONPATH = "/path/to/modules"
 DEBUG = "1"
-        "#;
+        "#,
+            cwd = cwd_str
+        );
 
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(toml_content.as_bytes()).unwrap();
@@ -298,7 +308,7 @@ DEBUG = "1"
         let config = McpConfig::from_file(temp_file.path()).unwrap();
         let server = config.get_server("env_server").unwrap();
 
-        assert_eq!(server.cwd, Some("/tmp".to_string()));
+        assert_eq!(server.cwd, Some(cwd_str.to_string()));
         assert_eq!(
             server.env.get("PYTHONPATH"),
             Some(&"/path/to/modules".to_string())
