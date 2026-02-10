@@ -13,7 +13,7 @@ members = ["crates/*", "examples/*"]
 exclude = ["examples/wasm_tool"]
 
 [workspace.package]
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Agent Framework for Building Autonomous Agents"
@@ -24,25 +24,25 @@ categories = []
 
 [workspace.dependencies]
 # Core Crates
-autoagents = { path = "crates/autoagents", version = "0.3.2" }
-autoagents-derive = { path = "crates/autoagents-derive", version = "0.3.2" }
-autoagents-core = { path = "crates/autoagents-core", version = "0.3.2" }
-autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.3.2" }
-autoagents-protocol = { path = "crates/autoagents-protocol", version = "0.3.2" }
+autoagents = { path = "crates/autoagents", version = "0.3.3" }
+autoagents-derive = { path = "crates/autoagents-derive", version = "0.3.3" }
+autoagents-core = { path = "crates/autoagents-core", version = "0.3.3" }
+autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.3.3" }
+autoagents-protocol = { path = "crates/autoagents-protocol", version = "0.3.3" }
 
 # LLM and Providers
-autoagents-llm = { path = "crates/autoagents-llm", version = "0.3.2" }
+autoagents-llm = { path = "crates/autoagents-llm", version = "0.3.3" }
 autoagents-mistral-rs = { path = "crates/autoagents-mistral-rs" }
-autoagents-llamacpp = { path = "crates/autoagents-llamacpp", version = "0.3.2" }
+autoagents-llamacpp = { path = "crates/autoagents-llamacpp", version = "0.3.3" }
 
 # Store
-autoagents-qdrant = { path = "crates/autoagents-qdrant", version = "0.3.2" }
+autoagents-qdrant = { path = "crates/autoagents-qdrant", version = "0.3.3" }
 
 # Speech (TTS/STT)
-autoagents-speech = { path = "crates/autoagents-speech", version = "0.3.2" }
+autoagents-speech = { path = "crates/autoagents-speech", version = "0.3.3" }
 
 # Telemetry
-autoagents-telemetry = { path = "crates/autoagents-telemetry", version = "0.3.2" }
+autoagents-telemetry = { path = "crates/autoagents-telemetry", version = "0.3.3" }
 
 # Test Utils
 autoagents-test-utils = { path = "crates/autoagents-test-utils" }
