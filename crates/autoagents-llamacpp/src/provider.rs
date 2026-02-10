@@ -1410,9 +1410,7 @@ fn resolve_model_path(
             Ok(model_path.clone())
         }
         ModelSource::HuggingFace {
-            repo_id,
-            filename,
-            mmproj_filename: _,
+            repo_id, filename, ..
         } => crate::huggingface::resolve_hf_model(repo_id, filename.as_deref(), config),
     }
 }

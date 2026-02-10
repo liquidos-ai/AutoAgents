@@ -403,10 +403,7 @@ impl TurnEngine {
                     response_text.push_str(&content);
                     let _ = tx.send(Ok(TurnDelta::Text(content.clone()))).await;
                 }
-                StreamChunk::ToolUseComplete {
-                    index: _,
-                    tool_call,
-                } => {
+                StreamChunk::ToolUseComplete { tool_call, .. } => {
                     if tool_call_ids.insert(tool_call.id.clone()) {
                         tool_calls.push(tool_call.clone());
                         let tx_event = context.tx().ok();
