@@ -1412,7 +1412,7 @@ fn resolve_model_path(
         ModelSource::HuggingFace {
             repo_id,
             filename,
-            mmproj_filename: _,
+            ..
         } => crate::huggingface::resolve_hf_model(repo_id, filename.as_deref(), config),
     }
 }
