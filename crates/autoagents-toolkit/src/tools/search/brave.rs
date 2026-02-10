@@ -43,7 +43,6 @@ impl Default for BraveSearch {
             api_key: BRAVE_SEARCH_API_KEY.clone(),
         }
     }
-    }
 }
 
 impl BraveSearch {
