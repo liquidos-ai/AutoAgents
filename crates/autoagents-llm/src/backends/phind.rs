@@ -129,34 +129,31 @@ impl Phind {
         response: Response,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         let status = response.status();
-        match status {
-            StatusCode::OK => {
-                let response_text = response.text().await?;
-                let full_text = Self::parse_stream_response(&response_text);
-                if full_text.is_empty() {
-                    Err(LLMError::ProviderError(
-                        "No completion choice returned.".to_string(),
-                    ))
-                } else {
-                    Ok(Box::new(PhindResponse { content: full_text }))
-                }
+        if let StatusCode::OK = status {
+            let response_text = response.text().await?;
+            let full_text = Self::parse_stream_response(&response_text);
+            if full_text.is_empty() {
+                Err(LLMError::ProviderError(
+                    "No completion choice returned.".to_string(),
+                ))
+            } else {
+                Ok(Box::new(PhindResponse { content: full_text }))
             }
-            _ => {
-                let error_text = response.text().await?;
-                let error_json: Value = serde_json::from_str(&error_text)
-                    .unwrap_or_else(|_| json!({"error": {"message": "Unknown error"}}));
+        } else {
+            let error_text = response.text().await?;
+            let error_json: Value = serde_json::from_str(&error_text)
+                .unwrap_or_else(|_| json!({"error": {"message": "Unknown error"}}));
 
-                let error_message = error_json
-                    .get("error")
-                    .and_then(|err| err.get("message"))
-                    .and_then(|msg| msg.as_str())
-                    .unwrap_or("Unexpected error from Phind")
-                    .to_string();
+            let error_message = error_json
+                .get("error")
+                .and_then(|err| err.get("message"))
+                .and_then(|msg| msg.as_str())
+                .unwrap_or("Unexpected error from Phind")
+                .to_string();
 
-                Err(LLMError::ProviderError(format!(
-                    "APIError {status}: {error_message}"
-                )))
-            }
+            Err(LLMError::ProviderError(format!(
+                "APIError {status}: {error_message}"
+            )))
         }
     }
 }
