@@ -26,7 +26,7 @@ pub struct McpServerConfig {
 }
 
 /// MCP configuration containing all servers
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct McpConfig {
     #[serde(rename = "server")]
     pub servers: Vec<McpServerConfig>,
@@ -52,9 +52,7 @@ impl McpConfig {
 
     /// Create a new empty MCP configuration
     pub fn new() -> Self {
-        Self {
-            servers: Vec::new(),
-        }
+        Self::default()
     }
 
     /// Add a server to the configuration
@@ -70,12 +68,6 @@ impl McpConfig {
     /// List all server names
     pub fn server_names(&self) -> Vec<&str> {
         self.servers.iter().map(|s| s.name.as_str()).collect()
-    }
-}
-
-impl Default for McpConfig {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

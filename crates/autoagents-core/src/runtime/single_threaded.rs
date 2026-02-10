@@ -99,23 +99,21 @@ impl SingleThreadedRuntime {
 
     /// Forward protocol events to external channel
     async fn process_protocol_event(&self, event: Event) -> Result<(), Error> {
-        match event {
-            Event::PublishMessage {
-                topic_type,
-                topic_name,
-                message,
-            } => {
-                self.handle_publish_message(&topic_name, topic_type, message)
-                    .await?;
-            }
-            _ => {
-                //Other protocol events are sent to external
-                let _ = self.broadcast_tx.send(event.clone());
-                self.external_tx
-                    .send(event)
-                    .await
-                    .map_err(RuntimeError::EventError)?;
-            }
+        if let Event::PublishMessage {
+            topic_type,
+            topic_name,
+            message,
+        } = event
+        {
+            self.handle_publish_message(&topic_name, topic_type, message)
+                .await?;
+        } else {
+            //Other protocol events are sent to external
+            let _ = self.broadcast_tx.send(event.clone());
+            self.external_tx
+                .send(event)
+                .await
+                .map_err(RuntimeError::EventError)?;
         }
         Ok(())
     }
