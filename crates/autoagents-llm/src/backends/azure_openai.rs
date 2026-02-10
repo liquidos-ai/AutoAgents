@@ -358,7 +358,7 @@ impl AzureOpenAI {
             api_version: api_version.into(),
             base_url: Url::parse(&format!("{endpoint}/openai/deployments/{deployment_id}/"))
                 .expect("Failed to parse base Url"),
-            model: model.unwrap_or("gpt-3.5-turbo".to_string()),
+            model: model.unwrap_or_else(|| "gpt-3.5-turbo".to_string()),
             max_tokens,
             temperature,
             timeout_seconds,
