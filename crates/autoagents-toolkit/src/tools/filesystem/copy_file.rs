@@ -125,7 +125,7 @@ mod tests {
             .expect("Failed to write to source file");
         drop(src_file);
 
-        let copy_file = CopyFile::new();
+        let copy_file = CopyFile::default();
         let args = json!({
             "source_path": src_path.display().to_string(),
             "destination_path": dest_path.display().to_string()
@@ -145,7 +145,7 @@ mod tests {
         let src_path = temp_dir.path().join("nonexistent.txt");
         let dest_path = temp_dir.path().join("destination.txt");
 
-        let copy_file = CopyFile::new();
+        let copy_file = CopyFile::default();
         let args = json!({
             "source_path": src_path.display().to_string(),
             "destination_path": dest_path.display().to_string()

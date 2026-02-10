@@ -596,7 +596,7 @@ mod tests {
     #[test]
     fn test_tool_call_result_empty_tool_name() {
         let result = ToolCallResult {
-            tool_name: String::new(),
+            tool_name: String::default(),
             success: true,
             arguments: json!({}),
             result: json!({}),

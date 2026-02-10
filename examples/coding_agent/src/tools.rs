@@ -136,7 +136,7 @@ fn analyze_structure(path: &Path) -> Result<String, ToolCallError> {
     let mut file_count = 0;
     let mut dir_count = 0;
     let mut total_lines = 0;
-    let mut extensions: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut extensions: std::collections::HashMap<String, usize> = std::collections::HashMap::default();
 
     if path.is_file() {
         file_count = 1;
@@ -167,17 +167,13 @@ fn analyze_structure(path: &Path) -> Result<String, ToolCallError> {
         }
     }
 
-    let mut ext_summary = String::new();
+    let mut ext_summary = String::default();
     for (ext, count) in extensions.iter() {
         ext_summary.push_str(&format!("\n  .{}: {} files", ext, count));
     }
 
     Ok(format!(
-        "Code Structure Analysis:\n\
-        - Files: {}\n\
-        - Directories: {}\n\
-        - Total lines: {}\n\
-        - File types:{}",
+        "Code Structure Analysis:\n\        - Files: {}\n\        - Directories: {}\n\        - Total lines: {}\n\        - File types:{}",
         file_count, dir_count, total_lines, ext_summary
     ))
 }

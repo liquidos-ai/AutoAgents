@@ -140,7 +140,7 @@ mod tests {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let file_path = temp_dir.path().join("new_file.txt");
 
-        let write_file = WriteFile::new();
+        let write_file = WriteFile::default();
         let args = json!({
             "file_path": file_path.display().to_string(),
             "content": "Hello, World!",
@@ -166,7 +166,7 @@ mod tests {
         // Create initial file
         std::fs::write(&file_path, "Initial content").expect("Failed to create initial file");
 
-        let write_file = WriteFile::new();
+        let write_file = WriteFile::default();
         let args = json!({
             "file_path": file_path.display().to_string(),
             "content": "New content",

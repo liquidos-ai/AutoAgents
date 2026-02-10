@@ -90,7 +90,7 @@ where
     pub fn new(provider: SharedEmbeddingProvider) -> Self {
         Self {
             provider,
-            documents: Vec::new(),
+            documents: Vec::default(),
         }
     }
 
@@ -107,10 +107,10 @@ where
             return Err(EmbeddingError::Empty);
         }
 
-        let mut texts = Vec::new();
-        let mut ranges = Vec::new();
+        let mut texts = Vec::default();
+        let mut ranges = Vec::default();
         for doc in &self.documents {
-            let mut embedder = TextEmbedder::new();
+            let mut embedder = TextEmbedder::default();
             doc.embed(&mut embedder)
                 .map_err(|err| EmbeddingError::EmbedFailure(err.to_string()))?;
 

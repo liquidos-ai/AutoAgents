@@ -340,8 +340,8 @@ fn extract_turn_output(
         crate::agent::executor::TurnResult::Complete(output) => output,
         crate::agent::executor::TurnResult::Continue(Some(output)) => output,
         crate::agent::executor::TurnResult::Continue(None) => TurnEngineOutput {
-            response: String::new(),
-            tool_calls: Vec::new(),
+            response: String::default(),
+            tool_calls: Vec::default(),
         },
     }
 }

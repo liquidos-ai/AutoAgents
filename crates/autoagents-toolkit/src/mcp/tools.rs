@@ -134,7 +134,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_mcp_tools() {
-        let tools = McpTools::new();
+        let tools = McpTools::default();
         assert_eq!(tools.tool_count().await, 0);
         assert!(tools.tool_names().await.is_empty());
         assert!(tools.connected_servers().await.is_empty());
@@ -142,7 +142,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_tools_boxed_conversion() {
-        let tools = McpTools::new();
+        let tools = McpTools::default();
         let boxed_tools = tools.to_boxed_tools().await;
         assert!(boxed_tools.is_empty());
     }
