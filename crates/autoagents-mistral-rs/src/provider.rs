@@ -756,9 +756,9 @@ impl ChatProvider for MistralRsProvider {
         impl ToolUseState {
             fn new() -> Self {
                 Self {
-                    id: String::new(),
-                    name: String::new(),
-                    arguments: String::new(),
+                    id: String::default(),
+                    name: String::default(),
+                    arguments: String::default(),
                     call_type: "function".to_string(),
                     started: false,
                 }

@@ -160,7 +160,7 @@ impl MemoryAdapter {
             .remember(&ChatMessage {
                 role: ChatRole::Tool,
                 message_type: MessageType::ToolResult(result_tool_calls),
-                content: String::new(),
+                content: String::default(),
             })
             .await;
     }

@@ -373,7 +373,7 @@ impl TurnEngine {
         Ok(crate::agent::executor::TurnResult::Complete(
             TurnEngineOutput {
                 response: response_text,
-                tool_calls: Vec::new(),
+                tool_calls: Vec::default(),
             },
         ))
     }
@@ -391,8 +391,8 @@ impl TurnEngine {
     ) -> Result<crate::agent::executor::TurnResult<TurnEngineOutput>, TurnEngineError> {
         let mut stream = self.get_tool_stream(context, messages, tools).await?;
         let mut response_text = String::new();
-        let mut tool_calls = Vec::new();
-        let mut tool_call_ids = HashSet::new();
+        let mut tool_calls = Vec::default();
+        let mut tool_call_ids = HashSet::default();
 
         while let Some(chunk_result) = stream.next().await {
             let chunk = chunk_result.map_err(|e| TurnEngineError::LLMError(e.to_string()))?;

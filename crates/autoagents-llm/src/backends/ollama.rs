@@ -74,7 +74,7 @@ struct OllamaResponse {
 
 impl std::fmt::Display for OllamaResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let empty = String::new();
+        let empty = String::default();
         let text = self
             .content
             .as_ref()
@@ -89,7 +89,7 @@ impl std::fmt::Display for OllamaResponse {
             for tc in tool_calls {
                 writeln!(
                     f,
-                    "{{\"name\": \"{}\", \"arguments\": {}}}",
+                    "{\"name\": \"{}\", \"arguments\": {}}}",
                     tc.function.name,
                     serde_json::to_string_pretty(&tc.function.arguments).unwrap_or_default()
                 )?;

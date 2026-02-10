@@ -120,7 +120,7 @@ impl Default for LlamaCppConfig {
     fn default() -> Self {
         Self {
             model_source: ModelSource::Gguf {
-                model_path: String::new(),
+                model_path: String::default(),
             },
             chat_template: None,
             system_prompt: None,

@@ -346,7 +346,7 @@ impl ParamBuilder {
         Self {
             name: name.into(),
             property_type: "string".to_string(),
-            description: String::new(),
+            description: String::default(),
             items: None,
             enum_list: None,
         }
@@ -406,9 +406,9 @@ impl FunctionBuilder {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            description: String::new(),
-            parameters: Vec::new(),
-            required: Vec::new(),
+            description: String::default(),
+            parameters: Vec::default(),
+            required: Vec::default(),
             raw_schema: None,
         }
     }
