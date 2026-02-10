@@ -23,13 +23,14 @@ pub struct MoveFileArgs {
     description = "Move or rename a file or directory",
     input = MoveFileArgs,
 )]
+#[derive(Default)]
 pub struct MoveFile {
     root_dir: Option<String>,
 }
 
 impl MoveFile {
     pub fn new() -> Self {
-        Self { root_dir: None }
+        Self::default()
     }
 
     pub fn new_with_root_dir(root_dir: String) -> Self {
@@ -42,12 +43,6 @@ impl MoveFile {
 impl BaseFileTool for MoveFile {
     fn root_dir(&self) -> Option<String> {
         self.root_dir.clone()
-    }
-}
-
-impl Default for MoveFile {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

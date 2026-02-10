@@ -23,13 +23,14 @@ pub struct CopyFileArgs {
     description = "Copy a file from source path to destination path",
     input = CopyFileArgs,
 )]
+#[derive(Default)]
 pub struct CopyFile {
     root_dir: Option<String>,
 }
 
 impl CopyFile {
     pub fn new() -> Self {
-        Self { root_dir: None }
+        Self::default()
     }
 
     pub fn new_with_root_dir(root_dir: String) -> Self {
@@ -42,12 +43,6 @@ impl CopyFile {
 impl BaseFileTool for CopyFile {
     fn root_dir(&self) -> Option<String> {
         self.root_dir.clone()
-    }
-}
-
-impl Default for CopyFile {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

@@ -47,13 +47,19 @@ pub enum McpError {
     GenericError(String),
 }
 
-impl McpToolsManager {
-    /// Create a new MCP tools manager
-    pub fn new() -> Self {
+impl Default for McpToolsManager {
+    fn default() -> Self {
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
             tools: Arc::new(RwLock::new(Vec::new())),
         }
+    }
+}
+
+impl McpToolsManager {
+    /// Create a new MCP tools manager
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Load MCP configuration from a file and connect to all servers
@@ -258,12 +264,6 @@ impl McpToolsManager {
             .iter()
             .map(|tool| tool.name().to_string())
             .collect()
-    }
-}
-
-impl Default for McpToolsManager {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

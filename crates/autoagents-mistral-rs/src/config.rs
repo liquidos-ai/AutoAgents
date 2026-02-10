@@ -57,7 +57,7 @@ impl Default for MistralRsConfig {
 }
 
 /// Builder for MistralRsConfig
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MistralRsConfigBuilder {
     config: MistralRsConfig,
 }
@@ -65,9 +65,7 @@ pub struct MistralRsConfigBuilder {
 impl MistralRsConfigBuilder {
     /// Create a new builder with default configuration
     pub fn new() -> Self {
-        Self {
-            config: MistralRsConfig::default(),
-        }
+        Self::default()
     }
 
     /// Set the model source
@@ -127,12 +125,6 @@ impl MistralRsConfigBuilder {
     /// Build the configuration
     pub fn build(self) -> MistralRsConfig {
         self.config
-    }
-}
-
-impl Default for MistralRsConfigBuilder {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

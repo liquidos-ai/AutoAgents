@@ -7,12 +7,18 @@ pub struct LlamaCppProviderBuilder {
     config_builder: LlamaCppConfigBuilder,
 }
 
-impl LlamaCppProviderBuilder {
-    /// Create a new builder.
-    pub fn new() -> Self {
+impl Default for LlamaCppProviderBuilder {
+    fn default() -> Self {
         Self {
             config_builder: LlamaCppConfigBuilder::new(),
         }
+    }
+}
+
+impl LlamaCppProviderBuilder {
+    /// Create a new builder.
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Set the model source.
@@ -199,11 +205,5 @@ impl LlamaCppProviderBuilder {
     pub async fn build(self) -> Result<LlamaCppProvider, LLMError> {
         let config = self.config_builder.build();
         LlamaCppProvider::from_config(config).await
-    }
-}
-
-impl Default for LlamaCppProviderBuilder {
-    fn default() -> Self {
-        Self::new()
     }
 }

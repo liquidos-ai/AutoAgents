@@ -21,13 +21,14 @@ pub struct DeleteFileArgs {
     description = "Delete a file or directory from the filesystem",
     input = DeleteFileArgs,
 )]
+#[derive(Default)]
 pub struct DeleteFile {
     root_dir: Option<String>,
 }
 
 impl DeleteFile {
     pub fn new() -> Self {
-        Self { root_dir: None }
+        Self::default()
     }
 
     pub fn new_with_root_dir(root_dir: String) -> Self {
@@ -40,12 +41,6 @@ impl DeleteFile {
 impl BaseFileTool for DeleteFile {
     fn root_dir(&self) -> Option<String> {
         self.root_dir.clone()
-    }
-}
-
-impl Default for DeleteFile {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

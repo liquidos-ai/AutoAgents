@@ -155,7 +155,7 @@ impl Default for LlamaCppConfig {
 }
 
 /// Builder for LlamaCppConfig.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct LlamaCppConfigBuilder {
     config: LlamaCppConfig,
 }
@@ -163,9 +163,7 @@ pub struct LlamaCppConfigBuilder {
 impl LlamaCppConfigBuilder {
     /// Create a new builder with default configuration.
     pub fn new() -> Self {
-        Self {
-            config: LlamaCppConfig::default(),
-        }
+        Self::default()
     }
 
     /// Set the model source.
@@ -351,12 +349,6 @@ impl LlamaCppConfigBuilder {
     /// Build the configuration.
     pub fn build(self) -> LlamaCppConfig {
         self.config
-    }
-}
-
-impl Default for LlamaCppConfigBuilder {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

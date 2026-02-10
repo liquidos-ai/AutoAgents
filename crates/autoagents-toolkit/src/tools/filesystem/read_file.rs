@@ -21,13 +21,14 @@ pub struct ReadFileArgs {
     description = "Read the contents of a file from the filesystem",
     input = ReadFileArgs,
 )]
+#[derive(Default)]
 pub struct ReadFile {
     root_dir: Option<String>,
 }
 
 impl ReadFile {
     pub fn new() -> Self {
-        Self { root_dir: None }
+        Self::default()
     }
 
     pub fn new_with_root_dir(root_dir: String) -> Self {
@@ -40,12 +41,6 @@ impl ReadFile {
 impl BaseFileTool for ReadFile {
     fn root_dir(&self) -> Option<String> {
         self.root_dir.clone()
-    }
-}
-
-impl Default for ReadFile {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

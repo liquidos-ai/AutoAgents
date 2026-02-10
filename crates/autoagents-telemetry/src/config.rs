@@ -38,7 +38,17 @@ impl TelemetryConfig {
 
 impl Default for TelemetryConfig {
     fn default() -> Self {
-        Self::new("autoagents")
+        Self {
+            service_name: "autoagents".into(),
+            service_version: None,
+            environment: None,
+            runtime_id: None,
+            exporter: ExporterConfig::default(),
+            span_batch: SpanBatchConfig::default(),
+            redaction: RedactionConfig::default(),
+            metrics_enabled: true,
+            install_tracing_subscriber: true,
+        }
     }
 }
 

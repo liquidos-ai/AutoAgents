@@ -21,13 +21,14 @@ pub struct ListDirArgs {
     description = "List contents of a directory",
     input = ListDirArgs,
 )]
+#[derive(Default)]
 pub struct ListDir {
     root_dir: Option<String>,
 }
 
 impl ListDir {
     pub fn new() -> Self {
-        Self { root_dir: None }
+        Self::default()
     }
 
     pub fn new_with_root_dir(root_dir: String) -> Self {
@@ -40,12 +41,6 @@ impl ListDir {
 impl BaseFileTool for ListDir {
     fn root_dir(&self) -> Option<String> {
         self.root_dir.clone()
-    }
-}
-
-impl Default for ListDir {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
