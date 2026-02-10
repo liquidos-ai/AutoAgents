@@ -155,13 +155,8 @@ async fn main() -> Result<(), Error> {
     println!("🔄 Processing stream tokens...\n");
 
     while let Some(result) = stream.next().await {
-        match result {
-            Ok(output) => {
-                print!("{}", output);
-            }
-            _ => {
-                //
-            }
+        if let Ok(output) = result {
+            print!("{}", output);
         }
     }
 

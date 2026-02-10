@@ -18,13 +18,8 @@ pub async fn run_llm(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     //Stream without structured output
     let mut stream = llm.chat_stream(slice::from_ref(&message), None).await?;
     while let Some(result) = stream.next().await {
-        match result {
-            Ok(output) => {
-                println!("Streaming Response: {}", output);
-            }
-            _ => {
-                //
-            }
+        if let Ok(output) = result {
+            println!("Streaming Response: {}", output);
         }
     }
     println!("Running Stram with structured");
@@ -34,13 +29,8 @@ pub async fn run_llm(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         .chat_stream_struct(slice::from_ref(&message), None, None)
         .await?;
     while let Some(result) = stream.next().await {
-        match result {
-            Ok(output) => {
-                println!("Streaming Response: {:?}", output);
-            }
-            _ => {
-                //
-            }
+        if let Ok(output) = result {
+            println!("Streaming Response: {:?}", output);
         }
     }
     println!("Running Stram With Tool struct");
@@ -67,13 +57,8 @@ pub async fn run_llm(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         )
         .await?;
     while let Some(result) = stream.next().await {
-        match result {
-            Ok(output) => {
-                println!("Streaming Response: {:?}", output);
-            }
-            _ => {
-                //
-            }
+        if let Ok(output) = result {
+            println!("Streaming Response: {:?}", output);
         }
     }
 
@@ -86,13 +71,8 @@ pub async fn run_llm(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         .chat_stream_with_tools(slice::from_ref(&message), Some(&[tool]), None)
         .await?;
     while let Some(result) = stream.next().await {
-        match result {
-            Ok(output) => {
-                println!("Streaming Response: {:?}", output);
-            }
-            _ => {
-                //
-            }
+        if let Ok(output) = result {
+            println!("Streaming Response: {:?}", output);
         }
     }
 
