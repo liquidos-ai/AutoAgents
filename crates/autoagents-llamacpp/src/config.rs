@@ -120,7 +120,7 @@ impl Default for LlamaCppConfig {
     fn default() -> Self {
         Self {
             model_source: ModelSource::Gguf {
-                model_path: String::new(),
+                model_path: String::default(),
             },
             chat_template: None,
             system_prompt: None,
@@ -369,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_config_builder_basic() {
-        let config = LlamaCppConfigBuilder::new()
+        let config = LlamaCppConfigBuilder::default()
             .model_path("model.gguf")
             .max_tokens(1024)
             .temperature(0.8)
@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn test_config_builder_split_mode() {
-        let config = LlamaCppConfigBuilder::new()
+        let config = LlamaCppConfigBuilder::default()
             .model_path("model.gguf")
             .split_mode(LlamaCppSplitMode::Row)
             .build();
@@ -398,7 +398,7 @@ mod tests {
     #[test]
     fn test_config_builder_default() {
         let builder1 = LlamaCppConfigBuilder::default();
-        let builder2 = LlamaCppConfigBuilder::new();
+        let builder2 = LlamaCppConfigBuilder::default();
 
         let config1 = builder1.build();
         let config2 = builder2.build();

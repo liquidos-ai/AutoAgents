@@ -154,7 +154,7 @@ mod tests {
             .expect("Failed to create file2");
         std::fs::create_dir_all(temp_dir.path().join("subdir")).expect("Failed to create subdir");
 
-        let list_dir = ListDir::new();
+        let list_dir = ListDir::default();
         let args = json!({
             "directory_path": temp_dir.path().display().to_string()
         });
@@ -180,7 +180,7 @@ mod tests {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let nonexistent = temp_dir.path().join("nonexistent");
 
-        let list_dir = ListDir::new();
+        let list_dir = ListDir::default();
         let args = json!({
             "directory_path": nonexistent.display().to_string()
         });

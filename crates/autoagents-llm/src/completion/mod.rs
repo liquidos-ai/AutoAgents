@@ -292,9 +292,9 @@ mod tests {
     #[test]
     fn test_completion_response_empty_text() {
         let response = CompletionResponse {
-            text: String::new(),
+            text: String::default(),
         };
-        assert_eq!(response.text(), Some(String::new()));
+        assert_eq!(response.text(), Some(String::default()));
         assert_eq!(response.to_string(), "");
     }
 

@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn test_mcp_tools_manager_creation() {
-        let manager = McpToolsManager::new();
+        let manager = McpToolsManager::default();
         // Basic structural test
         assert_eq!(
             std::ptr::addr_of!(manager) as usize % std::mem::align_of::<McpToolsManager>(),
@@ -295,7 +295,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_basic_operations() {
-        let manager = McpToolsManager::new();
+        let manager = McpToolsManager::default();
 
         // Test initial state
         assert_eq!(manager.tool_count().await, 0);

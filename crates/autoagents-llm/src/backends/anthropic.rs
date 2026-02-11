@@ -812,7 +812,7 @@ fn create_anthropic_tool_stream(
     let stream = response
         .bytes_stream()
         .scan(
-            (String::new(), Vec::new(), HashMap::new()),
+            (String::default(), Vec::default(), HashMap::default()),
             move |(buffer, utf8_buffer, tool_states), chunk| {
                 let result = match chunk {
                     Ok(bytes) => {
@@ -1035,7 +1035,7 @@ fn parse_anthropic_sse_chunk_with_tools(
                                     ToolUseState {
                                         id: id.clone(),
                                         name: name.clone(),
-                                        json_buffer: String::new(),
+                                        json_buffer: String::default(),
                                     },
                                 );
 
@@ -1180,38 +1180,37 @@ data: {"type": "content_block_start", "index": 1, "content_block": {"type": "too
     }
 
     #[test]
-    fn test_parse_stream_tool_use_input_delta() {
-        let chunk = r#"event: content_block_delta
-data: {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": "{\"location\":"}}
-
+fn test_parse_stream_tool_use_input_delta() {
+    let chunk = r#"event: content_block_delta
+data: {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": "{\"location\":"}}\n
 "#;
-        let mut tool_states = HashMap::new();
-        // Pre-populate state as if tool_use_start was already processed
-        tool_states.insert(
-            1,
-            ToolUseState {
-                id: "toolu_01ABC".to_string(),
-                name: "get_weather".to_string(),
-                json_buffer: String::new(),
-            },
-        );
+    let mut tool_states = HashMap::default();
+    // Pre-populate state as if tool_use_start was already processed
+    tool_states.insert(
+        1,
+        ToolUseState {
+            id: "toolu_01ABC".to_string(),
+            name: "get_weather".to_string(),
+            json_buffer: String::default(),
+        },
+    );
 
-        let result = parse_anthropic_sse_chunk_with_tools(chunk, &mut tool_states).unwrap();
+    let result = parse_anthropic_sse_chunk_with_tools(chunk, &mut tool_states).unwrap();
 
-        match result {
-            Some(StreamChunk::ToolUseInputDelta {
-                index,
-                partial_json,
-            }) => {
-                assert_eq!(index, 1);
-                assert_eq!(partial_json, "{\"location\":");
-            }
-            _ => panic!("Expected ToolUseInputDelta chunk, got {:?}", result),
+    match result {
+        Some(StreamChunk::ToolUseInputDelta {
+            index,
+            partial_json,
+        }) => {
+            assert_eq!(index, 1);
+            assert_eq!(partial_json, "{\"location\":");
         }
-
-        // Verify JSON was accumulated
-        assert_eq!(tool_states[&1].json_buffer, "{\"location\":");
+        _ => panic!("Expected ToolUseInputDelta chunk, got {:?}", result),
     }
+
+    // Verify JSON was accumulated
+    assert_eq!(tool_states[&1].json_buffer, "{\"location\":");
+}
 
     #[test]
     fn test_parse_stream_tool_use_complete() {
@@ -1247,44 +1246,44 @@ data: {"type": "content_block_stop", "index": 1}
     }
 
     #[test]
-    fn test_parse_stream_tool_use_complete_empty_arguments() {
-        // Regression test: tools with no parameters should return "{}" not ""
-        // Empty string arguments cause Anthropic API to reject with:
-        // "tool_use.input: Input should be a valid dictionary"
-        let chunk = r#"event: content_block_stop
+fn test_parse_stream_tool_use_complete_empty_arguments() {
+    // Regression test: tools with no parameters should return "{}" not ""
+    // Empty string arguments cause Anthropic API to reject with:
+    // "tool_use.input: Input should be a valid dictionary"
+    let chunk = r#"event: content_block_stop
 data: {"type": "content_block_stop", "index": 1}
 
 "#;
-        let mut tool_states = HashMap::new();
-        // Pre-populate state with EMPTY json_buffer (no input_json_delta events received)
-        tool_states.insert(
-            1,
-            ToolUseState {
-                id: "toolu_01XYZ".to_string(),
-                name: "get_current_time".to_string(),
-                json_buffer: String::new(), // Empty - tool has no parameters
-            },
-        );
+    let mut tool_states = HashMap::default();
+    // Pre-populate state with EMPTY json_buffer (no input_json_delta events received)
+    tool_states.insert(
+        1,
+        ToolUseState {
+            id: "toolu_01XYZ".to_string(),
+            name: "get_current_time".to_string(),
+            json_buffer: String::default(), // Empty - tool has no parameters
+        },
+    );
 
-        let result = parse_anthropic_sse_chunk_with_tools(chunk, &mut tool_states).unwrap();
+    let result = parse_anthropic_sse_chunk_with_tools(chunk, &mut tool_states).unwrap();
 
-        match result {
-            Some(StreamChunk::ToolUseComplete { index, tool_call }) => {
-                assert_eq!(index, 1);
-                assert_eq!(tool_call.id, "toolu_01XYZ");
-                assert_eq!(tool_call.function.name, "get_current_time");
-                // CRITICAL: arguments must be "{}" not "" for Anthropic API compatibility
-                assert_eq!(
-                    tool_call.function.arguments, "{}",
-                    "Empty arguments should default to '{{}}' not empty string"
-                );
-            }
-            _ => panic!("Expected ToolUseComplete chunk, got {:?}", result),
+    match result {
+        Some(StreamChunk::ToolUseComplete { index, tool_call }) => {
+            assert_eq!(index, 1);
+            assert_eq!(tool_call.id, "toolu_01XYZ");
+            assert_eq!(tool_call.function.name, "get_current_time");
+            // CRITICAL: arguments must be "{}" not "" for Anthropic API compatibility
+            assert_eq!(
+                tool_call.function.arguments, "{}",
+                "Empty arguments should default to '{{}}' not empty string"
+            );
         }
-
-        // Verify state was removed
-        assert!(!tool_states.contains_key(&1));
+        _ => panic!("Expected ToolUseComplete chunk, got {:?}", result),
     }
+
+    // Verify state was removed
+    assert!(!tool_states.contains_key(&1));
+}
 
     #[test]
     fn test_parse_stream_done_tool_use() {

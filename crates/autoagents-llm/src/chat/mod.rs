@@ -585,7 +585,7 @@ impl ChatMessageBuilder {
         Self {
             role,
             message_type: MessageType::default(),
-            content: String::new(),
+            content: String::default(),
         }
     }
 
@@ -656,7 +656,7 @@ where
     let stream = response
         .bytes_stream()
         .scan(
-            (String::new(), Vec::new()),
+            (String::default(), Vec::default()),
             move |(buffer, utf8_buffer), chunk| {
                 let result = match chunk {
                     Ok(bytes) => {
@@ -680,7 +680,7 @@ where
                             }
                         }
 
-                        let mut results = Vec::new();
+                        let mut results = Vec::default();
 
                         while let Some(pos) = buffer.find("\n\n") {
                             let event = buffer[..pos + 2].to_string();

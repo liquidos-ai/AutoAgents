@@ -39,7 +39,7 @@ mod tests {
         fn with_failure(id: String) -> Self {
             Self {
                 id: id.clone(),
-                response_text: String::new(),
+                response_text: String::default(),
                 should_fail: true,
                 delay_ms: 0,
                 call_count: Arc::new(AtomicUsize::new(0)),

@@ -277,7 +277,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for BasicAgent<T> {
                 )
                 .await;
 
-            let mut final_response = String::new();
+            let mut final_response = String::default();
 
             match turn_stream {
                 Ok(mut stream) => {
@@ -340,8 +340,8 @@ fn extract_turn_output(
         crate::agent::executor::TurnResult::Complete(output) => output,
         crate::agent::executor::TurnResult::Continue(Some(output)) => output,
         crate::agent::executor::TurnResult::Continue(None) => TurnEngineOutput {
-            response: String::new(),
-            tool_calls: Vec::new(),
+            response: String::default(),
+            tool_calls: Vec::default(),
         },
     }
 }

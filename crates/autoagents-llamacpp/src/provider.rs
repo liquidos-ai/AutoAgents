@@ -1536,7 +1536,7 @@ fn anchor_pattern(pattern: &str) -> String {
     if pattern.is_empty() {
         return "^$".to_string();
     }
-    let mut anchored = String::new();
+    let mut anchored = String::default();
     if !pattern.starts_with('^') {
         anchored.push('^');
     }
@@ -1717,7 +1717,7 @@ fn generate_chat_text(
 
     let mut n_cur = prompt_tokens.len() as i32;
     let max_tokens_total = n_cur + max_tokens as i32;
-    let mut generated_text = String::new();
+    let mut generated_text = String::default();
     let mut completion_tokens = 0u32;
     let mut decoder = encoding_rs::UTF_8.new_decoder();
 
@@ -1835,8 +1835,8 @@ fn generate_mtmd_text(
     let mut bitmaps = Vec::with_capacity(images.len());
     for image in images {
         let bitmap = MtmdBitmap::from_buffer(&mtmd_ctx, image)
-            .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
-        bitmaps.push(bitmap);
+    .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
+    bitmaps.push(bitmap);
     }
 
     let bitmap_refs: Vec<&MtmdBitmap> = bitmaps.iter().collect();
@@ -2082,7 +2082,7 @@ fn is_valid_json(candidate: &str) -> bool {
 fn extract_from_code_fence(text: &str) -> Option<String> {
     let mut in_fence = false;
     let mut json_fence = false;
-    let mut buffer = String::new();
+    let mut buffer = String::default();
 
     for line in text.lines() {
         let line_trimmed = line.trim_start();

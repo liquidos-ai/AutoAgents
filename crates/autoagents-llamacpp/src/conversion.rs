@@ -100,7 +100,7 @@ fn convert_content(message: &ChatMessage) -> String {
 }
 
 pub(crate) fn build_fallback_prompt(messages: &[ChatMessage]) -> String {
-    let mut prompt = String::new();
+    let mut prompt = String::default();
     for msg in messages {
         let role = match msg.role {
             ChatRole::System => "System",

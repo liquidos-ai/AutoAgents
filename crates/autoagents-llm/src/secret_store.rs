@@ -53,7 +53,7 @@ impl SecretStore {
     fn load(&mut self) -> io::Result<()> {
         match File::open(&self.file_path) {
             Ok(mut file) => {
-                let mut contents = String::new();
+                let mut contents = String::default();
                 file.read_to_string(&mut contents)?;
                 self.secrets = serde_json::from_str(&contents).unwrap_or_default();
                 Ok(())
