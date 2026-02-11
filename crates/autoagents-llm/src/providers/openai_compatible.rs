@@ -727,7 +727,10 @@ fn create_openai_tool_stream(
     let stream = response
         .bytes_stream()
         .scan(
-            (String::default(), HashMap::<usize, OpenAIToolUseState>::default()),
+            (
+                String::default(),
+                HashMap::<usize, OpenAIToolUseState>::default(),
+            ),
             move |(buffer, tool_states), chunk| {
                 let result = match chunk {
                     Ok(bytes) => {
@@ -1228,7 +1231,7 @@ mod tests {
             },
         );
 
-        let event = r#"data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"location\":"}}]}],"finish_reason":null}]"#;
+        let event = r#"data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"location\":"}}]},"finish_reason":null}]}"#;
         let results = parse_openai_sse_chunk_with_tools(event, &mut tool_states).unwrap();
 
         assert_eq!(results.len(), 1);

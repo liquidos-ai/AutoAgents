@@ -1835,8 +1835,8 @@ fn generate_mtmd_text(
     let mut bitmaps = Vec::with_capacity(images.len());
     for image in images {
         let bitmap = MtmdBitmap::from_buffer(&mtmd_ctx, image)
-    .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
-    bitmaps.push(bitmap);
+            .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
+        bitmaps.push(bitmap);
     }
 
     let bitmap_refs: Vec<&MtmdBitmap> = bitmaps.iter().collect();
