@@ -128,7 +128,7 @@ mod tests {
 
         assert!(src_path.exists());
 
-        let move_file = MoveFile::new();
+        let move_file = MoveFile::default();
         let args = json!({
             "source_path": src_path.display().to_string(),
             "destination_path": dest_path.display().to_string()
@@ -154,7 +154,7 @@ mod tests {
         // Create file with old name
         std::fs::write(&old_name, "Content").expect("Failed to create file");
 
-        let move_file = MoveFile::new();
+        let move_file = MoveFile::default();
         let args = json!({
             "source_path": old_name.display().to_string(),
             "destination_path": new_name.display().to_string()
@@ -181,7 +181,7 @@ mod tests {
         std::fs::create_dir_all(&src_dir).expect("Failed to create source directory");
         std::fs::write(&file_in_dir, "content").expect("Failed to create file in directory");
 
-        let move_file = MoveFile::new();
+        let move_file = MoveFile::default();
         let args = json!({
             "source_path": src_dir.display().to_string(),
             "destination_path": dest_dir.display().to_string()
@@ -204,7 +204,7 @@ mod tests {
         let src_path = temp_dir.path().join("nonexistent.txt");
         let dest_path = temp_dir.path().join("destination.txt");
 
-        let move_file = MoveFile::new();
+        let move_file = MoveFile::default();
         let args = json!({
             "source_path": src_path.display().to_string(),
             "destination_path": dest_path.display().to_string()
@@ -224,7 +224,7 @@ mod tests {
         std::fs::write(&src_path, "source").expect("Failed to create source file");
         std::fs::write(&dest_path, "destination").expect("Failed to create destination file");
 
-        let move_file = MoveFile::new();
+        let move_file = MoveFile::default();
         let args = json!({
             "source_path": src_path.display().to_string(),
             "destination_path": dest_path.display().to_string()

@@ -292,11 +292,11 @@ mod tests {
     #[test]
     fn test_tool_call_with_empty_values() {
         let tool_call = ToolCall {
-            id: String::new(),
-            call_type: String::new(),
+            id: String::default(),
+            call_type: String::default(),
             function: FunctionCall {
-                name: String::new(),
-                arguments: String::new(),
+                name: String::default(),
+                arguments: String::default(),
             },
         };
 

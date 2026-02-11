@@ -141,7 +141,7 @@ mod tests {
             .expect("Failed to write to test file");
         drop(file);
 
-        let read_file = ReadFile::new();
+        let read_file = ReadFile::default();
         let args = json!({
             "file_path": file_path.display().to_string()
         });
@@ -158,7 +158,7 @@ mod tests {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let file_path = temp_dir.path().join("nonexistent.txt");
 
-        let read_file = ReadFile::new();
+        let read_file = ReadFile::default();
         let args = json!({
             "file_path": file_path.display().to_string()
         });

@@ -74,7 +74,7 @@ struct OllamaResponse {
 
 impl std::fmt::Display for OllamaResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let empty = String::new();
+        let empty = String::default();
         let text = self
             .content
             .as_ref()

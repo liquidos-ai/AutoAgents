@@ -201,7 +201,7 @@ mod tests {
 
     #[test]
     fn test_mcp_config_operations() {
-        let mut config = McpConfig::new();
+        let mut config = McpConfig::default();
         assert!(config.servers.is_empty());
         assert!(config.server_names().is_empty());
 
@@ -324,7 +324,7 @@ DEBUG = "1"
 
     #[test]
     fn test_config_serialization() {
-        let mut env = HashMap::new();
+        let mut env = HashMap::default();
         env.insert("TEST_VAR".to_string(), "test_value".to_string());
 
         let server = McpServerConfig::new(
@@ -335,7 +335,7 @@ DEBUG = "1"
         .with_args(vec!["-m".to_string(), "server".to_string()])
         .with_env(env);
 
-        let mut config = McpConfig::new();
+        let mut config = McpConfig::default();
         config.add_server(server);
 
         let serialized = toml::to_string(&Config {

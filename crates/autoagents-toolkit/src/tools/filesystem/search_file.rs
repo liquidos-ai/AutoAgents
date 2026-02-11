@@ -231,7 +231,7 @@ mod tests {
         std::fs::write(temp_dir.path().join("test.rs"), "fn main()")
             .expect("Failed to create test.rs");
 
-        let search_file = SearchFile::new();
+        let search_file = SearchFile::default();
         let args = json!({
             "directory": temp_dir.path().display().to_string(),
             "pattern": "test*",

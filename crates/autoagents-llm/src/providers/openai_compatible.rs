@@ -727,7 +727,10 @@ fn create_openai_tool_stream(
     let stream = response
         .bytes_stream()
         .scan(
-            (String::new(), HashMap::<usize, OpenAIToolUseState>::new()),
+            (
+                String::default(),
+                HashMap::<usize, OpenAIToolUseState>::default(),
+            ),
             move |(buffer, tool_states), chunk| {
                 let result = match chunk {
                     Ok(bytes) => {
@@ -1018,15 +1021,15 @@ pub fn create_sse_stream(
     impl SSEStreamParser {
         fn new(normalize_response: bool) -> Self {
             Self {
-                event_buffer: String::new(),
+                event_buffer: String::default(),
                 usage: None,
-                results: Vec::new(),
+                results: Vec::default(),
                 tool_buffer: ToolCall {
-                    id: String::new(),
+                    id: String::default(),
                     call_type: "function".to_string(),
                     function: FunctionCall {
-                        name: String::new(),
-                        arguments: String::new(),
+                        name: String::default(),
+                        arguments: String::default(),
                     },
                 },
                 normalize_response,
@@ -1047,18 +1050,18 @@ pub fn create_sse_stream(
                 }));
             }
             self.tool_buffer = ToolCall {
-                id: String::new(),
+                id: String::default(),
                 call_type: "function".to_string(),
                 function: FunctionCall {
-                    name: String::new(),
-                    arguments: String::new(),
+                    name: String::default(),
+                    arguments: String::default(),
                 },
             };
         }
 
         /// Parse the accumulated event_buffer as one SSE event
         fn parse_event(&mut self) {
-            let mut data_payload = String::new();
+            let mut data_payload = String::default();
             for line in self.event_buffer.lines() {
                 if let Some(data) = line.strip_prefix("data: ") {
                     if data == "[DONE]" {
@@ -1217,13 +1220,13 @@ mod tests {
     #[test]
     fn test_parse_openai_stream_tool_call_arguments_delta() {
         // First, set up tool state as if start was already processed
-        let mut tool_states = HashMap::new();
+        let mut tool_states = HashMap::default();
         tool_states.insert(
             0,
             OpenAIToolUseState {
                 id: "call_abc123".to_string(),
                 name: "get_weather".to_string(),
-                arguments_buffer: String::new(),
+                arguments_buffer: String::default(),
                 started: true,
             },
         );

@@ -82,7 +82,7 @@ impl MistralRsProvider {
 
     /// Get a builder for advanced configuration
     pub fn builder() -> MistralRsProviderBuilder {
-        MistralRsProviderBuilder::new()
+        MistralRsProviderBuilder::default()
     }
 
     /// Internal method to build the mistralrs model
@@ -749,9 +749,9 @@ impl ChatProvider for MistralRsProvider {
         impl ToolUseState {
             fn new() -> Self {
                 Self {
-                    id: String::new(),
-                    name: String::new(),
-                    arguments: String::new(),
+                    id: String::default(),
+                    name: String::default(),
+                    arguments: String::default(),
                     call_type: "function".to_string(),
                     started: false,
                 }
@@ -1025,7 +1025,7 @@ mod tests {
     #[test]
     fn test_provider_builder_default() {
         let builder1 = MistralRsProviderBuilder::default();
-        let builder2 = MistralRsProviderBuilder::new();
+        let builder2 = MistralRsProviderBuilder::default();
 
         drop(builder1);
         drop(builder2);

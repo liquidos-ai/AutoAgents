@@ -812,7 +812,7 @@ fn create_anthropic_tool_stream(
     let stream = response
         .bytes_stream()
         .scan(
-            (String::new(), Vec::new(), HashMap::new()),
+            (String::default(), Vec::default(), HashMap::default()),
             move |(buffer, utf8_buffer, tool_states), chunk| {
                 let result = match chunk {
                     Ok(bytes) => {
@@ -1035,7 +1035,7 @@ fn parse_anthropic_sse_chunk_with_tools(
                                     ToolUseState {
                                         id: id.clone(),
                                         name: name.clone(),
-                                        json_buffer: String::new(),
+                                        json_buffer: String::default(),
                                     },
                                 );
 
@@ -1182,17 +1182,15 @@ data: {"type": "content_block_start", "index": 1, "content_block": {"type": "too
     #[test]
     fn test_parse_stream_tool_use_input_delta() {
         let chunk = r#"event: content_block_delta
-data: {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": "{\"location\":"}}
-
-"#;
-        let mut tool_states = HashMap::new();
+            data: {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": "{\"location\":"}}"#;
+        let mut tool_states = HashMap::default();
         // Pre-populate state as if tool_use_start was already processed
         tool_states.insert(
             1,
             ToolUseState {
                 id: "toolu_01ABC".to_string(),
                 name: "get_weather".to_string(),
-                json_buffer: String::new(),
+                json_buffer: String::default(),
             },
         );
 
@@ -1255,14 +1253,14 @@ data: {"type": "content_block_stop", "index": 1}
 data: {"type": "content_block_stop", "index": 1}
 
 "#;
-        let mut tool_states = HashMap::new();
+        let mut tool_states = HashMap::default();
         // Pre-populate state with EMPTY json_buffer (no input_json_delta events received)
         tool_states.insert(
             1,
             ToolUseState {
                 id: "toolu_01XYZ".to_string(),
                 name: "get_current_time".to_string(),
-                json_buffer: String::new(), // Empty - tool has no parameters
+                json_buffer: String::default(), // Empty - tool has no parameters
             },
         );
 
