@@ -35,12 +35,12 @@ pub struct MemoryPolicy {
 impl MemoryPolicy {
     pub fn basic() -> Self {
         Self {
-            recall: false,
-            recall_query: RecallQuery::Empty,
+            recall: true,
+            recall_query: RecallQuery::Prompt,
             recall_limit: None,
             store_user: true,
             store_assistant: true,
-            store_tool_interactions: false,
+            store_tool_interactions: true,
         }
     }
 
@@ -53,6 +53,22 @@ impl MemoryPolicy {
             store_assistant: true,
             store_tool_interactions: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MemoryPolicy, RecallQuery};
+
+    #[test]
+    fn test_basic_memory_policy_enables_recall_and_tool_interactions() {
+        let policy = MemoryPolicy::basic();
+
+        assert!(policy.recall);
+        assert!(matches!(policy.recall_query, RecallQuery::Prompt));
+        assert!(policy.store_user);
+        assert!(policy.store_assistant);
+        assert!(policy.store_tool_interactions);
     }
 }
 
