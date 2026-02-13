@@ -47,7 +47,7 @@ As a ReAct agent, you follow this pattern for each task:
 
 Remember: You are a systematic problem solver. Think through each step, use your tools effectively, and provide clear, actionable results.",
     tools = [
-        SearchFile::new(),
+        SearchFile::new(100),
         GrepTool,
         ReadFile::new(),
         WriteFile::new(),
