@@ -1,4 +1,5 @@
 mod copy_file;
+mod create_dir;
 mod delete_file;
 mod list_dir;
 mod move_file;
@@ -7,6 +8,7 @@ mod search_file;
 mod write_file;
 
 pub use copy_file::CopyFile;
+pub use create_dir::CreateDir;
 pub use delete_file::DeleteFile;
 pub use list_dir::ListDir;
 pub use move_file::MoveFile;
@@ -36,7 +38,25 @@ pub trait BaseFileTool {
     }
 
     fn ensure_within_root(&self, path: &Path) -> Result<PathBuf, std::io::Error> {
-        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        fn normalize_path(path: &Path) -> PathBuf {
+            use std::path::Component;
+
+            let mut normalized = PathBuf::default();
+
+            for component in path.components() {
+                match component {
+                    Component::CurDir => {}
+                    Component::ParentDir => {
+                        normalized.pop();
+                    }
+                    _ => normalized.push(component.as_os_str()),
+                }
+            }
+
+            normalized
+        }
+
+        let canonical = path.canonicalize().unwrap_or_else(|_| normalize_path(path));
 
         if let Some(root) = self.root_dir() {
             let root_canonical = Path::new(&root).canonicalize()?;
