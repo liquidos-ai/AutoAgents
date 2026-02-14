@@ -1,3 +1,3 @@
-这是一个纯文本测试文件。
+This is a plain text test file.
 Hello from rust-test!
-第三行内容。
+Third line.
