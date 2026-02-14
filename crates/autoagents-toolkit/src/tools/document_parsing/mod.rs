@@ -1,6 +1,6 @@
+pub(crate) mod examples;
 mod parse_document;
 pub(crate) mod parsers;
-pub(crate) mod examples;
 
 pub use parse_document::DocumentParser;
 

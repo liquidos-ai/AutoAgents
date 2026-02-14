@@ -4,8 +4,8 @@ use std::path::Path;
 
 #[test]
 fn test_parse_all_sample_files() {
-    let test_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/tools/document_parsing/test_files");
+    let test_dir =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tools/document_parsing/test_files");
 
     let files = [
         "sample.txt",
@@ -54,7 +54,10 @@ fn test_parse_all_sample_files() {
         match result {
             Ok(doc) => {
                 println!("Format: {}", format.as_str());
-                println!("Metadata: {}", serde_json::to_string_pretty(&doc.metadata).unwrap());
+                println!(
+                    "Metadata: {}",
+                    serde_json::to_string_pretty(&doc.metadata).unwrap()
+                );
                 println!("--- Content ---");
                 println!("{}", doc.text);
             }
