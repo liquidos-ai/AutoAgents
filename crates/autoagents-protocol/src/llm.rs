@@ -132,4 +132,32 @@ mod tests {
         let deserialized: ImageMime = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized, mime);
     }
+
+    #[test]
+    fn image_mime_type_mapping() {
+        assert_eq!(ImageMime::JPEG.mime_type(), "image/jpeg");
+        assert_eq!(ImageMime::PNG.mime_type(), "image/png");
+        assert_eq!(ImageMime::GIF.mime_type(), "image/gif");
+        assert_eq!(ImageMime::WEBP.mime_type(), "image/webp");
+    }
+
+    #[test]
+    fn usage_serializes_with_details() {
+        let usage = Usage {
+            prompt_tokens: 1,
+            completion_tokens: 2,
+            total_tokens: 3,
+            completion_tokens_details: Some(CompletionTokensDetails {
+                reasoning_tokens: Some(1),
+                audio_tokens: None,
+            }),
+            prompt_tokens_details: Some(PromptTokensDetails {
+                cached_tokens: Some(2),
+                audio_tokens: None,
+            }),
+        };
+        let serialized = serde_json::to_value(&usage).unwrap();
+        assert!(serialized.get("completion_tokens_details").is_some());
+        assert!(serialized.get("prompt_tokens_details").is_some());
+    }
 }

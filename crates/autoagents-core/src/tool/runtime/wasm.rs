@@ -158,3 +158,24 @@ impl WasmRuntime {
         Ok(json_value)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wasm_runtime_builder_missing_source() {
+        let result = WasmRuntime::builder().build();
+        assert!(matches!(result, Err(WasmRuntimeError::MissingSourceFile)));
+    }
+
+    #[test]
+    fn test_wasm_runtime_builder_invalid_module() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), b"not-wasm").unwrap();
+        let result = WasmRuntime::builder()
+            .source_file(tmp.path().to_string_lossy())
+            .build();
+        assert!(matches!(result, Err(WasmRuntimeError::ModuleLoad(_))));
+    }
+}

@@ -163,19 +163,39 @@ struct OllamaEmbeddingResponse {
     embeddings: Vec<Vec<f32>>,
 }
 
-#[derive(Deserialize, Debug, Serialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq)]
 enum OllamaResponseType {
-    #[serde(rename = "json")]
     Json,
     StructuredOutput(Value),
 }
 
-#[derive(Deserialize, Debug, Serialize)]
-struct OllamaResponseFormat {
-    #[serde(flatten)]
-    format: OllamaResponseType,
+impl Serialize for OllamaResponseType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            OllamaResponseType::Json => serializer.serialize_str("json"),
+            OllamaResponseType::StructuredOutput(schema) => schema.serialize(serializer),
+        }
+    }
 }
+
+impl<'de> Deserialize<'de> for OllamaResponseType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        match value {
+            Value::String(text) if text == "json" => Ok(OllamaResponseType::Json),
+            other => Ok(OllamaResponseType::StructuredOutput(other)),
+        }
+    }
+}
+
+#[derive(Deserialize, Debug, Serialize)]
+struct OllamaResponseFormat(OllamaResponseType);
 
 /// Ollama's tool format
 #[derive(Serialize, Debug)]
@@ -388,8 +408,8 @@ impl Ollama {
 
         // Ollama doesn't require the "name" field in the schema, so we just use the schema itself
         let format = if let Some(schema) = &json_schema {
-            schema.schema.as_ref().map(|schema| OllamaResponseFormat {
-                format: OllamaResponseType::StructuredOutput(schema.clone()),
+            schema.schema.as_ref().map(|schema| {
+                OllamaResponseFormat(OllamaResponseType::StructuredOutput(schema.clone()))
             })
         } else {
             None
@@ -592,5 +612,111 @@ impl EmbeddingBuilder<Ollama> {
         );
 
         Ok(Arc::new(provider))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chat::{FunctionTool, Tool};
+    use serde_json::json;
+
+    #[test]
+    fn test_ollama_response_text_priority() {
+        let response = OllamaResponse {
+            content: Some("content".to_string()),
+            response: Some("response".to_string()),
+            message: Some(OllamaChatResponseMessage {
+                content: "message".to_string(),
+                tool_calls: None,
+            }),
+        };
+        assert_eq!(response.text(), Some("content".to_string()));
+
+        let response = OllamaResponse {
+            content: None,
+            response: Some("response".to_string()),
+            message: Some(OllamaChatResponseMessage {
+                content: "message".to_string(),
+                tool_calls: None,
+            }),
+        };
+        assert_eq!(response.text(), Some("response".to_string()));
+
+        let response = OllamaResponse {
+            content: None,
+            response: None,
+            message: Some(OllamaChatResponseMessage {
+                content: "message".to_string(),
+                tool_calls: None,
+            }),
+        };
+        assert_eq!(response.text(), Some("message".to_string()));
+    }
+
+    #[test]
+    fn test_ollama_tool_calls_conversion() {
+        let response = OllamaResponse {
+            content: None,
+            response: None,
+            message: Some(OllamaChatResponseMessage {
+                content: "tool".to_string(),
+                tool_calls: Some(vec![OllamaToolCall {
+                    function: OllamaFunctionCall {
+                        name: "lookup".to_string(),
+                        arguments: json!({"q":"value"}),
+                    },
+                }]),
+            }),
+        };
+        let calls = response.tool_calls().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "lookup");
+        assert!(calls[0].function.arguments.contains("\"q\""));
+    }
+
+    #[test]
+    fn test_ollama_display_includes_tool_calls() {
+        let response = OllamaResponse {
+            content: Some("hello".to_string()),
+            response: None,
+            message: Some(OllamaChatResponseMessage {
+                content: "ignored".to_string(),
+                tool_calls: Some(vec![OllamaToolCall {
+                    function: OllamaFunctionCall {
+                        name: "lookup".to_string(),
+                        arguments: json!({"q":"value"}),
+                    },
+                }]),
+            }),
+        };
+        let output = format!("{response}");
+        assert!(output.contains("lookup"));
+        assert!(output.contains("hello"));
+    }
+
+    #[test]
+    fn test_ollama_tool_from_tool() {
+        let tool = Tool {
+            tool_type: "function".to_string(),
+            function: FunctionTool {
+                name: "lookup".to_string(),
+                description: "desc".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+            },
+        };
+        let ollama_tool = OllamaTool::from(&tool);
+        assert_eq!(ollama_tool.tool_type, "function");
+        assert_eq!(ollama_tool.function.name, "lookup");
+    }
+
+    #[test]
+    fn test_ollama_response_format_serialization() {
+        let format = OllamaResponseFormat(OllamaResponseType::Json);
+        let serialized = serde_json::to_value(&format).unwrap();
+        assert_eq!(serialized, json!("json"));
     }
 }

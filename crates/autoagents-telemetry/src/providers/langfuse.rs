@@ -202,3 +202,52 @@ fn normalize_langfuse_json(value: &str) -> String {
         serde_json::to_string(value).unwrap_or_else(|_| value.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_langfuse_region_base_url() {
+        assert_eq!(
+            LangfuseRegion::Us.base_url(),
+            "https://us.cloud.langfuse.com"
+        );
+        assert_eq!(LangfuseRegion::Eu.base_url(), "https://cloud.langfuse.com");
+        assert_eq!(
+            LangfuseRegion::Custom("https://example.com".to_string()).base_url(),
+            "https://example.com"
+        );
+    }
+
+    #[test]
+    fn test_langfuse_telemetry_build_headers() {
+        let telemetry = LangfuseTelemetry::new("pub", "secret")
+            .with_region(LangfuseRegion::Us)
+            .with_service_name("svc");
+        let config = telemetry.build();
+        let otlp = config.exporter.otlp.unwrap();
+        if let Some(endpoint) = otlp.endpoint {
+            assert!(endpoint.contains("langfuse"));
+        } else {
+            panic!("expected otlp endpoint");
+        }
+        assert!(otlp.headers.contains_key("Authorization"));
+        assert_eq!(config.service_name, "svc");
+    }
+
+    #[test]
+    fn test_normalize_langfuse_json() {
+        assert_eq!(normalize_langfuse_json("{\"a\":1}"), "{\"a\":1}");
+        assert_eq!(normalize_langfuse_json("plain"), "\"plain\"");
+    }
+
+    #[test]
+    fn test_langfuse_attribute_provider_keys() {
+        let provider = LangfuseAttributeProvider;
+        let attrs = provider.task_started_attributes("actor", "{\"a\":1}");
+        assert!(attrs.iter().any(|(k, _)| *k == "langfuse.trace.name"));
+        let attrs = provider.tool_failed_attributes("tool", "err");
+        assert!(attrs.iter().any(|(k, _)| *k == "langfuse.observation.name"));
+    }
+}

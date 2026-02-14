@@ -38,3 +38,27 @@ impl EventFanout {
         Box::pin(stream)
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use autoagents_protocol::Event;
+    use futures_util::StreamExt;
+
+    #[tokio::test]
+    async fn test_event_fanout_forwards_events() {
+        let event = Event::SendMessage {
+            message: "hello".to_string(),
+            actor_id: uuid::Uuid::new_v4(),
+        };
+        let stream: BoxEventStream<Event> = Box::pin(tokio_stream::iter(vec![event.clone()]));
+        let fanout = EventFanout::new(stream, 10);
+
+        let mut sub = fanout.subscribe();
+        let received = sub.next().await.unwrap();
+        match received {
+            Event::SendMessage { message, .. } => assert_eq!(message, "hello"),
+            _ => panic!("unexpected event"),
+        }
+    }
+}

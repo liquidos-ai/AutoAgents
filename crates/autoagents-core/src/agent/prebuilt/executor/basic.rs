@@ -426,4 +426,108 @@ mod tests {
         let config = basic_agent.config();
         assert_eq!(config.max_turns, 1);
     }
+
+    #[test]
+    fn test_basic_agent_output_try_parse_success() {
+        let output = BasicAgentOutput {
+            response: r#"{"name":"test","value":42}"#.to_string(),
+            done: true,
+        };
+        #[derive(serde::Deserialize, PartialEq, Debug)]
+        struct Data {
+            name: String,
+            value: i32,
+        }
+        let parsed: Data = output.try_parse().unwrap();
+        assert_eq!(
+            parsed,
+            Data {
+                name: "test".to_string(),
+                value: 42
+            }
+        );
+    }
+
+    #[test]
+    fn test_basic_agent_output_try_parse_failure() {
+        let output = BasicAgentOutput {
+            response: "not json".to_string(),
+            done: true,
+        };
+        let result = output.try_parse::<serde_json::Value>();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_basic_agent_output_parse_or_map_fallback() {
+        let output = BasicAgentOutput {
+            response: "plain text".to_string(),
+            done: true,
+        };
+        let result: String = output.parse_or_map(|s| s.to_uppercase());
+        assert_eq!(result, "PLAIN TEXT");
+    }
+
+    #[test]
+    fn test_basic_agent_output_parse_or_map_success() {
+        let output = BasicAgentOutput {
+            response: r#""hello""#.to_string(),
+            done: true,
+        };
+        let result: String = output.parse_or_map(|s| s.to_uppercase());
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn test_error_from_turn_engine_llm() {
+        let err: BasicExecutorError = TurnEngineError::LLMError("bad".to_string()).into();
+        assert!(matches!(err, BasicExecutorError::LLMError(_)));
+        assert!(err.to_string().contains("bad"));
+    }
+
+    #[test]
+    fn test_error_from_turn_engine_aborted() {
+        let err: BasicExecutorError = TurnEngineError::Aborted.into();
+        assert!(matches!(err, BasicExecutorError::Other(_)));
+        assert!(err.to_string().contains("aborted"));
+    }
+
+    #[test]
+    fn test_error_from_turn_engine_other() {
+        let err: BasicExecutorError = TurnEngineError::Other("misc".to_string()).into();
+        assert!(matches!(err, BasicExecutorError::Other(_)));
+        assert!(err.to_string().contains("misc"));
+    }
+
+    #[test]
+    fn test_extract_turn_output_complete() {
+        let result = crate::agent::executor::TurnResult::Complete(
+            crate::agent::executor::turn_engine::TurnEngineOutput {
+                response: "done".to_string(),
+                tool_calls: Vec::new(),
+            },
+        );
+        let output = extract_turn_output(result);
+        assert_eq!(output.response, "done");
+    }
+
+    #[test]
+    fn test_extract_turn_output_continue_some() {
+        let result = crate::agent::executor::TurnResult::Continue(Some(
+            crate::agent::executor::turn_engine::TurnEngineOutput {
+                response: "partial".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ));
+        let output = extract_turn_output(result);
+        assert_eq!(output.response, "partial");
+    }
+
+    #[test]
+    fn test_extract_turn_output_continue_none() {
+        let result = crate::agent::executor::TurnResult::Continue(None);
+        let output = extract_turn_output(result);
+        assert!(output.response.is_empty());
+        assert!(output.tool_calls.is_empty());
+    }
 }

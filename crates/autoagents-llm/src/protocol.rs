@@ -216,4 +216,138 @@ mod tests {
         let roundtrip: Usage = protocol_usage.into();
         assert_eq!(usage, roundtrip);
     }
+
+    #[test]
+    fn converts_image_mime_roundtrip() {
+        for mime in [
+            ImageMime::JPEG,
+            ImageMime::PNG,
+            ImageMime::GIF,
+            ImageMime::WEBP,
+        ] {
+            let proto: protocol::ImageMime = mime.into();
+            let back: ImageMime = proto.into();
+            assert_eq!(mime, back);
+        }
+    }
+
+    #[test]
+    fn converts_function_call_roundtrip() {
+        let fc = FunctionCall {
+            name: "search".to_string(),
+            arguments: r#"{"q":"test"}"#.to_string(),
+        };
+        let proto: protocol::FunctionCall = fc.clone().into();
+        let back: FunctionCall = proto.into();
+        assert_eq!(back.name, fc.name);
+        assert_eq!(back.arguments, fc.arguments);
+    }
+
+    #[test]
+    fn converts_tool_call_roundtrip() {
+        let tc = ToolCall {
+            id: "tc1".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "tool".to_string(),
+                arguments: "{}".to_string(),
+            },
+        };
+        let proto: protocol::ToolCall = tc.clone().into();
+        let back: ToolCall = proto.into();
+        assert_eq!(back.id, tc.id);
+        assert_eq!(back.call_type, tc.call_type);
+        assert_eq!(back.function.name, tc.function.name);
+    }
+
+    #[test]
+    fn converts_stream_chunk_text_roundtrip() {
+        let chunk = StreamChunk::Text("hello".to_string());
+        let proto: protocol::StreamChunk = chunk.into();
+        let back: StreamChunk = proto.into();
+        assert!(matches!(back, StreamChunk::Text(ref s) if s == "hello"));
+    }
+
+    #[test]
+    fn converts_stream_chunk_tool_use_input_delta() {
+        let chunk = StreamChunk::ToolUseInputDelta {
+            index: 0,
+            partial_json: r#"{"ke"#.to_string(),
+        };
+        let proto: protocol::StreamChunk = chunk.into();
+        let back: StreamChunk = proto.into();
+        assert!(matches!(
+            back,
+            StreamChunk::ToolUseInputDelta { index: 0, .. }
+        ));
+    }
+
+    #[test]
+    fn converts_stream_chunk_tool_use_complete() {
+        let tc = ToolCall {
+            id: "tc1".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "tool".to_string(),
+                arguments: "{}".to_string(),
+            },
+        };
+        let chunk = StreamChunk::ToolUseComplete {
+            index: 0,
+            tool_call: tc,
+        };
+        let proto: protocol::StreamChunk = chunk.into();
+        let back: StreamChunk = proto.into();
+        assert!(matches!(
+            back,
+            StreamChunk::ToolUseComplete { index: 0, .. }
+        ));
+    }
+
+    #[test]
+    fn converts_stream_chunk_done() {
+        let chunk = StreamChunk::Done {
+            stop_reason: "end_turn".to_string(),
+        };
+        let proto: protocol::StreamChunk = chunk.into();
+        let back: StreamChunk = proto.into();
+        assert!(matches!(back, StreamChunk::Done { ref stop_reason } if stop_reason == "end_turn"));
+    }
+
+    #[test]
+    fn converts_stream_chunk_usage() {
+        let usage = Usage {
+            prompt_tokens: 10,
+            completion_tokens: 20,
+            total_tokens: 30,
+            completion_tokens_details: None,
+            prompt_tokens_details: None,
+        };
+        let chunk = StreamChunk::Usage(usage);
+        let proto: protocol::StreamChunk = chunk.into();
+        let back: StreamChunk = proto.into();
+        assert!(matches!(back, StreamChunk::Usage(_)));
+    }
+
+    #[test]
+    fn converts_completion_tokens_details_roundtrip() {
+        let details = CompletionTokensDetails {
+            reasoning_tokens: Some(10),
+            audio_tokens: Some(5),
+        };
+        let proto: protocol::CompletionTokensDetails = details.clone().into();
+        let back: CompletionTokensDetails = proto.into();
+        assert_eq!(details, back);
+    }
+
+    #[test]
+    fn converts_prompt_tokens_details_roundtrip() {
+        let details = PromptTokensDetails {
+            cached_tokens: Some(100),
+            audio_tokens: None,
+        };
+        let proto: protocol::PromptTokensDetails = details.clone().into();
+        let back: PromptTokensDetails = proto.into();
+        assert_eq!(details, back);
+    }
 }

@@ -114,3 +114,153 @@ impl MemoryHelper {
         Vec::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::memory::SlidingWindowMemory;
+
+    fn make_memory() -> Arc<Mutex<Box<dyn MemoryProvider>>> {
+        Arc::new(Mutex::new(Box::new(SlidingWindowMemory::new(10))))
+    }
+
+    #[tokio::test]
+    async fn test_store_message_with_none() {
+        // Should not panic
+        MemoryHelper::store_message(
+            &None,
+            ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: "test".to_string(),
+            },
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_store_message_with_memory() {
+        let mem = make_memory();
+        MemoryHelper::store_message(
+            &Some(mem.clone()),
+            ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: "hello".to_string(),
+            },
+        )
+        .await;
+        let stored = mem.lock().await.recall("", None).await.unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].content, "hello");
+    }
+
+    #[tokio::test]
+    async fn test_store_user_message_text() {
+        let mem = make_memory();
+        MemoryHelper::store_user_message(&Some(mem.clone()), "user msg".to_string(), None).await;
+        let stored = mem.lock().await.recall("", None).await.unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].content, "user msg");
+        assert!(matches!(stored[0].message_type, MessageType::Text));
+    }
+
+    #[tokio::test]
+    async fn test_store_user_message_image() {
+        let mem = make_memory();
+        MemoryHelper::store_user_message(
+            &Some(mem.clone()),
+            "image msg".to_string(),
+            Some((ImageMime::PNG, vec![1, 2, 3])),
+        )
+        .await;
+        let stored = mem.lock().await.recall("", None).await.unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].content, "image msg");
+    }
+
+    #[tokio::test]
+    async fn test_store_user_message_none_memory() {
+        MemoryHelper::store_user_message(&None, "msg".to_string(), None).await;
+    }
+
+    #[tokio::test]
+    async fn test_store_assistant_response() {
+        let mem = make_memory();
+        MemoryHelper::store_assistant_response(&Some(mem.clone()), "reply".to_string()).await;
+        let stored = mem.lock().await.recall("", None).await.unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].content, "reply");
+        assert!(matches!(stored[0].role, ChatRole::Assistant));
+    }
+
+    #[tokio::test]
+    async fn test_store_assistant_response_none() {
+        MemoryHelper::store_assistant_response(&None, "reply".to_string()).await;
+    }
+
+    #[tokio::test]
+    async fn test_store_tool_interaction() {
+        let mem = make_memory();
+        let calls = vec![autoagents_llm::ToolCall {
+            id: "t1".to_string(),
+            call_type: "function".to_string(),
+            function: autoagents_llm::FunctionCall {
+                name: "tool".to_string(),
+                arguments: "{}".to_string(),
+            },
+        }];
+        let results = vec![crate::tool::ToolCallResult {
+            tool_name: "tool".to_string(),
+            success: true,
+            arguments: serde_json::json!({}),
+            result: serde_json::json!("ok"),
+        }];
+        MemoryHelper::store_tool_interaction(&Some(mem.clone()), &calls, &results, "text").await;
+        let stored = mem.lock().await.recall("", None).await.unwrap();
+        assert_eq!(stored.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_store_tool_interaction_none() {
+        MemoryHelper::store_tool_interaction(&None, &[], &[], "text").await;
+    }
+
+    #[tokio::test]
+    async fn test_recall_messages_empty() {
+        let mem = make_memory();
+        let messages = MemoryHelper::recall_messages(&Some(mem)).await;
+        assert!(messages.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_recall_messages_populated() {
+        let mem = make_memory();
+        MemoryHelper::store_message(
+            &Some(mem.clone()),
+            ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: "msg1".to_string(),
+            },
+        )
+        .await;
+        MemoryHelper::store_message(
+            &Some(mem.clone()),
+            ChatMessage {
+                role: ChatRole::Assistant,
+                message_type: MessageType::Text,
+                content: "msg2".to_string(),
+            },
+        )
+        .await;
+        let messages = MemoryHelper::recall_messages(&Some(mem)).await;
+        assert_eq!(messages.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_recall_messages_none() {
+        let messages = MemoryHelper::recall_messages(&None).await;
+        assert!(messages.is_empty());
+    }
+}

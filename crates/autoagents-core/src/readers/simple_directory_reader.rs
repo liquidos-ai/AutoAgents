@@ -125,3 +125,114 @@ fn path_relative_to(path: &Path, base: &Path) -> Option<String> {
         .ok()
         .map(|p| p.to_string_lossy().to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_missing_path_error() {
+        let reader = SimpleDirectoryReader::new("/nonexistent/path/xyz123");
+        let result = reader.load_data();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ReaderError::MissingPath(_)));
+    }
+
+    #[test]
+    fn test_empty_directory() {
+        let dir = std::env::temp_dir().join("autoagents_test_empty_dir");
+        fs::create_dir_all(&dir).unwrap();
+        let reader = SimpleDirectoryReader::new(&dir);
+        let docs = reader.load_data().unwrap();
+        assert!(docs.is_empty());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_single_file_load() {
+        let dir = std::env::temp_dir().join("autoagents_test_single_file");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("test.txt"), "hello world").unwrap();
+
+        let reader = SimpleDirectoryReader::new(&dir);
+        let docs = reader.load_data().unwrap();
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].page_content, "hello world");
+        assert_eq!(docs[0].metadata["extension"], "txt");
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_extension_filter() {
+        let dir = std::env::temp_dir().join("autoagents_test_ext_filter");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("file.txt"), "text").unwrap();
+        fs::write(dir.join("file.md"), "markdown").unwrap();
+
+        let reader = SimpleDirectoryReader::new(&dir).with_extensions(["txt"]);
+        let docs = reader.load_data().unwrap();
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].page_content, "text");
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_non_recursive_mode() {
+        let dir = std::env::temp_dir().join("autoagents_test_nonrecursive");
+        let sub = dir.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(dir.join("top.txt"), "top").unwrap();
+        fs::write(sub.join("nested.txt"), "nested").unwrap();
+
+        let reader = SimpleDirectoryReader::new(&dir).recursive(false);
+        let docs = reader.load_data().unwrap();
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].page_content, "top");
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_relative_path_metadata() {
+        let dir = std::env::temp_dir().join("autoagents_test_relpath");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("file.txt"), "content").unwrap();
+
+        let reader = SimpleDirectoryReader::new(&dir);
+        let docs = reader.load_data().unwrap();
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].metadata["source"], "file.txt");
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_recursive_mode() {
+        let dir = std::env::temp_dir().join("autoagents_test_recursive");
+        let sub = dir.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(dir.join("top.txt"), "top").unwrap();
+        fs::write(sub.join("nested.txt"), "nested").unwrap();
+
+        let reader = SimpleDirectoryReader::new(&dir);
+        let docs = reader.load_data().unwrap();
+        assert_eq!(docs.len(), 2);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_path_relative_to_fn() {
+        let result = path_relative_to(Path::new("/a/b/c.txt"), Path::new("/a/b"));
+        assert_eq!(result, Some("c.txt".to_string()));
+    }
+
+    #[test]
+    fn test_path_relative_to_fn_no_prefix() {
+        let result = path_relative_to(Path::new("/x/y.txt"), Path::new("/a/b"));
+        assert_eq!(result, None);
+    }
+}

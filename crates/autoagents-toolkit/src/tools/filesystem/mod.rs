@@ -71,3 +71,80 @@ pub trait BaseFileTool {
         Ok(canonical)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestFileTool {
+        root: Option<String>,
+    }
+
+    impl BaseFileTool for TestFileTool {
+        fn root_dir(&self) -> Option<String> {
+            self.root.clone()
+        }
+    }
+
+    #[test]
+    fn test_get_relative_path_no_root() {
+        let tool = TestFileTool { root: None };
+        let path = tool.get_relative_path("some/file.txt");
+        assert_eq!(path, PathBuf::from("some/file.txt"));
+    }
+
+    #[test]
+    fn test_get_relative_path_with_root_relative() {
+        let tool = TestFileTool {
+            root: Some("/home/user".to_string()),
+        };
+        let path = tool.get_relative_path("docs/file.txt");
+        assert_eq!(path, PathBuf::from("/home/user/docs/file.txt"));
+    }
+
+    #[test]
+    fn test_get_relative_path_with_root_absolute() {
+        let tool = TestFileTool {
+            root: Some("/home/user".to_string()),
+        };
+        let path = tool.get_relative_path("/absolute/path.txt");
+        assert_eq!(path, PathBuf::from("/absolute/path.txt"));
+    }
+
+    #[test]
+    fn test_ensure_within_root_safe_path() {
+        let dir = std::env::temp_dir();
+        let tool = TestFileTool {
+            root: Some(dir.to_string_lossy().to_string()),
+        };
+        let safe = dir.join("test.txt");
+        // Create file so canonicalize works
+        std::fs::write(&safe, "").ok();
+        let result = tool.ensure_within_root(&safe);
+        assert!(result.is_ok());
+        std::fs::remove_file(&safe).ok();
+    }
+
+    #[test]
+    fn test_ensure_within_root_traversal_blocked() {
+        let dir = std::env::temp_dir().join("test_root_autoagents");
+        std::fs::create_dir_all(&dir).ok();
+        let tool = TestFileTool {
+            root: Some(dir.to_string_lossy().to_string()),
+        };
+        let traversal = dir.join("../../etc/passwd");
+        let result = tool.ensure_within_root(&traversal);
+        assert!(result.is_err());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_ensure_within_root_no_root() {
+        let tool = TestFileTool { root: None };
+        let path = std::env::temp_dir().join("any_file.txt");
+        std::fs::write(&path, "").ok();
+        let result = tool.ensure_within_root(&path);
+        assert!(result.is_ok());
+        std::fs::remove_file(&path).ok();
+    }
+}

@@ -1139,6 +1139,7 @@ impl LLMBuilder<Anthropic> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chat::FunctionTool;
 
     #[test]
     fn test_parse_stream_text_delta() {
@@ -1417,5 +1418,79 @@ data: {"type": "ping"}
         let mut tool_states = HashMap::new();
         let result = parse_anthropic_sse_chunk_with_tools(chunk, &mut tool_states).unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_convert_messages_to_anthropic_tool_result() {
+        let msg = ChatMessage {
+            role: ChatRole::Assistant,
+            message_type: MessageType::ToolResult(vec![ToolCall {
+                id: "tool_1".to_string(),
+                call_type: "function".to_string(),
+                function: FunctionCall {
+                    name: "lookup".to_string(),
+                    arguments: "{\"q\":\"value\"}".to_string(),
+                },
+            }]),
+            content: "result".to_string(),
+        };
+
+        let messages = vec![msg];
+        let converted = Anthropic::convert_messages_to_anthropic(&messages);
+        assert_eq!(converted.len(), 1);
+        let content = &converted[0].content[0];
+        assert_eq!(content.message_type, Some("tool_result"));
+        assert_eq!(content.tool_result_id.as_deref(), Some("tool_1"));
+        assert_eq!(content.tool_output.as_deref(), Some("{\"q\":\"value\"}"));
+    }
+
+    #[test]
+    fn test_prepare_tools_and_choice_auto() {
+        let tool = Tool {
+            tool_type: "function".to_string(),
+            function: FunctionTool {
+                name: "lookup".to_string(),
+                description: "desc".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+            },
+        };
+        let tools_list = [tool];
+        let (tools, choice) =
+            Anthropic::prepare_tools_and_choice(Some(&tools_list), &Some(ToolChoice::Auto));
+        assert!(tools.is_some());
+        assert_eq!(choice.unwrap().get("type"), Some(&"auto".to_string()));
+    }
+
+    #[test]
+    fn test_anthropic_complete_response_helpers() {
+        let response = AnthropicCompleteResponse {
+            content: vec![AnthropicContent {
+                text: Some("hi".to_string()),
+                content_type: Some("text".to_string()),
+                thinking: None,
+                name: None,
+                input: None,
+                id: None,
+            }],
+            usage: Some(AnthropicUsage {
+                input_tokens: 1,
+                output_tokens: 2,
+                cache_creation_input_tokens: None,
+                cache_read_input_tokens: None,
+            }),
+        };
+
+        assert_eq!(response.text(), Some("hi".to_string()));
+        assert_eq!(response.usage().unwrap().total_tokens, 3);
+        assert!(format!("{response}").contains("hi"));
+    }
+
+    #[test]
+    fn test_anthropic_builder_requires_api_key() {
+        let err = LLMBuilder::<Anthropic>::new().build().unwrap_err();
+        assert!(err.to_string().contains("No API key provided"));
     }
 }

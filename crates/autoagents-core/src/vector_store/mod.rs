@@ -109,7 +109,7 @@ where
     let mut ids = Vec::new();
 
     for (id, doc) in documents.iter() {
-        let mut embedder = TextEmbedder::new();
+        let mut embedder = TextEmbedder::default();
         doc.embed(&mut embedder).map_err(|err| {
             VectorStoreError::EmbeddingError(EmbeddingError::EmbedFailure(err.to_string()))
         })?;
@@ -229,4 +229,36 @@ where
 
 pub fn normalize_id(id: Option<String>) -> String {
     id.unwrap_or_else(|| Uuid::new_v4().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::document::Document;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_normalize_id_none_generates_uuid() {
+        let id = normalize_id(None);
+        assert!(!id.is_empty());
+        assert!(uuid::Uuid::parse_str(&id).is_ok());
+    }
+
+    #[test]
+    fn test_normalize_id_some_returns_value() {
+        let id = normalize_id(Some("custom-id".to_string()));
+        assert_eq!(id, "custom-id");
+    }
+
+    #[tokio::test]
+    async fn test_embed_documents_with_mock() {
+        use autoagents_test_utils::llm::MockLLMProvider;
+        let provider: SharedEmbeddingProvider = Arc::new(MockLLMProvider {});
+        let docs = vec![("id1".to_string(), Document::new("hello"))];
+        let result = embed_documents(&provider, docs).await;
+        assert!(result.is_ok());
+        let prepared = result.unwrap();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].id, "id1");
+    }
 }

@@ -58,17 +58,184 @@ impl MemoryPolicy {
 
 #[cfg(test)]
 mod tests {
-    use super::{MemoryPolicy, RecallQuery};
+    use super::*;
+    use crate::agent::memory::SlidingWindowMemory;
 
     #[test]
     fn test_basic_memory_policy_enables_recall_and_tool_interactions() {
         let policy = MemoryPolicy::basic();
-
         assert!(policy.recall);
         assert!(matches!(policy.recall_query, RecallQuery::Prompt));
         assert!(policy.store_user);
         assert!(policy.store_assistant);
         assert!(policy.store_tool_interactions);
+    }
+
+    #[test]
+    fn test_react_memory_policy_fields() {
+        let policy = MemoryPolicy::react();
+        assert!(policy.recall);
+        assert!(matches!(policy.recall_query, RecallQuery::Prompt));
+        assert_eq!(policy.recall_limit, None);
+        assert!(policy.store_user);
+        assert!(policy.store_assistant);
+        assert!(policy.store_tool_interactions);
+    }
+
+    #[test]
+    fn test_memory_adapter_without_memory() {
+        let adapter = MemoryAdapter::new(None, MemoryPolicy::basic());
+        assert!(!adapter.is_enabled());
+    }
+
+    #[test]
+    fn test_memory_adapter_with_memory() {
+        let mem: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(10));
+        let adapter = MemoryAdapter::new(Some(Arc::new(Mutex::new(mem))), MemoryPolicy::basic());
+        assert!(adapter.is_enabled());
+    }
+
+    #[tokio::test]
+    async fn test_recall_disabled() {
+        let mem: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(10));
+        let mut policy = MemoryPolicy::basic();
+        policy.recall = false;
+        let adapter = MemoryAdapter::new(Some(Arc::new(Mutex::new(mem))), policy);
+        let task = Task::new("hello");
+        let messages = adapter.recall_messages(&task).await;
+        assert!(messages.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_recall_no_memory() {
+        let adapter = MemoryAdapter::new(None, MemoryPolicy::basic());
+        let task = Task::new("hello");
+        let messages = adapter.recall_messages(&task).await;
+        assert!(messages.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_recall_with_prompt_query() {
+        let mem: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(10));
+        let adapter = MemoryAdapter::new(Some(Arc::new(Mutex::new(mem))), MemoryPolicy::basic());
+        let task = Task::new("test prompt");
+        // Empty memory => empty result
+        let messages = adapter.recall_messages(&task).await;
+        assert!(messages.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_recall_with_empty_query() {
+        let mem: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(10));
+        let mut policy = MemoryPolicy::basic();
+        policy.recall_query = RecallQuery::Empty;
+        let adapter = MemoryAdapter::new(Some(Arc::new(Mutex::new(mem))), policy);
+        let task = Task::new("test");
+        let messages = adapter.recall_messages(&task).await;
+        assert!(messages.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_store_user_enabled() {
+        let mem: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(10));
+        let mem_arc = Arc::new(Mutex::new(mem));
+        let adapter = MemoryAdapter::new(Some(mem_arc.clone()), MemoryPolicy::basic());
+        let task = Task::new("user message");
+        adapter.store_user(&task).await;
+        let stored = mem_arc.lock().await.recall("", None).await.unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].content, "user message");
+    }
+
+    #[tokio::test]
+    async fn test_store_user_disabled() {
+        let mem: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(10));
+        let mem_arc = Arc::new(Mutex::new(mem));
+        let mut policy = MemoryPolicy::basic();
+        policy.store_user = false;
+        let adapter = MemoryAdapter::new(Some(mem_arc.clone()), policy);
+        let task = Task::new("user message");
+        adapter.store_user(&task).await;
+        let stored = mem_arc.lock().await.recall("", None).await.unwrap();
+        assert!(stored.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_store_user_no_memory() {
+        let adapter = MemoryAdapter::new(None, MemoryPolicy::basic());
+        let task = Task::new("user message");
+        // Should not panic
+        adapter.store_user(&task).await;
+    }
+
+    #[tokio::test]
+    async fn test_store_assistant_enabled() {
+        let mem: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(10));
+        let mem_arc = Arc::new(Mutex::new(mem));
+        let adapter = MemoryAdapter::new(Some(mem_arc.clone()), MemoryPolicy::basic());
+        adapter.store_assistant("assistant reply").await;
+        let stored = mem_arc.lock().await.recall("", None).await.unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].content, "assistant reply");
+    }
+
+    #[tokio::test]
+    async fn test_store_assistant_disabled() {
+        let mem: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(10));
+        let mem_arc = Arc::new(Mutex::new(mem));
+        let mut policy = MemoryPolicy::basic();
+        policy.store_assistant = false;
+        let adapter = MemoryAdapter::new(Some(mem_arc.clone()), policy);
+        adapter.store_assistant("reply").await;
+        let stored = mem_arc.lock().await.recall("", None).await.unwrap();
+        assert!(stored.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_store_tool_interaction_enabled() {
+        let mem: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(10));
+        let mem_arc = Arc::new(Mutex::new(mem));
+        let adapter = MemoryAdapter::new(Some(mem_arc.clone()), MemoryPolicy::basic());
+        let tool_calls = vec![ToolCall {
+            id: "tc1".to_string(),
+            call_type: "function".to_string(),
+            function: autoagents_llm::FunctionCall {
+                name: "tool".to_string(),
+                arguments: "{}".to_string(),
+            },
+        }];
+        let results = vec![crate::tool::ToolCallResult {
+            tool_name: "tool".to_string(),
+            success: true,
+            arguments: serde_json::json!({}),
+            result: serde_json::json!("ok"),
+        }];
+        adapter
+            .store_tool_interaction(&tool_calls, &results, "text")
+            .await;
+        let stored = mem_arc.lock().await.recall("", None).await.unwrap();
+        // Stores 2 messages: assistant ToolUse + Tool ToolResult
+        assert_eq!(stored.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_store_tool_interaction_disabled() {
+        let mem: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(10));
+        let mem_arc = Arc::new(Mutex::new(mem));
+        let mut policy = MemoryPolicy::basic();
+        policy.store_tool_interactions = false;
+        let adapter = MemoryAdapter::new(Some(mem_arc.clone()), policy);
+        adapter.store_tool_interaction(&[], &[], "text").await;
+        let stored = mem_arc.lock().await.recall("", None).await.unwrap();
+        assert!(stored.is_empty());
+    }
+
+    #[test]
+    fn test_adapter_policy_accessor() {
+        let policy = MemoryPolicy::react();
+        let adapter = MemoryAdapter::new(None, policy);
+        assert!(adapter.policy().recall);
+        assert!(adapter.policy().store_user);
     }
 }
 

@@ -650,3 +650,224 @@ async fn process_tool_calls_with_hooks<H: AgentHooks>(
     }
     results
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::task::Task;
+    use crate::agent::{AgentConfig, Context};
+    use autoagents_protocol::ActorID;
+
+    #[test]
+    fn test_turn_engine_config_basic() {
+        let config = TurnEngineConfig::basic(5);
+        assert_eq!(config.max_turns, 5);
+        assert!(matches!(config.tool_mode, ToolMode::Disabled));
+        assert!(matches!(config.stream_mode, StreamMode::Structured));
+        assert!(config.memory_policy.recall);
+    }
+
+    #[test]
+    fn test_turn_engine_config_react() {
+        let config = TurnEngineConfig::react(10);
+        assert_eq!(config.max_turns, 10);
+        assert!(matches!(config.tool_mode, ToolMode::Enabled));
+        assert!(matches!(config.stream_mode, StreamMode::Tool));
+        assert!(config.memory_policy.recall);
+    }
+
+    #[test]
+    fn test_normalize_max_turns_nonzero() {
+        assert_eq!(normalize_max_turns(5, 10), 5);
+    }
+
+    #[test]
+    fn test_normalize_max_turns_zero_uses_fallback() {
+        assert_eq!(normalize_max_turns(0, 10), 10);
+    }
+
+    #[test]
+    fn test_normalize_max_turns_zero_fallback_zero() {
+        assert_eq!(normalize_max_turns(0, 0), 1);
+    }
+
+    #[test]
+    fn test_should_include_user_prompt_no_memory() {
+        let adapter = MemoryAdapter::new(None, MemoryPolicy::basic());
+        assert!(should_include_user_prompt(&adapter, false));
+    }
+
+    #[test]
+    fn test_should_include_user_prompt_recall_disabled() {
+        let mut policy = MemoryPolicy::basic();
+        policy.recall = false;
+        let mem: Box<dyn crate::agent::memory::MemoryProvider> =
+            Box::new(crate::agent::memory::SlidingWindowMemory::new(10));
+        let adapter = MemoryAdapter::new(
+            Some(std::sync::Arc::new(tokio::sync::Mutex::new(mem))),
+            policy,
+        );
+        assert!(should_include_user_prompt(&adapter, false));
+    }
+
+    #[test]
+    fn test_should_include_user_prompt_store_user_disabled() {
+        let mut policy = MemoryPolicy::basic();
+        policy.store_user = false;
+        let mem: Box<dyn crate::agent::memory::MemoryProvider> =
+            Box::new(crate::agent::memory::SlidingWindowMemory::new(10));
+        let adapter = MemoryAdapter::new(
+            Some(std::sync::Arc::new(tokio::sync::Mutex::new(mem))),
+            policy,
+        );
+        assert!(should_include_user_prompt(&adapter, false));
+    }
+
+    #[test]
+    fn test_should_include_user_prompt_already_stored() {
+        let mem: Box<dyn crate::agent::memory::MemoryProvider> =
+            Box::new(crate::agent::memory::SlidingWindowMemory::new(10));
+        let adapter = MemoryAdapter::new(
+            Some(std::sync::Arc::new(tokio::sync::Mutex::new(mem))),
+            MemoryPolicy::basic(),
+        );
+        // stored_user = true => should not include
+        assert!(!should_include_user_prompt(&adapter, true));
+    }
+
+    #[test]
+    fn test_should_store_user_no_memory() {
+        let state = TurnState {
+            memory: MemoryAdapter::new(None, MemoryPolicy::basic()),
+            stored_user: false,
+        };
+        assert!(!should_store_user(&state));
+    }
+
+    #[test]
+    fn test_should_store_user_already_stored() {
+        let mem: Box<dyn crate::agent::memory::MemoryProvider> =
+            Box::new(crate::agent::memory::SlidingWindowMemory::new(10));
+        let state = TurnState {
+            memory: MemoryAdapter::new(
+                Some(std::sync::Arc::new(tokio::sync::Mutex::new(mem))),
+                MemoryPolicy::basic(),
+            ),
+            stored_user: true,
+        };
+        assert!(!should_store_user(&state));
+    }
+
+    #[test]
+    fn test_user_message_text() {
+        let task = Task::new("hello");
+        let msg = user_message(&task);
+        assert!(matches!(msg.role, ChatRole::User));
+        assert!(matches!(msg.message_type, MessageType::Text));
+        assert_eq!(msg.content, "hello");
+    }
+
+    #[test]
+    fn test_user_message_image() {
+        let mut task = Task::new("describe");
+        task.image = Some((autoagents_protocol::ImageMime::PNG, vec![1, 2, 3]));
+        let msg = user_message(&task);
+        assert!(matches!(msg.role, ChatRole::User));
+        assert!(matches!(msg.message_type, MessageType::Image(_)));
+    }
+
+    #[test]
+    fn test_turn_state_new_and_mark_user_stored() {
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "test".to_string(),
+            description: "test".to_string(),
+            output_schema: None,
+        };
+        let llm = std::sync::Arc::new(autoagents_test_utils::llm::MockLLMProvider {});
+        let context = Context::new(llm, None).with_config(config);
+
+        let mut state = TurnState::new(&context, MemoryPolicy::basic());
+        assert!(!state.stored_user());
+        state.mark_user_stored();
+        assert!(state.stored_user());
+    }
+
+    #[tokio::test]
+    async fn test_build_messages_with_system_prompt() {
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "test".to_string(),
+            description: "default desc".to_string(),
+            output_schema: None,
+        };
+        let llm = std::sync::Arc::new(autoagents_test_utils::llm::MockLLMProvider {});
+        let context = Context::new(llm, None).with_config(config);
+
+        let engine = TurnEngine::new(TurnEngineConfig::basic(1));
+        let adapter = MemoryAdapter::new(None, MemoryPolicy::basic());
+        let mut task = Task::new("user input");
+        task.system_prompt = Some("custom system".to_string());
+
+        let messages = engine.build_messages(&context, &task, &adapter, true).await;
+        // System + user
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].content, "custom system");
+        assert_eq!(messages[0].role, ChatRole::System);
+        assert_eq!(messages[1].content, "user input");
+    }
+
+    #[tokio::test]
+    async fn test_build_messages_without_user_prompt() {
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "test".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let llm = std::sync::Arc::new(autoagents_test_utils::llm::MockLLMProvider {});
+        let context = Context::new(llm, None).with_config(config);
+
+        let engine = TurnEngine::new(TurnEngineConfig::basic(1));
+        let adapter = MemoryAdapter::new(None, MemoryPolicy::basic());
+        let task = Task::new("user input");
+
+        let messages = engine
+            .build_messages(&context, &task, &adapter, false)
+            .await;
+        // Only system prompt
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, ChatRole::System);
+    }
+
+    #[tokio::test]
+    async fn test_run_turn_no_tools_single_turn() {
+        use crate::tests::agent::MockAgentImpl;
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "test".to_string(),
+            description: "test desc".to_string(),
+            output_schema: None,
+        };
+        let llm = std::sync::Arc::new(autoagents_test_utils::llm::MockLLMProvider {});
+        let context = Context::new(llm, None).with_config(config);
+
+        let engine = TurnEngine::new(TurnEngineConfig::basic(1));
+        let mut turn_state = engine.turn_state(&context);
+        let task = Task::new("test prompt");
+        let hooks = MockAgentImpl::new("test", "test");
+
+        let result = engine
+            .run_turn(&hooks, &task, &context, &mut turn_state, 0, 1)
+            .await;
+        assert!(result.is_ok());
+        let turn_result = result.unwrap();
+        assert!(matches!(
+            turn_result,
+            crate::agent::executor::TurnResult::Complete(_)
+        ));
+        if let crate::agent::executor::TurnResult::Complete(output) = turn_result {
+            assert_eq!(output.response, "Mock response");
+        }
+    }
+}

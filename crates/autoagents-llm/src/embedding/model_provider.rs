@@ -85,3 +85,42 @@ impl<P: EmbeddingProvider> EmbeddingBuilder<P> {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct DummyProvider;
+
+    #[async_trait::async_trait]
+    impl EmbeddingProvider for DummyProvider {
+        async fn embed(
+            &self,
+            _input: Vec<String>,
+        ) -> Result<Vec<Vec<f32>>, crate::error::LLMError> {
+            Ok(vec![])
+        }
+    }
+
+    #[test]
+    fn test_embedding_builder_fields() {
+        let builder = EmbeddingBuilder::<DummyProvider>::new()
+            .api_key("k")
+            .base_url("http://localhost")
+            .model("embed")
+            .embedding_encoding_format("float")
+            .embedding_dimensions(5)
+            .api_version("v1")
+            .deployment_id("dep")
+            .timeout_seconds(10);
+
+        assert_eq!(builder.api_key.as_deref(), Some("k"));
+        assert_eq!(builder.base_url.as_deref(), Some("http://localhost"));
+        assert_eq!(builder.model.as_deref(), Some("embed"));
+        assert_eq!(builder.embedding_encoding_format.as_deref(), Some("float"));
+        assert_eq!(builder.embedding_dimensions, Some(5));
+        assert_eq!(builder.api_version.as_deref(), Some("v1"));
+        assert_eq!(builder.deployment_id.as_deref(), Some("dep"));
+        assert_eq!(builder.timeout_seconds, Some(10));
+    }
+}

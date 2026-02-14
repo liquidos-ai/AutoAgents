@@ -152,3 +152,27 @@ impl LLMBuilder<OpenRouter> {
         Ok(Arc::new(openrouter))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builder::LLMBuilder;
+
+    #[test]
+    fn test_openrouter_builder_requires_api_key() {
+        let result = LLMBuilder::<OpenRouter>::new().build();
+        assert!(result.is_err());
+        if let Err(err) = result {
+            assert!(err.to_string().contains("No API key provided"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_openrouter_list_models_missing_key() {
+        let provider = OpenRouter::with_config(
+            "", None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+        );
+        let err = provider.list_models(None).await.unwrap_err();
+        assert!(err.to_string().contains("Missing OpenRouter API key"));
+    }
+}

@@ -516,3 +516,134 @@ fn combine_embeddings(embeddings: &OneOrMany<Embedding>) -> Result<Vec<f32>, Vec
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use autoagents_core::embeddings::Embedding;
+    use autoagents_core::one_or_many::OneOrMany;
+    use autoagents_core::vector_store::request::{Filter, SearchFilter};
+    use std::sync::Arc;
+
+    #[test]
+    fn test_stable_point_id_deterministic() {
+        let id1 = QdrantVectorStore::stable_point_id("doc:1");
+        let id2 = QdrantVectorStore::stable_point_id("doc:1");
+        let id3 = QdrantVectorStore::stable_point_id("doc:2");
+        assert_eq!(id1, id2);
+        assert_ne!(id1, id3);
+    }
+
+    #[test]
+    fn test_payload_encode_decode() {
+        #[derive(Debug, Clone, serde::Deserialize)]
+        struct TestDoc {
+            name: String,
+        }
+
+        let doc = PreparedDocument {
+            id: "doc-1".to_string(),
+            raw: serde_json::json!({"name":"alpha"}),
+            embeddings: OneOrMany::One(Embedding {
+                document: "alpha".to_string(),
+                vec: Arc::from(vec![0.1_f32, 0.2_f32]),
+            }),
+        };
+
+        let payload = QdrantVectorStore::payload_for(&doc).unwrap();
+        let payload_map: HashMap<String, qdrant_client::qdrant::Value> = payload.clone().into();
+        let decoded_id = QdrantVectorStore::decode_id(&payload_map).unwrap();
+        assert_eq!(decoded_id, "doc-1");
+
+        let decoded: Option<TestDoc> = QdrantVectorStore::decode_raw(&payload_map).unwrap();
+        assert_eq!(decoded.unwrap().name, "alpha");
+    }
+
+    #[test]
+    fn test_named_dimensions() {
+        let vectors = HashMap::from([
+            ("a".to_string(), vec![0.1_f32, 0.2_f32]),
+            ("b".to_string(), vec![1.0_f32]),
+        ]);
+        let dims = QdrantVectorStore::named_dimensions(&vectors);
+        assert_eq!(dims.get("a"), Some(&2));
+        assert_eq!(dims.get("b"), Some(&1));
+    }
+
+    #[test]
+    fn test_number_to_f64() {
+        assert_eq!(number_to_f64(&serde_json::json!(1)).unwrap(), 1.0);
+        assert_eq!(number_to_f64(&serde_json::json!(1.5)).unwrap(), 1.5);
+        assert!(number_to_f64(&serde_json::json!("x")).is_err());
+    }
+
+    #[test]
+    fn test_value_to_match_value() {
+        let m = value_to_match_value(serde_json::json!("a")).unwrap();
+        match m {
+            qdrant_client::qdrant::r#match::MatchValue::Keyword(val) => assert_eq!(val, "a"),
+            _ => panic!("expected keyword"),
+        }
+
+        let m = value_to_match_value(serde_json::json!(true)).unwrap();
+        match m {
+            qdrant_client::qdrant::r#match::MatchValue::Boolean(val) => assert!(val),
+            _ => panic!("expected boolean"),
+        }
+    }
+
+    #[test]
+    fn test_to_qdrant_filter_and_or() {
+        let filter = Filter::Eq("field".to_string(), serde_json::json!("x"))
+            .and(Filter::Gt("num".to_string(), serde_json::json!(2)));
+        let qdrant = to_qdrant_filter(filter).unwrap();
+        assert_eq!(qdrant.must.len(), 2);
+
+        let filter = Filter::Eq("field".to_string(), serde_json::json!("x"))
+            .or(Filter::Lt("num".to_string(), serde_json::json!(10)));
+        let qdrant = to_qdrant_filter(filter).unwrap();
+        assert_eq!(qdrant.should.len(), 2);
+    }
+
+    #[test]
+    fn test_combine_embeddings() {
+        let one = OneOrMany::One(Embedding {
+            document: "doc".to_string(),
+            vec: Arc::from(vec![1.0_f32, 2.0_f32]),
+        });
+        let combined = combine_embeddings(&one).unwrap();
+        assert_eq!(combined, vec![1.0, 2.0]);
+
+        let many = OneOrMany::Many(vec![
+            Embedding {
+                document: "a".to_string(),
+                vec: Arc::from(vec![1.0_f32, 3.0_f32]),
+            },
+            Embedding {
+                document: "b".to_string(),
+                vec: Arc::from(vec![3.0_f32, 5.0_f32]),
+            },
+        ]);
+        let combined = combine_embeddings(&many).unwrap();
+        assert_eq!(combined, vec![2.0, 4.0]);
+    }
+
+    #[test]
+    fn test_combine_embeddings_dimension_mismatch() {
+        let many = OneOrMany::Many(vec![
+            Embedding {
+                document: "a".to_string(),
+                vec: Arc::from(vec![1.0_f32, 2.0_f32]),
+            },
+            Embedding {
+                document: "b".to_string(),
+                vec: Arc::from(vec![1.0_f32]),
+            },
+        ]);
+        let err = combine_embeddings(&many).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("inconsistent embedding dimensions")
+        );
+    }
+}

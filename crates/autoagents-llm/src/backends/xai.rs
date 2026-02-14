@@ -672,3 +672,59 @@ impl EmbeddingBuilder<XAI> {
         Ok(Arc::new(provider))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_xai_search_parameters_serialization() {
+        let params = XaiSearchParameters {
+            mode: Some("auto".to_string()),
+            sources: Some(vec![XaiSearchSource {
+                source_type: "web".to_string(),
+                excluded_websites: Some(vec!["example.com".to_string()]),
+            }]),
+            max_search_results: Some(5),
+            from_date: Some("2024-01-01".to_string()),
+            to_date: Some("2024-01-31".to_string()),
+        };
+        let serialized = serde_json::to_value(&params).unwrap();
+        assert_eq!(serialized.get("mode"), Some(&json!("auto")));
+        assert_eq!(serialized.get("max_search_results"), Some(&json!(5)));
+    }
+
+    #[test]
+    fn test_xai_chat_response_text_and_display() {
+        let response = XAIChatResponse {
+            choices: vec![XAIChatChoice {
+                message: XAIChatMsg {
+                    content: "hi".to_string(),
+                },
+            }],
+        };
+        assert_eq!(response.text(), Some("hi".to_string()));
+        assert_eq!(format!("{response}"), "hi");
+    }
+
+    #[test]
+    fn test_xai_embedding_request_serialization() {
+        let req = XAIEmbeddingRequest {
+            model: "embed",
+            input: vec!["a".to_string()],
+            encoding_format: Some("float"),
+            dimensions: Some(3),
+        };
+        let serialized = serde_json::to_value(&req).unwrap();
+        assert_eq!(serialized.get("model"), Some(&json!("embed")));
+        assert_eq!(
+            serialized
+                .get("input")
+                .and_then(|v| v.as_array())
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+}
