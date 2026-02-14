@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bookstore>
+  <book category="fiction">
+    <title>Rust Programming</title>
+    <author>Test Author</author>
+    <price>29.99</price>
+  </book>
+  <book category="tech">
+    <title>Systems Design</title>
+    <author>Another Author</author>
+    <price>39.99</price>
+  </book>
+</bookstore>

@@ -8,3 +8,6 @@ pub mod search;
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "wolfram-alpha"))]
 pub mod wolfram_alpha;
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "document-parsing"))]
+pub mod document_parsing;
