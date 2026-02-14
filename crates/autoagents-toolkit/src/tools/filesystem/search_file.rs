@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::Path;
 use tokio::fs;
+use walkdir::WalkDir;
 
 use super::BaseFileTool;
 
@@ -24,19 +25,39 @@ pub struct SearchFileArgs {
     description = "Search for files by name pattern or content in a directory",
     input = SearchFileArgs,
 )]
-#[derive(Default)]
 pub struct SearchFile {
     root_dir: Option<String>,
+    max_iterations: usize,
+}
+
+impl Default for SearchFile {
+    fn default() -> Self {
+        Self {
+            root_dir: None,
+            max_iterations: 100,
+        }
+    }
 }
 
 impl SearchFile {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(max_iterations: usize) -> Self {
+        Self {
+            max_iterations,
+            ..Self::default()
+        }
     }
 
     pub fn new_with_root_dir(root_dir: String) -> Self {
         Self {
             root_dir: Some(root_dir),
+            ..Self::default()
+        }
+    }
+
+    pub fn new_with_root_dir_and_max_iterations(root_dir: String, max_iterations: usize) -> Self {
+        Self {
+            root_dir: Some(root_dir),
+            max_iterations,
         }
     }
 
@@ -106,8 +127,6 @@ impl SearchFile {
             Ok(content.to_lowercase().contains(&pattern.to_lowercase()))
         }
     }
-
-    // Removed recursive search for simplicity
 }
 
 impl BaseFileTool for SearchFile {
@@ -130,10 +149,9 @@ where
         );
 
         let dir_path = self.get_relative_path(&directory);
-        let _recursive = true;
+        let recursive = true;
         let search_content = false; // Search by filename only
         let case_sensitive = true;
-        let max_results: Option<usize> = Some(100); // Limit results
 
         // Validate directory exists
         if !dir_path.exists() {
@@ -155,51 +173,53 @@ where
         }
 
         let mut results = Vec::new();
+        let mut iterations = 0usize;
+        let mut iteration_limit_reached = false;
 
-        // Simplified to non-recursive search only
-        {
-            let mut read_dir = fs::read_dir(&dir_path)
-                .await
+        let mut walker = WalkDir::new(&dir_path);
+        if !recursive {
+            walker = walker.max_depth(1);
+        }
+
+        for entry in walker.into_iter() {
+            if iterations >= self.max_iterations {
+                iteration_limit_reached = true;
+                break;
+            }
+
+            iterations += 1;
+            let entry = entry.map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
+
+            let path = entry.path();
+            if path == dir_path {
+                continue;
+            }
+
+            if entry.file_type().is_dir() {
+                continue;
+            }
+
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            let metadata = entry
+                .metadata()
                 .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
 
-            while let Some(entry) = read_dir
-                .next_entry()
-                .await
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?
-            {
-                if let Some(max) = max_results
-                    && results.len() >= max
-                {
-                    break;
+            if search_content {
+                if Self::search_content_in_file(path, &pattern, case_sensitive).await? {
+                    results.push(json!({
+                        "path": path.display().to_string(),
+                        "name": file_name,
+                        "size": metadata.len(),
+                        "match_type": "content"
+                    }));
                 }
-
-                let path = entry.path();
-                let file_name = entry.file_name().to_string_lossy().to_string();
-
-                let metadata = entry
-                    .metadata()
-                    .await
-                    .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-
-                if !metadata.is_dir() {
-                    if search_content {
-                        if Self::search_content_in_file(&path, &pattern, case_sensitive).await? {
-                            results.push(json!({
-                                "path": path.display().to_string(),
-                                "name": file_name,
-                                "size": metadata.len(),
-                                "match_type": "content"
-                            }));
-                        }
-                    } else if Self::matches_pattern(&file_name, &pattern, case_sensitive) {
-                        results.push(json!({
-                            "path": path.display().to_string(),
-                            "name": file_name,
-                            "size": metadata.len(),
-                            "match_type": "filename"
-                        }));
-                    }
-                }
+            } else if Self::matches_pattern(&file_name, &pattern, case_sensitive) {
+                results.push(json!({
+                    "path": path.display().to_string(),
+                    "name": file_name,
+                    "size": metadata.len(),
+                    "match_type": "filename"
+                }));
             }
         }
 
@@ -207,6 +227,9 @@ where
             "success": true,
             "directory": dir_path.display().to_string(),
             "pattern": pattern,
+            "max_iterations": self.max_iterations,
+            "iterations": iterations,
+            "iteration_limit_reached": iteration_limit_reached,
             "search_type": if search_content { "content" } else { "filename" },
             "count": results.len(),
             "results": results
@@ -244,6 +267,38 @@ mod tests {
             .expect("Failed to search files");
         let results = result.get("results").and_then(|v| v.as_array()).unwrap();
         assert_eq!(results.len(), 2); // test.txt and test.rs
+    }
+
+    #[tokio::test]
+    async fn test_max_iterations_limit() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+
+        for idx in 0..5 {
+            let path = temp_dir.path().join(format!("test_{idx}.txt"));
+            std::fs::write(path, "content").expect("Failed to create test file");
+        }
+
+        let search_file = SearchFile::new(3);
+        let args = json!({
+            "directory": temp_dir.path().display().to_string(),
+            "pattern": "test*"
+        });
+
+        let result = search_file
+            .execute(args)
+            .await
+            .expect("Failed to search files");
+
+        assert_eq!(
+            result.get("max_iterations").and_then(|v| v.as_u64()),
+            Some(3)
+        );
+        assert_eq!(
+            result
+                .get("iteration_limit_reached")
+                .and_then(|v| v.as_bool()),
+            Some(true)
+        );
     }
 
     // Content search test removed - feature not implemented in simplified version

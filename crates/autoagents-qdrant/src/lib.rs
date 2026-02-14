@@ -11,11 +11,12 @@ use autoagents_core::vector_store::{
 use qdrant_client::Qdrant;
 use qdrant_client::client::Payload;
 use qdrant_client::qdrant::{
-    Condition, CreateCollectionBuilder, Distance, Filter as QdrantFilter, PointStruct, Range,
-    SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder, condition,
+    Condition, CreateCollectionBuilder, DeletePointsBuilder, Distance, Filter as QdrantFilter,
+    PointStruct, Range, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder, condition,
     with_payload_selector,
 };
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct QdrantVectorStore {
@@ -25,6 +26,12 @@ pub struct QdrantVectorStore {
 }
 
 impl QdrantVectorStore {
+    fn stable_point_id(source_id: &str) -> String {
+        // Qdrant point ids are UUID/u64. Convert arbitrary logical ids
+        // (e.g. "path:start:end") into a deterministic UUIDv5.
+        Uuid::new_v5(&Uuid::NAMESPACE_URL, source_id.as_bytes()).to_string()
+    }
+
     pub fn new(
         provider: SharedEmbeddingProvider,
         url: impl Into<String>,
@@ -106,6 +113,32 @@ impl QdrantVectorStore {
             Ok(None)
         }
     }
+
+    /// Deletes documents using their logical/source IDs (the IDs used for upsert).
+    pub async fn delete_documents_by_ids(
+        &self,
+        source_ids: &[String],
+    ) -> Result<(), VectorStoreError> {
+        if source_ids.is_empty() {
+            return Ok(());
+        }
+
+        let point_ids = source_ids
+            .iter()
+            .map(|source_id| Self::stable_point_id(source_id))
+            .collect::<Vec<_>>();
+
+        self.client
+            .delete_points(
+                DeletePointsBuilder::new(self.collection_name.clone())
+                    .points(point_ids)
+                    .wait(true),
+            )
+            .await
+            .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -152,8 +185,8 @@ impl VectorStoreIndex for QdrantVectorStore {
             let payload = Self::payload_for(&doc)?;
             let vector = combine_embeddings(&doc.embeddings)?;
 
-            // Use the normalized document id so each logical doc stores one point.
-            let point_id = doc.id.clone();
+            // Keep logical id in payload and map point id to a stable UUID.
+            let point_id = Self::stable_point_id(&doc.id);
 
             points.push(PointStruct::new(point_id, vector, payload.clone()));
         }

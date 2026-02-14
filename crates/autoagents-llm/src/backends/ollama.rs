@@ -43,6 +43,7 @@ struct OllamaChatRequest<'a> {
     messages: Vec<OllamaChatMessage<'a>>,
     stream: bool,
     options: Option<OllamaOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     format: Option<OllamaResponseFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<OllamaTool>>,
@@ -51,7 +52,13 @@ struct OllamaChatRequest<'a> {
 
 #[derive(Serialize)]
 struct OllamaOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_predict: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     top_k: Option<u32>,
 }
 
@@ -113,8 +120,9 @@ impl ChatResponse for OllamaResponse {
         self.message.as_ref().and_then(|msg| {
             msg.tool_calls.as_ref().map(|tcs| {
                 tcs.iter()
-                    .map(|tc| ToolCall {
-                        id: format!("call_{}", tc.function.name),
+                    .enumerate()
+                    .map(|(idx, tc)| ToolCall {
+                        id: format!("call_{}_{}", tc.function.name, idx),
                         call_type: "function".to_string(),
                         function: FunctionCall {
                             name: tc.function.name.clone(),
@@ -394,6 +402,8 @@ impl Ollama {
             messages: chat_messages,
             stream: false,
             options: Some(OllamaOptions {
+                temperature: self.temperature,
+                num_predict: self.max_tokens,
                 top_p: self.top_p,
                 top_k: self.top_k,
             }),
