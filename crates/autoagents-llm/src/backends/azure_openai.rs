@@ -645,3 +645,112 @@ impl EmbeddingBuilder<AzureOpenAI> {
         Ok(Arc::new(provider))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chat::{ChatMessage, ChatRole, MessageType, Tool};
+    use crate::{FunctionCall, ToolCall};
+
+    #[test]
+    fn test_azure_chat_message_from_text() {
+        let msg = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "hello".to_string(),
+        };
+        let azure = AzureOpenAIChatMessage::from(&msg);
+        assert_eq!(azure.role, "user");
+        assert!(azure.content.is_some());
+        assert!(azure.tool_calls.is_none());
+    }
+
+    #[test]
+    fn test_azure_chat_message_from_image_url() {
+        let msg = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::ImageURL("https://example.com/img.png".to_string()),
+            content: "describe".to_string(),
+        };
+        let azure = AzureOpenAIChatMessage::from(&msg);
+        match azure.content.unwrap() {
+            Right(_) => panic!("Expected multipart content"),
+            Left(parts) => {
+                assert_eq!(parts.len(), 1);
+                assert_eq!(parts[0].message_type, Some("image_url"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_azure_chat_message_from_tool_use() {
+        let msg = ChatMessage {
+            role: ChatRole::Assistant,
+            message_type: MessageType::ToolUse(vec![ToolCall {
+                id: "call_1".to_string(),
+                call_type: "function".to_string(),
+                function: FunctionCall {
+                    name: "lookup".to_string(),
+                    arguments: "{\"q\":\"value\"}".to_string(),
+                },
+            }]),
+            content: "tool use".to_string(),
+        };
+        let azure = AzureOpenAIChatMessage::from(&msg);
+        assert!(azure.content.is_none());
+        assert!(azure.tool_calls.is_some());
+    }
+
+    #[test]
+    fn test_azure_tool_call_from_tool_call() {
+        let call = ToolCall {
+            id: "call_1".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "lookup".to_string(),
+                arguments: "{\"q\":\"value\"}".to_string(),
+            },
+        };
+        let azure = AzureOpenAIToolCall::from(&call);
+        assert_eq!(azure.id, "call_1");
+        assert_eq!(azure.content_type, "function");
+        assert_eq!(azure.function.name, "lookup");
+    }
+
+    #[test]
+    fn test_azure_embedding_request_serialization() {
+        let req = OpenAIEmbeddingRequest {
+            model: "embed".to_string(),
+            input: vec!["a".to_string(), "b".to_string()],
+            encoding_format: Some("float".to_string()),
+            dimensions: Some(3),
+        };
+        let serialized = serde_json::to_value(&req).unwrap();
+        assert_eq!(serialized.get("model"), Some(&serde_json::json!("embed")));
+        assert_eq!(
+            serialized
+                .get("input")
+                .and_then(|v| v.as_array())
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn test_azure_tool_serialization() {
+        let tool = Tool {
+            tool_type: "function".to_string(),
+            function: crate::chat::FunctionTool {
+                name: "lookup".to_string(),
+                description: "desc".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+            },
+        };
+        let serialized = serde_json::to_value(&tool).unwrap();
+        assert_eq!(serialized.get("type"), Some(&serde_json::json!("function")));
+    }
+}

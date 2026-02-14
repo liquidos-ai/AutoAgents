@@ -2224,4 +2224,39 @@ mod tests {
         let marker = llama_cpp_2::mtmd::mtmd_default_marker();
         assert!(!marker.is_empty());
     }
+
+    #[test]
+    fn test_regex_escape_and_anchor_pattern() {
+        let escaped = regex_escape("a.b[c]");
+        assert_eq!(escaped, "a\\.b\\[c\\]");
+        assert_eq!(anchor_pattern("foo"), "^foo$");
+        assert_eq!(anchor_pattern("^foo$"), "^foo$");
+        assert_eq!(anchor_pattern(""), "^$");
+    }
+
+    #[test]
+    fn test_extract_json_payload_helpers() {
+        let text = "```json\n{\"a\":1}\n```";
+        let fenced = extract_from_code_fence(text).unwrap();
+        assert_eq!(fenced, "{\"a\":1}");
+
+        let first = extract_first_json_object("prefix {\"b\":2} suffix").unwrap();
+        assert_eq!(first, "{\"b\":2}");
+
+        let payload = extract_json_payload("answer: {\"c\":3}").unwrap();
+        assert_eq!(payload, "{\"c\":3}");
+
+        assert!(is_valid_json("{\"ok\":true}"));
+        assert!(!is_valid_json("{broken"));
+    }
+
+    #[test]
+    fn test_resolve_model_path_empty() {
+        let source = ModelSource::Gguf {
+            model_path: "".to_string(),
+        };
+        let config = LlamaCppConfig::default();
+        let err = resolve_model_path(&source, &config).unwrap_err();
+        assert!(err.to_string().contains("Model path is required"));
+    }
 }

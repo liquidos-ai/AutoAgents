@@ -729,6 +729,144 @@ mod tests {
     use bytes::Bytes;
     use futures::stream::StreamExt;
 
+    #[test]
+    fn test_chat_message_builder_user() {
+        let msg = ChatMessage::user().content("hello").build();
+        assert_eq!(msg.role, ChatRole::User);
+        assert_eq!(msg.content, "hello");
+        assert!(matches!(msg.message_type, MessageType::Text));
+    }
+
+    #[test]
+    fn test_chat_message_builder_assistant() {
+        let msg = ChatMessage::assistant().content("reply").build();
+        assert_eq!(msg.role, ChatRole::Assistant);
+        assert_eq!(msg.content, "reply");
+    }
+
+    #[test]
+    fn test_chat_message_builder_image() {
+        let msg = ChatMessage::user()
+            .content("describe")
+            .image(ImageMime::PNG, vec![1, 2, 3])
+            .build();
+        assert!(matches!(msg.message_type, MessageType::Image(_)));
+    }
+
+    #[test]
+    fn test_chat_message_builder_pdf() {
+        let msg = ChatMessage::user()
+            .content("read")
+            .pdf(vec![4, 5, 6])
+            .build();
+        assert!(matches!(msg.message_type, MessageType::Pdf(_)));
+    }
+
+    #[test]
+    fn test_chat_message_builder_tool_use() {
+        let tc = crate::ToolCall {
+            id: "t1".to_string(),
+            call_type: "function".to_string(),
+            function: crate::FunctionCall {
+                name: "tool".to_string(),
+                arguments: "{}".to_string(),
+            },
+        };
+        let msg = ChatMessage::assistant()
+            .content("calling tool")
+            .tool_use(vec![tc])
+            .build();
+        assert!(matches!(msg.message_type, MessageType::ToolUse(_)));
+    }
+
+    #[test]
+    fn test_chat_message_builder_tool_result() {
+        let tc = crate::ToolCall {
+            id: "t1".to_string(),
+            call_type: "function".to_string(),
+            function: crate::FunctionCall {
+                name: "tool".to_string(),
+                arguments: "result".to_string(),
+            },
+        };
+        let msg = ChatMessageBuilder::new(ChatRole::Tool)
+            .tool_result(vec![tc])
+            .build();
+        assert!(matches!(msg.message_type, MessageType::ToolResult(_)));
+        assert_eq!(msg.role, ChatRole::Tool);
+    }
+
+    #[test]
+    fn test_chat_role_display() {
+        assert_eq!(format!("{}", ChatRole::System), "system");
+        assert_eq!(format!("{}", ChatRole::User), "user");
+        assert_eq!(format!("{}", ChatRole::Assistant), "assistant");
+        assert_eq!(format!("{}", ChatRole::Tool), "tool");
+    }
+
+    #[test]
+    fn test_image_mime_mime_type() {
+        assert_eq!(ImageMime::JPEG.mime_type(), "image/jpeg");
+        assert_eq!(ImageMime::PNG.mime_type(), "image/png");
+        assert_eq!(ImageMime::GIF.mime_type(), "image/gif");
+        assert_eq!(ImageMime::WEBP.mime_type(), "image/webp");
+    }
+
+    #[test]
+    fn test_reasoning_effort_display() {
+        assert_eq!(format!("{}", ReasoningEffort::Low), "low");
+        assert_eq!(format!("{}", ReasoningEffort::Medium), "medium");
+        assert_eq!(format!("{}", ReasoningEffort::High), "high");
+    }
+
+    #[test]
+    fn test_tool_choice_serialization() {
+        let any_json = serde_json::to_value(&ToolChoice::Any).unwrap();
+        assert_eq!(any_json, "required");
+
+        let auto_json = serde_json::to_value(&ToolChoice::Auto).unwrap();
+        assert_eq!(auto_json, "auto");
+
+        let none_json = serde_json::to_value(&ToolChoice::None).unwrap();
+        assert_eq!(none_json, "none");
+
+        let tool_json = serde_json::to_value(ToolChoice::Tool("my_func".to_string())).unwrap();
+        assert_eq!(tool_json["type"], "function");
+        assert_eq!(tool_json["function"]["name"], "my_func");
+    }
+
+    #[test]
+    fn test_structured_output_format_roundtrip() {
+        let format = StructuredOutputFormat {
+            name: "Test".to_string(),
+            description: Some("A test".to_string()),
+            schema: Some(serde_json::json!({"type": "object"})),
+            strict: Some(true),
+        };
+        let json = serde_json::to_string(&format).unwrap();
+        let parsed: StructuredOutputFormat = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, format);
+    }
+
+    #[test]
+    fn test_structured_output_format_minimal() {
+        let json_str = r#"{"name":"Minimal"}"#;
+        let parsed: StructuredOutputFormat = serde_json::from_str(json_str).unwrap();
+        assert_eq!(parsed.name, "Minimal");
+        assert_eq!(parsed.description, None);
+        assert_eq!(parsed.schema, None);
+        assert_eq!(parsed.strict, None);
+    }
+
+    #[test]
+    fn test_chat_message_builder_image_url() {
+        let msg = ChatMessage::user()
+            .image_url("https://example.com/img.png")
+            .content("describe this")
+            .build();
+        assert!(matches!(msg.message_type, MessageType::ImageURL(_)));
+    }
+
     #[tokio::test]
     async fn test_create_sse_stream_handles_split_utf8() {
         let test_data = "data: Positive reactions\n\n".as_bytes();

@@ -453,6 +453,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tests::agent::MockAgentImpl;
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
     struct TestAgentOutput {
@@ -477,5 +478,134 @@ mod tests {
         let extracted: TestAgentOutput =
             ReActAgentOutput::extract_agent_output(react_value).unwrap();
         assert_eq!(extracted, agent_output);
+    }
+
+    #[test]
+    fn test_extract_agent_output_invalid_react() {
+        let result = ReActAgentOutput::extract_agent_output::<TestAgentOutput>(
+            serde_json::json!({"not": "react"}),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_react_agent_output_try_parse_success() {
+        let output = ReActAgentOutput {
+            response: r#"{"value":1,"message":"hi"}"#.to_string(),
+            tool_calls: vec![],
+            done: true,
+        };
+        let parsed: TestAgentOutput = output.try_parse().unwrap();
+        assert_eq!(parsed.value, 1);
+    }
+
+    #[test]
+    fn test_react_agent_output_try_parse_failure() {
+        let output = ReActAgentOutput {
+            response: "not json".to_string(),
+            tool_calls: vec![],
+            done: true,
+        };
+        assert!(output.try_parse::<TestAgentOutput>().is_err());
+    }
+
+    #[test]
+    fn test_react_agent_output_parse_or_map() {
+        let output = ReActAgentOutput {
+            response: "plain text".to_string(),
+            tool_calls: vec![],
+            done: true,
+        };
+        let result: String = output.parse_or_map(|s| s.to_uppercase());
+        assert_eq!(result, "PLAIN TEXT");
+    }
+
+    #[test]
+    fn test_react_agent_output_into_value() {
+        let output = ReActAgentOutput {
+            response: "resp".to_string(),
+            tool_calls: vec![],
+            done: true,
+        };
+        let val: Value = output.into();
+        assert!(val.is_object());
+        assert_eq!(val["response"], "resp");
+    }
+
+    #[test]
+    fn test_react_agent_output_into_string() {
+        let output = ReActAgentOutput {
+            response: "resp".to_string(),
+            tool_calls: vec![],
+            done: true,
+        };
+        let s: String = output.into();
+        assert_eq!(s, "resp");
+    }
+
+    #[test]
+    fn test_error_from_turn_engine_llm() {
+        let err: ReActExecutorError = TurnEngineError::LLMError("llm err".to_string()).into();
+        assert!(matches!(err, ReActExecutorError::LLMError(_)));
+    }
+
+    #[test]
+    fn test_error_from_turn_engine_aborted() {
+        let err: ReActExecutorError = TurnEngineError::Aborted.into();
+        assert!(matches!(err, ReActExecutorError::Other(_)));
+    }
+
+    #[test]
+    fn test_error_from_turn_engine_other() {
+        let err: ReActExecutorError = TurnEngineError::Other("other".to_string()).into();
+        assert!(matches!(err, ReActExecutorError::Other(_)));
+    }
+
+    #[test]
+    fn test_react_agent_creation_and_deref() {
+        let mock = MockAgentImpl::new("react_test", "desc");
+        let agent = ReActAgent::new(mock);
+        assert_eq!(agent.name(), "react_test");
+        assert_eq!(agent.description(), "desc");
+    }
+
+    #[test]
+    fn test_react_agent_clone() {
+        let mock = MockAgentImpl::new("clone_test", "desc");
+        let agent = ReActAgent::new(mock);
+        let cloned = agent.clone();
+        assert_eq!(cloned.name(), "clone_test");
+    }
+
+    #[test]
+    fn test_react_agent_config() {
+        let mock = MockAgentImpl::new("cfg_test", "desc");
+        let agent = ReActAgent::new(mock);
+        assert_eq!(agent.config().max_turns, 10);
+    }
+
+    #[tokio::test]
+    async fn test_react_agent_execute() {
+        use crate::agent::{AgentConfig, Context};
+        use autoagents_protocol::ActorID;
+        use autoagents_test_utils::llm::MockLLMProvider;
+
+        let mock = MockAgentImpl::new("exec_test", "desc");
+        let agent = ReActAgent::new(mock);
+        let llm = std::sync::Arc::new(MockLLMProvider {});
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "exec_test".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let task = crate::agent::task::Task::new("test");
+
+        let result = agent.execute(&task, context).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.done);
+        assert_eq!(output.response, "Mock response");
     }
 }

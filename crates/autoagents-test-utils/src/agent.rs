@@ -1,13 +1,13 @@
-use std::sync::Arc;
-use autoagents::core::agent::{AgentDeriveT, AgentExecutor, AgentOutputT, Context, ExecutorConfig};
+use autoagents::async_trait;
 use autoagents::core::agent::AgentHooks;
 use autoagents::core::agent::task::Task;
+use autoagents::core::agent::{AgentDeriveT, AgentExecutor, AgentOutputT, Context, ExecutorConfig};
 use autoagents::core::tool::ToolT;
-use autoagents::async_trait;
+use autoagents_derive::AgentOutput;
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use futures::Stream;
-use autoagents_derive::AgentOutput;
+use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TestError {
@@ -97,7 +97,7 @@ impl AgentExecutor for MockAgentImpl {
         _task: &Task,
         _context: Arc<Context>,
     ) -> Result<
-        std::pin::Pin<Box<dyn Stream<Item=Result<Self::Output, Self::Error>> + Send>>,
+        std::pin::Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>,
         Self::Error,
     > {
         unimplemented!()
@@ -124,5 +124,40 @@ impl MockTool {
             name: name.to_string(),
             description: description.to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm::MockLLMProvider;
+    use autoagents::core::agent::Context;
+    use futures::executor::block_on;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_mock_agent_metadata() {
+        let agent = MockAgentImpl::new("agent", "desc");
+        assert_eq!(agent.name(), "agent");
+        assert_eq!(agent.description(), "desc");
+        assert!(agent.output_schema().is_some());
+    }
+
+    #[test]
+    fn test_mock_agent_execute_success() {
+        let agent = MockAgentImpl::new("agent", "desc");
+        let task = Task::new("hello");
+        let ctx = Arc::new(Context::new(Arc::new(MockLLMProvider), None));
+        let output = block_on(agent.execute(&task, ctx)).unwrap();
+        assert_eq!(output.result, "Processed: hello");
+    }
+
+    #[test]
+    fn test_mock_agent_execute_failure() {
+        let agent = MockAgentImpl::new("agent", "desc").with_failure(true);
+        let task = Task::new("hello");
+        let ctx = Arc::new(Context::new(Arc::new(MockLLMProvider), None));
+        let err = block_on(agent.execute(&task, ctx)).unwrap_err();
+        assert!(err.to_string().contains("Mock execution failed"));
     }
 }

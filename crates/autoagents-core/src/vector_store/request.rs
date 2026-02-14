@@ -270,3 +270,171 @@ where
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_builder_missing_query() {
+        let result = VectorSearchRequest::<Filter<serde_json::Value>>::builder()
+            .samples(10)
+            .build();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("query"));
+    }
+
+    #[test]
+    fn test_builder_missing_samples() {
+        let result = VectorSearchRequest::<Filter<serde_json::Value>>::builder()
+            .query("test")
+            .build();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("samples"));
+    }
+
+    #[test]
+    fn test_builder_non_object_additional_params() {
+        let result = VectorSearchRequest::<Filter<serde_json::Value>>::builder()
+            .query("test")
+            .samples(5)
+            .additional_params(json!("not an object"))
+            .unwrap()
+            .build();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("JSON object"));
+    }
+
+    #[test]
+    fn test_builder_success_with_all_options() {
+        let filter = Filter::eq("color".to_string(), json!("red"));
+        let result = VectorSearchRequest::builder()
+            .query("search query")
+            .samples(10)
+            .threshold(0.8)
+            .additional_params(json!({"key": "value"}))
+            .unwrap()
+            .filter(filter)
+            .build();
+        assert!(result.is_ok());
+        let req = result.unwrap();
+        assert_eq!(req.query(), "search query");
+        assert_eq!(req.samples(), 10);
+        assert_eq!(req.threshold(), Some(0.8));
+        assert!(req.filter().is_some());
+    }
+
+    #[test]
+    fn test_builder_minimal_success() {
+        let result = VectorSearchRequest::<Filter<serde_json::Value>>::builder()
+            .query("q")
+            .samples(1)
+            .build();
+        assert!(result.is_ok());
+        let req = result.unwrap();
+        assert_eq!(req.query(), "q");
+        assert_eq!(req.samples(), 1);
+        assert_eq!(req.threshold(), None);
+        assert!(req.filter().is_none());
+    }
+
+    #[test]
+    fn test_filter_constructors() {
+        let eq: Filter<serde_json::Value> = SearchFilter::eq("k".to_string(), json!("v"));
+        assert!(matches!(eq, Filter::Eq(_, _)));
+
+        let gt: Filter<serde_json::Value> = SearchFilter::gt("k".to_string(), json!(10));
+        assert!(matches!(gt, Filter::Gt(_, _)));
+
+        let lt: Filter<serde_json::Value> = SearchFilter::lt("k".to_string(), json!(5));
+        assert!(matches!(lt, Filter::Lt(_, _)));
+    }
+
+    #[test]
+    fn test_filter_and_or() {
+        let f1: Filter<serde_json::Value> = SearchFilter::eq("a".to_string(), json!(1));
+        let f2: Filter<serde_json::Value> = SearchFilter::eq("b".to_string(), json!(2));
+        let combined = SearchFilter::and(f1, f2);
+        assert!(matches!(combined, Filter::And(_, _)));
+
+        let f3: Filter<serde_json::Value> = SearchFilter::eq("c".to_string(), json!(3));
+        let f4: Filter<serde_json::Value> = SearchFilter::eq("d".to_string(), json!(4));
+        let either = SearchFilter::or(f3, f4);
+        assert!(matches!(either, Filter::Or(_, _)));
+    }
+
+    #[test]
+    fn test_filter_satisfies_eq_match() {
+        let filter = Filter::Eq("color".to_string(), json!("red"));
+        assert!(filter.satisfies(&json!({"color": "red"})));
+    }
+
+    #[test]
+    fn test_filter_satisfies_eq_mismatch() {
+        let filter = Filter::Eq("color".to_string(), json!("red"));
+        assert!(!filter.satisfies(&json!({"color": "blue"})));
+    }
+
+    #[test]
+    fn test_filter_satisfies_and() {
+        let f = Filter::And(
+            Box::new(Filter::Eq("a".to_string(), json!(1))),
+            Box::new(Filter::Eq("b".to_string(), json!(2))),
+        );
+        // Note: satisfies checks json!({k:v}) == value, so both must match same value
+        // This won't match a single object with both - the Eq check is per-key
+        assert!(!f.satisfies(&json!({"a": 1})));
+    }
+
+    #[test]
+    fn test_filter_satisfies_or() {
+        let f = Filter::Or(
+            Box::new(Filter::Eq("a".to_string(), json!(1))),
+            Box::new(Filter::Eq("b".to_string(), json!(2))),
+        );
+        assert!(f.satisfies(&json!({"a": 1})));
+        assert!(f.satisfies(&json!({"b": 2})));
+        assert!(!f.satisfies(&json!({"c": 3})));
+    }
+
+    #[test]
+    fn test_filter_interpret_roundtrip() {
+        let original: Filter<serde_json::Value> = Filter::Eq("key".to_string(), json!("value"));
+        let interpreted: Filter<serde_json::Value> = original.interpret();
+        assert!(matches!(interpreted, Filter::Eq(ref k, _) if k == "key"));
+    }
+
+    #[test]
+    fn test_filter_interpret_compound() {
+        let f: Filter<serde_json::Value> = Filter::And(
+            Box::new(Filter::Gt("x".to_string(), json!(10))),
+            Box::new(Filter::Lt("y".to_string(), json!(20))),
+        );
+        let interpreted: Filter<serde_json::Value> = f.interpret();
+        assert!(matches!(interpreted, Filter::And(_, _)));
+    }
+
+    #[test]
+    fn test_map_filter() {
+        let req = VectorSearchRequest::<Filter<serde_json::Value>>::builder()
+            .query("q")
+            .samples(5)
+            .filter(Filter::Eq("k".to_string(), json!("v")))
+            .build()
+            .unwrap();
+
+        let mapped = req.map_filter(|f| format!("{f:?}"));
+        assert_eq!(mapped.query(), "q");
+        assert_eq!(mapped.samples(), 5);
+        assert!(mapped.filter().is_some());
+    }
+
+    #[test]
+    fn test_filter_serialize_deserialize() {
+        let filter: Filter<serde_json::Value> = Filter::Eq("name".to_string(), json!("test"));
+        let json = serde_json::to_string(&filter).unwrap();
+        let deserialized: Filter<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        assert!(matches!(deserialized, Filter::Eq(ref k, _) if k == "name"));
+    }
+}

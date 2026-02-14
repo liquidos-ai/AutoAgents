@@ -282,3 +282,112 @@ impl VectorStoreIndex for InMemoryVectorStore {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::document::Document;
+    use crate::vector_store::request::SearchFilter;
+    use std::sync::Arc;
+
+    fn make_store() -> InMemoryVectorStore {
+        use autoagents_test_utils::llm::MockLLMProvider;
+        let provider: SharedEmbeddingProvider = Arc::new(MockLLMProvider {});
+        InMemoryVectorStore::new(provider)
+    }
+
+    #[tokio::test]
+    async fn test_insert_and_top_n() {
+        let store = make_store();
+        let docs = vec![Document::new("hello world")];
+        store.insert_documents(docs).await.unwrap();
+
+        let req = VectorSearchRequest::builder()
+            .query("hello")
+            .samples(5)
+            .build()
+            .unwrap();
+        let results: Vec<(f64, String, Document)> = store.top_n(req).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].2.page_content, "hello world");
+    }
+
+    #[tokio::test]
+    async fn test_insert_with_ids_and_top_n_ids() {
+        let store = make_store();
+        let docs = vec![("doc1".to_string(), Document::new("first doc"))];
+        store.insert_documents_with_ids(docs).await.unwrap();
+
+        let req = VectorSearchRequest::builder()
+            .query("first")
+            .samples(5)
+            .build()
+            .unwrap();
+        let results = store.top_n_ids(req).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].1, "doc1");
+    }
+
+    #[tokio::test]
+    async fn test_empty_store_query() {
+        let store = make_store();
+        let req = VectorSearchRequest::builder()
+            .query("anything")
+            .samples(5)
+            .build()
+            .unwrap();
+        let results: Vec<(f64, String, Document)> = store.top_n(req).await.unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_filter_application() {
+        let store = make_store();
+        let docs = vec![Document::with_metadata(
+            "red apple",
+            serde_json::json!({"color": "red"}),
+        )];
+        store.insert_documents(docs).await.unwrap();
+
+        // Filter that doesn't match
+        let filter: Filter<serde_json::Value> =
+            SearchFilter::eq("color".to_string(), serde_json::json!("blue"));
+        let req = VectorSearchRequest::builder()
+            .query("apple")
+            .samples(5)
+            .filter(filter)
+            .build()
+            .unwrap();
+        let results: Vec<(f64, String, Document)> = store.top_n(req).await.unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_threshold_filtering() {
+        let store = make_store();
+        let docs = vec![Document::new("test")];
+        store.insert_documents(docs).await.unwrap();
+
+        // Very high threshold should filter out
+        let req = VectorSearchRequest::<Filter<serde_json::Value>>::builder()
+            .query("test")
+            .samples(5)
+            .threshold(2.0)
+            .build()
+            .unwrap();
+        let results: Vec<(f64, String, Document)> = store.top_n(req).await.unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_top_n_ids_empty_store() {
+        let store = make_store();
+        let req = VectorSearchRequest::builder()
+            .query("q")
+            .samples(3)
+            .build()
+            .unwrap();
+        let results = store.top_n_ids(req).await.unwrap();
+        assert!(results.is_empty());
+    }
+}

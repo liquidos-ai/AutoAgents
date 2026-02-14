@@ -224,3 +224,203 @@ impl ToolProcessor {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tool::{ToolCallError, ToolRuntime, ToolT};
+    use async_trait::async_trait;
+    use serde_json::json;
+
+    #[derive(Debug)]
+    struct MockTool {
+        name: String,
+        should_fail: bool,
+    }
+
+    impl MockTool {
+        fn new(name: &str) -> Self {
+            Self {
+                name: name.to_string(),
+                should_fail: false,
+            }
+        }
+        fn failing(name: &str) -> Self {
+            Self {
+                name: name.to_string(),
+                should_fail: true,
+            }
+        }
+    }
+
+    impl ToolT for MockTool {
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn description(&self) -> &str {
+            "mock"
+        }
+        fn args_schema(&self) -> Value {
+            json!({"type": "object"})
+        }
+    }
+
+    #[async_trait]
+    impl ToolRuntime for MockTool {
+        async fn execute(&self, _args: Value) -> Result<Value, ToolCallError> {
+            if self.should_fail {
+                return Err(ToolCallError::RuntimeError("fail".to_string().into()));
+            }
+            Ok(json!({"ok": true}))
+        }
+    }
+
+    fn make_tool_call(id: &str, name: &str, args: &str) -> ToolCall {
+        ToolCall {
+            id: id.to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: name.to_string(),
+                arguments: args.to_string(),
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn test_process_tool_calls_valid_tool() {
+        let tools: Vec<Box<dyn ToolT>> = vec![Box::new(MockTool::new("tool_a"))];
+        let calls = vec![make_tool_call("1", "tool_a", r#"{"x":1}"#)];
+        let ctx = ToolCallContext::new(
+            autoagents_protocol::SubmissionId::new_v4(),
+            autoagents_protocol::ActorID::new_v4(),
+        );
+        let results = ToolProcessor::process_tool_calls(&tools, calls, ctx, None).await;
+        assert_eq!(results.len(), 1);
+        assert!(results[0].success);
+        assert_eq!(results[0].tool_name, "tool_a");
+    }
+
+    #[tokio::test]
+    async fn test_process_tool_calls_tool_not_found() {
+        let tools: Vec<Box<dyn ToolT>> = vec![Box::new(MockTool::new("tool_a"))];
+        let calls = vec![make_tool_call("1", "nonexistent", r#"{}"#)];
+        let ctx = ToolCallContext::new(
+            autoagents_protocol::SubmissionId::new_v4(),
+            autoagents_protocol::ActorID::new_v4(),
+        );
+        let results = ToolProcessor::process_tool_calls(&tools, calls, ctx, None).await;
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].success);
+        assert!(results[0].result.to_string().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_process_tool_calls_multiple_tools() {
+        let tools: Vec<Box<dyn ToolT>> = vec![
+            Box::new(MockTool::new("tool_a")),
+            Box::new(MockTool::new("tool_b")),
+        ];
+        let calls = vec![
+            make_tool_call("1", "tool_a", r#"{}"#),
+            make_tool_call("2", "tool_b", r#"{}"#),
+        ];
+        let ctx = ToolCallContext::new(
+            autoagents_protocol::SubmissionId::new_v4(),
+            autoagents_protocol::ActorID::new_v4(),
+        );
+        let results = ToolProcessor::process_tool_calls(&tools, calls, ctx, None).await;
+        assert_eq!(results.len(), 2);
+        assert!(results[0].success);
+        assert!(results[1].success);
+    }
+
+    #[tokio::test]
+    async fn test_process_single_tool_call_failure() {
+        let tools: Vec<Box<dyn ToolT>> = vec![Box::new(MockTool::failing("fail_tool"))];
+        let call = make_tool_call("1", "fail_tool", r#"{}"#);
+        let ctx = ToolCallContext::new(
+            autoagents_protocol::SubmissionId::new_v4(),
+            autoagents_protocol::ActorID::new_v4(),
+        );
+        let result = ToolProcessor::process_single_tool_call(&tools, &call, ctx, &None).await;
+        assert!(!result.success);
+        assert!(result.result.to_string().contains("execution failed"));
+    }
+
+    #[tokio::test]
+    async fn test_process_single_tool_call_invalid_args() {
+        let tools: Vec<Box<dyn ToolT>> = vec![Box::new(MockTool::new("tool_a"))];
+        let call = make_tool_call("1", "tool_a", "not json");
+        let ctx = ToolCallContext::new(
+            autoagents_protocol::SubmissionId::new_v4(),
+            autoagents_protocol::ActorID::new_v4(),
+        );
+        let result = ToolProcessor::process_single_tool_call(&tools, &call, ctx, &None).await;
+        assert!(!result.success);
+        assert!(result.result.to_string().contains("parse arguments"));
+    }
+
+    #[test]
+    fn test_create_result_tool_calls() {
+        let calls = vec![make_tool_call("c1", "tool_a", r#"{"x":1}"#)];
+        let results = vec![ToolCallResult {
+            tool_name: "tool_a".to_string(),
+            success: true,
+            arguments: json!({"x": 1}),
+            result: json!("done"),
+        }];
+        let result_calls = ToolProcessor::create_result_tool_calls(&calls, &results);
+        assert_eq!(result_calls.len(), 1);
+        assert_eq!(result_calls[0].id, "c1");
+        assert_eq!(result_calls[0].function.arguments, "done");
+    }
+
+    #[test]
+    fn test_extract_result_content_string() {
+        let result = ToolCallResult {
+            tool_name: "t".to_string(),
+            success: true,
+            arguments: json!({}),
+            result: Value::String("hello".to_string()),
+        };
+        let content = ToolProcessor::extract_result_content(&result);
+        assert_eq!(content, "hello");
+    }
+
+    #[test]
+    fn test_extract_result_content_object() {
+        let result = ToolCallResult {
+            tool_name: "t".to_string(),
+            success: true,
+            arguments: json!({}),
+            result: json!({"key": "value"}),
+        };
+        let content = ToolProcessor::extract_result_content(&result);
+        assert!(content.contains("key"));
+        assert!(content.contains("value"));
+    }
+
+    #[test]
+    fn test_extract_result_content_failure() {
+        let result = ToolCallResult {
+            tool_name: "t".to_string(),
+            success: false,
+            arguments: json!({}),
+            result: json!({"error": "bad"}),
+        };
+        let content = ToolProcessor::extract_result_content(&result);
+        assert!(content.contains("error"));
+    }
+
+    #[tokio::test]
+    async fn test_send_event_with_none_tx() {
+        // Should not panic
+        ToolProcessor::send_event(
+            &None,
+            autoagents_protocol::Event::StreamComplete {
+                sub_id: autoagents_protocol::SubmissionId::new_v4(),
+            },
+        )
+        .await;
+    }
+}

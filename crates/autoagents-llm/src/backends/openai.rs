@@ -766,3 +766,110 @@ impl EmbeddingBuilder<OpenAI> {
         Ok(Arc::new(provider))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builder::LLMBuilder;
+    use crate::chat::{FunctionTool, ToolChoice, Usage};
+    use either::Either::Right;
+    use serde_json::json;
+
+    #[test]
+    fn test_openai_tool_serialization() {
+        let tool = OpenAITool::Function {
+            tool_type: "function".to_string(),
+            function: FunctionTool {
+                name: "lookup".to_string(),
+                description: "Lookup data".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "q": { "type": "string", "description": "query" }
+                    },
+                    "required": ["q"]
+                }),
+            },
+        };
+        let serialized = serde_json::to_value(&tool).unwrap();
+        assert_eq!(serialized.get("type"), Some(&json!("function")));
+    }
+
+    #[test]
+    fn test_openai_web_search_response_helpers() {
+        let response = OpenAIWebSearchChatResponse {
+            output: vec![OpenAIWebSearchOutput {
+                content: Some(vec![OpenAIWebSearchContent {
+                    msg_type: "output_text".to_string(),
+                    text: "result".to_string(),
+                }]),
+                usage: Some(Usage {
+                    prompt_tokens: 1,
+                    completion_tokens: 2,
+                    total_tokens: 3,
+                    completion_tokens_details: None,
+                    prompt_tokens_details: None,
+                }),
+            }],
+            usage: Some(Usage {
+                prompt_tokens: 1,
+                completion_tokens: 2,
+                total_tokens: 3,
+                completion_tokens_details: None,
+                prompt_tokens_details: None,
+            }),
+        };
+
+        assert_eq!(response.text(), Some("result".to_string()));
+        assert_eq!(response.usage().unwrap().total_tokens, 3);
+        assert!(format!("{response}").contains("result"));
+    }
+
+    #[test]
+    fn test_openai_api_chat_request_serialization() {
+        let msg = OpenAIChatMessage {
+            role: "user",
+            content: Some(Right("hello".to_string())),
+            tool_calls: None,
+            tool_call_id: None,
+        };
+
+        let request = OpenAIAPIChatRequest {
+            model: "gpt-test",
+            messages: vec![msg],
+            input: None,
+            max_completion_tokens: Some(10),
+            max_output_tokens: None,
+            temperature: Some(0.2),
+            stream: false,
+            top_p: Some(0.9),
+            top_k: Some(40),
+            tools: None,
+            tool_choice: Some(ToolChoice::Auto),
+            reasoning_effort: None,
+            response_format: None,
+            stream_options: None,
+            extra_body: serde_json::Map::new(),
+        };
+
+        let serialized = serde_json::to_value(&request).unwrap();
+        assert_eq!(serialized.get("model"), Some(&json!("gpt-test")));
+        assert_eq!(
+            serialized
+                .get("messages")
+                .and_then(|m| m.as_array())
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_openai_builder_requires_api_key() {
+        let result = LLMBuilder::<OpenAI>::new().build();
+        assert!(result.is_err());
+        if let Err(err) = result {
+            assert!(err.to_string().contains("No API key provided"));
+        }
+    }
+}

@@ -605,4 +605,33 @@ mod tests {
         };
         assert_eq!(entry.get_id(), "模型-测试-🤖");
     }
+
+    #[test]
+    fn test_standard_model_entry_created_at_default() {
+        let entry = StandardModelEntry {
+            id: "m1".to_string(),
+            created: None,
+            extra: serde_json::Value::Null,
+        };
+        let dt = entry.get_created_at();
+        assert_eq!(dt.timestamp(), 0);
+    }
+
+    #[test]
+    fn test_standard_model_list_response_helpers() {
+        let inner = StandardModelListResponseInner {
+            data: vec![StandardModelEntry {
+                id: "m1".to_string(),
+                created: Some(1),
+                extra: serde_json::Value::Null,
+            }],
+        };
+        let response = StandardModelListResponse {
+            inner,
+            backend: LLMBackend::OpenAI,
+        };
+        assert_eq!(response.get_models(), vec!["m1".to_string()]);
+        assert_eq!(response.get_models_raw().len(), 1);
+        assert!(matches!(response.get_backend(), LLMBackend::OpenAI));
+    }
 }

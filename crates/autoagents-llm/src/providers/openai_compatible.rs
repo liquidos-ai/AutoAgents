@@ -1181,6 +1181,14 @@ pub fn create_sse_stream(
 mod tests {
     use super::*;
 
+    struct TestConfig;
+
+    impl OpenAIProviderConfig for TestConfig {
+        const PROVIDER_NAME: &'static str = "Test";
+        const DEFAULT_BASE_URL: &'static str = "https://example.com/v1/";
+        const DEFAULT_MODEL: &'static str = "test-model";
+    }
+
     #[test]
     fn test_parse_openai_stream_text_delta() {
         let event = r#"data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}"#;
@@ -1464,5 +1472,161 @@ mod tests {
             "Expected ToolUseComplete, got {:?}",
             results[0]
         );
+    }
+
+    #[test]
+    fn test_response_format_adds_additional_properties() {
+        let format = StructuredOutputFormat {
+            name: "Test".to_string(),
+            description: None,
+            schema: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "foo": { "type": "string" }
+                },
+                "required": ["foo"]
+            })),
+            strict: Some(true),
+        };
+
+        let response_format: OpenAIResponseFormat = format.into();
+        let schema = response_format.json_schema.unwrap().schema.unwrap();
+        assert_eq!(
+            schema.get("additionalProperties"),
+            Some(&serde_json::json!(false))
+        );
+    }
+
+    #[test]
+    fn test_response_format_preserves_additional_properties() {
+        let format = StructuredOutputFormat {
+            name: "Test".to_string(),
+            description: None,
+            schema: Some(serde_json::json!({
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                    "foo": { "type": "string" }
+                }
+            })),
+            strict: None,
+        };
+
+        let response_format: OpenAIResponseFormat = format.into();
+        let schema = response_format.json_schema.unwrap().schema.unwrap();
+        assert_eq!(
+            schema.get("additionalProperties"),
+            Some(&serde_json::json!(true))
+        );
+    }
+
+    #[test]
+    fn test_prepare_messages_expands_tool_results() {
+        let tool_calls = vec![ToolCall {
+            id: "call_1".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "lookup".to_string(),
+                arguments: "{\"q\":\"value\"}".to_string(),
+            },
+        }];
+        let messages = vec![ChatMessage {
+            role: ChatRole::Assistant,
+            message_type: MessageType::ToolResult(tool_calls.clone()),
+            content: "tool result".to_string(),
+        }];
+
+        let provider = OpenAICompatibleProvider::<TestConfig>::new(
+            "key", None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None,
+        );
+        let prepared = provider.prepare_messages(&messages);
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].role, "tool");
+        assert_eq!(prepared[0].tool_call_id.as_deref(), Some("call_1"));
+        match &prepared[0].content {
+            Some(Right(text)) => assert_eq!(text, "{\"q\":\"value\"}"),
+            other => panic!("Unexpected content: {other:?}"),
+        }
+        assert!(prepared[0].tool_calls.is_none());
+    }
+
+    #[test]
+    fn test_chat_message_to_openai_message_image_url() {
+        let msg = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::ImageURL("https://example.com/image.png".to_string()),
+            content: "describe".to_string(),
+        };
+        let openai_msg = chat_message_to_openai_message(msg);
+        assert_eq!(openai_msg.role, "user");
+        match openai_msg.content.unwrap() {
+            Left(parts) => {
+                assert_eq!(parts.len(), 1);
+                assert_eq!(parts[0].message_type, Some("image_url"));
+                assert!(parts[0].text.is_none());
+                assert_eq!(
+                    parts[0].image_url.as_ref().unwrap().url,
+                    "https://example.com/image.png"
+                );
+            }
+            Right(_) => panic!("Expected multipart content"),
+        }
+    }
+
+    #[test]
+    fn test_chat_message_to_openai_message_tool_use() {
+        let msg = ChatMessage {
+            role: ChatRole::Assistant,
+            message_type: MessageType::ToolUse(vec![ToolCall {
+                id: "call_1".to_string(),
+                call_type: "function".to_string(),
+                function: FunctionCall {
+                    name: "lookup".to_string(),
+                    arguments: "{\"q\":\"value\"}".to_string(),
+                },
+            }]),
+            content: "call tool".to_string(),
+        };
+        let openai_msg = chat_message_to_openai_message(msg);
+        assert!(openai_msg.content.is_none());
+        assert!(openai_msg.tool_calls.is_some());
+        let calls = openai_msg.tool_calls.unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "lookup");
+    }
+
+    #[test]
+    fn test_openai_chat_response_helpers() {
+        let response = OpenAIChatResponse {
+            choices: vec![OpenAIChatChoice {
+                message: OpenAIChatMsg {
+                    role: "assistant".to_string(),
+                    content: Some("hi".to_string()),
+                    tool_calls: Some(vec![ToolCall {
+                        id: "call_1".to_string(),
+                        call_type: "function".to_string(),
+                        function: FunctionCall {
+                            name: "lookup".to_string(),
+                            arguments: "{\"q\":\"value\"}".to_string(),
+                        },
+                    }]),
+                },
+            }],
+            usage: Some(Usage {
+                prompt_tokens: 1,
+                completion_tokens: 2,
+                total_tokens: 3,
+                prompt_tokens_details: None,
+                completion_tokens_details: None,
+            }),
+        };
+
+        assert_eq!(response.text(), Some("hi".to_string()));
+        assert_eq!(response.tool_calls().unwrap().len(), 1);
+        assert_eq!(response.usage().unwrap().total_tokens, 3);
+        let display = format!("{response}");
+        assert!(display.contains("lookup"));
+        assert!(display.contains("hi"));
     }
 }

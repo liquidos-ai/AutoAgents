@@ -887,3 +887,58 @@ impl EmbeddingBuilder<Google> {
         Ok(Arc::new(provider))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chat::{FunctionTool, Tool};
+    use serde_json::json;
+
+    #[test]
+    fn test_google_function_declaration_from_tool() {
+        let tool = Tool {
+            tool_type: "function".to_string(),
+            function: FunctionTool {
+                name: "lookup".to_string(),
+                description: "desc".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "q": { "type": "string", "description": "query" }
+                    },
+                    "required": ["q"]
+                }),
+            },
+        };
+
+        let decl = GoogleFunctionDeclaration::from(&tool);
+        assert_eq!(decl.name, "lookup");
+        assert_eq!(decl.description, "desc");
+        assert_eq!(decl.parameters.required, vec!["q".to_string()]);
+    }
+
+    #[test]
+    fn test_google_chat_response_text_and_tool_calls() {
+        let response = GoogleChatResponse {
+            candidates: vec![GoogleCandidate {
+                content: GoogleResponseContent {
+                    parts: vec![GoogleResponsePart {
+                        text: "hi".to_string(),
+                        function_call: None,
+                    }],
+                    function_call: Some(GoogleFunctionCall {
+                        name: "lookup".to_string(),
+                        args: json!({"q":"value"}),
+                    }),
+                    function_calls: None,
+                },
+            }],
+        };
+
+        assert_eq!(response.text(), Some("hi".to_string()));
+        let calls = response.tool_calls().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "lookup");
+        assert!(format!("{response}").contains("hi"));
+    }
+}

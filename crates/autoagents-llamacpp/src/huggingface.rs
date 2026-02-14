@@ -211,9 +211,143 @@ static HUGGINGFACE_TOKEN_KEY: &str = "HUGGINGFACE_TOKEN";
 static HF_TOKEN_KEY: &str = "HF_TOKEN";
 static HUGGINGFACE_HUB_TOKEN_KEY: &str = "HUGGINGFACE_HUB_TOKEN";
 
+fn hf_token_from_env<F>(mut get: F) -> Option<String>
+where
+    F: FnMut(&str) -> Option<String>,
+{
+    get(HUGGINGFACE_TOKEN_KEY)
+        .or_else(|| get(HF_TOKEN_KEY))
+        .or_else(|| get(HUGGINGFACE_HUB_TOKEN_KEY))
+}
+
 fn hf_token() -> Option<String> {
-    std::env::var(HUGGINGFACE_TOKEN_KEY)
-        .ok()
-        .or_else(|| std::env::var(HF_TOKEN_KEY).ok())
-        .or_else(|| std::env::var(HUGGINGFACE_HUB_TOKEN_KEY).ok())
+    hf_token_from_env(|key| std::env::var(key).ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_resolve_cache_dir_relative() {
+        let rel = "models/cache";
+        let resolved = resolve_cache_dir(rel).unwrap();
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(resolved, cwd.join(rel));
+    }
+
+    #[test]
+    fn test_resolve_cache_dir_absolute() {
+        let abs = if cfg!(windows) {
+            "C:\\models"
+        } else {
+            "/tmp/models"
+        };
+        let resolved = resolve_cache_dir(abs).unwrap();
+        assert_eq!(resolved, PathBuf::from(abs));
+    }
+
+    #[test]
+    fn test_select_gguf_filename() {
+        let siblings = vec![
+            Siblings {
+                rfilename: "a.txt".to_string(),
+            },
+            Siblings {
+                rfilename: "model.gguf".to_string(),
+            },
+        ];
+        let filename = select_gguf_filename(&siblings).unwrap();
+        assert_eq!(filename, "model.gguf");
+    }
+
+    #[test]
+    fn test_select_gguf_filename_none() {
+        let siblings = vec![Siblings {
+            rfilename: "a.txt".to_string(),
+        }];
+        let err = select_gguf_filename(&siblings).unwrap_err();
+        assert!(err.to_string().contains("No GGUF files"));
+    }
+
+    #[test]
+    fn test_select_gguf_filename_multiple() {
+        let siblings = vec![
+            Siblings {
+                rfilename: "a.gguf".to_string(),
+            },
+            Siblings {
+                rfilename: "b.gguf".to_string(),
+            },
+        ];
+        let err = select_gguf_filename(&siblings).unwrap_err();
+        assert!(err.to_string().contains("Multiple GGUF files"));
+    }
+
+    #[test]
+    fn test_pick_cached_gguf_single() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = Cache::new(tmp.path().to_path_buf());
+        let repo =
+            Repo::with_revision("org/model".to_string(), RepoType::Model, "main".to_string());
+        let repo_dir = cache.path().join(repo.folder_name());
+        let refs_dir = repo_dir.join("refs");
+        let snapshots_dir = repo_dir.join("snapshots");
+        std::fs::create_dir_all(&refs_dir).unwrap();
+        std::fs::create_dir_all(&snapshots_dir).unwrap();
+        std::fs::write(refs_dir.join(repo.revision()), "abc123").unwrap();
+        let snapshot = snapshots_dir.join("abc123");
+        std::fs::create_dir_all(&snapshot).unwrap();
+        let gguf = snapshot.join("model.gguf");
+        std::fs::write(&gguf, b"test").unwrap();
+
+        let found = pick_cached_gguf(&cache, &repo).unwrap().unwrap();
+        assert_eq!(found, gguf);
+    }
+
+    #[test]
+    fn test_pick_cached_gguf_multiple() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = Cache::new(tmp.path().to_path_buf());
+        let repo =
+            Repo::with_revision("org/model".to_string(), RepoType::Model, "main".to_string());
+        let repo_dir = cache.path().join(repo.folder_name());
+        let refs_dir = repo_dir.join("refs");
+        let snapshots_dir = repo_dir.join("snapshots");
+        std::fs::create_dir_all(&refs_dir).unwrap();
+        std::fs::create_dir_all(&snapshots_dir).unwrap();
+        std::fs::write(refs_dir.join(repo.revision()), "abc123").unwrap();
+        let snapshot = snapshots_dir.join("abc123");
+        std::fs::create_dir_all(&snapshot).unwrap();
+        std::fs::write(snapshot.join("a.gguf"), b"a").unwrap();
+        std::fs::write(snapshot.join("b.gguf"), b"b").unwrap();
+
+        let err = pick_cached_gguf(&cache, &repo).unwrap_err();
+        assert!(err.to_string().contains("Multiple GGUF files"));
+    }
+
+    #[test]
+    fn test_hf_token_precedence() {
+        let mut env = HashMap::<&str, &str>::new();
+        let get = |key: &str| env.get(key).map(|value| value.to_string());
+        assert!(hf_token_from_env(get).is_none());
+
+        env.insert(HF_TOKEN_KEY, "hf");
+        let get = |key: &str| env.get(key).map(|value| value.to_string());
+        assert_eq!(hf_token_from_env(get).as_deref(), Some("hf"));
+
+        env.insert(HUGGINGFACE_TOKEN_KEY, "primary");
+        let get = |key: &str| env.get(key).map(|value| value.to_string());
+        assert_eq!(hf_token_from_env(get).as_deref(), Some("primary"));
+
+        env.remove(HUGGINGFACE_TOKEN_KEY);
+        env.insert(HUGGINGFACE_HUB_TOKEN_KEY, "hub");
+        let get = |key: &str| env.get(key).map(|value| value.to_string());
+        assert_eq!(hf_token_from_env(get).as_deref(), Some("hf"));
+
+        env.remove(HF_TOKEN_KEY);
+        let get = |key: &str| env.get(key).map(|value| value.to_string());
+        assert_eq!(hf_token_from_env(get).as_deref(), Some("hub"));
+    }
 }
