@@ -86,13 +86,13 @@ impl DocumentParser {
     }
 }
 
+#[async_trait]
 impl ToolRuntime for DocumentParser {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
         let DocumentParserArgs { source, format } = serde_json::from_value(args)?;
 
         debug!("DocumentParser executing: source={}", source);
 
-        // 1. Load bytes
         let (bytes, effective_source) = if Self::is_url(&source) {
             let (bytes, filename) = Self::fetch_url(&source).await?;
             let effective = filename.unwrap_or_else(|| source.clone());
@@ -102,10 +102,8 @@ impl ToolRuntime for DocumentParser {
             (bytes, source.clone())
         };
 
-        // 2. Detect format
         let doc_format = Self::resolve_format(&effective_source, format.as_deref())?;
 
-        // 3. Parse — use spawn_blocking for CPU-intensive formats
         let parsed = match doc_format {
             DocumentFormat::Pdf => {
                 let b = bytes;
@@ -171,13 +169,13 @@ mod tests {
         file.write_all(b"Hello World").expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser::new();
+        let parser = DocumentParser::default();
         let args = json!({
             "source": file_path.display().to_string()
         });
 
         let result = parser.execute(args).await.expect("Failed to parse");
-        assert_eq!(result.get("success").unwrap().as_bool().unwrap(), true);
+        assert!(result.get("success").unwrap().as_bool().unwrap());
         assert_eq!(result.get("format").unwrap().as_str().unwrap(), "txt");
         assert!(
             result
@@ -199,7 +197,7 @@ mod tests {
             .expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser::new();
+        let parser = DocumentParser::default();
         let args = json!({
             "source": file_path.display().to_string()
         });
@@ -218,7 +216,7 @@ mod tests {
             .expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser::new();
+        let parser = DocumentParser::default();
         let args = json!({
             "source": file_path.display().to_string()
         });
@@ -245,7 +243,7 @@ mod tests {
             .expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser::new();
+        let parser = DocumentParser::default();
         let args = json!({
             "source": file_path.display().to_string(),
             "format": "csv"
@@ -264,7 +262,7 @@ mod tests {
         file.write_all(b"content").expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser::new();
+        let parser = DocumentParser::default();
         let args = json!({
             "source": file_path.display().to_string()
         });

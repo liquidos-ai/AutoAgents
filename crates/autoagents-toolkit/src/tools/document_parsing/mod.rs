@@ -1,5 +1,6 @@
 mod parse_document;
 pub(crate) mod parsers;
+pub(crate) mod examples;
 
 pub use parse_document::DocumentParser;
 
@@ -46,9 +47,28 @@ impl DocumentFormat {
         }
     }
 
+    /// Resolve a format from a plain name string (e.g. "pdf", "csv").
+    /// Useful when the caller wants to override auto-detection by specifying
+    /// the format explicitly, such as parsing a `.dat` file as CSV.
     pub fn from_str_name(name: &str) -> Option<Self> {
         let dummy = format!("file.{}", name);
         Self::from_extension(&dummy)
+    }
+
+    /// Return the canonical lowercase name for this format.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pdf => "pdf",
+            Self::Docx => "docx",
+            Self::Xlsx => "xlsx",
+            Self::Pptx => "pptx",
+            Self::Html => "html",
+            Self::Csv => "csv",
+            Self::Json => "json",
+            Self::Xml => "xml",
+            Self::Txt => "txt",
+            Self::Markdown => "markdown",
+        }
     }
 }
 

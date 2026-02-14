@@ -12,7 +12,7 @@ pub fn parse_docx(bytes: &[u8]) -> Result<ParsedDocument, ParseError> {
         let mut file = archive
             .by_name("word/document.xml")
             .map_err(|e| ParseError::Format(format!("Missing word/document.xml: {}", e)))?;
-        let mut buf = String::new();
+        let mut buf = String::default();
         file.read_to_string(&mut buf)?;
         buf
     };
@@ -54,7 +54,7 @@ fn extract_docx_text(xml: &str) -> Result<String, ParseError> {
         buf.clear();
     }
 
-    Ok(parts.join(""))
+    Ok(parts.concat())
 }
 
 #[cfg(test)]

@@ -1,0 +1,6 @@
+{
+  "project": "rust-test",
+  "version": "0.1.0",
+  "features": ["txt", "csv", "json", "xml", "html", "markdown"],
+  "author": "test"
+}

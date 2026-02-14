@@ -17,7 +17,7 @@ pub fn parse_pptx(bytes: &[u8]) -> Result<ParsedDocument, ParseError> {
         let name = file.name().to_string();
 
         if name.starts_with("ppt/slides/slide") && name.ends_with(".xml") {
-            let mut xml_content = String::new();
+            let mut xml_content = String::default();
             file.read_to_string(&mut xml_content)?;
             let text = extract_ooxml_text(&xml_content, b"a:t");
             slides.push((slides.len() + 1, text));
