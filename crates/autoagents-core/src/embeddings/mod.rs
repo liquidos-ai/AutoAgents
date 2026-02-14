@@ -9,16 +9,19 @@ use crate::one_or_many::OneOrMany;
 pub mod distance;
 
 pub type SharedEmbeddingProvider = Arc<dyn EmbeddingProvider + Send + Sync>;
+pub type VecArc = Arc<[f32]>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Embedding {
     pub document: String,
-    pub vec: Vec<f32>,
+    pub vec: VecArc,
 }
 
 impl distance::VectorDistance for Embedding {
     fn cosine_similarity(&self, other: &Self, normalize: bool) -> f32 {
-        self.vec.cosine_similarity(&other.vec, normalize)
+        self.vec
+            .as_ref()
+            .cosine_similarity(other.vec.as_ref(), normalize)
     }
 }
 
@@ -141,7 +144,7 @@ where
                 .enumerate()
                 .map(|(offset, vector)| Embedding {
                     document: texts[start + offset].clone(),
-                    vec: vector.clone(),
+                    vec: vector.clone().into(),
                 })
                 .collect();
             cursor += len;

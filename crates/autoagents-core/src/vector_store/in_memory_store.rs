@@ -5,11 +5,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use crate::embeddings::distance::VectorDistance;
-use crate::embeddings::{Embedding, EmbeddingError, SharedEmbeddingProvider};
+use crate::embeddings::{Embedding, EmbeddingError, SharedEmbeddingProvider, VecArc};
 use crate::vector_store::request::Filter;
 use crate::vector_store::{
-    PreparedDocument, VectorSearchRequest, VectorStoreError, VectorStoreIndex, embed_documents,
-    normalize_id,
+    DEFAULT_VECTOR_NAME, NamedVectorDocument, PreparedDocument, PreparedNamedVectorDocument,
+    VectorSearchRequest, VectorStoreError, VectorStoreIndex, embed_documents,
+    embed_named_documents, normalize_id,
 };
 
 #[derive(Clone)]
@@ -22,6 +23,7 @@ pub struct InMemoryVectorStore {
 struct StoredEntry {
     raw: serde_json::Value,
     embeddings: crate::one_or_many::OneOrMany<Embedding>,
+    named_vectors: HashMap<String, VecArc>,
 }
 
 impl InMemoryVectorStore {
@@ -35,22 +37,82 @@ impl InMemoryVectorStore {
     fn insert_prepared(&self, documents: Vec<PreparedDocument>) {
         let mut guard = self.embeddings.write().expect("lock poisoned");
         for doc in documents {
+            let mut combined =
+                vec![0.0f32; doc.embeddings.iter().next().map_or(0, |e| e.vec.len())];
+            let mut count = 0usize;
+            for embedding in doc.embeddings.iter() {
+                for (i, value) in embedding.vec.iter().enumerate() {
+                    combined[i] += value;
+                }
+                count += 1;
+            }
+            if count > 0 {
+                for value in &mut combined {
+                    *value /= count as f32;
+                }
+            }
+
+            let mut named_vectors = HashMap::new();
+            if !combined.is_empty() {
+                named_vectors.insert(DEFAULT_VECTOR_NAME.to_string(), combined.into());
+            }
+
             guard.insert(
                 doc.id,
                 StoredEntry {
                     raw: doc.raw,
                     embeddings: doc.embeddings,
+                    named_vectors,
+                },
+            );
+        }
+    }
+
+    fn insert_prepared_named(&self, documents: Vec<PreparedNamedVectorDocument>) {
+        let mut guard = self.embeddings.write().expect("lock poisoned");
+        for doc in documents {
+            let PreparedNamedVectorDocument { id, raw, vectors } = doc;
+            let named_vectors: HashMap<String, VecArc> = vectors
+                .into_iter()
+                .map(|(name, vec)| (name, vec.into()))
+                .collect();
+
+            guard.insert(
+                id,
+                StoredEntry {
+                    raw,
+                    // Named-vector entries can be scored directly from `named_vectors`.
+                    // Keep `embeddings` empty to avoid duplicating vector storage.
+                    embeddings: crate::one_or_many::OneOrMany::Many(Vec::new()),
+                    named_vectors,
                 },
             );
         }
     }
 
     fn best_similarity(entry: &StoredEntry, query: &Embedding) -> Option<f32> {
+        if !entry.embeddings.is_empty() {
+            return entry
+                .embeddings
+                .iter()
+                .map(|embedding| embedding.cosine_similarity(query, true))
+                .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        }
+
         entry
-            .embeddings
-            .iter()
-            .map(|embedding| embedding.cosine_similarity(query, true))
+            .named_vectors
+            .values()
+            .map(|vector| vector.as_ref().cosine_similarity(query.vec.as_ref(), true))
             .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+    }
+
+    fn named_similarity(
+        entry: &StoredEntry,
+        query_vector_name: &str,
+        query: &Embedding,
+    ) -> Option<f32> {
+        let vector = entry.named_vectors.get(query_vector_name)?;
+        Some(vector.as_ref().cosine_similarity(query.vec.as_ref(), true))
     }
 }
 
@@ -107,7 +169,7 @@ impl VectorStoreIndex for InMemoryVectorStore {
 
         let query_embedding = Embedding {
             document: req.query().to_string(),
-            vec: vector,
+            vec: vector.into(),
         };
 
         let guard = self.embeddings.read().expect("lock poisoned");
@@ -120,7 +182,15 @@ impl VectorStoreIndex for InMemoryVectorStore {
                 continue;
             }
 
-            if let Some(score) = Self::best_similarity(entry, &query_embedding) {
+            let score = if let Some(vector_name) = req.query_vector_name()
+                && vector_name != DEFAULT_VECTOR_NAME
+            {
+                Self::named_similarity(entry, vector_name, &query_embedding)
+            } else {
+                Self::best_similarity(entry, &query_embedding)
+            };
+
+            if let Some(score) = score {
                 if let Some(threshold) = req.threshold()
                     && (score as f64) < threshold
                 {
@@ -154,7 +224,7 @@ impl VectorStoreIndex for InMemoryVectorStore {
 
         let query_embedding = Embedding {
             document: req.query().to_string(),
-            vec: vector,
+            vec: vector.into(),
         };
 
         let guard = self.embeddings.read().expect("lock poisoned");
@@ -167,7 +237,15 @@ impl VectorStoreIndex for InMemoryVectorStore {
                 continue;
             }
 
-            if let Some(score) = Self::best_similarity(entry, &query_embedding) {
+            let score = if let Some(vector_name) = req.query_vector_name()
+                && vector_name != DEFAULT_VECTOR_NAME
+            {
+                Self::named_similarity(entry, vector_name, &query_embedding)
+            } else {
+                Self::best_similarity(entry, &query_embedding)
+            };
+
+            if let Some(score) = score {
                 if let Some(threshold) = req.threshold()
                     && (score as f64) < threshold
                 {
@@ -182,5 +260,25 @@ impl VectorStoreIndex for InMemoryVectorStore {
         matches.truncate(req.samples() as usize);
 
         Ok(matches)
+    }
+
+    async fn insert_documents_with_named_vectors<T>(
+        &self,
+        documents: Vec<NamedVectorDocument<T>>,
+    ) -> Result<(), VectorStoreError>
+    where
+        T: serde::Serialize + Send + Sync + Clone,
+    {
+        let normalized = documents
+            .into_iter()
+            .map(|doc| NamedVectorDocument {
+                id: normalize_id(Some(doc.id)),
+                raw: doc.raw,
+                vectors: doc.vectors,
+            })
+            .collect::<Vec<_>>();
+        let prepared = embed_named_documents(&self.provider, normalized).await?;
+        self.insert_prepared_named(prepared);
+        Ok(())
     }
 }

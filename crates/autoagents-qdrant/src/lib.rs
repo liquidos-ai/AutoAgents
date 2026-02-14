@@ -5,15 +5,15 @@ use autoagents_core::embeddings::{Embed, Embedding, EmbeddingError, SharedEmbedd
 use autoagents_core::one_or_many::OneOrMany;
 use autoagents_core::vector_store::request::{Filter, FilterError};
 use autoagents_core::vector_store::{
-    PreparedDocument, VectorSearchRequest, VectorStoreError, VectorStoreIndex, embed_documents,
-    normalize_id,
+    DEFAULT_VECTOR_NAME, NamedVectorDocument, PreparedDocument, VectorSearchRequest,
+    VectorStoreError, VectorStoreIndex, embed_documents, embed_named_documents, normalize_id,
 };
 use qdrant_client::Qdrant;
 use qdrant_client::client::Payload;
 use qdrant_client::qdrant::{
     Condition, CreateCollectionBuilder, DeletePointsBuilder, Distance, Filter as QdrantFilter,
-    PointStruct, Range, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder, condition,
-    with_payload_selector,
+    PointStruct, Range, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
+    VectorsConfigBuilder, condition, with_payload_selector,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -83,6 +83,33 @@ impl QdrantVectorStore {
         Ok(())
     }
 
+    async fn ensure_named_collection(
+        &self,
+        dimensions: &HashMap<String, u64>,
+    ) -> Result<(), VectorStoreError> {
+        let mut config = VectorsConfigBuilder::default();
+        for (name, dimension) in dimensions {
+            config.add_named_vector_params(
+                name.clone(),
+                VectorParamsBuilder::new(*dimension, Distance::Cosine),
+            );
+        }
+
+        let request = CreateCollectionBuilder::new(self.collection_name.clone())
+            .vectors_config(config)
+            .build();
+
+        let result = self.client.create_collection(request).await;
+        if let Err(err) = result {
+            let message = err.to_string();
+            if !message.contains("already exists") {
+                return Err(VectorStoreError::DatastoreError(Box::new(err)));
+            }
+        }
+
+        Ok(())
+    }
+
     fn payload_for(doc: &PreparedDocument) -> Result<Payload, VectorStoreError> {
         let payload = serde_json::json!({
             "raw": doc.raw,
@@ -138,6 +165,13 @@ impl QdrantVectorStore {
             .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
 
         Ok(())
+    }
+
+    fn named_dimensions(vectors: &HashMap<String, Vec<f32>>) -> HashMap<String, u64> {
+        vectors
+            .iter()
+            .map(|(name, vector)| (name.clone(), vector.len() as u64))
+            .collect()
     }
 }
 
@@ -221,6 +255,12 @@ impl VectorStoreIndex for QdrantVectorStore {
             SearchPointsBuilder::new(self.collection_name.clone(), vector, req.samples())
                 .with_payload(with_payload_selector::SelectorOptions::Enable(true));
 
+        if let Some(vector_name) = req.query_vector_name()
+            && vector_name != DEFAULT_VECTOR_NAME
+        {
+            search = search.vector_name(vector_name.to_string());
+        }
+
         if let Some(filter) = req.filter() {
             search = search.filter(to_qdrant_filter(filter.clone())?);
         }
@@ -267,6 +307,12 @@ impl VectorStoreIndex for QdrantVectorStore {
             SearchPointsBuilder::new(self.collection_name.clone(), vector, req.samples())
                 .with_payload(with_payload_selector::SelectorOptions::Enable(true));
 
+        if let Some(vector_name) = req.query_vector_name()
+            && vector_name != DEFAULT_VECTOR_NAME
+        {
+            search = search.vector_name(vector_name.to_string());
+        }
+
         if let Some(filter) = req.filter() {
             search = search.filter(to_qdrant_filter(filter.clone())?);
         }
@@ -290,6 +336,51 @@ impl VectorStoreIndex for QdrantVectorStore {
         }
 
         Ok(results)
+    }
+
+    async fn insert_documents_with_named_vectors<T>(
+        &self,
+        documents: Vec<NamedVectorDocument<T>>,
+    ) -> Result<(), VectorStoreError>
+    where
+        T: Serialize + Send + Sync + Clone,
+    {
+        let normalized = documents
+            .into_iter()
+            .map(|doc| NamedVectorDocument {
+                id: normalize_id(Some(doc.id)),
+                raw: doc.raw,
+                vectors: doc.vectors,
+            })
+            .collect::<Vec<_>>();
+
+        let prepared = embed_named_documents(&self.provider, normalized).await?;
+        let Some(first) = prepared.first() else {
+            return Ok(());
+        };
+
+        let dimensions = Self::named_dimensions(&first.vectors);
+        self.ensure_named_collection(&dimensions).await?;
+
+        let mut points = Vec::new();
+        for doc in prepared {
+            let source_id = doc.id.clone();
+            let payload = Payload::try_from(serde_json::json!({
+                "raw": doc.raw,
+                "source_id": source_id,
+            }))
+            .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
+            let point_id = Self::stable_point_id(&source_id);
+            points.push(PointStruct::new(point_id, doc.vectors, payload));
+        }
+
+        let request = UpsertPointsBuilder::new(self.collection_name.clone(), points).build();
+        self.client
+            .upsert_points(request)
+            .await
+            .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
+
+        Ok(())
     }
 }
 
@@ -395,7 +486,7 @@ fn number_to_f64(value: &serde_json::Value) -> Result<f64, VectorStoreError> {
 
 fn combine_embeddings(embeddings: &OneOrMany<Embedding>) -> Result<Vec<f32>, VectorStoreError> {
     match embeddings {
-        OneOrMany::One(embedding) => Ok(embedding.vec.clone()),
+        OneOrMany::One(embedding) => Ok(embedding.vec.to_vec()),
         OneOrMany::Many(list) => {
             let Some(first) = list.first() else {
                 return Err(VectorStoreError::EmbeddingError(

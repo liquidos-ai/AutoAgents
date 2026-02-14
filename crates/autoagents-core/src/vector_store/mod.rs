@@ -2,6 +2,7 @@ pub use request::VectorSearchRequest;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::document::Document;
@@ -11,6 +12,8 @@ use crate::vector_store::request::{FilterError, SearchFilter};
 
 pub mod in_memory_store;
 pub mod request;
+
+pub const DEFAULT_VECTOR_NAME: &str = "default";
 
 #[derive(Debug, thiserror::Error)]
 pub enum VectorStoreError {
@@ -56,6 +59,13 @@ pub trait VectorStoreIndex: Send + Sync {
         &self,
         req: VectorSearchRequest<Self::Filter>,
     ) -> Result<Vec<(f64, String)>, VectorStoreError>;
+
+    async fn insert_documents_with_named_vectors<T>(
+        &self,
+        documents: Vec<NamedVectorDocument<T>>,
+    ) -> Result<(), VectorStoreError>
+    where
+        T: Serialize + Send + Sync + Clone;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +80,20 @@ pub struct PreparedDocument {
     pub id: String,
     pub raw: serde_json::Value,
     pub embeddings: OneOrMany<Embedding>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NamedVectorDocument<T> {
+    pub id: String,
+    pub raw: T,
+    pub vectors: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PreparedNamedVectorDocument {
+    pub id: String,
+    pub raw: serde_json::Value,
+    pub vectors: HashMap<String, Vec<f32>>,
 }
 
 pub async fn embed_documents<T>(
@@ -108,20 +132,95 @@ where
         .map_err(EmbeddingError::Provider)?;
 
     let mut prepared = Vec::with_capacity(ids.len());
+    let mut vectors_iter = vectors.into_iter();
+    let mut expected_start = 0usize;
     for ((id, raw), (start, count)) in ids.into_iter().zip(raws).zip(ranges.into_iter()) {
-        let embeddings: Vec<Embedding> = vectors[start..start + count]
-            .iter()
-            .enumerate()
-            .map(|(offset, vector)| Embedding {
+        if start != expected_start {
+            return Err(VectorStoreError::EmbeddingError(
+                EmbeddingError::EmbedFailure("embedding ranges are inconsistent".into()),
+            ));
+        }
+
+        let mut embeddings = Vec::with_capacity(count);
+        for offset in 0..count {
+            let Some(vector) = vectors_iter.next() else {
+                return Err(VectorStoreError::EmbeddingError(
+                    EmbeddingError::EmbedFailure(
+                        "embedding provider returned fewer vectors than expected".into(),
+                    ),
+                ));
+            };
+
+            embeddings.push(Embedding {
                 document: all_texts[start + offset].clone(),
-                vec: vector.clone(),
-            })
-            .collect();
+                vec: vector.into(),
+            });
+        }
+        expected_start += count;
 
         prepared.push(PreparedDocument {
             id,
             raw,
             embeddings: OneOrMany::from(embeddings),
+        });
+    }
+
+    Ok(prepared)
+}
+
+pub async fn embed_named_documents<T>(
+    provider: &SharedEmbeddingProvider,
+    documents: Vec<NamedVectorDocument<T>>,
+) -> Result<Vec<PreparedNamedVectorDocument>, VectorStoreError>
+where
+    T: Serialize + Send + Sync + Clone,
+{
+    let mut all_texts = Vec::new();
+    let mut ranges = Vec::new();
+    let mut raws = Vec::new();
+    let mut ids = Vec::new();
+    let mut names_by_doc = Vec::new();
+
+    for doc in documents {
+        if doc.vectors.is_empty() {
+            return Err(VectorStoreError::EmbeddingError(EmbeddingError::Empty));
+        }
+
+        let mut names = Vec::with_capacity(doc.vectors.len());
+        let start = all_texts.len();
+
+        for (name, text) in doc.vectors {
+            names.push(name);
+            all_texts.push(text);
+        }
+
+        ranges.push((start, names.len()));
+        names_by_doc.push(names);
+        raws.push(serde_json::to_value(doc.raw)?);
+        ids.push(doc.id);
+    }
+
+    let vectors = provider
+        .embed(all_texts.clone())
+        .await
+        .map_err(EmbeddingError::Provider)?;
+
+    let mut prepared = Vec::with_capacity(ids.len());
+    for (((id, raw), (start, count)), names) in ids
+        .into_iter()
+        .zip(raws)
+        .zip(ranges.into_iter())
+        .zip(names_by_doc.into_iter())
+    {
+        let mut mapped = HashMap::with_capacity(count);
+        for (offset, name) in names.into_iter().enumerate() {
+            mapped.insert(name, vectors[start + offset].clone());
+        }
+
+        prepared.push(PreparedNamedVectorDocument {
+            id,
+            raw,
+            vectors: mapped,
         });
     }
 
