@@ -6,6 +6,7 @@ use super::VectorStoreError;
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct VectorSearchRequest<F = Filter<serde_json::Value>> {
     query: String,
+    query_vector_name: Option<String>,
     samples: u64,
     threshold: Option<f64>,
     additional_params: Option<serde_json::Value>,
@@ -19,6 +20,10 @@ impl<Filter> VectorSearchRequest<Filter> {
 
     pub fn query(&self) -> &str {
         &self.query
+    }
+
+    pub fn query_vector_name(&self) -> Option<&str> {
+        self.query_vector_name.as_deref()
     }
 
     pub fn samples(&self) -> u64 {
@@ -39,6 +44,7 @@ impl<Filter> VectorSearchRequest<Filter> {
     {
         VectorSearchRequest {
             query: self.query,
+            query_vector_name: self.query_vector_name,
             samples: self.samples,
             threshold: self.threshold,
             additional_params: self.additional_params,
@@ -167,6 +173,7 @@ impl Filter<serde_json::Value> {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct VectorSearchRequestBuilder<F = Filter<serde_json::Value>> {
     query: Option<String>,
+    query_vector_name: Option<String>,
     samples: Option<u64>,
     threshold: Option<f64>,
     additional_params: Option<serde_json::Value>,
@@ -177,6 +184,7 @@ impl<F> Default for VectorSearchRequestBuilder<F> {
     fn default() -> Self {
         Self {
             query: None,
+            query_vector_name: None,
             samples: None,
             threshold: None,
             additional_params: None,
@@ -199,6 +207,14 @@ where
 
     pub fn samples(mut self, samples: u64) -> Self {
         self.samples = Some(samples);
+        self
+    }
+
+    pub fn query_vector_name<T>(mut self, name: T) -> Self
+    where
+        T: Into<String>,
+    {
+        self.query_vector_name = Some(name.into());
         self
     }
 
@@ -246,6 +262,7 @@ where
 
         Ok(VectorSearchRequest {
             query,
+            query_vector_name: self.query_vector_name,
             samples,
             threshold: self.threshold,
             additional_params,
