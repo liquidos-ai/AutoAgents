@@ -239,12 +239,9 @@ mod tests {
 
     #[test]
     fn test_resolve_cache_dir_absolute() {
-        let abs = if cfg!(windows) {
-            "C:\\models"
-        } else {
-            "/tmp/models"
-        };
-        let resolved = resolve_cache_dir(abs).unwrap();
+        let abs_dir = tempfile::tempdir().unwrap();
+        let abs = abs_dir.path().to_string_lossy().to_string();
+        let resolved = resolve_cache_dir(&abs).unwrap();
         assert_eq!(resolved, PathBuf::from(abs));
     }
 

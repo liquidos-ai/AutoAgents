@@ -109,7 +109,7 @@ where
     let mut ids = Vec::new();
 
     for (id, doc) in documents.iter() {
-        let mut embedder = TextEmbedder::new();
+        let mut embedder = TextEmbedder::default();
         doc.embed(&mut embedder).map_err(|err| {
             VectorStoreError::EmbeddingError(EmbeddingError::EmbedFailure(err.to_string()))
         })?;

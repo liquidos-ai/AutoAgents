@@ -173,15 +173,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_text_embedder_new() {
-        let embedder = TextEmbedder::new();
+    fn test_text_embedder_default() {
+        let embedder = TextEmbedder::default();
         assert!(embedder.is_empty());
         assert_eq!(embedder.len(), 0);
     }
 
     #[test]
     fn test_text_embedder_embed_and_parts() {
-        let mut embedder = TextEmbedder::new();
+        let mut embedder = TextEmbedder::default();
         embedder.embed("hello");
         embedder.embed("world");
         assert_eq!(embedder.len(), 2);
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn test_text_embedder_into_parts() {
-        let mut embedder = TextEmbedder::new();
+        let mut embedder = TextEmbedder::default();
         embedder.embed("a");
         embedder.embed("b");
         let parts = embedder.into_parts();
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn test_embed_trait_for_string() {
         let s = "hello world".to_string();
-        let mut embedder = TextEmbedder::new();
+        let mut embedder = TextEmbedder::default();
         s.embed(&mut embedder).unwrap();
         assert_eq!(embedder.len(), 1);
         assert_eq!(embedder.parts()[0], "hello world");
