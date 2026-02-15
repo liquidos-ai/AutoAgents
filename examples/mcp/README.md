@@ -7,5 +7,5 @@ This example demonstrates how to integrate MCP servers with AutoAgents, allowing
 ```sh
 export OPENAI_API_KEY=your_openai_api_key_here
 export BRAVE_API_KEY=your_brave_api_key_here
-cargo run --package basic-example -- --usecase toolkit
+cargo run --package mcp-example
 ```

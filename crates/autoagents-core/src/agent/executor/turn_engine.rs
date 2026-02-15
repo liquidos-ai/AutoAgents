@@ -1081,13 +1081,13 @@ mod tests {
             .await
             .unwrap();
 
-        let mut final_text = String::new();
+        let mut final_text = String::default();
         while let Some(delta) = stream.next().await {
             if let Ok(TurnDelta::Done(result)) = delta {
                 final_text = match result {
                     crate::agent::executor::TurnResult::Complete(output) => output.response,
                     crate::agent::executor::TurnResult::Continue(Some(output)) => output.response,
-                    crate::agent::executor::TurnResult::Continue(None) => String::new(),
+                    crate::agent::executor::TurnResult::Continue(None) => String::default(),
                 };
                 break;
             }

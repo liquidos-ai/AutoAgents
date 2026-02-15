@@ -409,7 +409,7 @@ mod tests {
 
     #[test]
     fn test_config_builder_full_options() {
-        let config = LlamaCppConfigBuilder::new()
+        let config = LlamaCppConfigBuilder::default()
             .model_source(ModelSource::huggingface_with_filename(
                 "org/model",
                 "model.gguf",

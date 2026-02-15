@@ -3,16 +3,9 @@ use autoagents_llm::error::LLMError;
 use crate::{LlamaCppConfigBuilder, LlamaCppProvider, ModelSource};
 
 /// Builder for LlamaCppProvider.
+#[derive(Default)]
 pub struct LlamaCppProviderBuilder {
     config_builder: LlamaCppConfigBuilder,
-}
-
-impl Default for LlamaCppProviderBuilder {
-    fn default() -> Self {
-        Self {
-            config_builder: LlamaCppConfigBuilder::new(),
-        }
-    }
 }
 
 impl LlamaCppProviderBuilder {
@@ -216,7 +209,7 @@ mod tests {
 
     #[test]
     fn builder_maps_config_fields() {
-        let builder = LlamaCppProviderBuilder::new()
+        let builder = LlamaCppProviderBuilder::default()
             .model_source(ModelSource::gguf("model.gguf"))
             .chat_template("chat")
             .system_prompt("system")

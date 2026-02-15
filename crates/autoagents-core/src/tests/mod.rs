@@ -32,7 +32,7 @@ use autoagents_llm::{
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum TestError {
     #[error("Test error: {0}")]
-    TestError(String),
+    ExecutionFailed(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,7 +125,9 @@ impl AgentExecutor for MockAgentImpl {
         _context: Arc<Context>,
     ) -> Result<Self::Output, Self::Error> {
         if self.should_fail {
-            return Err(TestError::TestError("Mock execution failed".to_string()));
+            return Err(TestError::ExecutionFailed(
+                "Mock execution failed".to_string(),
+            ));
         }
 
         Ok(TestAgentOutput {
