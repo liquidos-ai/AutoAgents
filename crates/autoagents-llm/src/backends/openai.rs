@@ -281,28 +281,8 @@ impl ChatProvider for OpenAI {
         // Use the common prepare_messages method from the OpenAI-compatible provider
         let openai_msgs = self.provider.prepare_messages(messages);
         let response_format: Option<OpenAIResponseFormat> = json_schema.clone().map(|s| s.into());
-        // Convert regular tools to OpenAI format
-        let tool_calls = tools.map(|t| t.to_vec());
-        let mut openai_tools: Vec<OpenAITool> = Vec::new();
-        // Add regular function tools
-        if let Some(tools) = &tool_calls {
-            for tool in tools {
-                openai_tools.push(OpenAITool::Function {
-                    tool_type: tool.tool_type.clone(),
-                    function: tool.function.clone(),
-                });
-            }
-        }
-        let final_tools = if openai_tools.is_empty() {
-            None
-        } else {
-            Some(openai_tools)
-        };
-        let request_tool_choice = if final_tools.is_some() {
-            self.provider.tool_choice.clone()
-        } else {
-            None
-        };
+        let final_tools = self.build_function_tools(tools);
+        let request_tool_choice = self.resolve_tool_choice_for_request(&final_tools);
         let body = OpenAIAPIChatRequest {
             model: self.provider.model.as_str(),
             messages: openai_msgs,
@@ -363,31 +343,7 @@ impl ChatProvider for OpenAI {
     }
 
     async fn chat_with_web_search(&self, input: String) -> Result<Box<dyn ChatResponse>, LLMError> {
-        // Build web search tool configuration
-        let loc_type_opt = self
-            .web_search_user_location_type
-            .as_ref()
-            .filter(|t| matches!(t.as_str(), "exact" | "approximate"));
-        let country = self.web_search_user_location_approximate_country.as_ref();
-        let city = self.web_search_user_location_approximate_city.as_ref();
-        let region = self.web_search_user_location_approximate_region.as_ref();
-        let approximate = if [country, city, region].iter().any(|v| v.is_some()) {
-            Some(ApproximateLocation {
-                country: country.cloned().unwrap_or_default(),
-                city: city.cloned().unwrap_or_default(),
-                region: region.cloned().unwrap_or_default(),
-            })
-        } else {
-            None
-        };
-        let user_location = loc_type_opt.map(|loc_type| UserLocation {
-            location_type: loc_type.clone(),
-            approximate,
-        });
-        let web_search_tool = OpenAITool::WebSearch {
-            tool_type: "web_search_preview".to_string(),
-            user_location,
-        };
+        let web_search_tool = self.build_web_search_tool();
         self.chat_with_hosted_tools(input, vec![web_search_tool])
             .await
     }
@@ -428,16 +384,7 @@ impl ChatProvider for OpenAI {
         LLMError,
     > {
         let openai_msgs = self.provider.prepare_messages(messages);
-        // Convert regular tools to OpenAI format for streaming
-        let openai_tools: Option<Vec<OpenAITool>> = tools.as_ref().map(|tools| {
-            tools
-                .iter()
-                .map(|tool| OpenAITool::Function {
-                    tool_type: tool.tool_type.clone(),
-                    function: tool.function.clone(),
-                })
-                .collect()
-        });
+        let openai_tools = self.build_function_tools(tools);
         let repsonse_schema: Option<OpenAIResponseFormat> = json_schema.map(|schema| schema.into());
         let body = OpenAIAPIChatRequest {
             model: &self.provider.model,
@@ -563,6 +510,61 @@ impl OpenAI {
 
     pub fn client(&self) -> &reqwest::Client {
         &self.provider.client
+    }
+
+    fn build_function_tools(&self, tools: Option<&[Tool]>) -> Option<Vec<OpenAITool>> {
+        let mut openai_tools: Vec<OpenAITool> = Vec::new();
+        if let Some(tools) = tools {
+            for tool in tools {
+                openai_tools.push(OpenAITool::Function {
+                    tool_type: tool.tool_type.clone(),
+                    function: tool.function.clone(),
+                });
+            }
+        }
+        if openai_tools.is_empty() {
+            None
+        } else {
+            Some(openai_tools)
+        }
+    }
+
+    fn resolve_tool_choice_for_request(
+        &self,
+        tools: &Option<Vec<OpenAITool>>,
+    ) -> Option<ToolChoice> {
+        if tools.is_some() {
+            self.provider.tool_choice.clone()
+        } else {
+            None
+        }
+    }
+
+    fn build_web_search_tool(&self) -> OpenAITool {
+        let loc_type_opt = self
+            .web_search_user_location_type
+            .as_ref()
+            .filter(|t| matches!(t.as_str(), "exact" | "approximate"));
+        let country = self.web_search_user_location_approximate_country.as_ref();
+        let city = self.web_search_user_location_approximate_city.as_ref();
+        let region = self.web_search_user_location_approximate_region.as_ref();
+        let approximate = if [country, city, region].iter().any(|v| v.is_some()) {
+            Some(ApproximateLocation {
+                country: country.cloned().unwrap_or_default(),
+                city: city.cloned().unwrap_or_default(),
+                region: region.cloned().unwrap_or_default(),
+            })
+        } else {
+            None
+        };
+        let user_location = loc_type_opt.map(|loc_type| UserLocation {
+            location_type: loc_type.clone(),
+            approximate,
+        });
+        OpenAITool::WebSearch {
+            tool_type: "web_search_preview".to_string(),
+            user_location,
+        }
     }
 
     /// Chat with OpenAI-hosted tools using the `/responses` endpoint
@@ -796,6 +798,30 @@ mod tests {
     }
 
     #[test]
+    fn test_openai_web_search_tool_serialization() {
+        let tool = OpenAITool::WebSearch {
+            tool_type: "web_search".to_string(),
+            user_location: Some(UserLocation {
+                location_type: "approximate".to_string(),
+                approximate: Some(ApproximateLocation {
+                    country: "US".to_string(),
+                    city: "SF".to_string(),
+                    region: "CA".to_string(),
+                }),
+            }),
+        };
+        let serialized = serde_json::to_value(&tool).unwrap();
+        assert_eq!(serialized.get("type"), Some(&json!("web_search")));
+        assert_eq!(
+            serialized
+                .get("user_location")
+                .and_then(|v| v.get("type"))
+                .and_then(|v| v.as_str()),
+            Some("approximate")
+        );
+    }
+
+    #[test]
     fn test_openai_web_search_response_helpers() {
         let response = OpenAIWebSearchChatResponse {
             output: vec![OpenAIWebSearchOutput {
@@ -823,6 +849,22 @@ mod tests {
         assert_eq!(response.text(), Some("result".to_string()));
         assert_eq!(response.usage().unwrap().total_tokens, 3);
         assert!(format!("{response}").contains("result"));
+
+        let empty = OpenAIWebSearchChatResponse {
+            output: vec![],
+            usage: None,
+        };
+        assert!(empty.text().is_none());
+        assert!(format!("{empty}").contains("No response content"));
+    }
+
+    #[test]
+    fn test_openai_new_requires_api_key() {
+        let result = OpenAI::new(
+            "", None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None,
+        );
+        assert!(matches!(result, Err(LLMError::AuthError(_))));
     }
 
     #[test]
@@ -870,6 +912,58 @@ mod tests {
         assert!(result.is_err());
         if let Err(err) = result {
             assert!(err.to_string().contains("No API key provided"));
+        }
+    }
+
+    #[test]
+    fn test_build_function_tools_empty_returns_none() {
+        let provider = OpenAI::new(
+            "key", None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None,
+        )
+        .unwrap();
+        let tools = provider.build_function_tools(None);
+        assert!(tools.is_none());
+    }
+
+    #[test]
+    fn test_build_web_search_tool_with_location() {
+        let provider = OpenAI::new(
+            "key",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+            Some("approximate".to_string()),
+            Some("US".to_string()),
+            Some("SF".to_string()),
+            Some("CA".to_string()),
+        )
+        .unwrap();
+
+        let tool = provider.build_web_search_tool();
+        match tool {
+            OpenAITool::WebSearch { user_location, .. } => {
+                let loc = user_location.expect("location");
+                assert_eq!(loc.location_type, "approximate");
+                let approx = loc.approximate.expect("approx");
+                assert_eq!(approx.country, "US");
+                assert_eq!(approx.city, "SF");
+                assert_eq!(approx.region, "CA");
+            }
+            _ => panic!("expected web search tool"),
         }
     }
 }

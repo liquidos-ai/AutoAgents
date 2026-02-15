@@ -247,7 +247,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_embeddings_builder_empty_error() {
-        use autoagents_test_utils::llm::MockLLMProvider;
+        use crate::tests::MockLLMProvider;
         let provider: SharedEmbeddingProvider = Arc::new(MockLLMProvider {});
         let builder = EmbeddingsBuilder::<String>::new(provider);
         let result = builder.build().await;
@@ -256,7 +256,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_embeddings_builder_success() {
-        use autoagents_test_utils::llm::MockLLMProvider;
+        use crate::tests::MockLLMProvider;
         let provider: SharedEmbeddingProvider = Arc::new(MockLLMProvider {});
         let result = EmbeddingsBuilder::new(provider)
             .documents(vec!["hello".to_string()])
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_embeddings_builder_documents_empty_error() {
-        use autoagents_test_utils::llm::MockLLMProvider;
+        use crate::tests::MockLLMProvider;
         let provider: SharedEmbeddingProvider = Arc::new(MockLLMProvider {});
         let result = EmbeddingsBuilder::<String>::new(provider).documents(Vec::<String>::new());
         assert!(result.is_err());

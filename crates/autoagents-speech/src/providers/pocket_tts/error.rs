@@ -173,3 +173,71 @@ impl From<anyhow::Error> for PocketTTSError {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generation_error_helpers() {
+        let err = PocketTTSError::generation_error("boom");
+        match err {
+            PocketTTSError::GenerationError(msg, stage, details) => {
+                assert_eq!(msg, "boom");
+                assert_eq!(stage, "unknown stage");
+                assert_eq!(details, "no additional details");
+            }
+            other => panic!("Unexpected error: {other:?}"),
+        }
+
+        let detailed = PocketTTSError::generation_error_detailed("bad", "decode", "oom");
+        match detailed {
+            PocketTTSError::GenerationError(msg, stage, details) => {
+                assert_eq!(msg, "bad");
+                assert_eq!(stage, "decode");
+                assert_eq!(details, "oom");
+            }
+            other => panic!("Unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_voice_error_helpers() {
+        let err = PocketTTSError::voice_error("invalid", "alice");
+        match err {
+            PocketTTSError::VoiceError(msg, voice, op) => {
+                assert_eq!(msg, "invalid");
+                assert_eq!(voice, "alice");
+                assert_eq!(op, "voice resolution");
+            }
+            other => panic!("Unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_pocket_tts_error_conversion() {
+        let err = PocketTTSError::voice_error("bad voice", "voice_x");
+        let converted: crate::TTSError = err.into();
+        match converted {
+            crate::TTSError::InvalidVoiceData(msg, provider) => {
+                assert!(msg.contains("voice_x"));
+                assert_eq!(provider, "pocket-tts");
+            }
+            other => panic!("Unexpected conversion: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_anyhow_conversion() {
+        let err = anyhow::anyhow!("wrapped");
+        let pocket: PocketTTSError = err.into();
+        match pocket {
+            PocketTTSError::PocketTTSLibraryError(msg, op, ctx) => {
+                assert!(msg.contains("wrapped"));
+                assert_eq!(op, "anyhow conversion");
+                assert_eq!(ctx, "wrapped error from pocket-tts library");
+            }
+            other => panic!("Unexpected error: {other:?}"),
+        }
+    }
+}

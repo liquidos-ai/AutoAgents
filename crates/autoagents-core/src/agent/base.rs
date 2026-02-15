@@ -158,9 +158,8 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
 mod tests {
     use super::*;
     use crate::agent::{AgentConfig, DirectAgent};
-    use crate::tests::agent::MockAgentImpl;
+    use crate::tests::{MockAgentImpl, MockLLMProvider};
     use autoagents_llm::chat::StructuredOutputFormat;
-    use autoagents_test_utils::llm::MockLLMProvider;
     use std::sync::Arc;
     use tokio::sync::mpsc::{Receiver, channel};
     use uuid::Uuid;

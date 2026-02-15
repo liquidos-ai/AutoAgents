@@ -14,3 +14,13 @@ pub fn init_logging() {
         let _ = env_logger::try_init();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_init_logging_no_panic() {
+        init_logging();
+    }
+}

@@ -406,4 +406,75 @@ mod tests {
         assert_eq!(config1.max_tokens, config2.max_tokens);
         assert_eq!(config1.temperature, config2.temperature);
     }
+
+    #[test]
+    fn test_config_builder_full_options() {
+        let config = LlamaCppConfigBuilder::new()
+            .model_source(ModelSource::huggingface_with_filename(
+                "org/model",
+                "model.gguf",
+            ))
+            .chat_template("chat-template")
+            .system_prompt("system")
+            .force_json_grammar(true)
+            .model_dir("cache")
+            .hf_filename("override.gguf")
+            .hf_revision("rev1")
+            .mmproj_path("mmproj.gguf")
+            .media_marker("[IMG]")
+            .mmproj_use_gpu(true)
+            .max_tokens(123)
+            .temperature(0.5)
+            .top_p(0.9)
+            .top_k(42)
+            .repeat_penalty(1.1)
+            .frequency_penalty(0.2)
+            .presence_penalty(0.3)
+            .repeat_last_n(32)
+            .seed(7)
+            .n_ctx(2048)
+            .n_batch(64)
+            .n_ubatch(8)
+            .n_threads(4)
+            .n_threads_batch(2)
+            .n_gpu_layers(3)
+            .main_gpu(1)
+            .split_mode(LlamaCppSplitMode::Layer)
+            .use_mlock(true)
+            .devices(vec![0, 1])
+            .build();
+
+        assert!(matches!(
+            config.model_source,
+            ModelSource::HuggingFace { .. }
+        ));
+        assert_eq!(config.chat_template.as_deref(), Some("chat-template"));
+        assert_eq!(config.system_prompt.as_deref(), Some("system"));
+        assert!(config.force_json_grammar);
+        assert_eq!(config.model_dir.as_deref(), Some("cache"));
+        assert_eq!(config.hf_filename.as_deref(), Some("override.gguf"));
+        assert_eq!(config.hf_revision.as_deref(), Some("rev1"));
+        assert_eq!(config.mmproj_path.as_deref(), Some("mmproj.gguf"));
+        assert_eq!(config.media_marker.as_deref(), Some("[IMG]"));
+        assert_eq!(config.mmproj_use_gpu, Some(true));
+        assert_eq!(config.max_tokens, Some(123));
+        assert_eq!(config.temperature, Some(0.5));
+        assert_eq!(config.top_p, Some(0.9));
+        assert_eq!(config.top_k, Some(42));
+        assert_eq!(config.repeat_penalty, Some(1.1));
+        assert_eq!(config.frequency_penalty, Some(0.2));
+        assert_eq!(config.presence_penalty, Some(0.3));
+        assert_eq!(config.repeat_last_n, Some(32));
+        assert_eq!(config.seed, Some(7));
+        assert_eq!(config.n_ctx, Some(2048));
+        assert_eq!(config.n_batch, Some(64));
+        assert_eq!(config.n_ubatch, Some(8));
+        assert_eq!(config.n_threads, Some(4));
+        assert_eq!(config.n_threads_batch, Some(2));
+        assert_eq!(config.n_gpu_layers, Some(3));
+        assert_eq!(config.main_gpu, Some(1));
+        assert_eq!(config.split_mode, Some(LlamaCppSplitMode::Layer));
+        assert_eq!(config.use_mlock, Some(true));
+        assert_eq!(config.devices, Some(vec![0, 1]));
+    }
 }

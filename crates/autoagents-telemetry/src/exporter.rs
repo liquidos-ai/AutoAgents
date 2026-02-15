@@ -282,3 +282,41 @@ pub(crate) fn resource_attributes(config: &TelemetryConfig) -> Vec<KeyValue> {
 
     attributes
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_span_exporter_empty() {
+        let config = TelemetryConfig::default();
+        let exporter = build_span_exporter(&config).expect("span exporter");
+        assert!(exporter.is_empty());
+    }
+
+    #[test]
+    fn test_build_span_exporter_stdout() {
+        let mut config = TelemetryConfig::default();
+        config.exporter.stdout = true;
+        let exporter = build_span_exporter(&config).expect("span exporter");
+        assert!(!exporter.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_multi_span_exporter_export_and_flush() {
+        let mut exporter =
+            MultiSpanExporter::new(vec![SpanExporterWrapper::Stdout(StdoutSpanExporter)]);
+        exporter.export(Vec::new()).await.expect("export ok");
+        exporter.force_flush().expect("flush ok");
+        exporter
+            .shutdown_with_timeout(Duration::from_millis(1))
+            .expect("shutdown ok");
+    }
+
+    #[test]
+    fn test_build_metric_exporter_defaults() {
+        let config = OtlpConfig::default();
+        let exporter = build_metric_exporter(&config);
+        assert!(exporter.is_ok());
+    }
+}

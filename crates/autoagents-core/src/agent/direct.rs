@@ -158,3 +158,205 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::hooks::HookOutcome;
+    use crate::agent::output::AgentOutputT;
+    use crate::agent::task::Task;
+    use crate::agent::{Context, ExecutorConfig};
+    use crate::tests::{ConfigurableLLMProvider, MockAgentImpl, TestAgentOutput, TestError};
+    use crate::tool::ToolT;
+    use async_trait::async_trait;
+    use futures::StreamExt;
+    use serde_json::Value;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    #[tokio::test]
+    async fn test_direct_agent_build_requires_llm() {
+        let mock_agent = MockAgentImpl::new("direct", "direct agent");
+        let err = match AgentBuilder::<_, DirectAgent>::new(mock_agent)
+            .build()
+            .await
+        {
+            Ok(_) => panic!("expected missing llm error"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(err, crate::error::Error::AgentBuildError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_direct_agent_run_success() {
+        let mock_agent = MockAgentImpl::new("direct", "direct agent");
+        let llm = Arc::new(ConfigurableLLMProvider::default());
+        let handle = AgentBuilder::<_, DirectAgent>::new(mock_agent)
+            .llm(llm)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let task = Task::new("hello");
+        let result = handle.agent.run(task).await.expect("run should succeed");
+        assert_eq!(result.result, "Processed: hello");
+    }
+
+    #[tokio::test]
+    async fn test_direct_agent_run_executor_error() {
+        let mock_agent = MockAgentImpl::new("direct", "direct agent").with_failure(true);
+        let llm = Arc::new(ConfigurableLLMProvider::default());
+        let handle = AgentBuilder::<_, DirectAgent>::new(mock_agent)
+            .llm(llm)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let task = Task::new("fail");
+        let err = handle.agent.run(task).await.expect_err("expected error");
+        assert!(matches!(err, RunnableAgentError::ExecutorError(_)));
+    }
+
+    #[derive(Clone, Debug)]
+    struct StreamAgent;
+
+    #[async_trait]
+    impl AgentDeriveT for StreamAgent {
+        type Output = TestAgentOutput;
+
+        fn description(&self) -> &'static str {
+            "stream agent"
+        }
+
+        fn output_schema(&self) -> Option<Value> {
+            Some(TestAgentOutput::structured_output_format())
+        }
+
+        fn name(&self) -> &'static str {
+            "stream_agent"
+        }
+
+        fn tools(&self) -> Vec<Box<dyn ToolT>> {
+            vec![]
+        }
+    }
+
+    #[async_trait]
+    impl AgentExecutor for StreamAgent {
+        type Output = TestAgentOutput;
+        type Error = TestError;
+
+        fn config(&self) -> ExecutorConfig {
+            ExecutorConfig::default()
+        }
+
+        async fn execute(
+            &self,
+            task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<Self::Output, Self::Error> {
+            Ok(TestAgentOutput {
+                result: format!("Streamed: {}", task.prompt),
+            })
+        }
+    }
+
+    impl AgentHooks for StreamAgent {}
+
+    #[tokio::test]
+    async fn test_direct_agent_run_stream_default_executes_once() {
+        let llm = Arc::new(ConfigurableLLMProvider::default());
+        let handle = AgentBuilder::<_, DirectAgent>::new(StreamAgent)
+            .llm(llm)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let task = Task::new("stream");
+        let stream = handle
+            .agent
+            .run_stream(task)
+            .await
+            .expect("stream should succeed");
+        let outputs: Vec<_> = stream.collect().await;
+        assert_eq!(outputs.len(), 1);
+        let output = outputs[0].as_ref().expect("expected Ok output");
+        assert_eq!(output.result, "Streamed: stream");
+    }
+
+    #[derive(Debug)]
+    struct AbortAgent {
+        executed: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl AgentDeriveT for AbortAgent {
+        type Output = TestAgentOutput;
+
+        fn description(&self) -> &'static str {
+            "abort agent"
+        }
+
+        fn output_schema(&self) -> Option<Value> {
+            Some(TestAgentOutput::structured_output_format())
+        }
+
+        fn name(&self) -> &'static str {
+            "abort_agent"
+        }
+
+        fn tools(&self) -> Vec<Box<dyn ToolT>> {
+            vec![]
+        }
+    }
+
+    #[async_trait]
+    impl AgentExecutor for AbortAgent {
+        type Output = TestAgentOutput;
+        type Error = TestError;
+
+        fn config(&self) -> ExecutorConfig {
+            ExecutorConfig::default()
+        }
+
+        async fn execute(
+            &self,
+            _task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<Self::Output, Self::Error> {
+            self.executed.store(true, Ordering::SeqCst);
+            Ok(TestAgentOutput {
+                result: "should-not-run".to_string(),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl AgentHooks for AbortAgent {
+        async fn on_run_start(&self, _task: &Task, _ctx: &Context) -> HookOutcome {
+            HookOutcome::Abort
+        }
+    }
+
+    #[tokio::test]
+    async fn test_direct_agent_run_aborts_before_execute() {
+        let executed = Arc::new(AtomicBool::new(false));
+        let agent = AbortAgent {
+            executed: Arc::clone(&executed),
+        };
+        let llm = Arc::new(ConfigurableLLMProvider::default());
+        let handle = AgentBuilder::<_, DirectAgent>::new(agent)
+            .llm(llm)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let task = Task::new("abort");
+        let err = handle.agent.run(task).await.expect_err("expected abort");
+        assert!(matches!(err, RunnableAgentError::Abort));
+        assert!(!executed.load(Ordering::SeqCst));
+    }
+}

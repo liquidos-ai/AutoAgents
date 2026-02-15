@@ -35,5 +35,4 @@ autoagents-derive.workspace = true
 
 [dev-dependencies]
 serde_json = { workspace = true }
-autoagents-test-utils = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

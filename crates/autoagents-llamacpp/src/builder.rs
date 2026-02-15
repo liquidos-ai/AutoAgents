@@ -207,3 +207,73 @@ impl LlamaCppProviderBuilder {
         LlamaCppProvider::from_config(config).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::LlamaCppSplitMode;
+    use crate::models::ModelSource;
+
+    #[test]
+    fn builder_maps_config_fields() {
+        let builder = LlamaCppProviderBuilder::new()
+            .model_source(ModelSource::gguf("model.gguf"))
+            .chat_template("chat")
+            .system_prompt("system")
+            .force_json_grammar(true)
+            .model_dir("/models")
+            .hf_filename("model-file.gguf")
+            .hf_revision("rev1")
+            .mmproj_path("mmproj.gguf")
+            .media_marker("<image>")
+            .mmproj_use_gpu(true)
+            .max_tokens(321)
+            .temperature(0.2)
+            .top_p(0.9)
+            .top_k(42)
+            .frequency_penalty(0.1)
+            .presence_penalty(0.2)
+            .repeat_last_n(64)
+            .seed(7)
+            .n_ctx(2048)
+            .n_batch(16)
+            .n_ubatch(8)
+            .n_threads(2)
+            .n_threads_batch(4)
+            .n_gpu_layers(5)
+            .main_gpu(1)
+            .split_mode(LlamaCppSplitMode::Row)
+            .use_mlock(true)
+            .devices(vec![0, 1]);
+
+        let config = builder.config_builder.build();
+        assert_eq!(config.model_source, ModelSource::gguf("model.gguf"));
+        assert_eq!(config.chat_template.as_deref(), Some("chat"));
+        assert_eq!(config.system_prompt.as_deref(), Some("system"));
+        assert!(config.force_json_grammar);
+        assert_eq!(config.model_dir.as_deref(), Some("/models"));
+        assert_eq!(config.hf_filename.as_deref(), Some("model-file.gguf"));
+        assert_eq!(config.hf_revision.as_deref(), Some("rev1"));
+        assert_eq!(config.mmproj_path.as_deref(), Some("mmproj.gguf"));
+        assert_eq!(config.media_marker.as_deref(), Some("<image>"));
+        assert_eq!(config.mmproj_use_gpu, Some(true));
+        assert_eq!(config.max_tokens, Some(321));
+        assert_eq!(config.temperature, Some(0.2));
+        assert_eq!(config.top_p, Some(0.9));
+        assert_eq!(config.top_k, Some(42));
+        assert_eq!(config.frequency_penalty, Some(0.1));
+        assert_eq!(config.presence_penalty, Some(0.2));
+        assert_eq!(config.repeat_last_n, Some(64));
+        assert_eq!(config.seed, Some(7));
+        assert_eq!(config.n_ctx, Some(2048));
+        assert_eq!(config.n_batch, Some(16));
+        assert_eq!(config.n_ubatch, Some(8));
+        assert_eq!(config.n_threads, Some(2));
+        assert_eq!(config.n_threads_batch, Some(4));
+        assert_eq!(config.n_gpu_layers, Some(5));
+        assert_eq!(config.main_gpu, Some(1));
+        assert_eq!(config.split_mode, Some(LlamaCppSplitMode::Row));
+        assert_eq!(config.use_mlock, Some(true));
+        assert_eq!(config.devices, Some(vec![0, 1]));
+    }
+}

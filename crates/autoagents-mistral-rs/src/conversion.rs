@@ -187,6 +187,7 @@ pub(crate) fn convert_vision_messages(
 mod tests {
     use super::*;
     use autoagents_llm::chat::{ChatMessage, ChatResponse};
+    use mistralrs::RequestLike;
 
     #[test]
     fn test_convert_role() {
@@ -266,5 +267,57 @@ mod tests {
         };
         let cloned = response.clone();
         assert_eq!(response.text, cloned.text);
+    }
+
+    #[test]
+    fn test_convert_tool_calls_maps_fields() {
+        let calls = vec![ToolCallResponse {
+            index: 0,
+            id: "call-1".to_string(),
+            tp: mistralrs::ToolCallType::Function,
+            function: mistralrs::CalledFunction {
+                name: "lookup".to_string(),
+                arguments: "{\"q\":\"x\"}".to_string(),
+            },
+        }];
+
+        let converted = convert_tool_calls(&calls);
+        assert_eq!(converted.len(), 1);
+        assert_eq!(converted[0].id, "call-1");
+        assert_eq!(converted[0].function.name, "lookup");
+        assert_eq!(converted[0].function.arguments, "{\"q\":\"x\"}");
+    }
+
+    #[test]
+    fn test_convert_messages_tool_use_and_result() {
+        let tool_call = ToolCall {
+            id: "call-1".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "lookup".to_string(),
+                arguments: "{\"q\":\"x\"}".to_string(),
+            },
+        };
+
+        let messages = vec![
+            ChatMessage {
+                role: ChatRole::Assistant,
+                message_type: MessageType::ToolUse(vec![tool_call.clone()]),
+                content: "call".to_string(),
+            },
+            ChatMessage {
+                role: ChatRole::Tool,
+                message_type: MessageType::ToolResult(vec![tool_call]),
+                content: "result".to_string(),
+            },
+        ];
+
+        let text_messages = convert_messages(&messages);
+        let stored = text_messages.messages_ref();
+        assert_eq!(stored.len(), 2);
+        let first = format!("{:?}", stored[0].get("content"));
+        assert!(first.contains("Tool: lookup"));
+        let second = format!("{:?}", stored[1].get("content"));
+        assert!(second.contains("Tool Result: lookup"));
     }
 }

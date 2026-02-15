@@ -139,8 +139,8 @@ impl Context {
 mod tests {
     use super::*;
     use crate::agent::memory::SlidingWindowMemory;
+    use crate::tests::MockLLMProvider;
     use autoagents_llm::chat::{ChatMessage, ChatMessageBuilder, ChatRole};
-    use autoagents_test_utils::llm::MockLLMProvider;
     use std::sync::Arc;
 
     #[test]

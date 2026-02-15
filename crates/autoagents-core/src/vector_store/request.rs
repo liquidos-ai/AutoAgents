@@ -399,6 +399,23 @@ mod tests {
     }
 
     #[test]
+    fn test_filter_satisfies_gt_and_lt() {
+        let gt = Filter::Gt("score".to_string(), json!(5));
+        assert!(!gt.satisfies(&json!({"score": 3})));
+        assert!(!gt.satisfies(&json!({"score": 7})));
+
+        let lt = Filter::Lt("score".to_string(), json!(5));
+        assert!(!lt.satisfies(&json!({"score": 7})));
+        assert!(!lt.satisfies(&json!({"score": 3})));
+    }
+
+    #[test]
+    fn test_filter_satisfies_incompatible_types() {
+        let gt = Filter::Gt("score".to_string(), json!("high"));
+        assert!(!gt.satisfies(&json!({"score": 3})));
+    }
+
+    #[test]
     fn test_filter_interpret_roundtrip() {
         let original: Filter<serde_json::Value> = Filter::Eq("key".to_string(), json!("value"));
         let interpreted: Filter<serde_json::Value> = original.interpret();

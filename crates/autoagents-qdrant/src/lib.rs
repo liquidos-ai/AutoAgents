@@ -523,7 +523,19 @@ mod tests {
     use autoagents_core::embeddings::Embedding;
     use autoagents_core::one_or_many::OneOrMany;
     use autoagents_core::vector_store::request::{Filter, SearchFilter};
+    use autoagents_llm::embedding::EmbeddingProvider;
+    use autoagents_llm::error::LLMError;
     use std::sync::Arc;
+
+    #[derive(Debug)]
+    struct DummyEmbeddingProvider;
+
+    #[async_trait::async_trait]
+    impl EmbeddingProvider for DummyEmbeddingProvider {
+        async fn embed(&self, _text: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
+            Ok(Vec::new())
+        }
+    }
 
     #[test]
     fn test_stable_point_id_deterministic() {
@@ -593,6 +605,30 @@ mod tests {
     }
 
     #[test]
+    fn test_value_to_match_value_numbers_and_errors() {
+        let m = value_to_match_value(serde_json::json!(42)).unwrap();
+        match m {
+            qdrant_client::qdrant::r#match::MatchValue::Integer(val) => assert_eq!(val, 42),
+            _ => panic!("expected integer"),
+        }
+
+        let m = value_to_match_value(serde_json::json!(1.5)).unwrap();
+        match m {
+            qdrant_client::qdrant::r#match::MatchValue::Keyword(val) => assert_eq!(val, "1.5"),
+            _ => panic!("expected keyword"),
+        }
+
+        assert!(value_to_match_value(serde_json::json!([1, 2, 3])).is_err());
+    }
+
+    #[test]
+    fn test_to_qdrant_filter_lt() {
+        let filter = Filter::Lt("num".to_string(), serde_json::json!(10));
+        let qdrant = to_qdrant_filter(filter).unwrap();
+        assert_eq!(qdrant.must.len(), 1);
+    }
+
+    #[test]
     fn test_to_qdrant_filter_and_or() {
         let filter = Filter::Eq("field".to_string(), serde_json::json!("x"))
             .and(Filter::Gt("num".to_string(), serde_json::json!(2)));
@@ -603,6 +639,34 @@ mod tests {
             .or(Filter::Lt("num".to_string(), serde_json::json!(10)));
         let qdrant = to_qdrant_filter(filter).unwrap();
         assert_eq!(qdrant.should.len(), 2);
+    }
+
+    #[test]
+    fn test_decode_helpers_missing_fields() {
+        let payload: HashMap<String, qdrant_client::qdrant::Value> = HashMap::new();
+        assert!(QdrantVectorStore::decode_id(&payload).is_none());
+        let raw: Option<serde_json::Value> = QdrantVectorStore::decode_raw(&payload).unwrap();
+        assert!(raw.is_none());
+    }
+
+    #[test]
+    fn test_to_qdrant_filter_eq_and_gt() {
+        let filter = Filter::Eq("tag".to_string(), serde_json::json!("alpha"));
+        let qdrant = to_qdrant_filter(filter).unwrap();
+        assert_eq!(qdrant.must.len(), 1);
+
+        let filter = Filter::Gt("score".to_string(), serde_json::json!(1.5));
+        let qdrant = to_qdrant_filter(filter).unwrap();
+        assert_eq!(qdrant.must.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_delete_documents_by_ids_empty_is_noop() {
+        let provider = Arc::new(DummyEmbeddingProvider);
+        let store =
+            QdrantVectorStore::new(provider, "http://localhost:6333", "collection").unwrap();
+        let result = store.delete_documents_by_ids(&[]).await;
+        assert!(result.is_ok());
     }
 
     #[test]

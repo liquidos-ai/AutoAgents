@@ -163,6 +163,22 @@ impl WasmRuntime {
 mod tests {
     use super::*;
 
+    fn write_test_wasm() -> tempfile::NamedTempFile {
+        let wat = r#"(module
+  (memory (export "memory") 1)
+  (data (i32.const 1024) "\0b\00\00\00{\"ok\":true}")
+  (func (export "alloc") (param i32) (result i32)
+    (i32.const 0))
+  (func (export "execute") (param i32 i32) (result i32)
+    (i32.const 1024))
+  (func (export "free") (param i32 i32))
+)"#;
+        let wasm_bytes = wat::parse_str(wat).expect("valid wat");
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), wasm_bytes).unwrap();
+        tmp
+    }
+
     #[test]
     fn test_wasm_runtime_builder_missing_source() {
         let result = WasmRuntime::builder().build();
@@ -177,5 +193,35 @@ mod tests {
             .source_file(tmp.path().to_string_lossy())
             .build();
         assert!(matches!(result, Err(WasmRuntimeError::ModuleLoad(_))));
+    }
+
+    #[test]
+    fn test_wasm_runtime_run_with_free() {
+        let tmp = write_test_wasm();
+        let runtime = WasmRuntime::builder()
+            .source_file(tmp.path().to_string_lossy())
+            .alloc_fn("alloc")
+            .execute_fn("execute")
+            .free_fn(Some("free".to_string()))
+            .build()
+            .unwrap();
+
+        let result = runtime.run(serde_json::json!({"input": 1})).unwrap();
+        assert_eq!(result, serde_json::json!({"ok": true}));
+    }
+
+    #[test]
+    fn test_wasm_runtime_run_without_free() {
+        let tmp = write_test_wasm();
+        let runtime = WasmRuntime::builder()
+            .source_file(tmp.path().to_string_lossy())
+            .alloc_fn("alloc")
+            .execute_fn("execute")
+            .free_fn(None)
+            .build()
+            .unwrap();
+
+        let result = runtime.run(serde_json::json!({"input": "value"})).unwrap();
+        assert_eq!(result, serde_json::json!({"ok": true}));
     }
 }

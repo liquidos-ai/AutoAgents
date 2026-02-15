@@ -69,7 +69,7 @@ mod tests {
     use super::*;
     use crate::actor::Topic;
     use crate::agent::task::Task;
-    use crate::tests::agent::MockAgentImpl;
+    use crate::tests::MockAgentImpl;
 
     #[test]
     fn test_agent_builder_with_subscribe_topic() {

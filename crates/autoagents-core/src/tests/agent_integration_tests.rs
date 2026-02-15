@@ -4,50 +4,11 @@ mod tests {
     use crate::agent::{AgentBuilder, memory::SlidingWindowMemory, task::Task};
     use crate::environment::Environment;
     use crate::runtime::{SingleThreadedRuntime, TypedRuntime};
-    use crate::tests::agent::{MockAgentImpl, MockTool, TestAgentOutput};
-    use crate::tool::{ToolCallError, ToolRuntime, ToolT};
-    use async_trait::async_trait;
+    use crate::tests::{MockAgentImpl, MockLLMProvider, TestAgentOutput};
     use autoagents_protocol::Event;
-    use autoagents_test_utils::llm::MockLLMProvider;
-    use serde_json::Value;
     use std::sync::Arc;
     use tokio::time::{Duration, timeout};
     use tokio_stream::StreamExt;
-
-    // Implement ToolT trait for MockTool
-    impl ToolT for MockTool {
-        fn name(&self) -> &'static str {
-            "mock_tool"
-        }
-
-        fn description(&self) -> &'static str {
-            "A mock tool for testing"
-        }
-
-        fn args_schema(&self) -> Value {
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "input": {"type": "string"}
-                },
-                "required": ["input"]
-            })
-        }
-    }
-
-    #[async_trait]
-    impl ToolRuntime for MockTool {
-        async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-            let input_str = args
-                .get("input")
-                .and_then(|v| v.as_str())
-                .unwrap_or("no input");
-            Ok(serde_json::json!({"output": format!("processed: {}", input_str)}))
-        }
-    }
-
-    // The implementations for TestAgentOutput, MockAgentImpl, and AgentExecutor
-    // are already provided in the base.rs test module, so we don't need to duplicate them
 
     #[tokio::test]
     async fn test_agent_creation_and_subscription() {

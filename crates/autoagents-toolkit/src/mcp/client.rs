@@ -305,6 +305,47 @@ mod tests {
         assert!(manager.get_tool("nonexistent").await.is_none());
     }
 
+    fn invalid_protocol_config() -> McpServerConfig {
+        McpServerConfig::new(
+            "bad_server".to_string(),
+            "http".to_string(),
+            "noop".to_string(),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_get_server_tools_missing() {
+        let manager = McpToolsManager::new();
+        let err = manager.get_server_tools("missing").await.unwrap_err();
+        assert!(matches!(err, McpError::ServerNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn test_connect_server_rejects_unsupported_protocol() {
+        let manager = McpToolsManager::new();
+        let config = invalid_protocol_config();
+        let err = manager.connect_server(&config).await.unwrap_err();
+        assert!(matches!(err, McpError::ConfigError(_)));
+        assert!(err.to_string().contains("Unsupported protocol"));
+    }
+
+    #[tokio::test]
+    async fn test_connect_servers_returns_error_on_invalid_protocol() {
+        let manager = McpToolsManager::new();
+        let mut config = McpConfig::new();
+        config.add_server(invalid_protocol_config());
+        let err = manager.connect_servers(&config).await.unwrap_err();
+        assert!(err.to_string().contains("Unsupported protocol"));
+    }
+
+    #[tokio::test]
+    async fn test_refresh_tools_on_empty_manager() {
+        let manager = McpToolsManager::new();
+        manager.refresh_tools().await.unwrap();
+        let tools = manager.get_tools().await;
+        assert!(tools.is_empty());
+    }
+
     #[test]
     fn test_client_info_creation() {
         let client_info = ClientInfo::default();

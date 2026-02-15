@@ -269,3 +269,97 @@ impl OutputParser {
         Ok(attributes)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn build_parser(input: DeriveInput) -> OutputParser {
+        let mut parser = OutputParser::default();
+        parser.output_data.name = input.ident.to_string();
+        parser.output_data.schema._type = JsonType::Object.to_string();
+        parser.parse_struct_attributes(&input.attrs);
+        parser.parse_data(input.data).unwrap();
+        parser
+    }
+
+    #[test]
+    fn parse_struct_populates_schema_and_required_fields() {
+        let input: DeriveInput = syn::parse_str(
+            r#"
+            #[strict(true)]
+            /// Greeting output
+            struct MyOutput {
+                #[output(description = "Name")]
+                name: String,
+                #[output(description = "Age")]
+                age: Option<u32>,
+                #[output(description = "Mode", choice = ["fast", "slow"])]
+                mode: String,
+            }
+            "#,
+        )
+        .unwrap();
+
+        let parser = build_parser(input);
+        assert_eq!(
+            parser.output_data.description.as_deref(),
+            Some("Greeting output")
+        );
+        assert_eq!(parser.output_data.strict, Some(true));
+        assert!(
+            parser
+                .output_data
+                .schema
+                .required
+                .contains(&"name".to_string())
+        );
+        assert!(
+            !parser
+                .output_data
+                .schema
+                .required
+                .contains(&"age".to_string())
+        );
+
+        let mode = parser.output_data.schema.properties.get("mode").unwrap();
+        assert_eq!(mode._type, "string");
+        assert_eq!(mode._enum.as_ref().unwrap().len(), 2);
+
+        let age = parser.output_data.schema.properties.get("age").unwrap();
+        assert_eq!(age._type, "number");
+    }
+
+    #[test]
+    fn missing_output_attribute_errors() {
+        let input: DeriveInput = syn::parse_str(
+            r#"
+            struct BadOutput {
+                name: String,
+            }
+            "#,
+        )
+        .unwrap();
+        let mut parser = OutputParser::default();
+        parser.output_data.name = input.ident.to_string();
+        parser.output_data.schema._type = JsonType::Object.to_string();
+        let err = parser.parse_data(input.data).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("AgentOutput structs must have at least one field")
+        );
+    }
+
+    #[test]
+    fn tuple_struct_errors() {
+        let input: DeriveInput = syn::parse_str(r#"struct BadOutput(u32);"#).unwrap();
+        let mut parser = OutputParser::default();
+        parser.output_data.name = input.ident.to_string();
+        parser.output_data.schema._type = JsonType::Object.to_string();
+        let err = parser.parse_data(input.data).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Tuple or Unit structs not yet supported")
+        );
+    }
+}

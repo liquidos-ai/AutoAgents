@@ -10,7 +10,7 @@ default-members = [
 ]
 members = ["crates/*", "examples/*"]
 
-exclude = ["examples/wasm_tool"]
+exclude = ["examples/wasm_tool", "crates/autoagents-test-utils"]
 
 [workspace.package]
 version = "0.3.3"
@@ -44,8 +44,6 @@ autoagents-speech = { path = "crates/autoagents-speech", version = "0.3.3" }
 # Telemetry
 autoagents-telemetry = { path = "crates/autoagents-telemetry", version = "0.3.3" }
 
-# Test Utils
-autoagents-test-utils = { path = "crates/autoagents-test-utils" }
 
 syn = { version = "2.0.98", features = ["full"] }
 tokio = { version = "1.43.0", features = ["full"] }

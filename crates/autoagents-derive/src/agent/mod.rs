@@ -181,3 +181,56 @@ impl AgentParser {
         expanded.into()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_attributes_minimal() {
+        let attrs: AgentAttributes =
+            syn::parse_str(r#"name = "TestAgent", description = "Test description""#).unwrap();
+        assert_eq!(attrs.name.value(), "TestAgent");
+        assert_eq!(attrs.description.value(), "Test description");
+        assert!(attrs.tools.is_none());
+        assert!(attrs.output.is_none());
+    }
+
+    #[test]
+    fn parse_attributes_with_tools_and_output() {
+        let attrs: AgentAttributes = syn::parse_str(
+            r#"name = "TestAgent", description = "Test description", tools = [tool_a, crate::tool::ToolB], output = MyOutput"#,
+        )
+        .unwrap();
+        assert_eq!(attrs.tools.as_ref().unwrap().len(), 2);
+        assert!(attrs.output.is_some());
+    }
+
+    #[test]
+    fn parse_attributes_unknown_key_errors() {
+        let err = syn::parse_str::<AgentAttributes>(
+            r#"name = "TestAgent", description = "Test description", nope = "bad""#,
+        )
+        .err()
+        .expect("expected parse error");
+        assert!(err.to_string().contains("Unexpected attribute key"));
+    }
+
+    #[test]
+    fn parse_attributes_missing_name_errors() {
+        let err = syn::parse_str::<AgentAttributes>(r#"description = "Test description""#)
+            .err()
+            .expect("expected parse error");
+        assert!(err.to_string().contains("Missing attribute: name"));
+    }
+
+    #[test]
+    fn agent_attribute_keys_from_ident() {
+        let name: AgentAttributeKeys = syn::parse_str::<Ident>("name").unwrap().into();
+        let tools: AgentAttributeKeys = syn::parse_str::<Ident>("tools").unwrap().into();
+        let output: AgentAttributeKeys = syn::parse_str::<Ident>("output").unwrap().into();
+        assert!(matches!(name, AgentAttributeKeys::Name));
+        assert!(matches!(tools, AgentAttributeKeys::Tools));
+        assert!(matches!(output, AgentAttributeKeys::Output));
+    }
+}

@@ -656,7 +656,51 @@ mod tests {
     use super::*;
     use crate::agent::task::Task;
     use crate::agent::{AgentConfig, Context};
+    use crate::tests::{ConfigurableLLMProvider, StaticChatResponse};
+    use async_trait::async_trait;
+    use autoagents_llm::ToolCall;
+    use autoagents_llm::chat::{StreamChoice, StreamChunk, StreamDelta, StreamResponse};
     use autoagents_protocol::ActorID;
+    use futures::StreamExt;
+
+    #[derive(Debug)]
+    struct LocalTool {
+        name: String,
+        output: serde_json::Value,
+    }
+
+    impl LocalTool {
+        fn new(name: &str, output: serde_json::Value) -> Self {
+            Self {
+                name: name.to_string(),
+                output,
+            }
+        }
+    }
+
+    impl crate::tool::ToolT for LocalTool {
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        fn description(&self) -> &str {
+            "local tool"
+        }
+
+        fn args_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+    }
+
+    #[async_trait]
+    impl crate::tool::ToolRuntime for LocalTool {
+        async fn execute(
+            &self,
+            _args: serde_json::Value,
+        ) -> Result<serde_json::Value, crate::tool::ToolCallError> {
+            Ok(self.output.clone())
+        }
+    }
 
     #[test]
     fn test_turn_engine_config_basic() {
@@ -784,7 +828,7 @@ mod tests {
             description: "test".to_string(),
             output_schema: None,
         };
-        let llm = std::sync::Arc::new(autoagents_test_utils::llm::MockLLMProvider {});
+        let llm = std::sync::Arc::new(crate::tests::MockLLMProvider {});
         let context = Context::new(llm, None).with_config(config);
 
         let mut state = TurnState::new(&context, MemoryPolicy::basic());
@@ -801,7 +845,7 @@ mod tests {
             description: "default desc".to_string(),
             output_schema: None,
         };
-        let llm = std::sync::Arc::new(autoagents_test_utils::llm::MockLLMProvider {});
+        let llm = std::sync::Arc::new(crate::tests::MockLLMProvider {});
         let context = Context::new(llm, None).with_config(config);
 
         let engine = TurnEngine::new(TurnEngineConfig::basic(1));
@@ -825,7 +869,7 @@ mod tests {
             description: "desc".to_string(),
             output_schema: None,
         };
-        let llm = std::sync::Arc::new(autoagents_test_utils::llm::MockLLMProvider {});
+        let llm = std::sync::Arc::new(crate::tests::MockLLMProvider {});
         let context = Context::new(llm, None).with_config(config);
 
         let engine = TurnEngine::new(TurnEngineConfig::basic(1));
@@ -842,14 +886,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_turn_no_tools_single_turn() {
-        use crate::tests::agent::MockAgentImpl;
+        use crate::tests::MockAgentImpl;
         let config = AgentConfig {
             id: ActorID::new_v4(),
             name: "test".to_string(),
             description: "test desc".to_string(),
             output_schema: None,
         };
-        let llm = std::sync::Arc::new(autoagents_test_utils::llm::MockLLMProvider {});
+        let llm = std::sync::Arc::new(crate::tests::MockLLMProvider {});
         let context = Context::new(llm, None).with_config(config);
 
         let engine = TurnEngine::new(TurnEngineConfig::basic(1));
@@ -868,6 +912,257 @@ mod tests {
         ));
         if let crate::agent::executor::TurnResult::Complete(output) = turn_result {
             assert_eq!(output.response, "Mock response");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_run_turn_with_tool_calls_continues() {
+        use crate::tests::MockAgentImpl;
+        let tool_call = ToolCall {
+            id: "call_1".to_string(),
+            call_type: "function".to_string(),
+            function: autoagents_llm::FunctionCall {
+                name: "tool_a".to_string(),
+                arguments: r#"{"value":1}"#.to_string(),
+            },
+        };
+
+        let llm = Arc::new(ConfigurableLLMProvider {
+            chat_response: StaticChatResponse {
+                text: Some("Use tool".to_string()),
+                tool_calls: Some(vec![tool_call.clone()]),
+                usage: None,
+                thinking: None,
+            },
+            ..ConfigurableLLMProvider::default()
+        });
+
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "tool_agent".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let tool = LocalTool::new("tool_a", serde_json::json!({"ok": true}));
+        let context = Context::new(llm, None)
+            .with_config(config)
+            .with_tools(vec![Box::new(tool)]);
+
+        let engine = TurnEngine::new(TurnEngineConfig {
+            max_turns: 2,
+            tool_mode: ToolMode::Enabled,
+            stream_mode: StreamMode::Structured,
+            memory_policy: MemoryPolicy::basic(),
+        });
+        let mut turn_state = engine.turn_state(&context);
+        let task = Task::new("prompt");
+        let hooks = MockAgentImpl::new("test", "test");
+
+        let result = engine
+            .run_turn(&hooks, &task, &context, &mut turn_state, 0, 2)
+            .await
+            .unwrap();
+
+        match result {
+            crate::agent::executor::TurnResult::Continue(Some(output)) => {
+                assert_eq!(output.response, "Use tool");
+                assert_eq!(output.tool_calls.len(), 1);
+                assert!(output.tool_calls[0].success);
+            }
+            _ => panic!("expected Continue(Some)"),
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Ok(state) = context.state().try_lock() {
+            assert_eq!(state.tool_calls.len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_run_turn_tool_mode_disabled_ignores_tool_calls() {
+        use crate::tests::MockAgentImpl;
+        let tool_call = ToolCall {
+            id: "call_1".to_string(),
+            call_type: "function".to_string(),
+            function: autoagents_llm::FunctionCall {
+                name: "tool_a".to_string(),
+                arguments: r#"{"value":1}"#.to_string(),
+            },
+        };
+
+        let llm = Arc::new(ConfigurableLLMProvider {
+            chat_response: StaticChatResponse {
+                text: Some("No tools".to_string()),
+                tool_calls: Some(vec![tool_call]),
+                usage: None,
+                thinking: None,
+            },
+            ..ConfigurableLLMProvider::default()
+        });
+
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "tool_agent".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let context = Context::new(llm, None).with_config(config);
+
+        let engine = TurnEngine::new(TurnEngineConfig {
+            max_turns: 1,
+            tool_mode: ToolMode::Disabled,
+            stream_mode: StreamMode::Structured,
+            memory_policy: MemoryPolicy::basic(),
+        });
+        let mut turn_state = engine.turn_state(&context);
+        let task = Task::new("prompt");
+        let hooks = MockAgentImpl::new("test", "test");
+
+        let result = engine
+            .run_turn(&hooks, &task, &context, &mut turn_state, 0, 1)
+            .await
+            .unwrap();
+
+        match result {
+            crate::agent::executor::TurnResult::Complete(output) => {
+                assert_eq!(output.response, "No tools");
+                assert!(output.tool_calls.is_empty());
+            }
+            _ => panic!("expected Complete"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_run_turn_stream_structured_aggregates_text() {
+        use crate::tests::MockAgentImpl;
+        let llm = Arc::new(ConfigurableLLMProvider {
+            structured_stream: vec![
+                StreamResponse {
+                    choices: vec![StreamChoice {
+                        delta: StreamDelta {
+                            content: Some("Hello ".to_string()),
+                            tool_calls: None,
+                        },
+                    }],
+                    usage: None,
+                },
+                StreamResponse {
+                    choices: vec![StreamChoice {
+                        delta: StreamDelta {
+                            content: Some("world".to_string()),
+                            tool_calls: None,
+                        },
+                    }],
+                    usage: None,
+                },
+            ],
+            ..ConfigurableLLMProvider::default()
+        });
+
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "stream_agent".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let engine = TurnEngine::new(TurnEngineConfig {
+            max_turns: 1,
+            tool_mode: ToolMode::Disabled,
+            stream_mode: StreamMode::Structured,
+            memory_policy: MemoryPolicy::basic(),
+        });
+        let mut turn_state = engine.turn_state(&context);
+        let task = Task::new("prompt");
+        let hooks = MockAgentImpl::new("test", "test");
+
+        let mut stream = engine
+            .run_turn_stream(hooks, &task, context, &mut turn_state, 0, 1)
+            .await
+            .unwrap();
+
+        let mut final_text = String::new();
+        while let Some(delta) = stream.next().await {
+            if let Ok(TurnDelta::Done(result)) = delta {
+                final_text = match result {
+                    crate::agent::executor::TurnResult::Complete(output) => output.response,
+                    crate::agent::executor::TurnResult::Continue(Some(output)) => output.response,
+                    crate::agent::executor::TurnResult::Continue(None) => String::new(),
+                };
+                break;
+            }
+        }
+
+        assert_eq!(final_text, "Hello world");
+    }
+
+    #[tokio::test]
+    async fn test_run_turn_stream_with_tools_executes_tools() {
+        use crate::tests::MockAgentImpl;
+        let tool_call = ToolCall {
+            id: "call_1".to_string(),
+            call_type: "function".to_string(),
+            function: autoagents_llm::FunctionCall {
+                name: "tool_a".to_string(),
+                arguments: r#"{"value":1}"#.to_string(),
+            },
+        };
+
+        let llm = Arc::new(ConfigurableLLMProvider {
+            stream_chunks: vec![
+                StreamChunk::Text("thinking".to_string()),
+                StreamChunk::ToolUseComplete {
+                    index: 0,
+                    tool_call: tool_call.clone(),
+                },
+                StreamChunk::Done {
+                    stop_reason: "tool_use".to_string(),
+                },
+            ],
+            ..ConfigurableLLMProvider::default()
+        });
+
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "tool_stream_agent".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let tool = LocalTool::new("tool_a", serde_json::json!({"ok": true}));
+        let context = Arc::new(
+            Context::new(llm, None)
+                .with_config(config)
+                .with_tools(vec![Box::new(tool)]),
+        );
+        let engine = TurnEngine::new(TurnEngineConfig {
+            max_turns: 1,
+            tool_mode: ToolMode::Enabled,
+            stream_mode: StreamMode::Tool,
+            memory_policy: MemoryPolicy::basic(),
+        });
+        let mut turn_state = engine.turn_state(&context);
+        let task = Task::new("prompt");
+        let hooks = MockAgentImpl::new("test", "test");
+
+        let mut stream = engine
+            .run_turn_stream(hooks, &task, context, &mut turn_state, 0, 1)
+            .await
+            .unwrap();
+
+        let mut final_result = None;
+        while let Some(delta) = stream.next().await {
+            if let Ok(TurnDelta::Done(result)) = delta {
+                final_result = Some(result);
+                break;
+            }
+        }
+
+        match final_result.expect("done") {
+            crate::agent::executor::TurnResult::Continue(Some(output)) => {
+                assert_eq!(output.tool_calls.len(), 1);
+                assert!(output.tool_calls[0].success);
+            }
+            _ => panic!("expected Continue(Some)"),
         }
     }
 }

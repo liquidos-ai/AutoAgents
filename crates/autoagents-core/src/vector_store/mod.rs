@@ -206,16 +206,32 @@ where
         .map_err(EmbeddingError::Provider)?;
 
     let mut prepared = Vec::with_capacity(ids.len());
+    let mut vectors_iter = vectors.into_iter();
+    let mut expected_start = 0usize;
     for (((id, raw), (start, count)), names) in ids
         .into_iter()
         .zip(raws)
         .zip(ranges.into_iter())
         .zip(names_by_doc.into_iter())
     {
-        let mut mapped = HashMap::with_capacity(count);
-        for (offset, name) in names.into_iter().enumerate() {
-            mapped.insert(name, vectors[start + offset].clone());
+        if start != expected_start {
+            return Err(VectorStoreError::EmbeddingError(
+                EmbeddingError::EmbedFailure("embedding ranges are inconsistent".into()),
+            ));
         }
+
+        let mut mapped = HashMap::with_capacity(count);
+        for name in names.into_iter() {
+            let Some(vector) = vectors_iter.next() else {
+                return Err(VectorStoreError::EmbeddingError(
+                    EmbeddingError::EmbedFailure(
+                        "embedding provider returned fewer vectors than expected".into(),
+                    ),
+                ));
+            };
+            mapped.insert(name, vector);
+        }
+        expected_start += count;
 
         prepared.push(PreparedNamedVectorDocument {
             id,
@@ -235,7 +251,46 @@ pub fn normalize_id(id: Option<String>) -> String {
 mod tests {
     use super::*;
     use crate::document::Document;
+    use crate::embeddings::{Embed, EmbedError, TextEmbedder};
+    use autoagents_llm::embedding::EmbeddingProvider;
+    use autoagents_llm::error::LLMError;
+    use serde::Serialize;
     use std::sync::Arc;
+
+    #[derive(Debug, Clone)]
+    struct DummyEmbeddingProvider {
+        vectors: Vec<Vec<f32>>,
+    }
+
+    #[async_trait::async_trait]
+    impl EmbeddingProvider for DummyEmbeddingProvider {
+        async fn embed(&self, _text: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
+            Ok(self.vectors.clone())
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize)]
+    struct MultiPartDoc {
+        parts: Vec<String>,
+    }
+
+    impl Embed for MultiPartDoc {
+        fn embed(&self, embedder: &mut TextEmbedder) -> Result<(), EmbedError> {
+            for part in &self.parts {
+                embedder.embed(part.clone());
+            }
+            Ok(())
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize)]
+    struct EmptyDoc;
+
+    impl Embed for EmptyDoc {
+        fn embed(&self, _embedder: &mut TextEmbedder) -> Result<(), EmbedError> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn test_normalize_id_none_generates_uuid() {
@@ -252,7 +307,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_embed_documents_with_mock() {
-        use autoagents_test_utils::llm::MockLLMProvider;
+        use crate::tests::MockLLMProvider;
         let provider: SharedEmbeddingProvider = Arc::new(MockLLMProvider {});
         let docs = vec![("id1".to_string(), Document::new("hello"))];
         let result = embed_documents(&provider, docs).await;
@@ -260,5 +315,77 @@ mod tests {
         let prepared = result.unwrap();
         assert_eq!(prepared.len(), 1);
         assert_eq!(prepared[0].id, "id1");
+    }
+
+    #[tokio::test]
+    async fn test_embed_documents_empty_embedder() {
+        let provider: SharedEmbeddingProvider =
+            Arc::new(DummyEmbeddingProvider { vectors: vec![] });
+        let docs = vec![("id1".to_string(), EmptyDoc)];
+        let err = embed_documents(&provider, docs).await.unwrap_err();
+        assert!(err.to_string().contains("No content to embed"));
+    }
+
+    #[tokio::test]
+    async fn test_embed_documents_fewer_vectors_than_expected() {
+        let provider: SharedEmbeddingProvider = Arc::new(DummyEmbeddingProvider {
+            vectors: vec![vec![0.1_f32]],
+        });
+        let docs = vec![(
+            "id1".to_string(),
+            MultiPartDoc {
+                parts: vec!["a".to_string(), "b".to_string()],
+            },
+        )];
+        let err = embed_documents(&provider, docs).await.unwrap_err();
+        assert!(err.to_string().contains("fewer vectors"));
+    }
+
+    #[tokio::test]
+    async fn test_embed_named_documents_success() {
+        let provider: SharedEmbeddingProvider = Arc::new(DummyEmbeddingProvider {
+            vectors: vec![vec![0.1_f32], vec![0.2_f32]],
+        });
+        let docs = vec![NamedVectorDocument {
+            id: "doc-1".to_string(),
+            raw: "raw".to_string(),
+            vectors: HashMap::from([
+                ("title".to_string(), "hello".to_string()),
+                ("body".to_string(), "world".to_string()),
+            ]),
+        }];
+        let prepared = embed_named_documents(&provider, docs).await.unwrap();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].vectors.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_embed_named_documents_empty_vectors() {
+        let provider: SharedEmbeddingProvider =
+            Arc::new(DummyEmbeddingProvider { vectors: vec![] });
+        let docs = vec![NamedVectorDocument {
+            id: "doc-1".to_string(),
+            raw: "raw".to_string(),
+            vectors: HashMap::new(),
+        }];
+        let err = embed_named_documents(&provider, docs).await.unwrap_err();
+        assert!(err.to_string().contains("No content to embed"));
+    }
+
+    #[tokio::test]
+    async fn test_embed_named_documents_fewer_vectors() {
+        let provider: SharedEmbeddingProvider = Arc::new(DummyEmbeddingProvider {
+            vectors: vec![vec![0.1_f32]],
+        });
+        let docs = vec![NamedVectorDocument {
+            id: "doc-1".to_string(),
+            raw: "raw".to_string(),
+            vectors: HashMap::from([
+                ("title".to_string(), "hello".to_string()),
+                ("body".to_string(), "world".to_string()),
+            ]),
+        }];
+        let err = embed_named_documents(&provider, docs).await.unwrap_err();
+        assert!(err.to_string().contains("fewer vectors"));
     }
 }

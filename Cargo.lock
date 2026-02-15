@@ -510,7 +510,6 @@ dependencies = [
  "autoagents-derive",
  "autoagents-llm",
  "autoagents-protocol",
- "autoagents-test-utils",
  "env_logger",
  "serde_json",
  "tokio",
@@ -523,7 +522,6 @@ dependencies = [
  "async-trait",
  "autoagents-llm",
  "autoagents-protocol",
- "autoagents-test-utils",
  "futures",
  "futures-core",
  "futures-util",
@@ -542,6 +540,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasmtime",
+ "wat",
 ]
 
 [[package]]
@@ -638,6 +637,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "autoagents-core",
+ "autoagents-llm",
  "httpmock",
  "qdrant-client",
  "serde",
@@ -694,19 +694,6 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "autoagents-test-utils"
-version = "0.3.3"
-dependencies = [
- "autoagents",
- "autoagents-derive",
- "autoagents-llm",
- "futures",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
 ]
 
 [[package]]

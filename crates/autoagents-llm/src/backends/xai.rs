@@ -284,6 +284,37 @@ impl XAI {
         }
     }
 
+    fn build_chat_messages<'a>(messages: &'a [ChatMessage]) -> Vec<XAIChatMessage<'a>> {
+        messages
+            .iter()
+            .map(|m| XAIChatMessage {
+                role: match m.role {
+                    ChatRole::User => "user",
+                    ChatRole::Assistant => "assistant",
+                    ChatRole::System => "system",
+                    ChatRole::Tool => "user",
+                },
+                content: &m.content,
+            })
+            .collect()
+    }
+
+    fn build_search_parameters(&self) -> XaiSearchParameters {
+        XaiSearchParameters {
+            mode: self.xai_search_mode.clone(),
+            sources: Some(vec![XaiSearchSource {
+                source_type: self
+                    .xai_search_source_type
+                    .clone()
+                    .unwrap_or_else(|| "web".to_string()),
+                excluded_websites: self.xai_search_excluded_websites.clone(),
+            }]),
+            max_search_results: self.xai_search_max_results,
+            from_date: self.xai_search_from_date.clone(),
+            to_date: self.xai_search_to_date.clone(),
+        }
+    }
+
     /// Sets the search mode for search-enabled providers.
     pub fn set_search_mode(mut self, mode: impl Into<String>) -> Self {
         self.xai_search_mode = Some(mode.into());
@@ -347,18 +378,7 @@ impl ChatProvider for XAI {
             return Err(LLMError::AuthError("Missing X.AI API key".to_string()));
         }
 
-        let xai_msgs: Vec<XAIChatMessage> = messages
-            .iter()
-            .map(|m| XAIChatMessage {
-                role: match m.role {
-                    ChatRole::User => "user",
-                    ChatRole::Assistant => "assistant",
-                    ChatRole::System => "system",
-                    ChatRole::Tool => "user",
-                },
-                content: &m.content,
-            })
-            .collect();
+        let xai_msgs = XAI::build_chat_messages(messages);
 
         // OpenAI's structured output has some [odd requirements](https://platform.openai.com/docs/guides/structured-outputs?api-mode=chat&lang=curl#supported-schemas).
         // There's currently no check for these, so we'll leave it up to the user to provide a valid schema.
@@ -369,19 +389,7 @@ impl ChatProvider for XAI {
                 json_schema: Some(s.clone()),
             });
 
-        let search_parameters = XaiSearchParameters {
-            mode: self.xai_search_mode.clone(),
-            sources: Some(vec![XaiSearchSource {
-                source_type: self
-                    .xai_search_source_type
-                    .clone()
-                    .unwrap_or("web".to_string()),
-                excluded_websites: self.xai_search_excluded_websites.clone(),
-            }]),
-            max_search_results: self.xai_search_max_results,
-            from_date: self.xai_search_from_date.clone(),
-            to_date: self.xai_search_to_date.clone(),
-        };
+        let search_parameters = self.build_search_parameters();
 
         let body = XAIChatRequest {
             model: &self.model,
@@ -726,5 +734,64 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn test_parse_xai_sse_chunk_extracts_content() {
+        let chunk = r#"data: {"choices":[{"delta":{"content":"hi"}}]}"#;
+        let parsed = parse_xai_sse_chunk(chunk).unwrap();
+        assert_eq!(parsed.as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn test_parse_xai_sse_chunk_done() {
+        let chunk = "data: [DONE]";
+        let parsed = parse_xai_sse_chunk(chunk).unwrap();
+        assert!(parsed.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_list_models_missing_key() {
+        let client = XAI::new(
+            "", None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+        );
+        let err = client.list_models(None).await.unwrap_err();
+        assert!(err.to_string().contains("Missing X.AI API key"));
+    }
+
+    #[test]
+    fn test_builder_requires_api_key() {
+        let result = LLMBuilder::<XAI>::new().build();
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(err.to_string().contains("No API key provided for XAI"));
+    }
+
+    #[test]
+    fn test_build_chat_messages_maps_roles() {
+        let messages = vec![
+            crate::chat::ChatMessageBuilder::new(ChatRole::System)
+                .content("sys")
+                .build(),
+            ChatMessage::user().content("user").build(),
+            ChatMessage::assistant().content("asst").build(),
+        ];
+        let built = XAI::build_chat_messages(&messages);
+        assert_eq!(built.len(), 3);
+        assert_eq!(built[0].role, "system");
+        assert_eq!(built[1].role, "user");
+        assert_eq!(built[2].role, "assistant");
+    }
+
+    #[test]
+    fn test_build_search_parameters_defaults() {
+        let xai = XAI::new(
+            "key", None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None,
+        );
+        let params = xai.build_search_parameters();
+        let source = params.sources.unwrap().pop().unwrap();
+        assert_eq!(source.source_type, "web");
+        assert!(source.excluded_websites.is_none());
     }
 }
