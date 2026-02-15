@@ -1,5 +1,4 @@
-use rodio::{OutputStream, OutputStreamHandle, Sink};
-use std::sync::Arc;
+use rodio::{OutputStream, OutputStreamBuilder, Sink};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AudioPlayerError {
@@ -12,8 +11,6 @@ pub enum AudioPlayerError {
 /// Audio player that handles playback of audio samples
 pub struct AudioPlayer {
     _stream: OutputStream,
-    #[allow(dead_code)]
-    stream_handle: Arc<OutputStreamHandle>,
     sink: Sink,
 }
 
@@ -21,20 +18,15 @@ impl AudioPlayer {
     /// Try to create a new audio player
     /// Returns None if no audio device is available
     pub fn try_new() -> Result<Self, AudioPlayerError> {
-        let (_stream, stream_handle) = match OutputStream::try_default() {
+        let stream = match OutputStreamBuilder::open_default_stream() {
             Ok(s) => s,
             Err(_) => return Err(AudioPlayerError::InitFailed),
         };
 
-        let stream_handle = Arc::new(stream_handle);
-        let sink = match Sink::try_new(&stream_handle) {
-            Ok(s) => s,
-            Err(_) => return Err(AudioPlayerError::FailedToCreateAudioSink),
-        };
+        let sink = Sink::connect_new(stream.mixer());
 
         Ok(AudioPlayer {
-            _stream,
-            stream_handle,
+            _stream: stream,
             sink,
         })
     }

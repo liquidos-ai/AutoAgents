@@ -38,7 +38,6 @@ csv = { workspace = true, optional = true }
 rmcp = { workspace = true, optional = true, features = [
   "client",
   "transport-child-process",
-  "transport-sse-client-reqwest",
   "transport-streamable-http-client-reqwest",
 ] }
 

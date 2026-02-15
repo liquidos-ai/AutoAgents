@@ -3,7 +3,7 @@ use autoagents::{
     core::tool::{ToolCallError, ToolRuntime, ToolT},
 };
 use rmcp::{
-    model::{CallToolRequestParam, CallToolResult, ClientInfo, Tool as McpTool},
+    model::{CallToolRequestParams, CallToolResult, ClientInfo, Tool as McpTool},
     service::{RoleClient, RunningService},
 };
 use serde_json::{Value, json};
@@ -77,9 +77,11 @@ impl ToolRuntime for McpToolAdapter {
         };
 
         // Prepare the call tool request
-        let request = CallToolRequestParam {
+        let request = CallToolRequestParams {
+            meta: None,
             name: self.name.clone().into(),
             arguments,
+            task: None,
         };
 
         // Execute the tool via MCP
