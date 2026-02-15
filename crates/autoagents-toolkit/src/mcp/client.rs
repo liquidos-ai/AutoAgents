@@ -315,14 +315,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_server_tools_missing() {
-        let manager = McpToolsManager::new();
+        let manager = McpToolsManager::default();
         let err = manager.get_server_tools("missing").await.unwrap_err();
         assert!(matches!(err, McpError::ServerNotFound(_)));
     }
 
     #[tokio::test]
     async fn test_connect_server_rejects_unsupported_protocol() {
-        let manager = McpToolsManager::new();
+        let manager = McpToolsManager::default();
         let config = invalid_protocol_config();
         let err = manager.connect_server(&config).await.unwrap_err();
         assert!(matches!(err, McpError::ConfigError(_)));
@@ -331,7 +331,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_connect_servers_returns_error_on_invalid_protocol() {
-        let manager = McpToolsManager::new();
+        let manager = McpToolsManager::default();
         let mut config = McpConfig::new();
         config.add_server(invalid_protocol_config());
         let err = manager.connect_servers(&config).await.unwrap_err();
@@ -340,7 +340,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_refresh_tools_on_empty_manager() {
-        let manager = McpToolsManager::new();
+        let manager = McpToolsManager::default();
         manager.refresh_tools().await.unwrap();
         let tools = manager.get_tools().await;
         assert!(tools.is_empty());

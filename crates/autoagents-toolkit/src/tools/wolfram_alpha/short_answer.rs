@@ -51,7 +51,10 @@ pub struct WolframAlphaShortAnswer {
 
 impl Default for WolframAlphaShortAnswer {
     fn default() -> Self {
-        Self::new_with_app_id(wolfram_app_id())
+        Self {
+            app_id: wolfram_app_id(),
+            client: Client::new(),
+        }
     }
 }
 

@@ -50,7 +50,10 @@ pub struct WolframAlphaQueryRecognizer {
 
 impl Default for WolframAlphaQueryRecognizer {
     fn default() -> Self {
-        Self::new_with_app_id(wolfram_app_id())
+        Self {
+            app_id: wolfram_app_id(),
+            client: Client::new(),
+        }
     }
 }
 
@@ -165,7 +168,7 @@ mod tests {
     fn test_handle_response_success() {
         let body = r#"{"queryrecognizer":{"accepted":true,"domain":"math","resultsignificancescore":0.8,"timing":12.5,"summarybox":"ok"}}"#.to_string();
         let value = handle_response(reqwest::StatusCode::OK, body, "2+2").unwrap();
-        assert_eq!(value["accepted"], true);
+        assert!(matches!(value["accepted"].as_bool(), Some(true)));
         assert_eq!(value["domain"], "math");
         assert_eq!(value["summary_box"], "ok");
         assert!(

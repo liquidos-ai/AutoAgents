@@ -239,7 +239,7 @@ mod tests {
     fn test_convert_mcp_result_success() {
         let result = CallToolResult::success(vec![Content::text("ok".to_string())]);
         let value = convert_mcp_result(result).unwrap();
-        assert_eq!(value["success"], true);
+        assert!(matches!(value["success"].as_bool(), Some(true)));
         assert!(value["content"].is_array());
     }
 

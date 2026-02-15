@@ -32,7 +32,10 @@ pub struct WolframAlphaLLMApi {
 
 impl Default for WolframAlphaLLMApi {
     fn default() -> Self {
-        Self::new_with_app_id(wolfram_app_id())
+        Self {
+            app_id: wolfram_app_id(),
+            client: Client::new(),
+        }
     }
 }
 

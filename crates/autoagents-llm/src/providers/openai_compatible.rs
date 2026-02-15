@@ -1107,7 +1107,10 @@ impl SSEStreamParser {
                             for call in calls {
                                 if !call.function.name.is_empty() {
                                     self.push_tool_call();
-                                    self.tool_buffer.function.name = call.function.name.clone();
+                                    self.tool_buffer
+                                        .function
+                                        .name
+                                        .clone_from(&call.function.name);
                                 }
                                 if !call.function.arguments.is_empty() {
                                     self.tool_buffer
@@ -1116,10 +1119,10 @@ impl SSEStreamParser {
                                         .push_str(&call.function.arguments);
                                 }
                                 if !call.id.is_empty() {
-                                    self.tool_buffer.id = call.id.clone();
+                                    self.tool_buffer.id.clone_from(&call.id);
                                 }
                                 if !call.call_type.is_empty() {
-                                    self.tool_buffer.call_type = call.call_type.clone();
+                                    self.tool_buffer.call_type.clone_from(&call.call_type);
                                 }
                             }
                         }
