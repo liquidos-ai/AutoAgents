@@ -458,105 +458,15 @@ impl Google {
             return Err(LLMError::AuthError("Missing Google API key".to_string()));
         }
 
-        let mut chat_contents = Vec::with_capacity(messages.len());
-
-        // Add conversation messages in pairs to maintain context
-        for msg in messages {
-            // For tool results, we need to use "function" role
-            let role = match &msg.message_type {
-                MessageType::ToolResult(_) => "function",
-                _ => match msg.role {
-                    ChatRole::User => "user",
-                    ChatRole::Assistant => "model",
-                    ChatRole::System => "user", //System is user in Google API
-                    ChatRole::Tool => "user",
-                },
-            };
-
-            chat_contents.push(GoogleChatContent {
-                role,
-                parts: match &msg.message_type {
-                    MessageType::Text => vec![GoogleContentPart::Text(&msg.content)],
-                    MessageType::Image((image_mime, raw_bytes)) => {
-                        vec![GoogleContentPart::InlineData(GoogleInlineData {
-                            mime_type: image_mime.mime_type().to_string(),
-                            data: BASE64.encode(raw_bytes),
-                        })]
-                    }
-                    MessageType::ImageURL(_) => unimplemented!(),
-                    MessageType::Pdf(raw_bytes) => {
-                        vec![GoogleContentPart::InlineData(GoogleInlineData {
-                            mime_type: "application/pdf".to_string(),
-                            data: BASE64.encode(raw_bytes),
-                        })]
-                    }
-                    MessageType::ToolUse(calls) => calls
-                        .iter()
-                        .map(|call| {
-                            GoogleContentPart::FunctionCall(GoogleFunctionCall {
-                                name: call.function.name.clone(),
-                                args: serde_json::from_str(&call.function.arguments)
-                                    .unwrap_or(serde_json::Value::Null),
-                            })
-                        })
-                        .collect(),
-                    MessageType::ToolResult(result) => result
-                        .iter()
-                        .map(|result| {
-                            let parsed_args =
-                                serde_json::from_str::<Value>(&result.function.arguments)
-                                    .unwrap_or(serde_json::Value::Null);
-
-                            GoogleContentPart::FunctionResponse(GoogleFunctionResponse {
-                                name: result.function.name.clone(),
-                                response: GoogleFunctionResponseContent {
-                                    name: result.function.name.clone(),
-                                    content: parsed_args,
-                                },
-                            })
-                        })
-                        .collect(),
-                },
-            });
-        }
-
-        // Convert tools to Google's format if provided
-        let google_tools = tools.map(|t| {
-            vec![GoogleTool {
-                function_declarations: t.iter().map(GoogleFunctionDeclaration::from).collect(),
-            }]
-        });
-
-        // Build generation config
-        let generation_config = {
-            // If json_schema and json_schema.schema are not None, use json_schema.schema as the response schema and set response_mime_type to JSON
-            // Google's API doesn't need the schema to have a "name" field, so we can just use the schema directly.
-            let (response_mime_type, response_schema) = if let Some(json_schema) = &json_schema {
-                if let Some(schema) = &json_schema.schema {
-                    // If the schema has an "additionalProperties" field (as required by OpenAI), remove it as Google's API doesn't support it
-                    let mut schema = schema.clone();
-
-                    if let Some(obj) = schema.as_object_mut() {
-                        obj.remove("additionalProperties");
-                    }
-
-                    (Some(GoogleResponseMimeType::Json), Some(schema))
-                } else {
-                    (None, None)
-                }
-            } else {
-                (None, None)
-            };
-
-            Some(GoogleGenerationConfig {
-                max_output_tokens: self.max_tokens,
-                temperature: self.temperature,
-                top_p: self.top_p,
-                top_k: self.top_k,
-                response_mime_type,
-                response_schema,
-            })
-        };
+        let chat_contents = build_google_chat_contents(messages);
+        let google_tools = build_google_tools(tools);
+        let generation_config = build_generation_config_with_schema(
+            self.max_tokens,
+            self.temperature,
+            self.top_p,
+            self.top_k,
+            json_schema.as_ref(),
+        );
 
         let req_body = GoogleChatRequest {
             contents: chat_contents,
@@ -657,53 +567,13 @@ impl ChatProvider for Google {
             return Err(LLMError::AuthError("Missing Google API key".to_string()));
         }
 
-        let mut chat_contents = Vec::with_capacity(messages.len());
-
-        for msg in messages {
-            let role = match msg.role {
-                ChatRole::User => "user",
-                ChatRole::Assistant => "model",
-                ChatRole::System => "user", //System is user in Google API
-                ChatRole::Tool => "user",
-            };
-
-            chat_contents.push(GoogleChatContent {
-                role,
-                parts: match &msg.message_type {
-                    MessageType::Text => vec![GoogleContentPart::Text(&msg.content)],
-                    MessageType::Image((image_mime, raw_bytes)) => {
-                        vec![GoogleContentPart::InlineData(GoogleInlineData {
-                            mime_type: image_mime.mime_type().to_string(),
-                            data: BASE64.encode(raw_bytes),
-                        })]
-                    }
-                    MessageType::Pdf(raw_bytes) => {
-                        vec![GoogleContentPart::InlineData(GoogleInlineData {
-                            mime_type: "application/pdf".to_string(),
-                            data: BASE64.encode(raw_bytes),
-                        })]
-                    }
-                    _ => vec![GoogleContentPart::Text(&msg.content)],
-                },
-            });
-        }
-
-        let generation_config = if self.max_tokens.is_none()
-            && self.temperature.is_none()
-            && self.top_p.is_none()
-            && self.top_k.is_none()
-        {
-            None
-        } else {
-            Some(GoogleGenerationConfig {
-                max_output_tokens: self.max_tokens,
-                temperature: self.temperature,
-                top_p: self.top_p,
-                top_k: self.top_k,
-                response_mime_type: None,
-                response_schema: None,
-            })
-        };
+        let chat_contents = build_google_stream_contents(messages);
+        let generation_config = build_generation_config_for_stream(
+            self.max_tokens,
+            self.temperature,
+            self.top_p,
+            self.top_k,
+        );
 
         let req_body = GoogleChatRequest {
             contents: chat_contents,
@@ -844,6 +714,163 @@ fn parse_google_sse_chunk(chunk: &str) -> Result<Option<String>, LLMError> {
     Ok(None)
 }
 
+fn build_google_chat_contents(messages: &[ChatMessage]) -> Vec<GoogleChatContent<'_>> {
+    let mut chat_contents = Vec::with_capacity(messages.len());
+
+    for msg in messages {
+        let role = match &msg.message_type {
+            MessageType::ToolResult(_) => "function",
+            _ => match msg.role {
+                ChatRole::User => "user",
+                ChatRole::Assistant => "model",
+                ChatRole::System => "user",
+                ChatRole::Tool => "user",
+            },
+        };
+
+        chat_contents.push(GoogleChatContent {
+            role,
+            parts: match &msg.message_type {
+                MessageType::Text => vec![GoogleContentPart::Text(&msg.content)],
+                MessageType::Image((image_mime, raw_bytes)) => {
+                    vec![GoogleContentPart::InlineData(GoogleInlineData {
+                        mime_type: image_mime.mime_type().to_string(),
+                        data: BASE64.encode(raw_bytes),
+                    })]
+                }
+                MessageType::ImageURL(_) => unimplemented!(),
+                MessageType::Pdf(raw_bytes) => {
+                    vec![GoogleContentPart::InlineData(GoogleInlineData {
+                        mime_type: "application/pdf".to_string(),
+                        data: BASE64.encode(raw_bytes),
+                    })]
+                }
+                MessageType::ToolUse(calls) => calls
+                    .iter()
+                    .map(|call| {
+                        GoogleContentPart::FunctionCall(GoogleFunctionCall {
+                            name: call.function.name.clone(),
+                            args: serde_json::from_str(&call.function.arguments)
+                                .unwrap_or(serde_json::Value::Null),
+                        })
+                    })
+                    .collect(),
+                MessageType::ToolResult(result) => result
+                    .iter()
+                    .map(|result| {
+                        let parsed_args = serde_json::from_str::<Value>(&result.function.arguments)
+                            .unwrap_or(serde_json::Value::Null);
+
+                        GoogleContentPart::FunctionResponse(GoogleFunctionResponse {
+                            name: result.function.name.clone(),
+                            response: GoogleFunctionResponseContent {
+                                name: result.function.name.clone(),
+                                content: parsed_args,
+                            },
+                        })
+                    })
+                    .collect(),
+            },
+        });
+    }
+
+    chat_contents
+}
+
+fn build_google_stream_contents(messages: &[ChatMessage]) -> Vec<GoogleChatContent<'_>> {
+    let mut chat_contents = Vec::with_capacity(messages.len());
+
+    for msg in messages {
+        let role = match msg.role {
+            ChatRole::User => "user",
+            ChatRole::Assistant => "model",
+            ChatRole::System => "user",
+            ChatRole::Tool => "user",
+        };
+
+        chat_contents.push(GoogleChatContent {
+            role,
+            parts: match &msg.message_type {
+                MessageType::Text => vec![GoogleContentPart::Text(&msg.content)],
+                MessageType::Image((image_mime, raw_bytes)) => {
+                    vec![GoogleContentPart::InlineData(GoogleInlineData {
+                        mime_type: image_mime.mime_type().to_string(),
+                        data: BASE64.encode(raw_bytes),
+                    })]
+                }
+                MessageType::Pdf(raw_bytes) => {
+                    vec![GoogleContentPart::InlineData(GoogleInlineData {
+                        mime_type: "application/pdf".to_string(),
+                        data: BASE64.encode(raw_bytes),
+                    })]
+                }
+                _ => vec![GoogleContentPart::Text(&msg.content)],
+            },
+        });
+    }
+
+    chat_contents
+}
+
+fn build_google_tools(tools: Option<&[Tool]>) -> Option<Vec<GoogleTool>> {
+    tools.map(|t| {
+        vec![GoogleTool {
+            function_declarations: t.iter().map(GoogleFunctionDeclaration::from).collect(),
+        }]
+    })
+}
+
+fn build_generation_config_with_schema(
+    max_tokens: Option<u32>,
+    temperature: Option<f32>,
+    top_p: Option<f32>,
+    top_k: Option<u32>,
+    json_schema: Option<&StructuredOutputFormat>,
+) -> Option<GoogleGenerationConfig> {
+    let (response_mime_type, response_schema) = if let Some(json_schema) = json_schema {
+        if let Some(schema) = &json_schema.schema {
+            let mut schema = schema.clone();
+            if let Some(obj) = schema.as_object_mut() {
+                obj.remove("additionalProperties");
+            }
+            (Some(GoogleResponseMimeType::Json), Some(schema))
+        } else {
+            (None, None)
+        }
+    } else {
+        (None, None)
+    };
+
+    Some(GoogleGenerationConfig {
+        max_output_tokens: max_tokens,
+        temperature,
+        top_p,
+        top_k,
+        response_mime_type,
+        response_schema,
+    })
+}
+
+fn build_generation_config_for_stream(
+    max_tokens: Option<u32>,
+    temperature: Option<f32>,
+    top_p: Option<f32>,
+    top_k: Option<u32>,
+) -> Option<GoogleGenerationConfig> {
+    if max_tokens.is_none() && temperature.is_none() && top_p.is_none() && top_k.is_none() {
+        None
+    } else {
+        Some(GoogleGenerationConfig {
+            max_output_tokens: max_tokens,
+            temperature,
+            top_p,
+            top_k,
+            response_mime_type: None,
+            response_schema: None,
+        })
+    }
+}
+
 #[async_trait]
 impl ModelsProvider for Google {}
 
@@ -940,5 +967,144 @@ mod tests {
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].function.name, "lookup");
         assert!(format!("{response}").contains("hi"));
+    }
+
+    #[test]
+    fn test_google_chat_response_tool_calls_array() {
+        let response = GoogleChatResponse {
+            candidates: vec![GoogleCandidate {
+                content: GoogleResponseContent {
+                    parts: vec![GoogleResponsePart {
+                        text: "".to_string(),
+                        function_call: None,
+                    }],
+                    function_call: None,
+                    function_calls: Some(vec![GoogleFunctionCall {
+                        name: "sum".to_string(),
+                        args: json!({"a": 1, "b": 2}),
+                    }]),
+                },
+            }],
+        };
+
+        let calls = response.tool_calls().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "sum");
+        assert!(calls[0].function.arguments.contains("\"a\""));
+    }
+
+    #[test]
+    fn test_parse_google_sse_chunk_extracts_text() {
+        let chunk =
+            r#"data: {"candidates":[{"content":{"parts":[{"text":"token"}]}}]}"#.to_string();
+
+        let parsed = parse_google_sse_chunk(&chunk).unwrap();
+        assert_eq!(parsed, Some("token".to_string()));
+    }
+
+    #[test]
+    fn test_parse_google_sse_chunk_ignores_invalid_json() {
+        let chunk = "data: {not-json}\n\n";
+        let parsed = parse_google_sse_chunk(chunk).unwrap();
+        assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn test_parse_google_sse_chunk_returns_none_for_empty_candidates() {
+        let chunk = r#"data: {"candidates":[]}"#;
+        let parsed = parse_google_sse_chunk(chunk).unwrap();
+        assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn test_build_google_chat_contents_tool_use_and_result() {
+        let tool_call = ToolCall {
+            id: "call_1".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "lookup".to_string(),
+                arguments: "{\"q\":\"value\"}".to_string(),
+            },
+        };
+        let messages = vec![
+            ChatMessage {
+                role: ChatRole::Assistant,
+                message_type: MessageType::ToolUse(vec![tool_call.clone()]),
+                content: "call".to_string(),
+            },
+            ChatMessage {
+                role: ChatRole::Tool,
+                message_type: MessageType::ToolResult(vec![tool_call]),
+                content: "result".to_string(),
+            },
+        ];
+
+        let contents = build_google_chat_contents(&messages);
+        assert_eq!(contents.len(), 2);
+        assert_eq!(contents[0].role, "model");
+        match &contents[0].parts[0] {
+            GoogleContentPart::FunctionCall(call) => {
+                assert_eq!(call.name, "lookup");
+                assert_eq!(call.args, json!({"q": "value"}));
+            }
+            _ => panic!("unexpected part"),
+        }
+
+        assert_eq!(contents[1].role, "function");
+        match &contents[1].parts[0] {
+            GoogleContentPart::FunctionResponse(resp) => {
+                assert_eq!(resp.name, "lookup");
+                assert_eq!(resp.response.content, json!({"q": "value"}));
+            }
+            _ => panic!("unexpected part"),
+        }
+    }
+
+    #[test]
+    fn test_build_generation_config_strips_additional_properties() {
+        let schema = StructuredOutputFormat {
+            name: "Test".to_string(),
+            description: None,
+            schema: Some(json!({
+                "type": "object",
+                "additionalProperties": true,
+                "properties": { "foo": { "type": "string" } }
+            })),
+            strict: Some(true),
+        };
+
+        let config =
+            build_generation_config_with_schema(Some(1), Some(0.2), None, None, Some(&schema))
+                .expect("config");
+        assert!(matches!(
+            config.response_mime_type,
+            Some(GoogleResponseMimeType::Json)
+        ));
+        let schema = config.response_schema.expect("schema");
+        assert!(schema.get("additionalProperties").is_none());
+    }
+
+    #[test]
+    fn test_build_generation_config_for_stream_none() {
+        let config = build_generation_config_for_stream(None, None, None, None);
+        assert!(config.is_none());
+    }
+
+    #[test]
+    fn test_build_google_tools_wraps_tools() {
+        let tool = Tool {
+            tool_type: "function".to_string(),
+            function: FunctionTool {
+                name: "lookup".to_string(),
+                description: "desc".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": { "q": { "type": "string" } }
+                }),
+            },
+        };
+        let tools = build_google_tools(Some(&[tool])).unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].function_declarations.len(), 1);
     }
 }

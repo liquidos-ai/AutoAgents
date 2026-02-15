@@ -185,24 +185,7 @@ impl LlamaCppProvider {
     }
 
     fn prepare_messages(&self, messages: &[ChatMessage]) -> Vec<ChatMessage> {
-        let mut all_messages = Vec::new();
-
-        if let Some(system_prompt) = &self.config.system_prompt {
-            let has_system_message = messages
-                .iter()
-                .any(|msg| msg.role == autoagents_llm::chat::ChatRole::System);
-
-            if !has_system_message {
-                all_messages.push(ChatMessage {
-                    role: autoagents_llm::chat::ChatRole::System,
-                    message_type: autoagents_llm::chat::MessageType::Text,
-                    content: system_prompt.clone(),
-                });
-            }
-        }
-
-        all_messages.extend_from_slice(messages);
-        all_messages
+        prepare_messages_with_system(&self.config, messages)
     }
 
     fn prepare_fallback_messages(
@@ -210,51 +193,11 @@ impl LlamaCppProvider {
         messages: &[ChatMessage],
         json_schema: Option<&StructuredOutputFormat>,
     ) -> Vec<ChatMessage> {
-        let mut all_messages = self.prepare_messages(messages);
-
-        if let Some(schema) = json_schema {
-            let mut schema_hint =
-                format!("Return a valid JSON response for schema '{}'.", schema.name);
-            if let Some(description) = &schema.description {
-                schema_hint.push_str(&format!(" {description}"));
-            }
-            if let Some(json_schema) = &schema.schema {
-                schema_hint.push_str(&format!(" Schema: {json_schema}"));
-            }
-            all_messages.push(ChatMessage {
-                role: autoagents_llm::chat::ChatRole::System,
-                message_type: autoagents_llm::chat::MessageType::Text,
-                content: schema_hint,
-            });
-        }
-
-        all_messages
+        prepare_fallback_messages_with_schema(&self.config, messages, json_schema)
     }
 
     fn ensure_supported_messages(&self, messages: &[ChatMessage]) -> Result<(), LLMError> {
-        for message in messages {
-            match &message.message_type {
-                MessageType::Text | MessageType::ToolUse(_) | MessageType::ToolResult(_) => {}
-                MessageType::Image(_) => {
-                    #[cfg(feature = "mtmd")]
-                    {
-                        if self.config.mmproj_path.is_some() {
-                            continue;
-                        }
-                    }
-                    return Err(LLMError::InvalidRequest(
-                        "llama.cpp backend does not support image inputs without MTMD and mmproj configured"
-                            .to_string(),
-                    ));
-                }
-                MessageType::ImageURL(_) | MessageType::Pdf(_) => {
-                    return Err(LLMError::InvalidRequest(
-                        "llama.cpp backend does not support image URL or PDF inputs".to_string(),
-                    ));
-                }
-            }
-        }
-        Ok(())
+        ensure_supported_messages_for_config(&self.config, messages)
     }
 
     fn build_chat_prompt(
@@ -1282,6 +1225,84 @@ impl ChatProvider for LlamaCppProvider {
     }
 }
 
+fn prepare_messages_with_system(
+    config: &LlamaCppConfig,
+    messages: &[ChatMessage],
+) -> Vec<ChatMessage> {
+    let mut all_messages = Vec::new();
+
+    if let Some(system_prompt) = &config.system_prompt {
+        let has_system_message = messages
+            .iter()
+            .any(|msg| msg.role == autoagents_llm::chat::ChatRole::System);
+
+        if !has_system_message {
+            all_messages.push(ChatMessage {
+                role: autoagents_llm::chat::ChatRole::System,
+                message_type: autoagents_llm::chat::MessageType::Text,
+                content: system_prompt.clone(),
+            });
+        }
+    }
+
+    all_messages.extend_from_slice(messages);
+    all_messages
+}
+
+fn prepare_fallback_messages_with_schema(
+    config: &LlamaCppConfig,
+    messages: &[ChatMessage],
+    json_schema: Option<&StructuredOutputFormat>,
+) -> Vec<ChatMessage> {
+    let mut all_messages = prepare_messages_with_system(config, messages);
+
+    if let Some(schema) = json_schema {
+        let mut schema_hint = format!("Return a valid JSON response for schema '{}'.", schema.name);
+        if let Some(description) = &schema.description {
+            schema_hint.push_str(&format!(" {description}"));
+        }
+        if let Some(json_schema) = &schema.schema {
+            schema_hint.push_str(&format!(" Schema: {json_schema}"));
+        }
+        all_messages.push(ChatMessage {
+            role: autoagents_llm::chat::ChatRole::System,
+            message_type: autoagents_llm::chat::MessageType::Text,
+            content: schema_hint,
+        });
+    }
+
+    all_messages
+}
+
+fn ensure_supported_messages_for_config(
+    _config: &LlamaCppConfig,
+    messages: &[ChatMessage],
+) -> Result<(), LLMError> {
+    for message in messages {
+        match &message.message_type {
+            MessageType::Text | MessageType::ToolUse(_) | MessageType::ToolResult(_) => {}
+            MessageType::Image(_) => {
+                #[cfg(feature = "mtmd")]
+                {
+                    if _config.mmproj_path.is_some() {
+                        continue;
+                    }
+                }
+                return Err(LLMError::InvalidRequest(
+                    "llama.cpp backend does not support image inputs without MTMD and mmproj configured"
+                        .to_string(),
+                ));
+            }
+            MessageType::ImageURL(_) | MessageType::Pdf(_) => {
+                return Err(LLMError::InvalidRequest(
+                    "llama.cpp backend does not support image URL or PDF inputs".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn parse_openai_delta(delta: &str) -> Result<OpenAICompatDelta, LLMError> {
     serde_json::from_str(delta).map_err(|err| LLMError::JsonError(err.to_string()))
 }
@@ -2167,37 +2188,13 @@ fn extract_first_json_object(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use autoagents_llm::chat::ImageMime;
 
     fn chunk_count(total: usize, batch: usize) -> usize {
         if batch == 0 {
             return 0;
         }
         total.div_ceil(batch)
-    }
-
-    #[test]
-    fn test_builder_creation() {
-        let builder = LlamaCppProvider::builder();
-        drop(builder);
-    }
-
-    #[test]
-    fn test_builder_configuration() {
-        let builder = LlamaCppProvider::builder()
-            .max_tokens(128)
-            .temperature(0.5)
-            .repeat_penalty(1.1);
-
-        drop(builder);
-    }
-
-    #[test]
-    fn test_provider_builder_default() {
-        let builder1 = LlamaCppProviderBuilder::default();
-        let builder2 = LlamaCppProviderBuilder::new();
-
-        drop(builder1);
-        drop(builder2);
     }
 
     #[test]
@@ -2216,6 +2213,48 @@ mod tests {
         let n_batch = resolve_n_batch(&config, n_ctx);
         let prompt_len = n_batch as usize + 1;
         assert_eq!(chunk_count(prompt_len, n_batch as usize), 2);
+    }
+
+    #[test]
+    fn test_resolve_n_batch_clamps_to_context() {
+        let config = LlamaCppConfig {
+            n_batch: Some(128),
+            ..Default::default()
+        };
+        assert_eq!(resolve_n_batch(&config, 64), 64);
+        assert_eq!(resolve_n_batch(&config, 256), 128);
+    }
+
+    #[test]
+    fn test_build_context_params_overrides() {
+        let config = LlamaCppConfig {
+            n_threads: Some(4),
+            n_threads_batch: Some(6),
+            ..Default::default()
+        };
+        let params = build_context_params(&config, true, Some(512), Some(16)).unwrap();
+        assert_eq!(params.n_ctx(), std::num::NonZeroU32::new(512));
+        assert_eq!(params.n_batch(), 16);
+        assert_eq!(params.n_threads(), 4);
+        assert_eq!(params.n_threads_batch(), 6);
+        assert!(params.embeddings());
+    }
+
+    #[test]
+    fn test_build_model_params_sets_fields() {
+        let mut config = LlamaCppConfig::default();
+        config.n_gpu_layers = Some(3);
+        config.main_gpu = Some(1);
+        config.split_mode = Some(crate::config::LlamaCppSplitMode::Row);
+        config.use_mlock = Some(true);
+        let params = build_model_params(&config).unwrap();
+        assert_eq!(params.n_gpu_layers(), 3);
+        assert_eq!(params.main_gpu(), 1);
+        assert_eq!(
+            params.split_mode().unwrap(),
+            llama_cpp_2::model::params::LlamaSplitMode::Row
+        );
+        assert!(params.use_mlock());
     }
 
     #[cfg(feature = "mtmd")]
@@ -2258,5 +2297,91 @@ mod tests {
         let config = LlamaCppConfig::default();
         let err = resolve_model_path(&source, &config).unwrap_err();
         assert!(err.to_string().contains("Model path is required"));
+    }
+
+    #[test]
+    fn test_parse_openai_delta_valid_and_invalid() {
+        let valid = r#"{"content":"hi"}"#;
+        let parsed = parse_openai_delta(valid).expect("valid json should parse");
+        assert_eq!(parsed.content, Some("hi".to_string()));
+
+        let err = parse_openai_delta("{bad").expect_err("invalid json should error");
+        assert!(matches!(err, LLMError::JsonError(_)));
+    }
+
+    #[test]
+    fn test_prepare_messages_with_system_prompt() {
+        let config = LlamaCppConfig {
+            system_prompt: Some("sys".to_string()),
+            ..Default::default()
+        };
+        let messages = vec![ChatMessage::user().content("hi").build()];
+
+        let prepared = prepare_messages_with_system(&config, &messages);
+        assert_eq!(prepared.len(), 2);
+        assert_eq!(prepared[0].role, autoagents_llm::chat::ChatRole::System);
+        assert_eq!(prepared[0].content, "sys");
+        assert_eq!(prepared[1].content, "hi");
+
+        let messages = vec![ChatMessage {
+            role: autoagents_llm::chat::ChatRole::System,
+            message_type: autoagents_llm::chat::MessageType::Text,
+            content: "existing".to_string(),
+        }];
+        let prepared = prepare_messages_with_system(&config, &messages);
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].content, "existing");
+    }
+
+    #[test]
+    fn test_prepare_fallback_messages_with_schema() {
+        let config = LlamaCppConfig {
+            system_prompt: Some("sys".to_string()),
+            ..Default::default()
+        };
+        let messages = vec![ChatMessage::user().content("hi").build()];
+        let schema = StructuredOutputFormat {
+            name: "TestSchema".to_string(),
+            description: Some("desc".to_string()),
+            schema: Some(serde_json::json!({"type": "object"})),
+            strict: Some(true),
+        };
+
+        let prepared = prepare_fallback_messages_with_schema(&config, &messages, Some(&schema));
+        let last = prepared.last().unwrap();
+        assert!(last.content.contains("TestSchema"));
+        assert!(last.content.contains("desc"));
+        assert!(last.content.contains("\"type\":\"object\""));
+    }
+
+    #[test]
+    fn test_ensure_supported_messages_for_config() {
+        let config = LlamaCppConfig::default();
+        let ok = ensure_supported_messages_for_config(
+            &config,
+            &[ChatMessage::user().content("hi").build()],
+        );
+        assert!(ok.is_ok());
+
+        let image_msg = ChatMessage {
+            role: autoagents_llm::chat::ChatRole::User,
+            message_type: autoagents_llm::chat::MessageType::Image((ImageMime::PNG, vec![1, 2, 3])),
+            content: "img".to_string(),
+        };
+        let err = ensure_supported_messages_for_config(&config, &[image_msg]).unwrap_err();
+        assert!(err.to_string().contains("does not support image inputs"));
+
+        let url_msg = ChatMessage {
+            role: autoagents_llm::chat::ChatRole::User,
+            message_type: autoagents_llm::chat::MessageType::ImageURL(
+                "https://example.com/img.png".to_string(),
+            ),
+            content: "img".to_string(),
+        };
+        let err = ensure_supported_messages_for_config(&config, &[url_msg]).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("does not support image URL or PDF inputs")
+        );
     }
 }

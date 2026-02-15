@@ -77,3 +77,73 @@ pub trait TTSModelsProvider: Send + Sync {
         vec!["en".to_string()]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        AudioData, AudioFormat, ModelInfo, SpeechRequest, SpeechResponse, VoiceIdentifier,
+    };
+    use async_trait::async_trait;
+
+    #[derive(Debug)]
+    struct DummyProvider;
+
+    #[async_trait]
+    impl TTSSpeechProvider for DummyProvider {
+        async fn generate_speech(&self, request: SpeechRequest) -> TTSResult<SpeechResponse> {
+            Ok(SpeechResponse {
+                audio: AudioData {
+                    samples: vec![0.0],
+                    channels: 1,
+                    sample_rate: request.sample_rate.unwrap_or(24000),
+                },
+                text: request.text,
+                duration_ms: 0,
+            })
+        }
+    }
+
+    #[async_trait]
+    impl TTSModelsProvider for DummyProvider {
+        fn get_current_model(&self) -> ModelInfo {
+            ModelInfo {
+                id: "dummy".to_string(),
+                name: "Dummy".to_string(),
+                description: None,
+                languages: vec!["en".to_string()],
+            }
+        }
+    }
+
+    impl TTSProvider for DummyProvider {}
+
+    #[tokio::test]
+    async fn test_default_streaming_not_supported() {
+        let provider = DummyProvider;
+        let request = SpeechRequest {
+            text: "hello".to_string(),
+            voice: VoiceIdentifier::new("test"),
+            format: AudioFormat::Wav,
+            sample_rate: None,
+        };
+
+        let err = match provider.generate_speech_stream(request).await {
+            Ok(_) => panic!("expected streaming not supported"),
+            Err(err) => err,
+        };
+        assert!(matches!(
+            err,
+            crate::error::TTSError::StreamingNotSupported(_)
+        ));
+        assert!(!provider.supports_streaming());
+    }
+
+    #[test]
+    fn test_default_provider_formats_and_languages() {
+        let provider = DummyProvider;
+        assert_eq!(provider.supported_formats(), vec![AudioFormat::Wav]);
+        assert_eq!(provider.default_sample_rate(), 24000);
+        assert_eq!(provider.supported_languages(), vec!["en".to_string()]);
+    }
+}

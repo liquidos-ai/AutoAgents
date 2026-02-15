@@ -114,3 +114,111 @@ pub trait TypedRuntime: Runtime {
 
 // Auto-implement TypedRuntime for all Runtime implementations
 impl<T: Runtime + ?Sized> TypedRuntime for T {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::actor::{ActorMessage, CloneableMessage, LocalTransport, Topic, Transport};
+    use async_trait::async_trait;
+    use futures::stream;
+    use tokio::sync::Mutex;
+
+    #[derive(Debug, Clone)]
+    struct TestMessage {
+        value: String,
+    }
+
+    impl ActorMessage for TestMessage {}
+    impl CloneableMessage for TestMessage {}
+
+    #[derive(Debug)]
+    struct TestRuntime {
+        published: Arc<Mutex<Vec<(String, TypeId, String)>>>,
+        tx: mpsc::Sender<Event>,
+    }
+
+    impl TestRuntime {
+        fn new() -> Self {
+            let (tx, _rx) = mpsc::channel(1);
+            Self {
+                published: Arc::new(Mutex::new(Vec::new())),
+                tx,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Runtime for TestRuntime {
+        fn id(&self) -> RuntimeID {
+            RuntimeID::new_v4()
+        }
+
+        async fn subscribe_any(
+            &self,
+            _topic_name: &str,
+            _topic_type: TypeId,
+            _actor: Arc<dyn AnyActor>,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn publish_any(
+            &self,
+            topic_name: &str,
+            topic_type: TypeId,
+            message: Arc<dyn Any + Send + Sync>,
+        ) -> Result<(), RuntimeError> {
+            let msg = message
+                .downcast_ref::<TestMessage>()
+                .map(|m| m.value.clone())
+                .unwrap_or_default();
+            let mut published = self.published.lock().await;
+            published.push((topic_name.to_string(), topic_type, msg));
+            Ok(())
+        }
+
+        fn tx(&self) -> mpsc::Sender<Event> {
+            self.tx.clone()
+        }
+
+        async fn transport(&self) -> Arc<dyn Transport> {
+            Arc::new(LocalTransport)
+        }
+
+        async fn take_event_receiver(&self) -> Option<BoxEventStream<Event>> {
+            None
+        }
+
+        async fn subscribe_events(&self) -> BoxEventStream<Event> {
+            Box::pin(stream::empty())
+        }
+
+        async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+
+        async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_typed_runtime_publish_records_message() {
+        let runtime = TestRuntime::new();
+        let topic = Topic::<TestMessage>::new("topic");
+        runtime
+            .publish(
+                &topic,
+                TestMessage {
+                    value: "hello".to_string(),
+                },
+            )
+            .await
+            .unwrap();
+
+        let published = runtime.published.lock().await.clone();
+        assert_eq!(published.len(), 1);
+        assert_eq!(published[0].0, "topic");
+        assert_eq!(published[0].2, "hello");
+    }
+}

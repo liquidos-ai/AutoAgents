@@ -11,8 +11,10 @@ pub fn parse_xml(bytes: &[u8]) -> Result<ParsedDocument, ParseError> {
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(quick_xml::events::Event::Text(ref e)) => {
-                if let Ok(text) = e.unescape() {
-                    let trimmed = text.trim();
+                if let Ok(decoded) = e.decode()
+                    && let Ok(unescaped) = quick_xml::escape::unescape(&decoded)
+                {
+                    let trimmed = unescaped.trim();
                     if !trimmed.is_empty() {
                         text_parts.push(trimmed.to_string());
                     }

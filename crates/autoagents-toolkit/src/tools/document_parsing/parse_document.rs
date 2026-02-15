@@ -169,7 +169,7 @@ mod tests {
         file.write_all(b"Hello World").expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser::default();
+        let parser = DocumentParser;
         let args = json!({
             "source": file_path.display().to_string()
         });
@@ -197,7 +197,7 @@ mod tests {
             .expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser::default();
+        let parser = DocumentParser;
         let args = json!({
             "source": file_path.display().to_string()
         });
@@ -216,7 +216,7 @@ mod tests {
             .expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser::default();
+        let parser = DocumentParser;
         let args = json!({
             "source": file_path.display().to_string()
         });
@@ -243,7 +243,7 @@ mod tests {
             .expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser::default();
+        let parser = DocumentParser;
         let args = json!({
             "source": file_path.display().to_string(),
             "format": "csv"
@@ -262,7 +262,7 @@ mod tests {
         file.write_all(b"content").expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser::default();
+        let parser = DocumentParser;
         let args = json!({
             "source": file_path.display().to_string()
         });

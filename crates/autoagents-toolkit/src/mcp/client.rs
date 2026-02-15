@@ -271,28 +271,6 @@ impl McpToolsManager {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_mcp_tools_manager_creation() {
-        let manager = McpToolsManager::default();
-        // Basic structural test
-        assert_eq!(
-            std::ptr::addr_of!(manager) as usize % std::mem::align_of::<McpToolsManager>(),
-            0
-        );
-    }
-
-    #[test]
-    fn test_mcp_error_display() {
-        let error = McpError::ServerNotFound("test_server".to_string());
-        assert_eq!(error.to_string(), "Server not found: test_server");
-
-        let error = McpError::ConnectionFailed("connection timeout".to_string());
-        assert_eq!(error.to_string(), "Connection failed: connection timeout");
-
-        let error = McpError::ConfigError("invalid config".to_string());
-        assert_eq!(error.to_string(), "Configuration error: invalid config");
-    }
-
     #[tokio::test]
     async fn test_manager_basic_operations() {
         let manager = McpToolsManager::default();
@@ -305,15 +283,44 @@ mod tests {
         assert!(manager.get_tool("nonexistent").await.is_none());
     }
 
-    #[test]
-    fn test_client_info_creation() {
-        let client_info = ClientInfo::default();
-        // ClientInfo is an InitializeRequestParam with default implementation values
-        // We can't directly test the field values without knowing the internal structure
-        // but we can ensure it can be created
-        assert!(
-            (std::ptr::addr_of!(client_info) as usize)
-                .is_multiple_of(std::mem::align_of::<ClientInfo>())
-        );
+    fn invalid_protocol_config() -> McpServerConfig {
+        McpServerConfig::new(
+            "bad_server".to_string(),
+            "http".to_string(),
+            "noop".to_string(),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_get_server_tools_missing() {
+        let manager = McpToolsManager::default();
+        let err = manager.get_server_tools("missing").await.unwrap_err();
+        assert!(matches!(err, McpError::ServerNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn test_connect_server_rejects_unsupported_protocol() {
+        let manager = McpToolsManager::default();
+        let config = invalid_protocol_config();
+        let err = manager.connect_server(&config).await.unwrap_err();
+        assert!(matches!(err, McpError::ConfigError(_)));
+        assert!(err.to_string().contains("Unsupported protocol"));
+    }
+
+    #[tokio::test]
+    async fn test_connect_servers_returns_error_on_invalid_protocol() {
+        let manager = McpToolsManager::default();
+        let mut config = McpConfig::new();
+        config.add_server(invalid_protocol_config());
+        let err = manager.connect_servers(&config).await.unwrap_err();
+        assert!(err.to_string().contains("Unsupported protocol"));
+    }
+
+    #[tokio::test]
+    async fn test_refresh_tools_on_empty_manager() {
+        let manager = McpToolsManager::default();
+        manager.refresh_tools().await.unwrap();
+        let tools = manager.get_tools().await;
+        assert!(tools.is_empty());
     }
 }

@@ -10,6 +10,7 @@ categories.workspace = true
 
 [features]
 default = []
+full = ["langfuse"]
 langfuse = ["dep:base64"]
 
 [dependencies]
@@ -26,7 +27,7 @@ opentelemetry-otlp = { version = "0.31.0", features = [
   "reqwest-client",
 ] }
 opentelemetry-http = { version = "0.31.0", features = ["reqwest"] }
-reqwest = { workspace = true }
+reqwest = { version = "0.12.28", features = ["json", "stream"] }
 futures-util = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true, features = ["sync"] }

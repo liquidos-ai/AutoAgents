@@ -22,3 +22,4 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 anyhow = { workspace = true }
 testcontainers = { workspace = true }
 httpmock = { workspace = true }
+autoagents-llm.workspace = true

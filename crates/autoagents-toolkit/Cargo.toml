@@ -11,6 +11,7 @@ readme.workspace = true
 
 [features]
 default = []
+full = ["mcp", "filesystem", "search", "wolfram-alpha", "document-parsing"]
 mcp = ["rmcp", "toml"]
 filesystem = []
 search = ["reqwest", "once_cell"]
@@ -38,7 +39,6 @@ csv = { workspace = true, optional = true }
 rmcp = { workspace = true, optional = true, features = [
   "client",
   "transport-child-process",
-  "transport-sse-client-reqwest",
   "transport-streamable-http-client-reqwest",
 ] }
 

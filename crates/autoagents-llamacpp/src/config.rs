@@ -357,17 +357,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_config() {
-        let config = LlamaCppConfig::default();
-        assert_eq!(config.max_tokens, Some(512));
-        assert_eq!(config.temperature, Some(0.7));
-        assert!(!config.force_json_grammar);
-        assert!(config.model_dir.is_none());
-        assert!(config.hf_filename.is_none());
-        assert!(config.hf_revision.is_none());
-    }
-
-    #[test]
     fn test_config_builder_basic() {
         let config = LlamaCppConfigBuilder::default()
             .model_path("model.gguf")
@@ -386,24 +375,71 @@ mod tests {
     }
 
     #[test]
-    fn test_config_builder_split_mode() {
+    fn test_config_builder_optional_flags() {
         let config = LlamaCppConfigBuilder::default()
             .model_path("model.gguf")
-            .split_mode(LlamaCppSplitMode::Row)
+            .force_json_grammar(true)
+            .mmproj_use_gpu(true)
+            .split_mode(LlamaCppSplitMode::Layer)
+            .use_mlock(true)
+            .devices(vec![0, 1])
             .build();
 
-        assert_eq!(config.split_mode, Some(LlamaCppSplitMode::Row));
+        assert!(config.force_json_grammar);
+        assert_eq!(config.mmproj_use_gpu, Some(true));
+        assert_eq!(config.split_mode, Some(LlamaCppSplitMode::Layer));
+        assert_eq!(config.use_mlock, Some(true));
+        assert_eq!(config.devices, Some(vec![0, 1]));
     }
 
     #[test]
-    fn test_config_builder_default() {
-        let builder1 = LlamaCppConfigBuilder::default();
-        let builder2 = LlamaCppConfigBuilder::default();
+    fn test_config_builder_selected_options() {
+        let config = LlamaCppConfigBuilder::default()
+            .model_source(ModelSource::huggingface_with_filename(
+                "org/model",
+                "model.gguf",
+            ))
+            .chat_template("chat-template")
+            .system_prompt("system")
+            .model_dir("cache")
+            .hf_filename("override.gguf")
+            .hf_revision("rev1")
+            .mmproj_path("mmproj.gguf")
+            .media_marker("[IMG]")
+            .max_tokens(123)
+            .temperature(0.5)
+            .top_p(0.9)
+            .top_k(42)
+            .repeat_penalty(1.1)
+            .frequency_penalty(0.2)
+            .presence_penalty(0.3)
+            .repeat_last_n(32)
+            .seed(7)
+            .n_ctx(2048)
+            .n_batch(64)
+            .n_ubatch(8)
+            .n_threads(4)
+            .n_threads_batch(2)
+            .n_gpu_layers(3)
+            .main_gpu(1)
+            .build();
 
-        let config1 = builder1.build();
-        let config2 = builder2.build();
-
-        assert_eq!(config1.max_tokens, config2.max_tokens);
-        assert_eq!(config1.temperature, config2.temperature);
+        assert!(matches!(
+            config.model_source,
+            ModelSource::HuggingFace { .. }
+        ));
+        assert_eq!(config.chat_template.as_deref(), Some("chat-template"));
+        assert_eq!(config.system_prompt.as_deref(), Some("system"));
+        assert_eq!(config.model_dir.as_deref(), Some("cache"));
+        assert_eq!(config.hf_filename.as_deref(), Some("override.gguf"));
+        assert_eq!(config.hf_revision.as_deref(), Some("rev1"));
+        assert_eq!(config.mmproj_path.as_deref(), Some("mmproj.gguf"));
+        assert_eq!(config.media_marker.as_deref(), Some("[IMG]"));
+        assert_eq!(config.max_tokens, Some(123));
+        assert_eq!(config.temperature, Some(0.5));
+        assert_eq!(config.n_ctx, Some(2048));
+        assert_eq!(config.n_threads, Some(4));
+        assert_eq!(config.n_gpu_layers, Some(3));
+        assert_eq!(config.main_gpu, Some(1));
     }
 }

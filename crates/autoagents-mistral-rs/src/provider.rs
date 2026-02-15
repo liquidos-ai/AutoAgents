@@ -1004,30 +1004,214 @@ impl LLMProvider for MistralRsProvider {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mistralrs::{
+        Delta, RequestLike, ResponseMessage, ToolCallResponse, ToolCallType, Usage as MistralUsage,
+    };
+    use serde_json::json;
 
-    #[test]
-    fn test_builder_creation() {
-        let builder = MistralRsProvider::builder();
-        drop(builder);
+    fn sample_usage() -> MistralUsage {
+        MistralUsage {
+            completion_tokens: 2,
+            prompt_tokens: 1,
+            total_tokens: 3,
+            avg_tok_per_sec: 0.0,
+            avg_prompt_tok_per_sec: 0.0,
+            avg_compl_tok_per_sec: 0.0,
+            total_time_sec: 0.0,
+            total_prompt_time_sec: 0.0,
+            total_completion_time_sec: 0.0,
+        }
     }
 
     #[test]
-    fn test_builder_configuration() {
-        let builder = MistralRsProvider::builder()
-            .with_logging()
-            .with_paged_attention()
-            .max_tokens(1024)
-            .temperature(0.8);
-
-        drop(builder);
+    fn test_convert_role_for_request() {
+        assert!(matches!(
+            convert_role_for_request(&autoagents_llm::chat::ChatRole::System),
+            TextMessageRole::System
+        ));
+        assert!(matches!(
+            convert_role_for_request(&autoagents_llm::chat::ChatRole::User),
+            TextMessageRole::User
+        ));
+        assert!(matches!(
+            convert_role_for_request(&autoagents_llm::chat::ChatRole::Assistant),
+            TextMessageRole::Assistant
+        ));
+        assert!(matches!(
+            convert_role_for_request(&autoagents_llm::chat::ChatRole::Tool),
+            TextMessageRole::User
+        ));
     }
 
     #[test]
-    fn test_provider_builder_default() {
-        let builder1 = MistralRsProviderBuilder::default();
-        let builder2 = MistralRsProviderBuilder::default();
+    fn test_convert_tools_and_build_request_builder_with_tools() {
+        let tool = Tool {
+            tool_type: "function".to_string(),
+            function: autoagents_llm::chat::FunctionTool {
+                name: "lookup".to_string(),
+                description: "desc".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": { "q": { "type": "string" } },
+                    "required": ["q"]
+                }),
+            },
+        };
 
-        drop(builder1);
-        drop(builder2);
+        let tool_calls = vec![ToolCall {
+            id: "call_1".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "lookup".to_string(),
+                arguments: "{\"q\":\"value\"}".to_string(),
+            },
+        }];
+
+        let messages = vec![
+            ChatMessage {
+                role: autoagents_llm::chat::ChatRole::User,
+                message_type: autoagents_llm::chat::MessageType::Text,
+                content: "hello".to_string(),
+            },
+            ChatMessage {
+                role: autoagents_llm::chat::ChatRole::Assistant,
+                message_type: autoagents_llm::chat::MessageType::ToolUse(tool_calls.clone()),
+                content: "call tool".to_string(),
+            },
+            ChatMessage {
+                role: autoagents_llm::chat::ChatRole::Tool,
+                message_type: autoagents_llm::chat::MessageType::ToolResult(tool_calls),
+                content: "tool result".to_string(),
+            },
+        ];
+
+        let request = build_request_builder(&messages, Some(&[tool]), None).unwrap();
+        assert_eq!(request.messages_ref().len(), 3);
+
+        let mut request = request;
+        let tools = request.take_tools().expect("tools should be set");
+        assert_eq!(tools.0.len(), 1);
+    }
+
+    #[test]
+    fn test_build_request_builder_sets_json_schema_constraint() {
+        let messages = vec![ChatMessage {
+            role: autoagents_llm::chat::ChatRole::User,
+            message_type: autoagents_llm::chat::MessageType::Text,
+            content: "hello".to_string(),
+        }];
+
+        let schema = StructuredOutputFormat {
+            name: "Test".to_string(),
+            description: None,
+            schema: Some(json!({
+                "type": "object",
+                "properties": { "foo": { "type": "string" } },
+                "required": ["foo"]
+            })),
+            strict: Some(true),
+        };
+
+        let mut request = build_request_builder(&messages, None, Some(schema)).unwrap();
+        let constraint = request.take_constraint();
+        match constraint {
+            mistralrs::Constraint::JsonSchema(value) => {
+                assert_eq!(value.get("type"), Some(&json!("object")));
+            }
+            _ => panic!("Unexpected constraint"),
+        }
+    }
+
+    #[test]
+    fn test_chunk_to_stream_response_maps_content_and_tools() {
+        let tool_call = ToolCallResponse {
+            index: 0,
+            id: "call-1".to_string(),
+            tp: ToolCallType::Function,
+            function: CalledFunction {
+                name: "lookup".to_string(),
+                arguments: "{}".to_string(),
+            },
+        };
+
+        let chunk = ChatCompletionChunkResponse {
+            id: "id".to_string(),
+            choices: vec![ChunkChoice {
+                finish_reason: None,
+                index: 0,
+                delta: Delta {
+                    content: Some("hi".to_string()),
+                    role: "assistant".to_string(),
+                    tool_calls: Some(vec![tool_call]),
+                    reasoning_content: None,
+                },
+                logprobs: None,
+            }],
+            created: 0,
+            model: "model".to_string(),
+            system_fingerprint: "local".to_string(),
+            object: "chat.completion.chunk".to_string(),
+            usage: Some(sample_usage()),
+        };
+
+        let response = MistralRsProvider::chunk_to_stream_response(chunk).unwrap();
+        assert_eq!(response.choices.len(), 1);
+        assert_eq!(response.choices[0].delta.content.as_deref(), Some("hi"));
+        let tool_calls = response.choices[0].delta.tool_calls.as_ref().unwrap();
+        assert_eq!(tool_calls[0].function.name, "lookup");
+        assert_eq!(tool_calls[0].function.arguments, "{}");
+        assert_eq!(response.usage.unwrap().total_tokens, 3);
+    }
+
+    #[test]
+    fn test_chunk_to_stream_response_ignores_empty_chunks() {
+        let chunk = ChatCompletionChunkResponse {
+            id: "id".to_string(),
+            choices: vec![ChunkChoice {
+                finish_reason: None,
+                index: 0,
+                delta: Delta {
+                    content: None,
+                    role: "assistant".to_string(),
+                    tool_calls: None,
+                    reasoning_content: None,
+                },
+                logprobs: None,
+            }],
+            created: 0,
+            model: "model".to_string(),
+            system_fingerprint: "local".to_string(),
+            object: "chat.completion.chunk".to_string(),
+            usage: None,
+        };
+
+        assert!(MistralRsProvider::chunk_to_stream_response(chunk).is_none());
+    }
+
+    #[test]
+    fn test_done_to_stream_response_includes_usage() {
+        let response = ChatCompletionResponse {
+            id: "id".to_string(),
+            choices: vec![mistralrs::Choice {
+                finish_reason: "stop".to_string(),
+                index: 0,
+                message: ResponseMessage {
+                    content: Some("hi".to_string()),
+                    role: "assistant".to_string(),
+                    tool_calls: None,
+                    reasoning_content: None,
+                },
+                logprobs: None,
+            }],
+            created: 0,
+            model: "model".to_string(),
+            system_fingerprint: "local".to_string(),
+            object: "chat.completion".to_string(),
+            usage: sample_usage(),
+        };
+
+        let done = MistralRsProvider::done_to_stream_response(response);
+        assert_eq!(done.choices.len(), 1);
+        assert_eq!(done.usage.unwrap().total_tokens, 3);
     }
 }

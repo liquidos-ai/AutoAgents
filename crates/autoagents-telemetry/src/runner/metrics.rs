@@ -34,3 +34,20 @@ impl TelemetryMetrics {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_metrics_build_and_record() {
+        let provider = SdkMeterProvider::default();
+        let metrics = TelemetryMetrics::new(&provider);
+        metrics.tasks_total.add(1, &[]);
+        metrics.tool_calls_total.add(2, &[]);
+        metrics.errors_total.add(0, &[]);
+        metrics.task_duration.record(0.5, &[]);
+        metrics.turn_duration.record(1.0, &[]);
+        metrics.tool_duration.record(0.25, &[]);
+    }
+}

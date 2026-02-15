@@ -33,3 +33,31 @@ impl EventFanout {
         Box::pin(stream)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::StreamExt;
+    use tokio_stream::iter;
+
+    #[tokio::test]
+    async fn test_event_fanout_forwards_events() {
+        let event = Event::TaskStarted {
+            sub_id: autoagents_protocol::SubmissionId::new_v4(),
+            actor_id: autoagents_protocol::ActorID::new_v4(),
+            actor_name: "agent".to_string(),
+            task_description: "task".to_string(),
+        };
+        let stream = Box::pin(iter(vec![event.clone()]));
+        let fanout = EventFanout::new(stream, 8);
+        let mut rx = fanout.subscribe();
+
+        let received = rx.next().await.expect("event");
+        match received {
+            Event::TaskStarted { actor_name, .. } => {
+                assert_eq!(actor_name, "agent");
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+}

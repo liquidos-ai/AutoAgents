@@ -291,7 +291,7 @@ mod tests {
     use std::sync::Arc;
 
     fn make_store() -> InMemoryVectorStore {
-        use autoagents_test_utils::llm::MockLLMProvider;
+        use crate::tests::MockLLMProvider;
         let provider: SharedEmbeddingProvider = Arc::new(MockLLMProvider {});
         InMemoryVectorStore::new(provider)
     }
@@ -389,5 +389,82 @@ mod tests {
             .unwrap();
         let results = store.top_n_ids(req).await.unwrap();
         assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_named_vector_query_returns_document() {
+        let store = make_store();
+        let raw = serde_json::to_value(Document::new("named vector doc")).unwrap();
+        let mut vectors = HashMap::new();
+        vectors.insert("custom".to_string(), vec![0.1_f32, 0.2_f32, 0.3_f32]);
+        store.insert_prepared_named(vec![PreparedNamedVectorDocument {
+            id: "doc1".to_string(),
+            raw,
+            vectors,
+        }]);
+
+        let req = VectorSearchRequest::builder()
+            .query("query")
+            .samples(1)
+            .query_vector_name("custom")
+            .build()
+            .unwrap();
+        let results: Vec<(f64, String, Document)> = store.top_n(req).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].1, "doc1");
+        assert_eq!(results[0].2.page_content, "named vector doc");
+    }
+
+    #[tokio::test]
+    async fn test_named_vector_query_ids() {
+        let store = make_store();
+        let raw = serde_json::to_value(Document::new("named vector doc")).unwrap();
+        let mut vectors = HashMap::new();
+        vectors.insert("custom".to_string(), vec![0.1_f32, 0.2_f32, 0.3_f32]);
+        store.insert_prepared_named(vec![PreparedNamedVectorDocument {
+            id: "doc1".to_string(),
+            raw,
+            vectors,
+        }]);
+
+        let req = VectorSearchRequest::builder()
+            .query("query")
+            .samples(1)
+            .query_vector_name("custom")
+            .build()
+            .unwrap();
+        let results = store.top_n_ids(req).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].1, "doc1");
+    }
+
+    #[test]
+    fn test_best_similarity_uses_named_vectors_when_embeddings_empty() {
+        let entry = StoredEntry {
+            raw: serde_json::json!({"k": "v"}),
+            embeddings: crate::one_or_many::OneOrMany::Many(Vec::new()),
+            named_vectors: HashMap::from([("alt".to_string(), vec![1.0_f32, 0.0_f32].into())]),
+        };
+        let query = Embedding {
+            document: "q".to_string(),
+            vec: vec![1.0_f32, 0.0_f32].into(),
+        };
+        let score = InMemoryVectorStore::best_similarity(&entry, &query);
+        assert!(score.is_some());
+    }
+
+    #[test]
+    fn test_named_similarity_missing_vector_returns_none() {
+        let entry = StoredEntry {
+            raw: serde_json::json!({"k": "v"}),
+            embeddings: crate::one_or_many::OneOrMany::Many(Vec::new()),
+            named_vectors: HashMap::new(),
+        };
+        let query = Embedding {
+            document: "q".to_string(),
+            vec: vec![1.0_f32, 0.0_f32].into(),
+        };
+        let score = InMemoryVectorStore::named_similarity(&entry, "missing", &query);
+        assert!(score.is_none());
     }
 }

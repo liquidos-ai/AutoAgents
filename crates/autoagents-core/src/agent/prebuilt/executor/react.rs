@@ -453,17 +453,93 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::agent::MockAgentImpl;
+    use crate::tests::{
+        ConfigurableLLMProvider, MockAgentImpl, StaticChatResponse,
+        TestAgentOutput as TestUtilsOutput,
+    };
+    use async_trait::async_trait;
+    use autoagents_llm::chat::StreamChunk;
+    use autoagents_llm::{FunctionCall, ToolCall};
+
+    #[derive(Debug)]
+    struct LocalTool {
+        name: String,
+        output: serde_json::Value,
+    }
+
+    impl LocalTool {
+        fn new(name: &str, output: serde_json::Value) -> Self {
+            Self {
+                name: name.to_string(),
+                output,
+            }
+        }
+    }
+
+    impl crate::tool::ToolT for LocalTool {
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        fn description(&self) -> &str {
+            "local tool"
+        }
+
+        fn args_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+    }
+
+    #[async_trait]
+    impl crate::tool::ToolRuntime for LocalTool {
+        async fn execute(
+            &self,
+            _args: serde_json::Value,
+        ) -> Result<serde_json::Value, crate::tool::ToolCallError> {
+            Ok(self.output.clone())
+        }
+    }
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-    struct TestAgentOutput {
+    struct ReActTestOutput {
         value: i32,
         message: String,
     }
 
+    #[derive(Debug, Clone)]
+    struct AbortAgent;
+
+    #[async_trait]
+    impl AgentDeriveT for AbortAgent {
+        type Output = TestUtilsOutput;
+
+        fn description(&self) -> &str {
+            "abort"
+        }
+
+        fn output_schema(&self) -> Option<Value> {
+            None
+        }
+
+        fn name(&self) -> &str {
+            "abort_agent"
+        }
+
+        fn tools(&self) -> Vec<Box<dyn ToolT>> {
+            vec![]
+        }
+    }
+
+    #[async_trait]
+    impl AgentHooks for AbortAgent {
+        async fn on_run_start(&self, _task: &Task, _ctx: &Context) -> HookOutcome {
+            HookOutcome::Abort
+        }
+    }
+
     #[test]
     fn test_extract_agent_output_success() {
-        let agent_output = TestAgentOutput {
+        let agent_output = ReActTestOutput {
             value: 42,
             message: "Hello, world!".to_string(),
         };
@@ -475,14 +551,14 @@ mod tests {
         };
 
         let react_value = serde_json::to_value(react_output).unwrap();
-        let extracted: TestAgentOutput =
+        let extracted: ReActTestOutput =
             ReActAgentOutput::extract_agent_output(react_value).unwrap();
         assert_eq!(extracted, agent_output);
     }
 
     #[test]
     fn test_extract_agent_output_invalid_react() {
-        let result = ReActAgentOutput::extract_agent_output::<TestAgentOutput>(
+        let result = ReActAgentOutput::extract_agent_output::<ReActTestOutput>(
             serde_json::json!({"not": "react"}),
         );
         assert!(result.is_err());
@@ -495,7 +571,7 @@ mod tests {
             tool_calls: vec![],
             done: true,
         };
-        let parsed: TestAgentOutput = output.try_parse().unwrap();
+        let parsed: ReActTestOutput = output.try_parse().unwrap();
         assert_eq!(parsed.value, 1);
     }
 
@@ -506,7 +582,7 @@ mod tests {
             tool_calls: vec![],
             done: true,
         };
-        assert!(output.try_parse::<TestAgentOutput>().is_err());
+        assert!(output.try_parse::<ReActTestOutput>().is_err());
     }
 
     #[test]
@@ -518,29 +594,6 @@ mod tests {
         };
         let result: String = output.parse_or_map(|s| s.to_uppercase());
         assert_eq!(result, "PLAIN TEXT");
-    }
-
-    #[test]
-    fn test_react_agent_output_into_value() {
-        let output = ReActAgentOutput {
-            response: "resp".to_string(),
-            tool_calls: vec![],
-            done: true,
-        };
-        let val: Value = output.into();
-        assert!(val.is_object());
-        assert_eq!(val["response"], "resp");
-    }
-
-    #[test]
-    fn test_react_agent_output_into_string() {
-        let output = ReActAgentOutput {
-            response: "resp".to_string(),
-            tool_calls: vec![],
-            done: true,
-        };
-        let s: String = output.into();
-        assert_eq!(s, "resp");
     }
 
     #[test]
@@ -562,33 +615,36 @@ mod tests {
     }
 
     #[test]
-    fn test_react_agent_creation_and_deref() {
-        let mock = MockAgentImpl::new("react_test", "desc");
-        let agent = ReActAgent::new(mock);
-        assert_eq!(agent.name(), "react_test");
-        assert_eq!(agent.description(), "desc");
-    }
-
-    #[test]
-    fn test_react_agent_clone() {
-        let mock = MockAgentImpl::new("clone_test", "desc");
-        let agent = ReActAgent::new(mock);
-        let cloned = agent.clone();
-        assert_eq!(cloned.name(), "clone_test");
-    }
-
-    #[test]
     fn test_react_agent_config() {
         let mock = MockAgentImpl::new("cfg_test", "desc");
         let agent = ReActAgent::new(mock);
         assert_eq!(agent.config().max_turns, 10);
     }
 
+    #[test]
+    fn test_react_agent_metadata_and_output_conversion() {
+        let mock = MockAgentImpl::new("react_meta", "desc");
+        let agent = ReActAgent::new(mock);
+        let cloned = agent.clone();
+        assert_eq!(cloned.name(), "react_meta");
+        assert_eq!(cloned.description(), "desc");
+
+        let output = ReActAgentOutput {
+            response: "resp".to_string(),
+            tool_calls: vec![],
+            done: true,
+        };
+        let value: Value = output.clone().into();
+        assert_eq!(value["response"], "resp");
+        let string: String = output.into();
+        assert_eq!(string, "resp");
+    }
+
     #[tokio::test]
     async fn test_react_agent_execute() {
         use crate::agent::{AgentConfig, Context};
+        use crate::tests::MockLLMProvider;
         use autoagents_protocol::ActorID;
-        use autoagents_test_utils::llm::MockLLMProvider;
 
         let mock = MockAgentImpl::new("exec_test", "desc");
         let agent = ReActAgent::new(mock);
@@ -607,5 +663,198 @@ mod tests {
         let output = result.unwrap();
         assert!(output.done);
         assert_eq!(output.response, "Mock response");
+    }
+
+    #[tokio::test]
+    async fn test_react_agent_execute_with_tool_calls() {
+        use crate::agent::{AgentConfig, Context};
+        use autoagents_protocol::ActorID;
+
+        let tool_call = ToolCall {
+            id: "call_1".to_string(),
+            call_type: "function".to_string(),
+            function: autoagents_llm::FunctionCall {
+                name: "tool_a".to_string(),
+                arguments: r#"{"value":1}"#.to_string(),
+            },
+        };
+
+        let llm = Arc::new(ConfigurableLLMProvider {
+            chat_response: StaticChatResponse {
+                text: Some("Use tool".to_string()),
+                tool_calls: Some(vec![tool_call.clone()]),
+                usage: None,
+                thinking: None,
+            },
+            ..ConfigurableLLMProvider::default()
+        });
+
+        let mock = MockAgentImpl::new("exec_tool", "desc");
+        let agent = ReActAgent::new(mock);
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "exec_tool".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+
+        let tool = LocalTool::new("tool_a", serde_json::json!({"ok": true}));
+        let context = Arc::new(
+            Context::new(llm, None)
+                .with_config(config)
+                .with_tools(vec![Box::new(tool)]),
+        );
+        let task = crate::agent::task::Task::new("test");
+
+        let result = agent.execute(&task, context).await.unwrap();
+        assert!(result.done);
+        assert!(!result.tool_calls.is_empty());
+        assert!(result.tool_calls[0].success);
+    }
+
+    #[tokio::test]
+    async fn test_react_agent_execute_stream_text() {
+        use crate::agent::{AgentConfig, Context};
+        use autoagents_protocol::ActorID;
+        use futures::StreamExt;
+
+        let llm = Arc::new(ConfigurableLLMProvider {
+            stream_chunks: vec![
+                StreamChunk::Text("Hello ".to_string()),
+                StreamChunk::Text("world".to_string()),
+                StreamChunk::Done {
+                    stop_reason: "end_turn".to_string(),
+                },
+            ],
+            ..ConfigurableLLMProvider::default()
+        });
+
+        let mock = MockAgentImpl::new("stream_test", "desc");
+        let agent = ReActAgent::new(mock);
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "stream_test".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let task = crate::agent::task::Task::new("test");
+
+        let mut stream = agent.execute_stream(&task, context).await.unwrap();
+        let mut final_output = None;
+        while let Some(item) = stream.next().await {
+            let output = item.unwrap();
+            if output.done {
+                final_output = Some(output);
+                break;
+            }
+        }
+
+        let output = final_output.expect("final output");
+        assert_eq!(output.response, "Hello world");
+        assert!(output.done);
+    }
+
+    #[tokio::test]
+    async fn test_react_agent_execute_stream_tool_results() {
+        use crate::agent::{AgentConfig, Context};
+        use autoagents_protocol::ActorID;
+        use futures::StreamExt;
+
+        let tool_call = ToolCall {
+            id: "call_1".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "tool_a".to_string(),
+                arguments: r#"{"value":1}"#.to_string(),
+            },
+        };
+
+        let llm = Arc::new(ConfigurableLLMProvider {
+            stream_chunks: vec![StreamChunk::ToolUseComplete {
+                index: 0,
+                tool_call: tool_call.clone(),
+            }],
+            ..ConfigurableLLMProvider::default()
+        });
+
+        let mock = MockAgentImpl::new("stream_tool", "desc");
+        let agent = ReActAgent::new(mock);
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "stream_tool".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let tool = LocalTool::new("tool_a", serde_json::json!({"ok": true}));
+        let context = Arc::new(
+            Context::new(llm, None)
+                .with_config(config)
+                .with_tools(vec![Box::new(tool)]),
+        );
+        let task = crate::agent::task::Task::new("test");
+
+        let mut stream = agent.execute_stream(&task, context).await.unwrap();
+        let mut saw_tool_results = false;
+        let mut final_output = None;
+
+        while let Some(item) = stream.next().await {
+            let output = item.unwrap();
+            if !output.tool_calls.is_empty() {
+                saw_tool_results = true;
+                assert!(output.tool_calls[0].success);
+            }
+            if output.done {
+                final_output = Some(output);
+                break;
+            }
+        }
+
+        assert!(saw_tool_results);
+        let output = final_output.expect("final output");
+        assert!(output.done);
+        assert!(!output.tool_calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_react_agent_execute_aborts_on_hook() {
+        use crate::agent::{AgentConfig, Context};
+        use crate::tests::MockLLMProvider;
+        use autoagents_protocol::ActorID;
+
+        let agent = ReActAgent::new(AbortAgent);
+        let llm = Arc::new(MockLLMProvider {});
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "abort_agent".to_string(),
+            description: "abort".to_string(),
+            output_schema: None,
+        };
+        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let task = crate::agent::task::Task::new("abort");
+
+        let err = agent.execute(&task, context).await.unwrap_err();
+        assert!(err.to_string().contains("aborted"));
+    }
+
+    #[tokio::test]
+    async fn test_react_agent_execute_stream_aborts_on_hook() {
+        use crate::agent::{AgentConfig, Context};
+        use crate::tests::MockLLMProvider;
+        use autoagents_protocol::ActorID;
+
+        let agent = ReActAgent::new(AbortAgent);
+        let llm = Arc::new(MockLLMProvider {});
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "abort_agent".to_string(),
+            description: "abort".to_string(),
+            output_schema: None,
+        };
+        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let task = crate::agent::task::Task::new("abort");
+
+        let err = agent.execute_stream(&task, context).await.err().unwrap();
+        assert!(err.to_string().contains("aborted"));
     }
 }

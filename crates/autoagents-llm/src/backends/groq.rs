@@ -164,3 +164,84 @@ impl LLMBuilder<Groq> {
         Ok(Arc::new(groq))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builder::LLMBuilder;
+    use crate::completion::CompletionRequest;
+
+    #[test]
+    fn test_with_config_defaults() {
+        let provider = Groq::with_config(
+            "key",
+            None,
+            None,
+            Some(200),
+            Some(0.5),
+            Some(12),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(provider.api_key, "key");
+        assert_eq!(provider.model, GroqConfig::DEFAULT_MODEL);
+        assert_eq!(provider.max_tokens, Some(200));
+        assert_eq!(provider.temperature, Some(0.5));
+        assert_eq!(provider.timeout_seconds, Some(12));
+    }
+
+    #[tokio::test]
+    async fn test_list_models_missing_key() {
+        let provider = Groq::with_config(
+            "", None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+        );
+        let err = provider.list_models(None).await.unwrap_err();
+        assert!(err.to_string().contains("Missing Groq API key"));
+    }
+
+    #[tokio::test]
+    async fn test_complete_returns_placeholder() {
+        let provider = Groq::with_config(
+            "key", None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None,
+        );
+        let response = provider
+            .complete(
+                &CompletionRequest {
+                    prompt: "hi".to_string(),
+                    max_tokens: None,
+                    temperature: None,
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(response.text.contains("Groq completion not implemented"));
+    }
+
+    #[tokio::test]
+    async fn test_embed_not_supported() {
+        let provider = Groq::with_config(
+            "key", None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None,
+        );
+        let err = provider.embed(vec!["hello".to_string()]).await.unwrap_err();
+        assert!(err.to_string().contains("Embedding not supported"));
+    }
+
+    #[test]
+    fn test_builder_requires_api_key() {
+        let result = LLMBuilder::<Groq>::new().build();
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(err.to_string().contains("No API key provided for Groq"));
+    }
+}

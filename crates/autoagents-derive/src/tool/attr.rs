@@ -87,3 +87,47 @@ impl Parse for ToolAttributes {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use syn::Type;
+
+    #[test]
+    fn test_tool_attributes_parse_success() {
+        let attrs: ToolAttributes =
+            syn::parse_str(r#"name = "lookup", description = "Look up values", input = String"#)
+                .expect("expected attributes to parse");
+
+        assert_eq!(attrs.name.value(), "lookup");
+        assert_eq!(attrs.description.value(), "Look up values");
+
+        match attrs.input {
+            Type::Path(path) => {
+                let ident = &path.path.segments.last().unwrap().ident;
+                assert_eq!(ident, "String");
+            }
+            _ => panic!("Unexpected type parsed"),
+        }
+    }
+
+    #[test]
+    fn test_tool_attributes_missing_field() {
+        let err = match syn::parse_str::<ToolAttributes>(r#"name = "x", input = String"#) {
+            Ok(_) => panic!("expected missing description error"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("Missing attribute: description"));
+    }
+
+    #[test]
+    fn test_tool_attributes_unknown_key() {
+        let err = match syn::parse_str::<ToolAttributes>(
+            r#"name = "x", description = "y", input = String, extra = "nope""#,
+        ) {
+            Ok(_) => panic!("expected unknown key error"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("Unexpected attribute key"));
+    }
+}

@@ -539,3 +539,191 @@ impl HFModels {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gguf_quant_suffixes() {
+        let cases = [
+            (GgufQuant::Q4_K_M, "Q4_K_M"),
+            (GgufQuant::Q4_K_S, "Q4_K_S"),
+            (GgufQuant::Q5_K_M, "Q5_K_M"),
+            (GgufQuant::Q5_K_S, "Q5_K_S"),
+            (GgufQuant::Q8_0, "Q8_0"),
+            (GgufQuant::F16, "F16"),
+            (GgufQuant::F32, "F32"),
+        ];
+        for (quant, expected) in cases {
+            assert_eq!(quant.file_suffix(), expected);
+        }
+    }
+
+    #[test]
+    fn detect_model_type_respects_override() {
+        let source = ModelSource::HuggingFace {
+            repo_id: "org/vision-model".to_string(),
+            revision: None,
+            model_type: ModelType::Text,
+        };
+        assert_eq!(source.detect_model_type(), ModelType::Text);
+    }
+
+    #[test]
+    fn detect_model_type_auto_vision() {
+        let source = ModelSource::HuggingFace {
+            repo_id: "acme/gemma-3-vision".to_string(),
+            revision: None,
+            model_type: ModelType::Auto,
+        };
+        assert_eq!(source.detect_model_type(), ModelType::Vision);
+    }
+
+    #[test]
+    fn hf_models_to_source_and_name() {
+        let hf = HFModels::Phi35MiniInstruct;
+        let source = hf.to_source();
+        assert!(matches!(source, ModelSource::HuggingFace { .. }));
+        assert_eq!(hf.name(), "Phi-3.5-mini-instruct");
+
+        let gguf = HFModels::Phi35MiniInstructGguf {
+            quant: GgufQuant::Q4_K_M,
+            model_dir: "/models".to_string(),
+        };
+        let source = gguf.to_source();
+        match source {
+            ModelSource::Gguf {
+                model_dir, files, ..
+            } => {
+                assert_eq!(model_dir, "/models");
+                assert_eq!(files.len(), 1);
+                assert!(files[0].contains("Q4_K_M"));
+            }
+            _ => panic!("expected GGUF source"),
+        }
+        assert_eq!(gguf.name(), "Phi-3.5-mini-instruct (Q4_K_M)");
+
+        let custom = HFModels::Custom(ModelSource::HuggingFace {
+            repo_id: "org/custom".to_string(),
+            revision: Some("rev".to_string()),
+            model_type: ModelType::Text,
+        });
+        let source = custom.to_source();
+        assert!(matches!(source, ModelSource::HuggingFace { .. }));
+    }
+
+    #[test]
+    fn hf_models_cover_all_variants() {
+        let hf_variants = vec![
+            HFModels::Phi35MiniInstruct,
+            HFModels::Qwen25_05B,
+            HFModels::Qwen25_15B,
+            HFModels::Qwen25_3B,
+            HFModels::Llama32_1B,
+            HFModels::Llama32_3B,
+            HFModels::Mistral7BInstruct,
+            HFModels::SmolLM_135M,
+            HFModels::SmolLM_360M,
+            HFModels::SmolLM_1_7B,
+            HFModels::SmolLM2_1_7B,
+            HFModels::StarCoder2_3B,
+            HFModels::StarCoder2_7B,
+            HFModels::StarCoder2_15B,
+            HFModels::Qwen25Coder_1_5B,
+            HFModels::Qwen25Coder_7B,
+            HFModels::Qwen25Coder_14B,
+            HFModels::Qwen25Coder_32B,
+            HFModels::Gemma_2B,
+            HFModels::Gemma_7B,
+            HFModels::Gemma2_2B,
+            HFModels::Gemma2_9B,
+            HFModels::Gemma2_27B,
+            HFModels::DeepSeekV3,
+            HFModels::DeepSeekV3_1,
+            HFModels::SmolVLM,
+            HFModels::Gemma3_12B,
+            HFModels::Gemma3_27B,
+        ];
+
+        for model in hf_variants {
+            let name = model.name();
+            assert!(!name.is_empty());
+            let source = model.to_source();
+            match source {
+                ModelSource::HuggingFace { repo_id, .. } => {
+                    assert!(!repo_id.is_empty());
+                }
+                ModelSource::Gguf { .. } => {
+                    panic!("expected HuggingFace source for {name}");
+                }
+            }
+        }
+
+        let quantizations = [
+            GgufQuant::Q4_K_M,
+            GgufQuant::Q4_K_S,
+            GgufQuant::Q5_K_M,
+            GgufQuant::Q5_K_S,
+            GgufQuant::Q8_0,
+            GgufQuant::F16,
+            GgufQuant::F32,
+        ];
+
+        for quant in quantizations {
+            let gguf_models = [
+                HFModels::Phi35MiniInstructGguf {
+                    quant,
+                    model_dir: "/models".to_string(),
+                },
+                HFModels::Mistral7BInstructGguf {
+                    quant,
+                    model_dir: "/models".to_string(),
+                },
+                HFModels::Llama32_1BGguf {
+                    quant,
+                    model_dir: "/models".to_string(),
+                },
+                HFModels::Llama32_3BGguf {
+                    quant,
+                    model_dir: "/models".to_string(),
+                },
+            ];
+
+            for model in gguf_models {
+                let name = model.name();
+                assert!(name.contains(quant.file_suffix()));
+                let source = model.to_source();
+                match source {
+                    ModelSource::Gguf {
+                        model_dir, files, ..
+                    } => {
+                        assert_eq!(model_dir, "/models");
+                        assert_eq!(files.len(), 1);
+                        assert!(files[0].contains(quant.file_suffix()));
+                    }
+                    ModelSource::HuggingFace { .. } => {
+                        panic!("expected GGUF source for {name}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn detect_model_type_auto_text_and_vision_keywords() {
+        let text_source = ModelSource::HuggingFace {
+            repo_id: "org/regular-model".to_string(),
+            revision: None,
+            model_type: ModelType::Auto,
+        };
+        assert_eq!(text_source.detect_model_type(), ModelType::Text);
+
+        let vision_source = ModelSource::HuggingFace {
+            repo_id: "acme/llava-1.5".to_string(),
+            revision: None,
+            model_type: ModelType::Auto,
+        };
+        assert_eq!(vision_source.detect_model_type(), ModelType::Vision);
+    }
+}

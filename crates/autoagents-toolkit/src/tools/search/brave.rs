@@ -80,56 +80,105 @@ impl BraveSearch {
     }
 }
 
+fn summarize_payload(payload: &Value) -> Vec<Value> {
+    let raw_results = payload
+        .get("web")
+        .and_then(|web| web.get("results"))
+        .and_then(|results| results.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    raw_results
+        .into_iter()
+        .map(|item| {
+            let title = item
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let link = item
+                .get("url")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+
+            let mut snippet_parts: Vec<String> = Vec::new();
+            if let Some(description) = item.get("description").and_then(Value::as_str)
+                && !description.is_empty()
+            {
+                snippet_parts.push(description.to_string());
+            }
+
+            if let Some(extra_snippets) = item.get("extra_snippets").and_then(Value::as_array) {
+                for snippet in extra_snippets.iter().filter_map(Value::as_str) {
+                    if !snippet.is_empty() {
+                        snippet_parts.push(snippet.to_string());
+                    }
+                }
+            }
+
+            json!({
+                "title": title,
+                "link": link,
+                "snippet": snippet_parts.join(" "),
+            })
+        })
+        .collect()
+}
+
 #[async_trait]
 impl ToolRuntime for BraveSearch {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
         let BraveSearchArgs { query } = serde_json::from_value(args)?;
         let payload = self.fetch_raw_results(&query).await?;
-
-        let raw_results = payload
-            .get("web")
-            .and_then(|web| web.get("results"))
-            .and_then(|results| results.as_array())
-            .cloned()
-            .unwrap_or_default();
-
-        let summarized_results = raw_results
-            .into_iter()
-            .map(|item| {
-                let title = item
-                    .get("title")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                let link = item
-                    .get("url")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-
-                let mut snippet_parts: Vec<String> = Vec::new();
-                if let Some(description) = item.get("description").and_then(Value::as_str)
-                    && !description.is_empty()
-                {
-                    snippet_parts.push(description.to_string());
-                }
-
-                if let Some(extra_snippets) = item.get("extra_snippets").and_then(Value::as_array) {
-                    for snippet in extra_snippets.iter().filter_map(Value::as_str) {
-                        if !snippet.is_empty() {
-                            snippet_parts.push(snippet.to_string());
-                        }
-                    }
-                }
-
-                json!({
-                    "title": title,
-                    "link": link,
-                    "snippet": snippet_parts.join(" "),
-                })
-            })
-            .collect::<Vec<Value>>();
-
+        let summarized_results = summarize_payload(&payload);
         Ok(Value::Array(summarized_results))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_summarize_payload_with_snippets() {
+        let payload = json!({
+            "web": {
+                "results": [
+                    {
+                        "title": "Example",
+                        "url": "https://example.com",
+                        "description": "Primary snippet.",
+                        "extra_snippets": ["Extra one", "", "Extra two"]
+                    },
+                    {
+                        "title": "Second",
+                        "url": "https://second.example",
+                        "extra_snippets": ["", ""]
+                    }
+                ]
+            }
+        });
+
+        let summarized = summarize_payload(&payload);
+        assert_eq!(summarized.len(), 2);
+        assert_eq!(summarized[0]["title"], "Example");
+        assert_eq!(summarized[0]["link"], "https://example.com");
+        assert_eq!(
+            summarized[0]["snippet"],
+            "Primary snippet. Extra one Extra two"
+        );
+        assert_eq!(summarized[1]["snippet"], "");
+    }
+
+    #[test]
+    fn test_summarize_payload_empty_results() {
+        let payload = json!({ "web": { "results": [] } });
+        let summarized = summarize_payload(&payload);
+        assert!(summarized.is_empty());
+
+        let payload = json!({ "web": {} });
+        let summarized = summarize_payload(&payload);
+        assert!(summarized.is_empty());
     }
 }

@@ -32,3 +32,21 @@ pub(crate) fn wolfram_input_url(input: &str) -> Result<String, ToolCallError> {
 
     Ok(url.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wolfram_input_url_encodes_query() {
+        let url = wolfram_input_url("2+2").expect("should build url");
+        assert!(url.starts_with("https://www.wolframalpha.com/input?"));
+        assert!(url.contains("i=2%2B2"));
+    }
+
+    #[test]
+    fn test_wolfram_input_url_handles_spaces() {
+        let url = wolfram_input_url("mass of moon").expect("should build url");
+        assert!(url.contains("i=mass+of+moon"));
+    }
+}

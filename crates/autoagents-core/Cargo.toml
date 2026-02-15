@@ -44,5 +44,5 @@ getrandom = { workspace = true, features = ["wasm_js"] }
 uuid = { workspace = true, features = ["serde", "v4", "js"] }
 
 [dev-dependencies]
-autoagents-test-utils = { workspace = true }
 tempfile = "3.25.0"
+wat = "1"

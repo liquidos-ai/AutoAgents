@@ -3,7 +3,7 @@ use autoagents::{
     core::tool::{ToolCallError, ToolRuntime, ToolT},
 };
 use rmcp::{
-    model::{CallToolRequestParam, CallToolResult, ClientInfo, Tool as McpTool},
+    model::{CallToolRequestParams, CallToolResult, ClientInfo, Tool as McpTool},
     service::{RoleClient, RunningService},
 };
 use serde_json::{Value, json};
@@ -77,16 +77,18 @@ impl ToolRuntime for McpToolAdapter {
         };
 
         // Prepare the call tool request
-        let request = CallToolRequestParam {
+        let request = CallToolRequestParams {
+            meta: None,
             name: self.name.clone().into(),
             arguments,
+            task: None,
         };
 
         // Execute the tool via MCP
         match self.service.call_tool(request).await {
             Ok(result) => {
                 // Convert MCP result to our format
-                self.convert_mcp_result(result)
+                convert_mcp_result(result)
             }
             Err(e) => {
                 log::error!("MCP tool execution failed for {}: {:?}", self.name, e);
@@ -98,64 +100,62 @@ impl ToolRuntime for McpToolAdapter {
     }
 }
 
-impl McpToolAdapter {
-    /// Convert MCP CallToolResult to AutoAgents Value format
-    fn convert_mcp_result(&self, result: CallToolResult) -> Result<Value, ToolCallError> {
-        if result.is_error.unwrap_or(false) {
-            // Handle error case
-            let error_msg = result
-                .content
-                .first()
-                .and_then(|c| {
-                    // Try to extract text from content
-                    // Since the content structure may vary, we'll be flexible
-                    match serde_json::to_value(&c.raw) {
-                        Ok(val) => {
-                            // Try to extract text field from the serialized content
-                            val.get("text")
-                                .and_then(|t| t.as_str())
-                                .map(|s| s.to_string())
-                        }
-                        Err(_) => None,
+/// Convert MCP CallToolResult to AutoAgents Value format
+fn convert_mcp_result(result: CallToolResult) -> Result<Value, ToolCallError> {
+    if result.is_error.unwrap_or(false) {
+        // Handle error case
+        let error_msg = result
+            .content
+            .first()
+            .and_then(|c| {
+                // Try to extract text from content
+                // Since the content structure may vary, we'll be flexible
+                match serde_json::to_value(&c.raw) {
+                    Ok(val) => {
+                        // Try to extract text field from the serialized content
+                        val.get("text")
+                            .and_then(|t| t.as_str())
+                            .map(|s| s.to_string())
                     }
-                })
-                .unwrap_or_else(|| "Unknown MCP error".to_string());
+                    Err(_) => None,
+                }
+            })
+            .unwrap_or_else(|| "Unknown MCP error".to_string());
 
-            return Err(ToolCallError::RuntimeError(
-                format!("MCP tool error: {}", error_msg).into(),
-            ));
-        }
+        return Err(ToolCallError::RuntimeError(
+            format!("MCP tool error: {}", error_msg).into(),
+        ));
+    }
 
-        // Convert successful result
-        let mut result_data = HashMap::new();
+    // Convert successful result
+    let mut result_data = HashMap::new();
 
-        // Extract content from the result
-        if !result.content.is_empty() {
-            let mut contents = Vec::new();
-            for content in &result.content {
-                // Serialize the raw content to JSON for flexible handling
-                match serde_json::to_value(&content.raw) {
-                    Ok(content_json) => {
-                        contents.push(content_json);
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to serialize MCP content: {}", e);
-                        // Fallback to a simple representation
-                        contents.push(json!({
-                            "type": "unknown",
-                            "error": format!("Serialization failed: {}", e)
-                        }));
-                    }
+    // Extract content from the result
+    if !result.content.is_empty() {
+        let mut contents = Vec::new();
+        for content in &result.content {
+            // Serialize the raw content to JSON for flexible handling
+            match serde_json::to_value(&content.raw) {
+                Ok(content_json) => {
+                    contents.push(content_json);
+                }
+                Err(e) => {
+                    log::warn!("Failed to serialize MCP content: {}", e);
+                    // Fallback to a simple representation
+                    contents.push(json!({
+                        "type": "unknown",
+                        "error": format!("Serialization failed: {}", e)
+                    }));
                 }
             }
-            result_data.insert("content", json!(contents));
         }
-
-        // Add success indicator
-        result_data.insert("success", json!(true));
-
-        Ok(json!(result_data))
+        result_data.insert("content", json!(contents));
     }
+
+    // Add success indicator
+    result_data.insert("success", json!(true));
+
+    Ok(json!(result_data))
 }
 
 /// Wrapper to allow Arc<dyn ToolT> to be used as Box<dyn ToolT>
@@ -190,5 +190,63 @@ impl ToolT for McpToolWrapper {
 impl ToolRuntime for McpToolWrapper {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
         self.tool.execute(args).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use autoagents::core::tool::{ToolCallError, ToolRuntime, ToolT};
+    use rmcp::model::{CallToolResult, Content};
+    use serde_json::json;
+
+    #[derive(Debug)]
+    struct DummyTool;
+
+    impl ToolT for DummyTool {
+        fn name(&self) -> &str {
+            "dummy"
+        }
+
+        fn description(&self) -> &str {
+            "dummy tool"
+        }
+
+        fn args_schema(&self) -> Value {
+            json!({"type": "object"})
+        }
+    }
+
+    #[autoagents::async_trait]
+    impl ToolRuntime for DummyTool {
+        async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
+            Ok(args)
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mcp_tool_wrapper_delegates() {
+        let wrapper = McpToolWrapper::new(Arc::new(DummyTool));
+        assert_eq!(wrapper.name(), "dummy");
+        assert_eq!(wrapper.description(), "dummy tool");
+        assert_eq!(wrapper.args_schema(), json!({"type": "object"}));
+
+        let result = wrapper.execute(json!({"ok": true})).await.unwrap();
+        assert_eq!(result, json!({"ok": true}));
+    }
+
+    #[test]
+    fn test_convert_mcp_result_success() {
+        let result = CallToolResult::success(vec![Content::text("ok".to_string())]);
+        let value = convert_mcp_result(result).unwrap();
+        assert!(matches!(value["success"].as_bool(), Some(true)));
+        assert!(value["content"].is_array());
+    }
+
+    #[test]
+    fn test_convert_mcp_result_error() {
+        let result = CallToolResult::error(vec![Content::text("failed".to_string())]);
+        let err = convert_mcp_result(result).unwrap_err();
+        assert!(err.to_string().contains("MCP tool error"));
     }
 }

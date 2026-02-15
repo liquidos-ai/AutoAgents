@@ -26,7 +26,7 @@ jobs:
       fail-fast: false
       matrix:
         features:
-          - openai
+          - full #This will test all the LLM Providers
 
     steps:
       - name: Checkout
@@ -54,7 +54,12 @@ jobs:
           fi
 
       - name: Run tests
-        run: cargo test --workspace --features default --exclude autoagents-mistral-rs --exclude wasm_agent
+        run: |
+          if [ -z "${{ matrix.features }}" ]; then
+            cargo test --features default --workspace --exclude autoagents-mistral-rs
+          else
+            cargo test --workspace --features "${{ matrix.features }}" --exclude autoagents-mistral-rs
+          fi
 
       - name: Run cargo check
         run: cargo check --all-targets --no-default-features

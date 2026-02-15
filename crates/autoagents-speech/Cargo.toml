@@ -10,6 +10,7 @@ categories.workspace = true
 
 [features]
 default = []
+full = ["pocket-tts", "playback"]
 pocket-tts = ["dep:pocket-tts", "dep:candle-core", "dep:uuid", "dep:anyhow", "dep:tokio-stream"]
 playback = ["dep:rodio"]
 

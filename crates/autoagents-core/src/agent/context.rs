@@ -139,73 +139,36 @@ impl Context {
 mod tests {
     use super::*;
     use crate::agent::memory::SlidingWindowMemory;
+    use crate::tests::MockLLMProvider;
     use autoagents_llm::chat::{ChatMessage, ChatMessageBuilder, ChatRole};
-    use autoagents_test_utils::llm::MockLLMProvider;
     use std::sync::Arc;
-
-    #[test]
-    fn test_context_creation() {
-        let llm = Arc::new(MockLLMProvider);
-        let context = Context::new(llm, None);
-
-        assert!(context.messages.is_empty());
-        assert!(context.memory.is_none());
-        assert!(context.tools.is_empty());
-        assert!(!context.stream);
-    }
-
-    #[test]
-    fn test_context_with_llm_provider() {
-        let llm = Arc::new(MockLLMProvider);
-        let context = Context::new(llm.clone(), None);
-
-        // Verify the LLM provider is set correctly
-        let context_llm = context.llm();
-        assert!(Arc::strong_count(context_llm) > 0);
-    }
 
     #[test]
     fn test_context_with_memory() {
         let llm = Arc::new(MockLLMProvider);
         let memory = Box::new(SlidingWindowMemory::new(5));
-        let context = Context::new(llm, None).with_memory(Some(Arc::new(Mutex::new(memory))));
-
-        assert!(context.memory().is_some());
-    }
-
-    #[test]
-    fn test_context_with_messages() {
-        let llm = Arc::new(MockLLMProvider);
         let message = ChatMessage::user().content("Hello".to_string()).build();
-        let context = Context::new(llm, None).with_messages(vec![message]);
-
-        assert_eq!(context.messages().len(), 1);
-        assert_eq!(context.messages()[0].role, ChatRole::User);
-        assert_eq!(context.messages()[0].content, "Hello");
-    }
-
-    #[test]
-    fn test_context_streaming_flag() {
-        let llm = Arc::new(MockLLMProvider);
-        let context = Context::new(llm, None).with_stream(true);
-        assert!(context.stream());
-    }
-
-    #[test]
-    fn test_context_fluent_interface() {
-        let llm = Arc::new(MockLLMProvider);
-        let memory = Box::new(SlidingWindowMemory::new(3));
-        let message = ChatMessageBuilder::new(ChatRole::System)
+        let system_message = ChatMessageBuilder::new(ChatRole::System)
             .content("System prompt".to_string())
             .build();
 
         let context = Context::new(llm, None)
             .with_memory(Some(Arc::new(Mutex::new(memory))))
-            .with_messages(vec![message])
+            .with_messages(vec![message, system_message])
             .with_stream(true);
 
         assert!(context.memory().is_some());
-        assert_eq!(context.messages().len(), 1);
+        assert_eq!(context.messages().len(), 2);
+        assert_eq!(context.messages()[0].role, ChatRole::User);
+        assert_eq!(context.messages()[0].content, "Hello");
         assert!(context.stream());
+    }
+
+    #[test]
+    fn test_context_tx_missing_returns_error() {
+        let llm = Arc::new(MockLLMProvider);
+        let context = Context::new(llm, None);
+        let err = context.tx().unwrap_err();
+        assert!(matches!(err, ContextError::EmptyTx));
     }
 }

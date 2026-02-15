@@ -1139,7 +1139,7 @@ impl LLMBuilder<Anthropic> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::FunctionTool;
+    use crate::chat::{FunctionTool, ImageMime};
 
     #[test]
     fn test_parse_stream_text_delta() {
@@ -1445,6 +1445,30 @@ data: {"type": "ping"}
     }
 
     #[test]
+    fn test_convert_messages_to_anthropic_tool_use_parses_input() {
+        let msg = ChatMessage {
+            role: ChatRole::Assistant,
+            message_type: MessageType::ToolUse(vec![ToolCall {
+                id: "tool_call".to_string(),
+                call_type: "function".to_string(),
+                function: FunctionCall {
+                    name: "lookup".to_string(),
+                    arguments: "{\"q\":\"value\"}".to_string(),
+                },
+            }]),
+            content: "call".to_string(),
+        };
+
+        let messages = [msg];
+        let converted = Anthropic::convert_messages_to_anthropic(&messages);
+        let content = &converted[0].content[0];
+        assert_eq!(content.message_type, Some("tool_use"));
+        assert_eq!(content.tool_use_id.as_deref(), Some("tool_call"));
+        assert_eq!(content.tool_name.as_deref(), Some("lookup"));
+        assert_eq!(content.tool_input, Some(serde_json::json!({"q": "value"})));
+    }
+
+    #[test]
     fn test_prepare_tools_and_choice_auto() {
         let tool = Tool {
             tool_type: "function".to_string(),
@@ -1465,27 +1489,66 @@ data: {"type": "ping"}
     }
 
     #[test]
-    fn test_anthropic_complete_response_helpers() {
-        let response = AnthropicCompleteResponse {
-            content: vec![AnthropicContent {
-                text: Some("hi".to_string()),
-                content_type: Some("text".to_string()),
-                thinking: None,
-                name: None,
-                input: None,
-                id: None,
-            }],
-            usage: Some(AnthropicUsage {
-                input_tokens: 1,
-                output_tokens: 2,
-                cache_creation_input_tokens: None,
-                cache_read_input_tokens: None,
-            }),
+    fn test_prepare_tools_and_choice_specific_tool() {
+        let tool = Tool {
+            tool_type: "function".to_string(),
+            function: FunctionTool {
+                name: "lookup".to_string(),
+                description: "desc".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": { "q": { "type": "string" } }
+                }),
+            },
+        };
+        let tools_list = [tool];
+        let (tools, choice) = Anthropic::prepare_tools_and_choice(
+            Some(&tools_list),
+            &Some(ToolChoice::Tool("lookup".to_string())),
+        );
+        assert!(tools.is_some());
+        let choice = choice.unwrap();
+        assert_eq!(choice.get("type"), Some(&"tool".to_string()));
+        assert_eq!(choice.get("name"), Some(&"lookup".to_string()));
+    }
+
+    #[test]
+    fn test_prepare_tools_and_choice_ignored_without_tools() {
+        let (tools, choice) = Anthropic::prepare_tools_and_choice(None, &Some(ToolChoice::Auto));
+        assert!(tools.is_none());
+        assert!(choice.is_none());
+    }
+
+    #[test]
+    fn test_convert_messages_to_anthropic_image_and_pdf() {
+        let image = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Image((ImageMime::PNG, vec![1, 2, 3])),
+            content: "img".to_string(),
+        };
+        let pdf = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Pdf(vec![9, 8, 7]),
+            content: "doc".to_string(),
         };
 
-        assert_eq!(response.text(), Some("hi".to_string()));
-        assert_eq!(response.usage().unwrap().total_tokens, 3);
-        assert!(format!("{response}").contains("hi"));
+        let messages = [image, pdf];
+        let converted = Anthropic::convert_messages_to_anthropic(&messages);
+        assert_eq!(converted.len(), 2);
+
+        let image_content = &converted[0].content[0];
+        assert_eq!(image_content.message_type, Some("image"));
+        assert_eq!(
+            image_content.source.as_ref().expect("source").media_type,
+            "image/png"
+        );
+
+        let pdf_content = &converted[1].content[0];
+        assert_eq!(pdf_content.message_type, Some("document"));
+        assert_eq!(
+            pdf_content.source.as_ref().expect("source").media_type,
+            "application/pdf"
+        );
     }
 
     #[test]

@@ -9,7 +9,7 @@ pre-commit:
       run: cargo clippy --workspace --all-targets -- -D warnings
 
     test:
-      run: cargo test --features default --workspace --exclude autoagents-mistral-rs #TODO: Better job at enabling device specific features for test
+      run: cargo test --features "full" --workspace
 
     check:
       run: cargo check --all-features --all-targets

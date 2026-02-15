@@ -226,3 +226,70 @@ impl InputParser {
         Ok(attributes)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_input_struct_required_and_optional_fields() {
+        let input: DeriveInput = syn::parse_str(
+            r#"
+            struct ToolArgs {
+                #[input(description = "Id")]
+                id: String,
+                #[input(description = "Count")]
+                count: Option<u32>,
+                #[input(description = "Mode", choice = ["fast", "slow"])]
+                mode: String,
+            }
+            "#,
+        )
+        .unwrap();
+
+        let mut parser = InputParser::default();
+        parser.parse_data(input.data).unwrap();
+
+        assert_eq!(parser.tool_parse_data.arg_type, "object");
+        assert!(parser.tool_parse_data.required.contains(&"id".to_string()));
+        assert!(
+            !parser
+                .tool_parse_data
+                .required
+                .contains(&"count".to_string())
+        );
+
+        let mode = parser.tool_parse_data.properties.get("mode").unwrap();
+        assert_eq!(mode._type, "string");
+        assert_eq!(mode._enum.as_ref().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn missing_input_attribute_errors() {
+        let input: DeriveInput = syn::parse_str(
+            r#"
+            struct ToolArgs {
+                id: String,
+            }
+            "#,
+        )
+        .unwrap();
+        let mut parser = InputParser::default();
+        let err = parser.parse_data(input.data).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Coudn't Create the tool arg property")
+        );
+    }
+
+    #[test]
+    fn tuple_struct_errors() {
+        let input: DeriveInput = syn::parse_str(r#"struct ToolArgs(u32);"#).unwrap();
+        let mut parser = InputParser::default();
+        let err = parser.parse_data(input.data).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Uninon or Enums not yet supported")
+        );
+    }
+}

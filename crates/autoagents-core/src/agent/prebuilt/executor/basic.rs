@@ -350,43 +350,40 @@ fn extract_turn_output(
 mod tests {
     use super::*;
     use crate::agent::AgentDeriveT;
-    use crate::tests::agent::MockAgentImpl;
-    use autoagents_test_utils::llm::MockLLMProvider;
+    use crate::tests::{ConfigurableLLMProvider, MockAgentImpl, MockLLMProvider, TestAgentOutput};
+    use async_trait::async_trait;
+    use autoagents_llm::chat::{StreamChoice, StreamDelta, StreamResponse};
     use std::sync::Arc;
 
-    #[test]
-    fn test_basic_agent_creation() {
-        let mock_agent = MockAgentImpl::new("test_agent", "Test agent description");
-        let basic_agent = BasicAgent::new(mock_agent);
+    #[derive(Debug, Clone)]
+    struct AbortAgent;
 
-        assert_eq!(basic_agent.name(), "test_agent");
-        assert_eq!(basic_agent.description(), "Test agent description");
+    #[async_trait]
+    impl AgentDeriveT for AbortAgent {
+        type Output = TestAgentOutput;
+
+        fn description(&self) -> &str {
+            "abort"
+        }
+
+        fn output_schema(&self) -> Option<Value> {
+            None
+        }
+
+        fn name(&self) -> &str {
+            "abort_agent"
+        }
+
+        fn tools(&self) -> Vec<Box<dyn ToolT>> {
+            vec![]
+        }
     }
 
-    #[test]
-    fn test_basic_agent_clone() {
-        let mock_agent = MockAgentImpl::new("test_agent", "Test agent description");
-        let basic_agent = BasicAgent::new(mock_agent);
-        let cloned_agent = basic_agent.clone();
-
-        assert_eq!(cloned_agent.name(), "test_agent");
-        assert_eq!(cloned_agent.description(), "Test agent description");
-    }
-
-    #[test]
-    fn test_basic_agent_output_conversions() {
-        let output = BasicAgentOutput {
-            response: "Test response".to_string(),
-            done: true,
-        };
-
-        // Test conversion to Value
-        let value: Value = output.clone().into();
-        assert!(value.is_object());
-
-        // Test conversion to String
-        let string: String = output.into();
-        assert_eq!(string, "Test response");
+    #[async_trait]
+    impl AgentHooks for AbortAgent {
+        async fn on_run_start(&self, _task: &Task, _ctx: &Context) -> HookOutcome {
+            HookOutcome::Abort
+        }
     }
 
     #[tokio::test]
@@ -419,12 +416,25 @@ mod tests {
     }
 
     #[test]
-    fn test_executor_config() {
+    fn test_basic_agent_metadata_and_output_conversion() {
         let mock_agent = MockAgentImpl::new("test_agent", "Test agent description");
         let basic_agent = BasicAgent::new(mock_agent);
 
         let config = basic_agent.config();
         assert_eq!(config.max_turns, 1);
+
+        let cloned = basic_agent.clone();
+        assert_eq!(cloned.name(), "test_agent");
+        assert_eq!(cloned.description(), "Test agent description");
+
+        let output = BasicAgentOutput {
+            response: "Test response".to_string(),
+            done: true,
+        };
+        let value: Value = output.clone().into();
+        assert_eq!(value["response"], "Test response");
+        let string: String = output.into();
+        assert_eq!(string, "Test response");
     }
 
     #[test]
@@ -529,5 +539,101 @@ mod tests {
         let output = extract_turn_output(result);
         assert!(output.response.is_empty());
         assert!(output.tool_calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_basic_agent_execute_stream_returns_output() {
+        use crate::agent::{AgentConfig, Context};
+        use autoagents_protocol::ActorID;
+        use futures::StreamExt;
+
+        let llm = Arc::new(ConfigurableLLMProvider {
+            structured_stream: vec![
+                StreamResponse {
+                    choices: vec![StreamChoice {
+                        delta: StreamDelta {
+                            content: Some("Hello ".to_string()),
+                            tool_calls: None,
+                        },
+                    }],
+                    usage: None,
+                },
+                StreamResponse {
+                    choices: vec![StreamChoice {
+                        delta: StreamDelta {
+                            content: Some("world".to_string()),
+                            tool_calls: None,
+                        },
+                    }],
+                    usage: None,
+                },
+            ],
+            ..ConfigurableLLMProvider::default()
+        });
+
+        let mock_agent = MockAgentImpl::new("stream_agent", "desc");
+        let basic_agent = BasicAgent::new(mock_agent);
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "stream_agent".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let task = Task::new("Test task");
+
+        let mut stream = basic_agent.execute_stream(&task, context).await.unwrap();
+        let mut final_output = None;
+        while let Some(item) = stream.next().await {
+            let output = item.unwrap();
+            if output.done {
+                final_output = Some(output);
+                break;
+            }
+        }
+
+        let output = final_output.expect("final output");
+        assert_eq!(output.response, "Hello world");
+        assert!(output.done);
+    }
+
+    #[tokio::test]
+    async fn test_basic_agent_execute_aborts_on_hook() {
+        use crate::agent::{AgentConfig, Context};
+        use autoagents_protocol::ActorID;
+
+        let agent = BasicAgent::new(AbortAgent);
+        let llm = Arc::new(MockLLMProvider {});
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "abort_agent".to_string(),
+            description: "abort".to_string(),
+            output_schema: None,
+        };
+        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let task = Task::new("abort");
+
+        let err = agent.execute(&task, context).await.unwrap_err();
+        assert!(err.to_string().contains("aborted"));
+    }
+
+    #[tokio::test]
+    async fn test_basic_agent_execute_stream_aborts_on_hook() {
+        use crate::agent::{AgentConfig, Context};
+        use autoagents_protocol::ActorID;
+
+        let agent = BasicAgent::new(AbortAgent);
+        let llm = Arc::new(MockLLMProvider {});
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "abort_agent".to_string(),
+            description: "abort".to_string(),
+            output_schema: None,
+        };
+        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let task = Task::new("abort");
+
+        let err = agent.execute_stream(&task, context).await.err().unwrap();
+        assert!(err.to_string().contains("aborted"));
     }
 }

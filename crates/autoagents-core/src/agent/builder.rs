@@ -69,18 +69,7 @@ mod tests {
     use super::*;
     use crate::actor::Topic;
     use crate::agent::task::Task;
-    use crate::tests::agent::MockAgentImpl;
-
-    #[test]
-    fn test_agent_builder_with_subscribe_topic() {
-        let mock_agent = MockAgentImpl::new("topic_agent", "test topic agent");
-        let topic = Topic::<Task>::new("test_topic");
-
-        let builder = AgentBuilder::new(mock_agent).subscribe(topic);
-
-        assert_eq!(builder.subscribed_topics.len(), 1);
-        assert_eq!(builder.subscribed_topics[0].name(), "test_topic");
-    }
+    use crate::tests::MockAgentImpl;
 
     #[test]
     fn test_agent_builder_multiple_topics() {

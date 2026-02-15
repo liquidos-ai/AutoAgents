@@ -10,7 +10,6 @@ This page maps the crates (excluding the CLI and Serve crates) and how they comp
 - `autoagents-toolkit`: Shared, reusable tools and MCP helpers. Feature-gated (`filesystem`, `search`, `mcp`) so downstream crates only pull what they need.
 - `autoagents-qdrant`: Vector store implementation backed by Qdrant. Implements the `VectorStoreIndex` trait from `autoagents-core` and depends on an embedding provider via `SharedEmbeddingProvider`.
 - Inference crates (optional): `autoagents-onnx`, `autoagents-burn`, and `autoagents-mistral-rs` provide local/runtime-specific inference backends. They plug into the LLM traits but are isolated to keep the core light.
-- `autoagents-test-utils`: Shared fixtures and helpers for integration tests across crates.
 - `examples/*`: Runnable end-to-end examples that demonstrate wiring agents, executors, and providers; each example is its own crate to keep dependencies scoped.
 
 ## Layering and Dependencies

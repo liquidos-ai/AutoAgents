@@ -173,13 +173,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_text_embedder_default() {
-        let embedder = TextEmbedder::default();
-        assert!(embedder.is_empty());
-        assert_eq!(embedder.len(), 0);
-    }
-
-    #[test]
     fn test_text_embedder_embed_and_parts() {
         let mut embedder = TextEmbedder::default();
         embedder.embed("hello");
@@ -187,25 +180,6 @@ mod tests {
         assert_eq!(embedder.len(), 2);
         assert!(!embedder.is_empty());
         assert_eq!(embedder.parts(), &["hello", "world"]);
-    }
-
-    #[test]
-    fn test_text_embedder_into_parts() {
-        let mut embedder = TextEmbedder::default();
-        embedder.embed("a");
-        embedder.embed("b");
-        let parts = embedder.into_parts();
-        assert_eq!(parts, vec!["a", "b"]);
-    }
-
-    #[test]
-    fn test_embedding_creation() {
-        let e = Embedding {
-            document: "doc".to_string(),
-            vec: vec![1.0, 0.0, 0.0].into(),
-        };
-        assert_eq!(e.document, "doc");
-        assert_eq!(e.vec.len(), 3);
     }
 
     #[test]
@@ -236,18 +210,9 @@ mod tests {
         assert!(sim.abs() < 1e-6);
     }
 
-    #[test]
-    fn test_embed_trait_for_string() {
-        let s = "hello world".to_string();
-        let mut embedder = TextEmbedder::default();
-        s.embed(&mut embedder).unwrap();
-        assert_eq!(embedder.len(), 1);
-        assert_eq!(embedder.parts()[0], "hello world");
-    }
-
     #[tokio::test]
     async fn test_embeddings_builder_empty_error() {
-        use autoagents_test_utils::llm::MockLLMProvider;
+        use crate::tests::MockLLMProvider;
         let provider: SharedEmbeddingProvider = Arc::new(MockLLMProvider {});
         let builder = EmbeddingsBuilder::<String>::new(provider);
         let result = builder.build().await;
@@ -256,7 +221,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_embeddings_builder_success() {
-        use autoagents_test_utils::llm::MockLLMProvider;
+        use crate::tests::MockLLMProvider;
         let provider: SharedEmbeddingProvider = Arc::new(MockLLMProvider {});
         let result = EmbeddingsBuilder::new(provider)
             .documents(vec!["hello".to_string()])
@@ -271,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_embeddings_builder_documents_empty_error() {
-        use autoagents_test_utils::llm::MockLLMProvider;
+        use crate::tests::MockLLMProvider;
         let provider: SharedEmbeddingProvider = Arc::new(MockLLMProvider {});
         let result = EmbeddingsBuilder::<String>::new(provider).documents(Vec::<String>::new());
         assert!(result.is_err());

@@ -219,3 +219,68 @@ impl LLMBuilder<DeepSeek> {
         Ok(Arc::new(deepseek))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builder::LLMBuilder;
+    use crate::completion::CompletionRequest;
+
+    #[test]
+    fn test_new_defaults() {
+        let client = DeepSeek::new("key", None, None, None, None);
+        assert_eq!(client.api_key(), "key");
+        assert_eq!(client.model(), "deepseek-chat");
+    }
+
+    #[test]
+    fn test_new_with_options_overrides() {
+        let client = DeepSeek::new_with_options(
+            "key",
+            Some("https://example.com/v9/".to_string()),
+            Some("custom".to_string()),
+            Some(111),
+            Some(0.3),
+            Some(9),
+            Some(0.8),
+            None,
+        );
+        assert_eq!(client.provider.model, "custom");
+        assert_eq!(client.provider.base_url.as_str(), "https://example.com/v9/");
+        assert_eq!(client.provider.max_tokens, Some(111));
+        assert_eq!(client.provider.temperature, Some(0.3));
+        assert_eq!(client.provider.top_p, Some(0.8));
+    }
+
+    #[tokio::test]
+    async fn test_complete_missing_key() {
+        let client = DeepSeek::new("", None, None, None, None);
+        let err = client
+            .complete(
+                &CompletionRequest {
+                    prompt: "hi".to_string(),
+                    max_tokens: None,
+                    temperature: None,
+                },
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("Missing DeepSeek API key"));
+    }
+
+    #[tokio::test]
+    async fn test_embed_not_supported() {
+        let client = DeepSeek::new("key", None, None, None, None);
+        let err = client.embed(vec!["hello".to_string()]).await.unwrap_err();
+        assert!(err.to_string().contains("Embedding not supported"));
+    }
+
+    #[test]
+    fn test_builder_requires_api_key() {
+        let result = LLMBuilder::<DeepSeek>::new().build();
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(err.to_string().contains("No API key provided"));
+    }
+}

@@ -171,6 +171,8 @@ pub(crate) fn build_openai_messages_json(
 mod tests {
     use super::*;
     use autoagents_llm::chat::ChatMessage;
+    use autoagents_llm::{FunctionCall, ToolCall};
+    use serde_json::Value;
 
     #[test]
     fn test_fallback_prompt() {
@@ -178,5 +180,70 @@ mod tests {
         let prompt = build_fallback_prompt(&messages);
         assert!(prompt.contains("User: Hello"));
         assert!(prompt.contains("Assistant:"));
+    }
+
+    #[test]
+    fn test_convert_content_with_media_and_tools() {
+        let image = ChatMessage::user()
+            .content("caption")
+            .image_url("http://example.com/img.png")
+            .build();
+        let pdf = ChatMessage::user()
+            .content("document")
+            .pdf(vec![1, 2, 3])
+            .build();
+        let tool_call = ToolCall {
+            id: "tool_1".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "do_work".to_string(),
+                arguments: "{\"x\":1}".to_string(),
+            },
+        };
+        let tool_use = ChatMessage::assistant()
+            .content("Calling tool")
+            .tool_use(vec![tool_call.clone()])
+            .build();
+        let tool_result = ChatMessage::assistant()
+            .content("Tool result")
+            .tool_result(vec![tool_call])
+            .build();
+
+        assert!(convert_content(&image).contains("[Image URL: http://example.com/img.png]"));
+        assert!(convert_content(&pdf).contains("[PDF Document] document"));
+        let tool_use_content = convert_content(&tool_use);
+        assert!(tool_use_content.contains("Tool: do_work"));
+        let tool_result_content = convert_content(&tool_result);
+        assert!(tool_result_content.contains("Tool Result: do_work"));
+    }
+
+    #[test]
+    fn test_build_openai_messages_json_with_tools() {
+        let tool_call = ToolCall {
+            id: "tool_1".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "do_work".to_string(),
+                arguments: "{\"x\":1}".to_string(),
+            },
+        };
+        let tool_use = ChatMessage::assistant()
+            .content("Calling tool")
+            .tool_use(vec![tool_call.clone()])
+            .build();
+        let tool_result = ChatMessage::assistant()
+            .content("Tool result")
+            .tool_result(vec![tool_call])
+            .build();
+
+        let json = build_openai_messages_json(&[tool_use, tool_result]).unwrap();
+        let value: Value = serde_json::from_str(&json).unwrap();
+        let arr = value.as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["role"], "assistant");
+        assert!(arr[0]["tool_calls"].is_array());
+        assert_eq!(arr[1]["role"], "tool");
+        assert_eq!(arr[1]["tool_call_id"], "tool_1");
+        assert_eq!(arr[1]["content"], "{\"x\":1}");
     }
 }

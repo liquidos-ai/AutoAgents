@@ -51,7 +51,10 @@ pub struct WolframAlphaShortAnswer {
 
 impl Default for WolframAlphaShortAnswer {
     fn default() -> Self {
-        Self::new_with_app_id(wolfram_app_id())
+        Self {
+            app_id: wolfram_app_id(),
+            client: Client::new(),
+        }
     }
 }
 
@@ -97,32 +100,40 @@ impl WolframAlphaShortAnswer {
             .await
             .map_err(|err| ToolCallError::RuntimeError(Box::new(err)))?;
 
-        if !status.is_success() {
-            if status.as_u16() == 401 || status.as_u16() == 403 {
-                return Err(ToolCallError::RuntimeError(
-                    format!(
-                        "Wolfram|Alpha Short Answer API unauthorized ({}). Check WOLFRAM_ALPHA_APP_ID/WOLFRAM_APP_ID and that the key allows Short Answers. Body: {}",
-                        status, body
-                    )
-                    .into(),
-                ));
-            }
+        handle_response(status, body, query)
+    }
+}
+
+fn handle_response(
+    status: reqwest::StatusCode,
+    body: String,
+    query: &str,
+) -> Result<Value, ToolCallError> {
+    if !status.is_success() {
+        if status.as_u16() == 401 || status.as_u16() == 403 {
             return Err(ToolCallError::RuntimeError(
                 format!(
-                    "Wolfram|Alpha Short Answer API returned status {} with body: {}",
+                    "Wolfram|Alpha Short Answer API unauthorized ({}). Check WOLFRAM_ALPHA_APP_ID/WOLFRAM_APP_ID and that the key allows Short Answers. Body: {}",
                     status, body
                 )
                 .into(),
             ));
         }
-
-        let source = wolfram_input_url(query).ok();
-
-        Ok(json!({
-            "answer": body.trim(),
-            "source": source,
-        }))
+        return Err(ToolCallError::RuntimeError(
+            format!(
+                "Wolfram|Alpha Short Answer API returned status {} with body: {}",
+                status, body
+            )
+            .into(),
+        ));
     }
+
+    let source = wolfram_input_url(query).ok();
+
+    Ok(json!({
+        "answer": body.trim(),
+        "source": source,
+    }))
 }
 
 #[async_trait]
@@ -135,5 +146,38 @@ impl ToolRuntime for WolframAlphaShortAnswer {
         } = serde_json::from_value(args)?;
 
         self.fetch_answer(&query, units, timeout).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_handle_response_success() {
+        let value = handle_response(
+            reqwest::StatusCode::OK,
+            "  9.81 m/s^2 ".to_string(),
+            "gravity",
+        )
+        .unwrap();
+        assert_eq!(value["answer"], "9.81 m/s^2");
+        assert!(
+            value["source"]
+                .as_str()
+                .unwrap()
+                .contains("wolframalpha.com/input")
+        );
+    }
+
+    #[test]
+    fn test_handle_response_forbidden() {
+        let err = handle_response(
+            reqwest::StatusCode::FORBIDDEN,
+            "denied".to_string(),
+            "gravity",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("unauthorized"));
     }
 }

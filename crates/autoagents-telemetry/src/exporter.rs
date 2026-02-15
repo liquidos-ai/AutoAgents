@@ -282,3 +282,50 @@ pub(crate) fn resource_attributes(config: &TelemetryConfig) -> Vec<KeyValue> {
 
     attributes
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_span_exporter_empty() {
+        let config = TelemetryConfig::default();
+        let exporter = build_span_exporter(&config).expect("span exporter");
+        assert!(exporter.is_empty());
+    }
+
+    #[test]
+    fn test_build_span_exporter_stdout() {
+        let mut config = TelemetryConfig::default();
+        config.exporter.stdout = true;
+        let exporter = build_span_exporter(&config).expect("span exporter");
+        assert!(!exporter.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_multi_span_exporter_export_and_flush() {
+        let mut exporter =
+            MultiSpanExporter::new(vec![SpanExporterWrapper::Stdout(StdoutSpanExporter)]);
+        exporter.export(Vec::new()).await.expect("export ok");
+        exporter.force_flush().expect("flush ok");
+        exporter
+            .shutdown_with_timeout(Duration::from_millis(1))
+            .expect("shutdown ok");
+    }
+
+    #[test]
+    fn test_resource_attributes_collects_fields() {
+        let config = TelemetryConfig {
+            service_version: Some("1.2.3".to_string()),
+            environment: Some("staging".to_string()),
+            runtime_id: Some(autoagents_protocol::RuntimeID::new_v4()),
+            ..Default::default()
+        };
+
+        let attributes = resource_attributes(&config);
+        let keys: Vec<_> = attributes.iter().map(|kv| kv.key.as_str()).collect();
+        assert!(keys.contains(&"service.version"));
+        assert!(keys.contains(&"deployment.environment"));
+        assert!(keys.contains(&"runtime.id"));
+    }
+}
