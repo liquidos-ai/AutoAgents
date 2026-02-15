@@ -14,5 +14,3 @@ pub fn init_logging() {
         let _ = env_logger::try_init();
     }
 }
-
-// No unit tests: logging initialization is exercised by integration tests.
