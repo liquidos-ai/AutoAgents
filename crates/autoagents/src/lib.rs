@@ -15,12 +15,4 @@ pub fn init_logging() {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_init_logging_no_panic() {
-        init_logging();
-    }
-}
+// No unit tests: logging initialization is exercised by integration tests.

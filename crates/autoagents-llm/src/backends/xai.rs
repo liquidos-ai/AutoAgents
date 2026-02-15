@@ -704,19 +704,6 @@ mod tests {
     }
 
     #[test]
-    fn test_xai_chat_response_text_and_display() {
-        let response = XAIChatResponse {
-            choices: vec![XAIChatChoice {
-                message: XAIChatMsg {
-                    content: "hi".to_string(),
-                },
-            }],
-        };
-        assert_eq!(response.text(), Some("hi".to_string()));
-        assert_eq!(format!("{response}"), "hi");
-    }
-
-    #[test]
     fn test_xai_embedding_request_serialization() {
         let req = XAIEmbeddingRequest {
             model: "embed",

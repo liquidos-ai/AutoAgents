@@ -11,6 +11,7 @@ readme.workspace = true
 
 [features]
 default = []
+full = ["mcp", "filesystem", "search", "wolfram-alpha", "document-parsing"]
 mcp = ["rmcp", "toml"]
 filesystem = []
 search = ["reqwest", "once_cell"]

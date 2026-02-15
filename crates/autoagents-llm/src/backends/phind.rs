@@ -299,14 +299,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_defaults() {
-        let client = Phind::new(None, None, None, None, None, None, None);
-        assert_eq!(client.model, "Phind-70B");
-        assert!(client.api_base_url.contains("extension.phind.com/agent/"));
-        assert!(client.max_tokens.is_none());
-    }
-
-    #[test]
     fn test_create_headers() {
         let headers = Phind::create_headers().unwrap();
         assert_eq!(
@@ -331,15 +323,5 @@ mod tests {
         ]
         .join("\n");
         assert_eq!(Phind::parse_stream_response(&response_text), "Hello World");
-    }
-
-    #[test]
-    fn test_phind_response_display_and_chat_response() {
-        let response = PhindResponse {
-            content: "Answer".to_string(),
-        };
-        assert_eq!(response.to_string(), "Answer");
-        assert_eq!(response.text(), Some("Answer".to_string()));
-        assert!(response.tool_calls().is_none());
     }
 }

@@ -314,9 +314,18 @@ mod tests {
     }
 
     #[test]
-    fn test_build_metric_exporter_defaults() {
-        let config = OtlpConfig::default();
-        let exporter = build_metric_exporter(&config);
-        assert!(exporter.is_ok());
+    fn test_resource_attributes_collects_fields() {
+        let config = TelemetryConfig {
+            service_version: Some("1.2.3".to_string()),
+            environment: Some("staging".to_string()),
+            runtime_id: Some(autoagents_protocol::RuntimeID::new_v4()),
+            ..Default::default()
+        };
+
+        let attributes = resource_attributes(&config);
+        let keys: Vec<_> = attributes.iter().map(|kv| kv.key.as_str()).collect();
+        assert!(keys.contains(&"service.version"));
+        assert!(keys.contains(&"deployment.environment"));
+        assert!(keys.contains(&"runtime.id"));
     }
 }

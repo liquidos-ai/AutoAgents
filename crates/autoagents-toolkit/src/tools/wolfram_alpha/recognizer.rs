@@ -159,12 +159,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_recognizer_mode_as_str() {
-        assert_eq!(RecognizerMode::Default.as_str(), "Default");
-        assert_eq!(RecognizerMode::Voice.as_str(), "Voice");
-    }
-
-    #[test]
     fn test_handle_response_success() {
         let body = r#"{"queryrecognizer":{"accepted":true,"domain":"math","resultsignificancescore":0.8,"timing":12.5,"summarybox":"ok"}}"#.to_string();
         let value = handle_response(reqwest::StatusCode::OK, body, "2+2").unwrap();

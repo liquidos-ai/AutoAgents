@@ -275,3 +275,142 @@ where
         }
     }
 }
+
+#[cfg(test)]
+#[cfg(not(target_arch = "wasm32"))]
+mod tests {
+    use super::*;
+    use crate::actor::{LocalTransport, Topic, Transport};
+    use crate::runtime::{Runtime, RuntimeError};
+    use crate::tests::{MockAgentImpl, MockLLMProvider};
+    use crate::utils::BoxEventStream;
+    use async_trait::async_trait;
+    use futures::stream;
+    use std::any::{Any, TypeId};
+    use std::sync::Arc;
+    use tokio::sync::{Mutex, mpsc};
+
+    #[derive(Debug)]
+    struct TestRuntime {
+        subscribed: Arc<Mutex<Vec<(String, TypeId)>>>,
+        tx: mpsc::Sender<Event>,
+    }
+
+    impl TestRuntime {
+        fn new() -> Self {
+            let (tx, _rx) = mpsc::channel(4);
+            Self {
+                subscribed: Arc::new(Mutex::new(Vec::new())),
+                tx,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Runtime for TestRuntime {
+        fn id(&self) -> autoagents_protocol::RuntimeID {
+            autoagents_protocol::RuntimeID::new_v4()
+        }
+
+        async fn subscribe_any(
+            &self,
+            topic_name: &str,
+            topic_type: TypeId,
+            _actor: Arc<dyn crate::actor::AnyActor>,
+        ) -> Result<(), RuntimeError> {
+            let mut subscribed = self.subscribed.lock().await;
+            subscribed.push((topic_name.to_string(), topic_type));
+            Ok(())
+        }
+
+        async fn publish_any(
+            &self,
+            _topic_name: &str,
+            _topic_type: TypeId,
+            _message: Arc<dyn Any + Send + Sync>,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn tx(&self) -> mpsc::Sender<Event> {
+            self.tx.clone()
+        }
+
+        async fn transport(&self) -> Arc<dyn Transport> {
+            Arc::new(LocalTransport)
+        }
+
+        async fn take_event_receiver(&self) -> Option<BoxEventStream<Event>> {
+            None
+        }
+
+        async fn subscribe_events(&self) -> BoxEventStream<Event> {
+            Box::pin(stream::empty())
+        }
+
+        async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+
+        async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_actor_builder_requires_llm() {
+        let mock = MockAgentImpl::new("agent", "desc");
+        let runtime = Arc::new(TestRuntime::new());
+        let err = AgentBuilder::<_, ActorAgent>::new(mock)
+            .runtime(runtime)
+            .build()
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::AgentBuildError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_actor_builder_requires_runtime() {
+        let mock = MockAgentImpl::new("agent", "desc");
+        let llm = Arc::new(MockLLMProvider);
+        let err = AgentBuilder::<_, ActorAgent>::new(mock)
+            .llm(llm)
+            .build()
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::AgentBuildError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_actor_builder_subscribes_topics() {
+        let mock = MockAgentImpl::new("agent", "desc");
+        let llm = Arc::new(MockLLMProvider);
+        let runtime = Arc::new(TestRuntime::new());
+        let topic = Topic::<Task>::new("jobs");
+
+        let _handle = AgentBuilder::<_, ActorAgent>::new(mock)
+            .llm(llm)
+            .runtime(runtime.clone())
+            .subscribe(topic)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let subscribed = runtime.subscribed.lock().await;
+        assert_eq!(subscribed.len(), 1);
+        assert_eq!(subscribed[0].0, "jobs");
+    }
+
+    #[tokio::test]
+    async fn test_actor_agent_tx_missing_returns_error() {
+        let mock = MockAgentImpl::new("agent", "desc");
+        let llm = Arc::new(MockLLMProvider);
+        let (tx, _rx) = mpsc::channel(2);
+        let mut agent = BaseAgent::<_, ActorAgent>::new(mock, llm, None, tx, false)
+            .await
+            .unwrap();
+        agent.tx = None;
+        let err = agent.tx().unwrap_err();
+        assert!(matches!(err, RunnableAgentError::EmptyTx));
+    }
+}

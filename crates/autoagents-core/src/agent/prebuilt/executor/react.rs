@@ -597,29 +597,6 @@ mod tests {
     }
 
     #[test]
-    fn test_react_agent_output_into_value() {
-        let output = ReActAgentOutput {
-            response: "resp".to_string(),
-            tool_calls: vec![],
-            done: true,
-        };
-        let val: Value = output.into();
-        assert!(val.is_object());
-        assert_eq!(val["response"], "resp");
-    }
-
-    #[test]
-    fn test_react_agent_output_into_string() {
-        let output = ReActAgentOutput {
-            response: "resp".to_string(),
-            tool_calls: vec![],
-            done: true,
-        };
-        let s: String = output.into();
-        assert_eq!(s, "resp");
-    }
-
-    #[test]
     fn test_error_from_turn_engine_llm() {
         let err: ReActExecutorError = TurnEngineError::LLMError("llm err".to_string()).into();
         assert!(matches!(err, ReActExecutorError::LLMError(_)));
@@ -638,26 +615,29 @@ mod tests {
     }
 
     #[test]
-    fn test_react_agent_creation_and_deref() {
-        let mock = MockAgentImpl::new("react_test", "desc");
-        let agent = ReActAgent::new(mock);
-        assert_eq!(agent.name(), "react_test");
-        assert_eq!(agent.description(), "desc");
-    }
-
-    #[test]
-    fn test_react_agent_clone() {
-        let mock = MockAgentImpl::new("clone_test", "desc");
-        let agent = ReActAgent::new(mock);
-        let cloned = agent.clone();
-        assert_eq!(cloned.name(), "clone_test");
-    }
-
-    #[test]
     fn test_react_agent_config() {
         let mock = MockAgentImpl::new("cfg_test", "desc");
         let agent = ReActAgent::new(mock);
         assert_eq!(agent.config().max_turns, 10);
+    }
+
+    #[test]
+    fn test_react_agent_metadata_and_output_conversion() {
+        let mock = MockAgentImpl::new("react_meta", "desc");
+        let agent = ReActAgent::new(mock);
+        let cloned = agent.clone();
+        assert_eq!(cloned.name(), "react_meta");
+        assert_eq!(cloned.description(), "desc");
+
+        let output = ReActAgentOutput {
+            response: "resp".to_string(),
+            tool_calls: vec![],
+            done: true,
+        };
+        let value: Value = output.clone().into();
+        assert_eq!(value["response"], "resp");
+        let string: String = output.into();
+        assert_eq!(string, "resp");
     }
 
     #[tokio::test]

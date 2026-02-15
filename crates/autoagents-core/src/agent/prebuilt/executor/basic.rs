@@ -386,41 +386,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_basic_agent_creation() {
-        let mock_agent = MockAgentImpl::new("test_agent", "Test agent description");
-        let basic_agent = BasicAgent::new(mock_agent);
-
-        assert_eq!(basic_agent.name(), "test_agent");
-        assert_eq!(basic_agent.description(), "Test agent description");
-    }
-
-    #[test]
-    fn test_basic_agent_clone() {
-        let mock_agent = MockAgentImpl::new("test_agent", "Test agent description");
-        let basic_agent = BasicAgent::new(mock_agent);
-        let cloned_agent = basic_agent.clone();
-
-        assert_eq!(cloned_agent.name(), "test_agent");
-        assert_eq!(cloned_agent.description(), "Test agent description");
-    }
-
-    #[test]
-    fn test_basic_agent_output_conversions() {
-        let output = BasicAgentOutput {
-            response: "Test response".to_string(),
-            done: true,
-        };
-
-        // Test conversion to Value
-        let value: Value = output.clone().into();
-        assert!(value.is_object());
-
-        // Test conversion to String
-        let string: String = output.into();
-        assert_eq!(string, "Test response");
-    }
-
     #[tokio::test]
     async fn test_basic_agent_execute() {
         use crate::agent::task::Task;
@@ -451,12 +416,25 @@ mod tests {
     }
 
     #[test]
-    fn test_executor_config() {
+    fn test_basic_agent_metadata_and_output_conversion() {
         let mock_agent = MockAgentImpl::new("test_agent", "Test agent description");
         let basic_agent = BasicAgent::new(mock_agent);
 
         let config = basic_agent.config();
         assert_eq!(config.max_turns, 1);
+
+        let cloned = basic_agent.clone();
+        assert_eq!(cloned.name(), "test_agent");
+        assert_eq!(cloned.description(), "Test agent description");
+
+        let output = BasicAgentOutput {
+            response: "Test response".to_string(),
+            done: true,
+        };
+        let value: Value = output.clone().into();
+        assert_eq!(value["response"], "Test response");
+        let string: String = output.into();
+        assert_eq!(string, "Test response");
     }
 
     #[test]

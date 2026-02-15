@@ -2198,31 +2198,6 @@ mod tests {
     }
 
     #[test]
-    fn test_builder_creation() {
-        let builder = LlamaCppProvider::builder();
-        drop(builder);
-    }
-
-    #[test]
-    fn test_builder_configuration() {
-        let builder = LlamaCppProvider::builder()
-            .max_tokens(128)
-            .temperature(0.5)
-            .repeat_penalty(1.1);
-
-        drop(builder);
-    }
-
-    #[test]
-    fn test_provider_builder_default() {
-        let builder1 = LlamaCppProviderBuilder::default();
-        let builder2 = LlamaCppProviderBuilder::new();
-
-        drop(builder1);
-        drop(builder2);
-    }
-
-    #[test]
     fn test_default_n_batch_smaller_than_context() {
         let config = LlamaCppConfig::default();
         let n_ctx = 4096;

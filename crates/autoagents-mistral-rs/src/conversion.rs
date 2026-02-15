@@ -186,7 +186,7 @@ pub(crate) fn convert_vision_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use autoagents_llm::chat::{ChatMessage, ChatResponse};
+    use autoagents_llm::chat::ChatMessage;
     use mistralrs::RequestLike;
 
     #[test]
@@ -213,60 +213,10 @@ mod tests {
         ];
 
         let text_messages = convert_messages(&messages);
-        // We can't directly inspect TextMessages internals, but we can verify it was created
-        // This is mainly a smoke test
-        drop(text_messages);
-    }
-
-    #[test]
-    fn test_mistralrs_response_display() {
-        let response = MistralRsResponse {
-            text: "Test response".to_string(),
-            tool_calls: None,
-        };
-        assert_eq!(response.to_string(), "Test response");
-    }
-
-    #[test]
-    fn test_mistralrs_response_chat_response_trait() {
-        let response = MistralRsResponse {
-            text: "Test response".to_string(),
-            tool_calls: None,
-        };
-        assert_eq!(response.text(), Some("Test response".to_string()));
-        assert!(response.tool_calls().is_none());
-    }
-
-    #[test]
-    fn test_convert_messages_with_system() {
-        let messages = vec![
-            ChatMessage {
-                role: ChatRole::System,
-                message_type: MessageType::Text,
-                content: "You are a helpful assistant.".to_string(),
-            },
-            ChatMessage::user().content("Hello").build(),
-        ];
-
-        let text_messages = convert_messages(&messages);
-        drop(text_messages);
-    }
-
-    #[test]
-    fn test_convert_messages_empty() {
-        let messages: Vec<ChatMessage> = vec![];
-        let text_messages = convert_messages(&messages);
-        drop(text_messages);
-    }
-
-    #[test]
-    fn test_mistralrs_response_clone() {
-        let response = MistralRsResponse {
-            text: "Original".to_string(),
-            tool_calls: None,
-        };
-        let cloned = response.clone();
-        assert_eq!(response.text, cloned.text);
+        let stored = text_messages.messages_ref();
+        assert_eq!(stored.len(), 2);
+        assert!(format!("{:?}", stored[0]).contains("Hello"));
+        assert!(format!("{:?}", stored[1]).contains("Hi there!"));
     }
 
     #[test]

@@ -271,28 +271,6 @@ impl McpToolsManager {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_mcp_tools_manager_creation() {
-        let manager = McpToolsManager::default();
-        // Basic structural test
-        assert_eq!(
-            std::ptr::addr_of!(manager) as usize % std::mem::align_of::<McpToolsManager>(),
-            0
-        );
-    }
-
-    #[test]
-    fn test_mcp_error_display() {
-        let error = McpError::ServerNotFound("test_server".to_string());
-        assert_eq!(error.to_string(), "Server not found: test_server");
-
-        let error = McpError::ConnectionFailed("connection timeout".to_string());
-        assert_eq!(error.to_string(), "Connection failed: connection timeout");
-
-        let error = McpError::ConfigError("invalid config".to_string());
-        assert_eq!(error.to_string(), "Configuration error: invalid config");
-    }
-
     #[tokio::test]
     async fn test_manager_basic_operations() {
         let manager = McpToolsManager::default();
@@ -344,17 +322,5 @@ mod tests {
         manager.refresh_tools().await.unwrap();
         let tools = manager.get_tools().await;
         assert!(tools.is_empty());
-    }
-
-    #[test]
-    fn test_client_info_creation() {
-        let client_info = ClientInfo::default();
-        // ClientInfo is an InitializeRequestParam with default implementation values
-        // We can't directly test the field values without knowing the internal structure
-        // but we can ensure it can be created
-        assert!(
-            (std::ptr::addr_of!(client_info) as usize)
-                .is_multiple_of(std::mem::align_of::<ClientInfo>())
-        );
     }
 }

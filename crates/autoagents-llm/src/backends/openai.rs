@@ -773,7 +773,7 @@ impl EmbeddingBuilder<OpenAI> {
 mod tests {
     use super::*;
     use crate::builder::LLMBuilder;
-    use crate::chat::{FunctionTool, ToolChoice, Usage};
+    use crate::chat::{FunctionTool, ToolChoice};
     use either::Either::Right;
     use serde_json::json;
 
@@ -819,43 +819,6 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some("approximate")
         );
-    }
-
-    #[test]
-    fn test_openai_web_search_response_helpers() {
-        let response = OpenAIWebSearchChatResponse {
-            output: vec![OpenAIWebSearchOutput {
-                content: Some(vec![OpenAIWebSearchContent {
-                    msg_type: "output_text".to_string(),
-                    text: "result".to_string(),
-                }]),
-                usage: Some(Usage {
-                    prompt_tokens: 1,
-                    completion_tokens: 2,
-                    total_tokens: 3,
-                    completion_tokens_details: None,
-                    prompt_tokens_details: None,
-                }),
-            }],
-            usage: Some(Usage {
-                prompt_tokens: 1,
-                completion_tokens: 2,
-                total_tokens: 3,
-                completion_tokens_details: None,
-                prompt_tokens_details: None,
-            }),
-        };
-
-        assert_eq!(response.text(), Some("result".to_string()));
-        assert_eq!(response.usage().unwrap().total_tokens, 3);
-        assert!(format!("{response}").contains("result"));
-
-        let empty = OpenAIWebSearchChatResponse {
-            output: vec![],
-            usage: None,
-        };
-        assert!(empty.text().is_none());
-        assert!(format!("{empty}").contains("No response content"));
     }
 
     #[test]

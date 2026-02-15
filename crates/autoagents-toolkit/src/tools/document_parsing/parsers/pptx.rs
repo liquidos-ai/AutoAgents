@@ -52,8 +52,10 @@ fn extract_ooxml_text(xml: &str, tag: &[u8]) -> String {
                 in_target = true;
             }
             Ok(quick_xml::events::Event::Text(ref e)) if in_target => {
-                if let Ok(text) = e.unescape() {
-                    parts.push(text.to_string());
+                if let Ok(decoded) = e.decode()
+                    && let Ok(unescaped) = quick_xml::escape::unescape(&decoded)
+                {
+                    parts.push(unescaped.to_string());
                 }
             }
             Ok(quick_xml::events::Event::End(ref e)) if e.name().as_ref() == tag => {

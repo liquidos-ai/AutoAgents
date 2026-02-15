@@ -10,6 +10,7 @@ categories.workspace = true
 
 [features]
 default = []
+full = ["langfuse"]
 langfuse = ["dep:base64"]
 
 [dependencies]

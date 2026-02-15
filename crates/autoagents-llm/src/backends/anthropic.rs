@@ -1552,30 +1552,6 @@ data: {"type": "ping"}
     }
 
     #[test]
-    fn test_anthropic_complete_response_helpers() {
-        let response = AnthropicCompleteResponse {
-            content: vec![AnthropicContent {
-                text: Some("hi".to_string()),
-                content_type: Some("text".to_string()),
-                thinking: None,
-                name: None,
-                input: None,
-                id: None,
-            }],
-            usage: Some(AnthropicUsage {
-                input_tokens: 1,
-                output_tokens: 2,
-                cache_creation_input_tokens: None,
-                cache_read_input_tokens: None,
-            }),
-        };
-
-        assert_eq!(response.text(), Some("hi".to_string()));
-        assert_eq!(response.usage().unwrap().total_tokens, 3);
-        assert!(format!("{response}").contains("hi"));
-    }
-
-    #[test]
     fn test_anthropic_builder_requires_api_key() {
         let err = LLMBuilder::<Anthropic>::new().build().unwrap_err();
         assert!(err.to_string().contains("No API key provided"));

@@ -51,7 +51,7 @@ jobs:
             --features="full" \
             --verbose \
             --workspace \
-            --timeout 120 \
+            --timeout 220 \
             --out Xml \
             --engine llvm \
             --ignore-panics

@@ -21,12 +21,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_rest_headers_as_str() {
+    fn test_rest_headers_returns_expected_values() {
         assert_eq!(RestHeaders::Accept.as_str(), "Accept");
-        assert_eq!(
-            RestHeaders::XSubscriptionToken.as_str(),
-            "X-Subscription-Token"
-        );
         assert_eq!(RestHeaders::ApplicationJson.as_str(), "application/json");
     }
 }

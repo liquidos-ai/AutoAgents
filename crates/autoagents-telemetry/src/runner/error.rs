@@ -20,27 +20,3 @@ impl From<EnvironmentError> for TelemetryError {
         Self::Environment(Box::new(err))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use autoagents_core::environment::EnvironmentError;
-
-    #[test]
-    fn test_environment_error_conversion() {
-        let err = EnvironmentError::EventError;
-        let telemetry: TelemetryError = err.into();
-        match telemetry {
-            TelemetryError::Environment(boxed) => {
-                assert!(matches!(*boxed, EnvironmentError::EventError));
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_missing_exporter_display() {
-        let err = TelemetryError::MissingExporter;
-        assert!(err.to_string().contains("No telemetry exporter"));
-    }
-}

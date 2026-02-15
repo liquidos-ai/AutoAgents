@@ -1024,32 +1024,6 @@ mod tests {
     }
 
     #[test]
-    fn test_builder_creation() {
-        let builder = MistralRsProvider::builder();
-        drop(builder);
-    }
-
-    #[test]
-    fn test_builder_configuration() {
-        let builder = MistralRsProvider::builder()
-            .with_logging()
-            .with_paged_attention()
-            .max_tokens(1024)
-            .temperature(0.8);
-
-        drop(builder);
-    }
-
-    #[test]
-    fn test_provider_builder_default() {
-        let builder1 = MistralRsProviderBuilder::default();
-        let builder2 = MistralRsProviderBuilder::default();
-
-        drop(builder1);
-        drop(builder2);
-    }
-
-    #[test]
     fn test_convert_role_for_request() {
         assert!(matches!(
             convert_role_for_request(&autoagents_llm::chat::ChatRole::System),

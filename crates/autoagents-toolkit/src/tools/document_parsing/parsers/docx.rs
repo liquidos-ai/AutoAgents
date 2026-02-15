@@ -37,8 +37,10 @@ fn extract_docx_text(xml: &str) -> Result<String, ParseError> {
                 in_text = true;
             }
             Ok(quick_xml::events::Event::Text(ref e)) if in_text => {
-                if let Ok(text) = e.unescape() {
-                    parts.push(text.to_string());
+                if let Ok(decoded) = e.decode()
+                    && let Ok(unescaped) = quick_xml::escape::unescape(&decoded)
+                {
+                    parts.push(unescaped.to_string());
                 }
             }
             Ok(quick_xml::events::Event::End(ref e)) if e.name().as_ref() == b"w:t" => {

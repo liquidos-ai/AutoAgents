@@ -157,26 +157,13 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::memory::SlidingWindowMemory;
     use crate::agent::{AgentConfig, DirectAgent};
     use crate::tests::{MockAgentImpl, MockLLMProvider};
     use autoagents_llm::chat::StructuredOutputFormat;
     use std::sync::Arc;
     use tokio::sync::mpsc::{Receiver, channel};
     use uuid::Uuid;
-
-    #[test]
-    fn test_agent_config_creation() {
-        let config = AgentConfig {
-            name: "test_agent".to_string(),
-            id: Uuid::new_v4(),
-            description: "A test agent".to_string(),
-            output_schema: None,
-        };
-
-        assert_eq!(config.name, "test_agent");
-        assert_eq!(config.description, "A test agent");
-        assert!(config.output_schema.is_none());
-    }
 
     #[test]
     fn test_agent_config_with_schema() {
@@ -201,87 +188,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_base_agent_creation() {
+    async fn test_base_agent_creation_with_memory_and_stream() {
         let mock_agent = MockAgentImpl::new("test", "test description");
         let llm = Arc::new(MockLLMProvider);
+        let memory = Box::new(SlidingWindowMemory::new(5));
         let (tx, _): (Sender<Event>, Receiver<Event>) = channel(32);
-        let base_agent = BaseAgent::<_, DirectAgent>::new(mock_agent, llm, None, tx, false)
-            .await
-            .unwrap();
-
-        assert_eq!(base_agent.name(), "test");
-        assert_eq!(base_agent.description(), "test description");
-        assert!(base_agent.memory().is_none());
-    }
-
-    #[tokio::test]
-    async fn test_base_agent_with_memory() {
-        let mock_agent = MockAgentImpl::new("test", "test description");
-        let llm = Arc::new(MockLLMProvider);
-        let memory = Box::new(crate::agent::memory::SlidingWindowMemory::new(5));
-        let (tx, _): (Sender<Event>, Receiver<Event>) = channel(32);
-        let base_agent = BaseAgent::<_, DirectAgent>::new(mock_agent, llm, Some(memory), tx, false)
+        let base_agent = BaseAgent::<_, DirectAgent>::new(mock_agent, llm, Some(memory), tx, true)
             .await
             .unwrap();
 
         assert_eq!(base_agent.name(), "test");
         assert_eq!(base_agent.description(), "test description");
         assert!(base_agent.memory().is_some());
-    }
-
-    #[tokio::test]
-    async fn test_base_agent_inner() {
-        let mock_agent = MockAgentImpl::new("test", "test description");
-        let llm = Arc::new(MockLLMProvider);
-        let (tx, _): (Sender<Event>, Receiver<Event>) = channel(32);
-        let base_agent = BaseAgent::<_, DirectAgent>::new(mock_agent, llm, None, tx, false)
-            .await
-            .unwrap();
-
-        let inner = base_agent.inner();
-        assert_eq!(inner.name(), "test");
-        assert_eq!(inner.description(), "test description");
-    }
-
-    #[tokio::test]
-    async fn test_base_agent_tools() {
-        let mock_agent = MockAgentImpl::new("test", "test description");
-        let llm = Arc::new(MockLLMProvider);
-        let (tx, _): (Sender<Event>, Receiver<Event>) = channel(32);
-        let base_agent = BaseAgent::<_, DirectAgent>::new(mock_agent, llm, None, tx, false)
-            .await
-            .unwrap();
-
-        let tools = base_agent.tools();
-        assert!(tools.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_base_agent_llm() {
-        let mock_agent = MockAgentImpl::new("test", "test description");
-        let llm = Arc::new(MockLLMProvider);
-        let (tx, _): (Sender<Event>, Receiver<Event>) = channel(32);
-        let base_agent = BaseAgent::<_, DirectAgent>::new(mock_agent, llm.clone(), None, tx, false)
-            .await
-            .unwrap();
-
-        let agent_llm = base_agent.llm();
-        // The llm() method returns Arc<dyn LLMProvider>, so we just verify it exists
-        assert!(Arc::strong_count(&agent_llm) > 0);
-    }
-
-    #[tokio::test]
-    async fn test_base_agent_with_streaming() {
-        let mock_agent = MockAgentImpl::new("streaming_agent", "test streaming agent");
-        let llm = Arc::new(MockLLMProvider);
-        let (tx, _): (Sender<Event>, Receiver<Event>) = channel(32);
-        let base_agent = BaseAgent::<_, DirectAgent>::new(mock_agent, llm, None, tx, true)
-            .await
-            .unwrap();
-
-        assert_eq!(base_agent.name(), "streaming_agent");
-        assert_eq!(base_agent.description(), "test streaming agent");
-        assert!(base_agent.memory().is_none());
         assert!(base_agent.stream);
+    }
+
+    #[tokio::test]
+    async fn test_base_agent_create_context_populates_config() {
+        let mock_agent = MockAgentImpl::new("ctx_agent", "context agent");
+        let llm = Arc::new(MockLLMProvider);
+        let (tx, _): (Sender<Event>, Receiver<Event>) = channel(32);
+        let base_agent = BaseAgent::<_, DirectAgent>::new(mock_agent, llm, None, tx, false)
+            .await
+            .unwrap();
+
+        let context = base_agent.create_context();
+        let config = context.config();
+        assert_eq!(config.name, "ctx_agent");
+        assert_eq!(config.description, "context agent");
     }
 }

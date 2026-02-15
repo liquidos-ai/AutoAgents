@@ -228,9 +228,15 @@ impl ToolProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::{AgentDeriveT, Context, HookOutcome};
+    use crate::tests::MockLLMProvider;
     use crate::tool::{ToolCallError, ToolRuntime, ToolT};
     use async_trait::async_trait;
     use serde_json::json;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
 
     #[derive(Debug)]
     struct MockTool {
@@ -422,5 +428,66 @@ mod tests {
             },
         )
         .await;
+    }
+
+    #[derive(Debug)]
+    struct AbortHooks {
+        start_calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl AgentDeriveT for AbortHooks {
+        type Output = String;
+
+        fn description(&self) -> &'static str {
+            "abort hooks"
+        }
+
+        fn output_schema(&self) -> Option<serde_json::Value> {
+            None
+        }
+
+        fn name(&self) -> &'static str {
+            "abort_hooks"
+        }
+
+        fn tools(&self) -> Vec<Box<dyn ToolT>> {
+            vec![]
+        }
+    }
+
+    #[async_trait]
+    impl AgentHooks for AbortHooks {
+        async fn on_tool_call(&self, _tool_call: &ToolCall, _ctx: &Context) -> HookOutcome {
+            HookOutcome::Abort
+        }
+
+        async fn on_tool_start(&self, _tool_call: &ToolCall, _ctx: &Context) {
+            self.start_calls.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_process_single_tool_call_with_hooks_abort_skips_execution() {
+        let hooks = AbortHooks {
+            start_calls: Arc::new(AtomicUsize::new(0)),
+        };
+        let llm = Arc::new(MockLLMProvider {});
+        let context = Context::new(llm, None);
+        let tools: Vec<Box<dyn ToolT>> = vec![Box::new(MockTool::new("tool_a"))];
+        let call = make_tool_call("1", "tool_a", r#"{"x":1}"#);
+
+        let result = ToolProcessor::process_single_tool_call_with_hooks(
+            &hooks,
+            &context,
+            autoagents_protocol::SubmissionId::new_v4(),
+            &tools,
+            &call,
+            &None,
+        )
+        .await;
+
+        assert!(result.is_none());
+        assert_eq!(hooks.start_calls.load(Ordering::SeqCst), 0);
     }
 }
