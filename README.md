@@ -315,6 +315,12 @@ cargo install cargo-tarpaulin
 cargo tarpaulin --all-features --out html
 ```
 
+### Running Benchmarks
+
+```bash
+cargo bench -p autoagents-core --bench agent_runtime
+```
+
 ### Git Hooks
 
 This project uses LeftHook for Git hooks management. The hooks will automatically:
@@ -369,7 +375,11 @@ You may choose either license for your use case.
 
 ## Acknowledgments
 
-Built by the [Liquidos AI](https://liquidos.ai) team and community contributors.
+Built by the [Liquidos AI](https://liquidos.ai) team and wonderful community of researchers and engineers.
+
+<a href="https://github.com/liquidos-ai/AutoAgents/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=liquidos-ai/AutoAgents" />
+</a>
 
 Special thanks to:
 

@@ -44,5 +44,12 @@ getrandom = { workspace = true, features = ["wasm_js"] }
 uuid = { workspace = true, features = ["serde", "v4", "js"] }
 
 [dev-dependencies]
-tempfile = "3.25.0"
-wat = "1"
+autoagents-llamacpp.workspace = true
+core_affinity = "0.8.3"
+criterion = "0.8.2"
+tempfile = { workspace = true }
+wat = "1.245.1"
+
+[[bench]]
+name = "agent_runtime"
+harness = false
