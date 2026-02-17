@@ -123,7 +123,6 @@ codegen-units = 1 # Better optimization (slower compile)
 [profile.profiling]
 inherits = "release"
 debug = true         # Full debug info for symbols
-strip = false        # Don't strip symbols
 
 [profile.bench]
 debug = true
