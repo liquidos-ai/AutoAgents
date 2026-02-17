@@ -112,7 +112,6 @@ async fn await_task_complete(
 struct MockLlmProvider {
     delay: Duration,
     response_text: String,
-    default_tool_call: ToolCall,
 }
 
 impl MockLlmProvider {
@@ -120,7 +119,6 @@ impl MockLlmProvider {
         Self {
             delay: Duration::from_millis(delay_ms),
             response_text: DEFAULT_RESPONSE_TEXT.to_string(),
-            default_tool_call: default_tool_call(),
         }
     }
 
@@ -143,7 +141,7 @@ impl MockLlmProvider {
     fn build_tool_calls(&self, tools: Option<&[Tool]>) -> Option<Vec<ToolCall>> {
         let tools = tools?;
         let tool = tools.first()?;
-        let mut call = self.default_tool_call.clone();
+        let mut call = default_tool_call();
         call.function.name = tool.function.name.clone();
         Some(vec![call])
     }
@@ -266,14 +264,11 @@ fn env_or_default(key: &str, default: String) -> String {
 }
 
 fn env_u64(key: &str, default: u64) -> u64 {
-    std::env::var(key)
-        .ok()
-        .map(|value| {
-            value
-                .parse::<u64>()
-                .unwrap_or_else(|_| panic!("Invalid {key} value (expected u64): {value}"))
-        })
-        .unwrap_or(default)
+    std::env::var(key).ok().map_or(default, |value| {
+        value
+            .parse::<u64>()
+            .unwrap_or_else(|_| panic!("Invalid {key} value (expected u64): {value}"))
+    })
 }
 
 fn build_llm(config: &BenchConfig) -> Arc<dyn LLMProvider> {
