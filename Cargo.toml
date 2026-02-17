@@ -112,3 +112,18 @@ testcontainers = "0.27.0"
 surrealdb = "2.6.1"
 hound = "3.5.1"
 rodio = "0.21.1"
+
+
+[profile.release]
+debug = true      # Include debug symbols
+lto = "thin"      # Enable link-time optimization
+codegen-units = 1 # Better optimization (slower compile)
+
+# Separate profile for profiling (keeps release fast)
+[profile.profiling]
+inherits = "release"
+debug = true         # Full debug info for symbols
+strip = false        # Don't strip symbols
+
+[profile.bench]
+debug = true
