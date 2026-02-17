@@ -1,9 +1,10 @@
 use crate::agent::config::AgentConfig;
 use crate::agent::memory::MemoryProvider;
 use crate::agent::{AgentExecutor, Context, output::AgentOutputT};
-use crate::tool::ToolT;
+use crate::tool::{ToolT, to_llm_tool};
 use async_trait::async_trait;
 use autoagents_llm::LLMProvider;
+use autoagents_llm::chat::Tool;
 use autoagents_protocol::{ActorID, Event};
 
 use serde_json::Value;
@@ -60,6 +61,8 @@ pub struct BaseAgent<T: AgentDeriveT + AgentExecutor + AgentHooks + Send + Sync,
     pub id: ActorID,
     /// Optional memory provider
     pub(crate) memory: Option<Arc<Mutex<Box<dyn MemoryProvider>>>>,
+    /// Cached serialized tool definitions
+    pub(crate) serialized_tools: Option<Arc<Vec<Tool>>>,
     /// Tx sender
     pub(crate) tx: Option<Sender<Event>>,
     //Stream
@@ -82,12 +85,21 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
         tx: Sender<Event>,
         stream: bool,
     ) -> Result<Self, RunnableAgentError> {
+        let tool_defs = inner.tools();
+        let serialized_tools = if tool_defs.is_empty() {
+            None
+        } else {
+            Some(Arc::new(
+                tool_defs.iter().map(to_llm_tool).collect::<Vec<_>>(),
+            ))
+        };
         let agent = Self {
             inner: Arc::new(inner),
             id: Uuid::new_v4(),
             llm,
             tx: Some(tx),
             memory: memory.map(|m| Arc::new(Mutex::new(m))),
+            serialized_tools,
             stream,
             marker: PhantomData,
         };
@@ -117,15 +129,24 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
         self.inner.tools()
     }
 
+    pub fn serialized_tools(&self) -> Option<Arc<Vec<Tool>>> {
+        self.serialized_tools.clone()
+    }
+
     pub fn stream(&self) -> bool {
         self.stream
     }
 
     pub(crate) fn create_context(&self) -> Arc<Context> {
+        let tools = self.tools();
+        let cached_tools = self
+            .serialized_tools()
+            .filter(|cached| tools_match_cached(&tools, cached));
         Arc::new(
             Context::new(self.llm(), self.tx.clone())
                 .with_memory(self.memory())
-                .with_tools(self.tools())
+                .with_serialized_tools(cached_tools)
+                .with_tools(tools)
                 .with_config(self.agent_config())
                 .with_stream(self.stream()),
         )
@@ -152,6 +173,19 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
     pub fn memory(&self) -> Option<Arc<Mutex<Box<dyn MemoryProvider>>>> {
         self.memory.clone()
     }
+}
+
+fn tools_match_cached(tools: &[Box<dyn ToolT>], cached: &[Tool]) -> bool {
+    if tools.len() != cached.len() {
+        return false;
+    }
+
+    tools.iter().zip(cached.iter()).all(|(tool, cached_tool)| {
+        cached_tool.tool_type == "function"
+            && cached_tool.function.name == tool.name()
+            && cached_tool.function.description == tool.description()
+            && cached_tool.function.parameters == tool.args_schema()
+    })
 }
 
 #[cfg(test)]
