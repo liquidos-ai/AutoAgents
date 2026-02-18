@@ -5,3 +5,6 @@
 
 #[cfg(feature = "pocket-tts")]
 pub mod pocket_tts;
+
+#[cfg(feature = "parakeet")]
+pub mod parakeet;

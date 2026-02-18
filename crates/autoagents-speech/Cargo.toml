@@ -10,9 +10,16 @@ categories.workspace = true
 
 [features]
 default = []
-full = ["pocket-tts", "playback"]
+full = ["pocket-tts", "parakeet", "playback"]
 pocket-tts = ["dep:pocket-tts", "dep:candle-core", "dep:uuid", "dep:anyhow", "dep:tokio-stream"]
+parakeet = ["dep:parakeet-rs"]
 playback = ["dep:rodio"]
+
+# Forward parakeet-rs execution provider features
+cuda = ["parakeet", "parakeet-rs/cuda"]
+tensorrt = ["parakeet", "parakeet-rs/tensorrt"]
+directml = ["parakeet", "parakeet-rs/directml"]
+coreml = ["parakeet", "parakeet-rs/coreml"]
 
 [dependencies]
 async-trait = { workspace = true }
@@ -34,6 +41,9 @@ tokio-stream = { workspace = true, optional = true }
 
 # Playback dependencies
 rodio = { workspace = true, optional = true }
+
+# Parakeet dependencies (optional, enabled by feature)
+parakeet-rs = { version = "0.3.3", optional = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
