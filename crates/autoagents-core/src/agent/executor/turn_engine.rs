@@ -8,7 +8,7 @@ use crate::channel::{Sender, channel};
 use crate::tool::{ToolCallResult, ToolT, to_llm_tool};
 use crate::utils::{receiver_into_stream, spawn_future};
 use autoagents_llm::ToolCall;
-use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, StreamChunk, StreamResponse, Tool};
+use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, StreamChunk, StreamResponse};
 use autoagents_llm::error::LLMError;
 use autoagents_protocol::{Event, SubmissionId};
 use futures::{Stream, StreamExt};
@@ -473,7 +473,12 @@ impl TurnEngine {
         let output_schema = context.config().output_schema.clone();
 
         if matches!(self.config.tool_mode, ToolMode::Enabled) && !tools.is_empty() {
-            let tools_serialized: Vec<Tool> = tools.iter().map(to_llm_tool).collect();
+            let cached = context.serialized_tools();
+            let tools_serialized = if let Some(cached) = cached {
+                cached
+            } else {
+                Arc::new(tools.iter().map(to_llm_tool).collect::<Vec<_>>())
+            };
             llm.chat_with_tools(messages, Some(&tools_serialized), output_schema)
                 .await
                 .map_err(|e| TurnEngineError::LLMError(e.to_string()))
@@ -504,7 +509,12 @@ impl TurnEngine {
         tools: &[Box<dyn ToolT>],
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, TurnEngineError>
     {
-        let tools_serialized: Vec<Tool> = tools.iter().map(to_llm_tool).collect();
+        let cached = context.serialized_tools();
+        let tools_serialized = if let Some(cached) = cached {
+            cached
+        } else {
+            Arc::new(tools.iter().map(to_llm_tool).collect::<Vec<_>>())
+        };
         context
             .llm()
             .chat_stream_with_tools(

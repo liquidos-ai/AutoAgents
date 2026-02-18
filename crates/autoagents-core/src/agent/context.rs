@@ -3,9 +3,9 @@ use crate::actor::{ActorMessage, Topic};
 use crate::agent::AgentConfig;
 use crate::agent::memory::MemoryProvider;
 use crate::agent::state::AgentState;
-use crate::tool::ToolT;
+use crate::tool::{ToolT, to_llm_tool};
 use autoagents_llm::LLMProvider;
-use autoagents_llm::chat::ChatMessage;
+use autoagents_llm::chat::{ChatMessage, Tool};
 use autoagents_protocol::Event;
 use std::any::Any;
 use std::sync::Arc;
@@ -28,6 +28,7 @@ pub struct Context {
     messages: Vec<ChatMessage>,
     memory: Option<Arc<Mutex<Box<dyn MemoryProvider>>>>,
     tools: Vec<Box<dyn ToolT>>,
+    serialized_tools: Option<Arc<Vec<Tool>>>,
     config: AgentConfig,
     state: Arc<Mutex<AgentState>>,
     tx: Option<mpsc::Sender<Event>>,
@@ -50,6 +51,7 @@ impl Context {
             messages: vec![],
             memory: None,
             tools: vec![],
+            serialized_tools: None,
             config: AgentConfig::default(),
             state: Arc::new(Mutex::new(AgentState::new())),
             stream: false,
@@ -81,7 +83,18 @@ impl Context {
     }
 
     pub fn with_tools(mut self, tools: Vec<Box<dyn ToolT>>) -> Self {
+        if tools.is_empty() {
+            self.serialized_tools = None;
+        } else if self.serialized_tools.is_none() {
+            let serialized = tools.iter().map(to_llm_tool).collect::<Vec<_>>();
+            self.serialized_tools = Some(Arc::new(serialized));
+        }
         self.tools = tools;
+        self
+    }
+
+    pub fn with_serialized_tools(mut self, tools: Option<Arc<Vec<Tool>>>) -> Self {
+        self.serialized_tools = tools;
         self
     }
 
@@ -115,6 +128,10 @@ impl Context {
 
     pub fn tools(&self) -> &[Box<dyn ToolT>] {
         &self.tools
+    }
+
+    pub fn serialized_tools(&self) -> Option<Arc<Vec<Tool>>> {
+        self.serialized_tools.clone()
     }
 
     pub fn config(&self) -> &AgentConfig {
