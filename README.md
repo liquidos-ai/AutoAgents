@@ -76,6 +76,14 @@ Provider support is actively expanding based on community needs.
 
 ---
 
+## Benchmarks
+
+![Benchmark](./assets/Benchmark.png)
+
+More info at [GitHub](https://github.com/liquidos-ai/autoagents-bench)
+
+---
+
 ## Installation
 
 ### Prerequisites
