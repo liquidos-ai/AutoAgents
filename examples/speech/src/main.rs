@@ -3,11 +3,13 @@ use clap::{ArgAction, Parser, ValueEnum};
 mod basic;
 mod realtime;
 mod util;
+mod stt_example;
 
 #[derive(Debug, ValueEnum, Clone)]
 enum Usecase {
     Basic,
     Realtime,
+    Stt,
 }
 
 #[derive(Parser, Debug)]
@@ -26,6 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.usecase {
         Usecase::Basic => basic::run(args.output).await?,
         Usecase::Realtime => realtime::run(args.output).await?,
+        Usecase::Stt => stt_example::run().await?,
     }
 
     Ok(())
