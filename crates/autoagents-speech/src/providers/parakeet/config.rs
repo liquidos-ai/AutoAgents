@@ -6,21 +6,17 @@ use serde::{Deserialize, Serialize};
 /// Configuration for Parakeet STT provider
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParakeetConfig {
-    /// Model variant to use (TDT or Nemotron)
-    #[serde(default)]
+    /// Model variant to use (e.g., TDT, Nemotron)
     pub model_variant: ModelVariant,
 
     /// Model directory path (contains ONNX files and tokenizer)
     pub model_path: String,
 
-    /// Optional execution provider (defaults to CPU)
-    /// Options: "cpu", "cuda", "tensorrt", "directml", etc.
-    #[serde(default)]
+    /// Optional execution provider (e.g., "cpu", "cuda", "tensorrt", "directml")
     pub execution_provider: Option<String>,
 
     /// Optional language hint for multilingual models (TDT)
     /// If None, language will be auto-detected
-    #[serde(default)]
     pub language: Option<String>,
 }
 
