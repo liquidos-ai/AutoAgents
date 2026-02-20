@@ -66,7 +66,7 @@ let llm: Arc<Ollama> = LLMBuilder::<Ollama>::new()
 Enable providers on the `autoagents` crate:
 
 ```toml
-autoagents = { version = "0.3.0", features = ["openai"] }
+autoagents = { version = "0.3.4", features = ["openai"] }
 ```
 
 Common API key environment variables:
