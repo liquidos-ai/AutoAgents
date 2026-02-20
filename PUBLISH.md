@@ -32,7 +32,6 @@ cargo publish
 ```
 
 ---
-Cannot publish yet as mistral-rs is not on crates
 ```shell
 cd ../autoagents-mistral-rs
 cargo publish --dry-run
