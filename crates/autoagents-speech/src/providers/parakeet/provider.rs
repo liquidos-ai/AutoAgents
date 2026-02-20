@@ -34,13 +34,13 @@ impl Parakeet {
         &self.config
     }
 
-    /// Reset streaming state (for Nemotron and EOU)
+    /// Reset streaming state
     pub async fn reset(&self) {
         let backend = self.backend.lock().await;
         backend.reset();
     }
 
-    /// Process audio chunk in streaming mode (Nemotron and EOU)
+    /// Process audio chunk in streaming mode
     pub async fn process_chunk(&self, audio_chunk: Vec<f32>) -> STTResult<TextChunk> {
         let backend = self.backend.lock().await;
         backend
@@ -64,7 +64,6 @@ impl STTSpeechProvider for Parakeet {
         &'a self,
         request: TranscriptionRequest,
     ) -> STTResult<Pin<Box<dyn Stream<Item = STTResult<TextChunk>> + Send + 'a>>> {
-        // Only Nemotron supports streaming
         if !self.config.model_variant.supports_streaming() {
             return Err(crate::error::STTError::StreamingNotSupported(format!(
                 "{} does not support streaming",
@@ -82,12 +81,8 @@ impl STTSpeechProvider for Parakeet {
         }
 
         // Create stream that processes chunks
-        // For Nemotron, recommended chunk size is 8960 samples (560ms at 16kHz)
-        // For EOU, recommended chunk size is 2560 samples (160ms at 16kHz)
-        let chunk_size = match self.config.model_variant {
-            super::model::ModelVariant::EOU => 2560, // 160ms
-            _ => 8960,                               // 560ms for Nemotron
-        };
+        // Get the recommended chunk size for this model variant
+        let chunk_size = self.config.model_variant.chunk_size();
 
         let chunks: Vec<Vec<f32>> = audio
             .samples
