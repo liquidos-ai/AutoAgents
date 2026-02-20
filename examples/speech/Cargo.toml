@@ -7,6 +7,10 @@ description = "Examples for AutoAgents Speech functionality"
 repository.workspace = true
 publish = false
 
+[features]
+default = []
+parakeet = ["autoagents-speech/parakeet"]
+
 [dependencies]
 autoagents-speech = { workspace = true, features = ["pocket-tts", "playback"] }
 tokio = { workspace = true }

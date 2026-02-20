@@ -13,7 +13,11 @@
 //! - **Streaming Support**: Optional streaming for real-time audio generation
 //! - **Model Management**: Support for multiple models and languages
 //!
-//! ### STT (Speech-to-Text) - Coming Soon
+//! ### STT (Speech-to-Text)
+//! - **Transcription**: Convert audio to text
+//! - **Streaming Support**: Real-time audio transcription
+//! - **Timestamp Support**: Token-level timestamps for transcriptions
+//! - **Multilingual**: Support for multiple languages with auto-detection
 //!
 //! ## Architecture
 //!
@@ -24,12 +28,18 @@
 //! - `TTSSpeechProvider`: Speech generation capabilities
 //! - `TTSModelsProvider`: Model and language support
 //!
+//! ### STT Traits
+//! - `STTProvider`: Marker trait combining all STT capabilities
+//! - `STTSpeechProvider`: Transcription capabilities
+//! - `STTModelsProvider`: Model and language support
+//!
 //! ## Providers
 //!
 //! Enable providers using feature flags:
-//! - `pocket-tts`: Pocket-TTS model support
+//! - `pocket-tts`: Pocket-TTS model support (TTS)
+//! - `parakeet`: Parakeet (NVIDIA) model support (STT)
 //!
-//! ## Example
+//! ## Example - TTS
 //!
 //! ```rust
 //! use autoagents_speech::{TTSProvider, SpeechRequest, VoiceIdentifier, AudioFormat};
@@ -46,6 +56,27 @@
 //!     println!("Generated {} samples", response.audio.samples.len());
 //! }
 //! ```
+//!
+//! ## Example - STT
+//!
+//! ```rust
+//! use autoagents_speech::{STTProvider, TranscriptionRequest, AudioData};
+//!
+//! async fn transcribe_audio(provider: &dyn STTProvider, audio: Vec<f32>) {
+//!     let request = TranscriptionRequest {
+//!         audio: AudioData {
+//!             samples: audio,
+//!             sample_rate: 16000,
+//!             channels: 1,
+//!         },
+//!         language: None,
+//!         include_timestamps: false,
+//!     };
+//!
+//!     let response = provider.transcribe(request).await.unwrap();
+//!     println!("Transcription: {}", response.text);
+//! }
+//! ```
 
 pub mod error;
 mod provider;
@@ -54,13 +85,18 @@ pub mod types;
 // Provider implementations
 pub mod providers;
 
-// Re-export main types
+// Re-export main TTS types
 pub use error::{TTSError, TTSResult};
 pub use provider::{TTSModelsProvider, TTSProvider, TTSSpeechProvider};
 pub use types::{
     AudioChunk, AudioData, AudioFormat, ModelInfo, SharedAudioData, SpeechRequest, SpeechResponse,
     VoiceIdentifier,
 };
+
+// Re-export main STT types
+pub use error::{STTError, STTResult};
+pub use provider::{STTModelsProvider, STTProvider, STTSpeechProvider};
+pub use types::{TextChunk, TokenTimestamp, TranscriptionRequest, TranscriptionResponse};
 
 #[cfg(feature = "playback")]
 pub mod playback;
