@@ -105,14 +105,6 @@ impl STTSpeechProvider for Parakeet {
         self.config.model_variant.supports_streaming()
     }
 
-    fn supported_sample_rate(&self) -> u32 {
-        16000
-    }
-
-    fn supported_channels(&self) -> u16 {
-        1
-    }
-
     fn supports_timestamps(&self) -> bool {
         self.config.model_variant.supports_timestamps()
     }
