@@ -160,18 +160,16 @@ impl ParakeetBackend {
             ParakeetBackend::EOU(model) => {
                 let model = model.clone();
                 // For EOU, process entire audio in chunks
-                const CHUNK_SIZE: usize = 2560; // 160ms at 16kHz
+                let chunk_size = ModelVariant::EOU.chunk_size(); // 160ms at 16kHz
 
                 let text = tokio::task::spawn_blocking(move || {
                     let mut model = model.lock().unwrap();
                     let mut result_text = String::new();
 
-                    for chunk in audio.samples.chunks(CHUNK_SIZE) {
+                    for chunk in audio.samples.chunks(chunk_size) {
                         match model.transcribe(chunk, false) {
                             Ok(text) => {
-                                if !text.is_empty() {
-                                    result_text.push_str(&text);
-                                }
+                                result_text.push_str(&text);
                             }
                             Err(e) => return Err(e),
                         }
