@@ -310,11 +310,12 @@ impl Anthropic {
     fn convert_messages_to_anthropic<'a>(messages: &'a [ChatMessage]) -> Vec<AnthropicMessage<'a>> {
         messages
             .iter()
+            .filter(|m| m.role != ChatRole::System)
             .map(|m| AnthropicMessage {
                 role: match m.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
-                    ChatRole::System => "system",
+                    ChatRole::System => unreachable!("system messages are filtered before mapping"),
                     ChatRole::Tool => "user",
                 },
                 content: match &m.message_type {
@@ -523,6 +524,11 @@ impl ChatProvider for Anthropic {
         }
 
         let anthropic_messages = Self::convert_messages_to_anthropic(messages);
+        if anthropic_messages.is_empty() {
+            return Err(LLMError::InvalidRequest(
+                "At least one non-system message is required".to_string(),
+            ));
+        }
         let (anthropic_tools, final_tool_choice) =
             Self::prepare_tools_and_choice(tools, &self.tool_choice);
 
@@ -624,10 +630,11 @@ impl ChatProvider for Anthropic {
 
         let anthropic_messages: Vec<AnthropicMessage> = messages
             .iter()
+            .filter(|m| m.role != ChatRole::System)
             .map(|m| AnthropicMessage {
                 role: match m.role {
                     ChatRole::User => "user",
-                    ChatRole::System => "system",
+                    ChatRole::System => unreachable!("system messages are filtered before mapping"),
                     ChatRole::Assistant => "assistant",
                     ChatRole::Tool => "user",
                 },
@@ -675,6 +682,12 @@ impl ChatProvider for Anthropic {
                 },
             })
             .collect();
+
+        if anthropic_messages.is_empty() {
+            return Err(LLMError::InvalidRequest(
+                "At least one non-system message is required".to_string(),
+            ));
+        }
 
         let system_message = messages
             .iter()
@@ -746,6 +759,11 @@ impl ChatProvider for Anthropic {
         }
 
         let anthropic_messages = Self::convert_messages_to_anthropic(messages);
+        if anthropic_messages.is_empty() {
+            return Err(LLMError::InvalidRequest(
+                "At least one non-system message is required".to_string(),
+            ));
+        }
         let (anthropic_tools, final_tool_choice) =
             Self::prepare_tools_and_choice(tools, &self.tool_choice);
 
