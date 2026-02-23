@@ -7,5 +7,6 @@ Vector store index integration for [Qdrant](https://qdrant.tech/). This adapter 
 `autoagents-qdrant` supports Qdrant named vectors via the vector-store API:
 
 - Use `VectorStoreIndex::insert_documents_with_named_vectors(...)` to upsert points with multiple named vector spaces.
+- Use `QdrantVectorStore::recreate_collection_named(dimensions)` when you need an explicit collection reset with named vector configuration.
 - Use `VectorSearchRequest::builder().query_vector_name("symbol")` to select the vector space at query time.
 - Keep omitting `query_vector_name` (or use `"default"`) for backward-compatible single-vector behavior.
