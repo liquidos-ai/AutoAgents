@@ -28,7 +28,12 @@ Add the core crate and macros. Enable a provider feature (e.g., `openai`) to use
 [dependencies]
 autoagents = { version = "0.3.4", features = ["openai"] }
 autoagents-derive = "0.3.4"
+anyhow = "1"
+serde_json = "1"
+tokio = "1"
 ```
+
+Used by this example: `anyhow::Result`, `#[tokio::main]`, and `serde_json` (required by `#[agent]` macro expansion).
 
 Optional tools (filesystem, search) live in `autoagents-toolkit`:
 
@@ -37,6 +42,16 @@ autoagents-toolkit = { version = "0.3.4", features = ["filesystem", "search"] }
 ```
 
 Provider features available on `autoagents`: `openai`, `anthropic`, `openrouter`, `groq`, `google`, `azure_openai`, `xai`, `deepseek`, `ollama`. Use only what you need.
+
+## Configure Environment
+
+Create a `.env` file in your project root:
+
+```env
+OPENAI_API_KEY=your_openai_api_key
+```
+
+Do not commit secrets. Keep `.env` out of version control.
 
 ## Minimal Agent
 
