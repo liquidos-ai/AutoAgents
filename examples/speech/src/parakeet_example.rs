@@ -37,10 +37,40 @@ use autoagents_speech::{AudioData, STTSpeechProvider, TranscriptionRequest};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use futures::StreamExt;
 use std::env;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::util::{load_audio_from_wav, capture_audio_from_mic};
+
+const PARAKEET_PATH_ENV: &str = "PARAKEET_PATH";
+const DEFAULT_TDT_SUBDIR: &str = "tdt";
+const DEFAULT_NEMOTRON_SUBDIR: &str = "nemotron-speech-streaming-en-0.6b";
+const DEFAULT_EOU_SUBDIR: &str = "realtime_eou_120m-v1-onnx";
+
+fn resolve_model_path(env_var: &str, subdir: &str) -> Result<String, Box<dyn std::error::Error>> {
+    if let Ok(path) = env::var(env_var) {
+        return Ok(path);
+    }
+
+    if let Ok(base) = env::var(PARAKEET_PATH_ENV) {
+        let joined = Path::new(&base).join(subdir);
+        return Ok(joined.to_string_lossy().into_owned());
+    }
+
+    Err(format!(
+        "Model path for {} not provided; set {} or combine {} with the {} subdirectory",
+        env_var, env_var, PARAKEET_PATH_ENV, subdir
+    )
+    .into())
+}
+
+fn require_audio_file_path() -> Result<String, Box<dyn std::error::Error>> {
+    env::var("AUDIO_FILE_PATH").map_err(|_| {
+        "AUDIO_FILE_PATH environment variable is required for the file transcription examples"
+            .into()
+    })
+}
 
 #[derive(Debug, Clone)]
 pub enum TranscriptionMode {
@@ -111,8 +141,7 @@ async fn run_file_non_streaming() -> Result<(), Box<dyn std::error::Error>> {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
 
-    let model_path = env::var("PARAKEET_TDT_PATH")
-        .unwrap_or_else(|_| "/Users/skrohit/my_repos/rust_ml_frameworks/integration_stt/AutoAgents/models/eou/tdt".to_string());
+    let model_path = resolve_model_path("PARAKEET_TDT_PATH", DEFAULT_TDT_SUBDIR)?;
 
     println!("Initializing TDT model from: {}", model_path);
     println!("Note: TDT supports 25 languages and word-level timestamps");
@@ -137,8 +166,7 @@ async fn run_file_non_streaming() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Load audio file
-    let audio_file = env::var("AUDIO_FILE_PATH")
-        .unwrap_or_else(|_| "/Users/skrohit/my_repos/rust_ml_frameworks/integration_stt/parakeet-rs/examples/6_speakers.wav".to_string());
+    let audio_file = require_audio_file_path()?;
 
     println!("Loading audio from: {}", audio_file);
     let audio = match load_audio_from_wav(&audio_file) {
@@ -209,8 +237,7 @@ async fn run_file_streaming() -> Result<(), Box<dyn std::error::Error>> {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
 
-    let model_path = env::var("PARAKEET_NEMOTRON_PATH")
-        .unwrap_or_else(|_| "/Users/skrohit/my_repos/rust_ml_frameworks/integration_stt/AutoAgents/models/eou/nemotron-speech-streaming-en-0.6b".to_string());
+    let model_path = resolve_model_path("PARAKEET_NEMOTRON_PATH", DEFAULT_NEMOTRON_SUBDIR)?;
 
     println!("Initializing Nemotron model from: {}", model_path);
     println!("Note: Nemotron supports streaming ASR with punctuation (English only)");
@@ -236,8 +263,7 @@ async fn run_file_streaming() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Load audio file
-    let audio_file = env::var("AUDIO_FILE_PATH")
-        .unwrap_or_else(|_| "/Users/skrohit/my_repos/rust_ml_frameworks/integration_stt/parakeet-rs/examples/6_speakers.wav".to_string());
+    let audio_file = require_audio_file_path()?;
 
     println!("Loading audio from: {}", audio_file);
     let audio = match load_audio_from_wav(&audio_file) {
@@ -313,8 +339,7 @@ async fn run_mic_non_streaming() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let model_path = env::var("PARAKEET_TDT_PATH")
-        .unwrap_or_else(|_| "/Users/skrohit/my_repos/rust_ml_frameworks/integration_stt/AutoAgents/models/eou/tdt".to_string());
+    let model_path = resolve_model_path("PARAKEET_TDT_PATH", DEFAULT_TDT_SUBDIR)?;
 
     println!("Initializing TDT model from: {}", model_path);
 
@@ -379,8 +404,7 @@ async fn run_mic_streaming() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let model_path = env::var("PARAKEET_EOU_PATH")
-        .unwrap_or_else(|_| "/Users/skrohit/my_repos/rust_ml_frameworks/integration_stt/AutoAgents/models/eou/realtime_eou_120m-v1-onnx".to_string());
+    let model_path = resolve_model_path("PARAKEET_EOU_PATH", DEFAULT_EOU_SUBDIR)?;
     
     // Check for verbose mode
     let verbose = env::var("VERBOSE").is_ok() || env::var("DEBUG").is_ok();
