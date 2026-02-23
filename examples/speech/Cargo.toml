@@ -18,3 +18,4 @@ hound = { workspace = true }
 env_logger = { workspace = true }
 futures = { workspace = true }
 clap = { workspace = true }
+cpal = "0.15"

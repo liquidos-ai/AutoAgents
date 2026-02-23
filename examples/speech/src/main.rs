@@ -3,13 +3,16 @@ use clap::{ArgAction, Parser, ValueEnum};
 mod basic;
 mod realtime;
 mod util;
-mod stt_example;
+
+#[cfg(feature = "parakeet")]
+mod parakeet_example;
 
 #[derive(Debug, ValueEnum, Clone)]
 enum Usecase {
     Basic,
     Realtime,
-    Stt,
+    #[cfg(feature = "parakeet")]
+    Parakeet,
 }
 
 #[derive(Parser, Debug)]
@@ -19,6 +22,9 @@ struct Args {
     usecase: Usecase,
     #[arg(short, long, action = ArgAction::SetTrue, help = "Write output WAV files")]
     output: bool,
+    #[cfg(feature = "parakeet")]
+    #[arg(long, help = "Parakeet transcription mode: file, file-stream, mic, mic-stream, or all")]
+    mode: Option<String>,
 }
 
 #[tokio::main]
@@ -28,7 +34,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.usecase {
         Usecase::Basic => basic::run(args.output).await?,
         Usecase::Realtime => realtime::run(args.output).await?,
-        Usecase::Stt => stt_example::run().await?,
+        #[cfg(feature = "parakeet")]
+        Usecase::Parakeet => {
+            let mode_str = args.mode.unwrap_or_else(|| "all".to_string());
+            let mode = mode_str
+                .parse::<parakeet_example::TranscriptionMode>()
+                .map_err(|e| format!("Invalid mode: {}", e))?;
+            parakeet_example::run(mode).await?;
+        }
     }
 
     Ok(())
