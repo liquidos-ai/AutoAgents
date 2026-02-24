@@ -2,6 +2,7 @@
 use crate::actor::Topic;
 use crate::agent::base::AgentType;
 use crate::agent::error::{AgentBuildError, RunnableAgentError};
+use crate::agent::executor::event_helper::EventHelper;
 use crate::agent::hooks::AgentHooks;
 use crate::agent::state::AgentState;
 use crate::agent::task::Task;
@@ -135,6 +136,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
     {
         let submission_id = task.submission_id;
         let tx = self.tx().map_err(|_| RunnableAgentError::EmptyTx)?;
+        let tx_event = Some(tx.clone());
 
         let context = self.create_context();
 
@@ -149,15 +151,14 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         match self.inner().execute(&task, context.clone()).await {
             Ok(output) => {
                 let value: Value = output.clone().into();
-
                 #[cfg(not(target_arch = "wasm32"))]
-                tx.send(Event::TaskComplete {
-                    sub_id: submission_id,
-                    actor_id: self.id,
-                    actor_name: self.name().to_string(),
-                    result: serde_json::to_string_pretty(&value)
-                        .map_err(|e| RunnableAgentError::ExecutorError(e.to_string()))?,
-                })
+                EventHelper::send_task_completed_value(
+                    &tx_event,
+                    submission_id,
+                    self.id,
+                    self.name().to_string(),
+                    &value,
+                )
                 .await
                 .map_err(|e| RunnableAgentError::ExecutorError(e.to_string()))?;
 
@@ -173,13 +174,8 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
             }
             Err(e) => {
                 #[cfg(not(target_arch = "wasm32"))]
-                tx.send(Event::TaskError {
-                    sub_id: submission_id,
-                    actor_id: self.id,
-                    error: e.to_string(),
-                })
-                .await
-                .map_err(|e| RunnableAgentError::ExecutorError(e.to_string()))?;
+                EventHelper::send_task_error(&tx_event, submission_id, self.id, e.to_string())
+                    .await;
                 Err(RunnableAgentError::ExecutorError(e.to_string()))
             }
         }

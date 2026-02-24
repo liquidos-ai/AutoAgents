@@ -221,15 +221,6 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for BasicAgent<T> {
 
         let output = extract_turn_output(turn_result);
 
-        EventHelper::send_task_completed(
-            &tx_event,
-            task.submission_id,
-            context.config().id,
-            context.config().name.clone(),
-            output.response.clone(),
-        )
-        .await;
-
         Ok(BasicAgentOutput {
             response: output.response,
             done: true,
@@ -319,12 +310,18 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for BasicAgent<T> {
 
             let tx_event = context_clone.tx().ok();
             EventHelper::send_stream_complete(&tx_event, task.submission_id).await;
+            let output = BasicAgentOutput {
+                response: final_response,
+                done: true,
+            };
+            let result =
+                serde_json::to_string_pretty(&output).unwrap_or_else(|_| output.response.clone());
             EventHelper::send_task_completed(
                 &tx_event,
                 task.submission_id,
                 context_clone.config().id,
                 context_clone.config().name.clone(),
-                final_response,
+                result,
             )
             .await;
         });
