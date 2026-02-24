@@ -260,15 +260,6 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
             match result {
                 crate::agent::executor::TurnResult::Complete(output) => {
                     final_response = output.response.clone();
-                    EventHelper::send_task_completed(
-                        &tx_event,
-                        task.submission_id,
-                        context.config().id,
-                        context.config().name.clone(),
-                        final_response.clone(),
-                    )
-                    .await;
-
                     accumulated_tool_calls.extend(output.tool_calls);
 
                     return Ok(ReActAgentOutput {
@@ -288,15 +279,6 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
         }
 
         if !final_response.is_empty() || !accumulated_tool_calls.is_empty() {
-            EventHelper::send_task_completed(
-                &tx_event,
-                task.submission_id,
-                context.config().id,
-                context.config().name.clone(),
-                final_response.clone(),
-            )
-            .await;
-
             return Ok(ReActAgentOutput {
                 response: final_response,
                 done: true,
@@ -426,21 +408,22 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
 
             let tx_event = context_clone.tx().ok();
             EventHelper::send_stream_complete(&tx_event, task.submission_id).await;
-            let _ = tx
-                .send(Ok(ReActAgentOutput {
-                    response: final_response.clone(),
-                    done: true,
-                    tool_calls: accumulated_tool_calls.clone(),
-                }))
-                .await;
+            let output = ReActAgentOutput {
+                response: final_response.clone(),
+                done: true,
+                tool_calls: accumulated_tool_calls.clone(),
+            };
+            let _ = tx.send(Ok(output.clone())).await;
 
             if !final_response.is_empty() || !accumulated_tool_calls.is_empty() {
+                let result = serde_json::to_string_pretty(&output)
+                    .unwrap_or_else(|_| output.response.clone());
                 EventHelper::send_task_completed(
                     &tx_event,
                     task.submission_id,
                     context_clone.config().id,
                     context_clone.config().name.clone(),
-                    final_response,
+                    result,
                 )
                 .await;
             }

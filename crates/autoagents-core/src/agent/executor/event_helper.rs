@@ -65,6 +65,37 @@ impl EventHelper {
         .await;
     }
 
+    /// Send task completed event with a JSON value result
+    pub async fn send_task_completed_value(
+        tx: &Option<mpsc::Sender<Event>>,
+        sub_id: SubmissionId,
+        actor_id: ActorID,
+        actor_name: String,
+        result: &Value,
+    ) -> Result<(), serde_json::Error> {
+        let result = serde_json::to_string_pretty(result)?;
+        Self::send_task_completed(tx, sub_id, actor_id, actor_name, result).await;
+        Ok(())
+    }
+
+    /// Send task error event
+    pub async fn send_task_error(
+        tx: &Option<mpsc::Sender<Event>>,
+        sub_id: SubmissionId,
+        actor_id: ActorID,
+        error: String,
+    ) {
+        Self::send(
+            tx,
+            Event::TaskError {
+                sub_id,
+                actor_id,
+                error,
+            },
+        )
+        .await;
+    }
+
     /// Send turn started event
     pub async fn send_turn_started(
         tx: &Option<mpsc::Sender<Event>>,

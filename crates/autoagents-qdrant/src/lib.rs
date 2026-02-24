@@ -8,8 +8,8 @@ use autoagents_core::vector_store::{
     DEFAULT_VECTOR_NAME, NamedVectorDocument, PreparedDocument, VectorSearchRequest,
     VectorStoreError, VectorStoreIndex, embed_documents, embed_named_documents, normalize_id,
 };
+use qdrant_client::Payload;
 use qdrant_client::Qdrant;
-use qdrant_client::client::Payload;
 use qdrant_client::qdrant::{
     Condition, CreateCollectionBuilder, DeletePointsBuilder, Distance, Filter as QdrantFilter,
     PointStruct, Range, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
@@ -87,17 +87,7 @@ impl QdrantVectorStore {
         &self,
         dimensions: &HashMap<String, u64>,
     ) -> Result<(), VectorStoreError> {
-        let mut config = VectorsConfigBuilder::default();
-        for (name, dimension) in dimensions {
-            config.add_named_vector_params(
-                name.clone(),
-                VectorParamsBuilder::new(*dimension, Distance::Cosine),
-            );
-        }
-
-        let request = CreateCollectionBuilder::new(self.collection_name.clone())
-            .vectors_config(config)
-            .build();
+        let request = Self::named_collection_request(&self.collection_name, dimensions);
 
         let result = self.client.create_collection(request).await;
         if let Err(err) = result {
@@ -108,6 +98,49 @@ impl QdrantVectorStore {
         }
 
         Ok(())
+    }
+
+    pub async fn recreate_named_collection(
+        &self,
+        dimensions: HashMap<String, u64>,
+    ) -> Result<(), VectorStoreError> {
+        let exists = self
+            .client
+            .collection_exists(self.collection_name.clone())
+            .await
+            .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
+
+        if exists {
+            self.client
+                .delete_collection(self.collection_name.clone())
+                .await
+                .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
+        }
+
+        let request = Self::named_collection_request(&self.collection_name, &dimensions);
+        self.client
+            .create_collection(request)
+            .await
+            .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
+
+        Ok(())
+    }
+
+    fn named_collection_request(
+        collection_name: &str,
+        dimensions: &HashMap<String, u64>,
+    ) -> qdrant_client::qdrant::CreateCollection {
+        let mut config = VectorsConfigBuilder::default();
+        for (name, dimension) in dimensions {
+            config.add_named_vector_params(
+                name.clone(),
+                VectorParamsBuilder::new(*dimension, Distance::Cosine),
+            );
+        }
+
+        CreateCollectionBuilder::new(collection_name.to_string())
+            .vectors_config(config)
+            .build()
     }
 
     fn payload_for(doc: &PreparedDocument) -> Result<Payload, VectorStoreError> {
