@@ -3,7 +3,7 @@
 
 # AutoAgents
 
-**A production-grade multi-agent framework in Rust**
+**Ein produktionsreifes Multi-Agenten-Framework in Rust**
 
 [![Crates.io](https://img.shields.io/crates/v/autoagents.svg)](https://crates.io/crates/autoagents)
 [![Documentation](https://docs.rs/autoagents/badge.svg)](https://liquidos-ai.github.io/AutoAgents)
@@ -14,71 +14,69 @@
 
 [English](README.md) | [中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [한국어](README.ko.md) | [Português (Brasil)](README.pt-BR.md)
 <br />
-<sub>Translations may lag behind the English README.</sub>
+<sub>Diese Übersetzung wird von der Community gepflegt und kann hinterherhinken; bei Abweichungen gilt die englische Version.</sub>
 
-[Documentation](https://liquidos-ai.github.io/AutoAgents/) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
+[Dokumentation](https://liquidos-ai.github.io/AutoAgents/) | [Beispiele](examples/) | [Mitwirken](CONTRIBUTING.md)
 
 <br />
-<strong>Like this project?</strong> <a href="https://github.com/liquidos-ai/AutoAgents">Star us on GitHub</a>
+<strong>Gefällt dir dieses Projekt?</strong> <a href="https://github.com/liquidos-ai/AutoAgents">Gib uns einen Stern auf GitHub</a>
 </div>
 
 ---
 
-## Overview
+## Überblick
 
-AutoAgents is a modular, multi-agent framework for building intelligent systems in Rust. It combines a type-safe agent
-model with structured tool calling, configurable memory, and pluggable LLM backends. The architecture is designed for
-performance, safety, and composability across server, edge.
+AutoAgents ist ein modulares Multi-Agenten-Framework zum Aufbau intelligenter Systeme in Rust. Es kombiniert ein typsicheres Agentenmodell, strukturierte Tool-Aufrufe, konfigurierbaren Speicher und austauschbare LLM-Backends. Die Architektur ist auf Performance, Sicherheit und Komponierbarkeit ausgelegt, sowohl für Server als auch für Edge.
 
 ---
 
-## Key Features
+## Wichtige Funktionen
 
-- **Agent execution**: ReAct and basic executors, streaming responses, and structured outputs
-- **Tooling**: Derive macros for tools and outputs, plus a sandboxed WASM runtime for tool execution
-- **Memory**: Sliding window memory with extensible backends
-- **LLM providers**: Cloud and local backends behind a unified interface
-- **Multi-agent orchestration**: Typed pub/sub communication and environment management
-- **Speech-Processing**: Local TTS and STT support
-- **Observability**: OpenTelemetry tracing and metrics with pluggable exporters
+- **Agentenausführung**: ReAct und grundlegende Ausführungsmodelle, Streaming-Antworten und strukturierte Ausgaben
+- **Tooling**: Derive-Makros für Tools und Ausgaben sowie eine sandboxed WASM-Runtime für die Tool-Ausführung
+- **Speicher**: Sliding-Window-Speicher mit erweiterbaren Backends
+- **LLM-Anbieter**: Cloud- und lokale Backends hinter einer einheitlichen Schnittstelle
+- **Multi-Agenten-Orchestrierung**: Typisierte Pub/Sub-Kommunikation und Umgebungsverwaltung
+- **Sprachverarbeitung**: Lokale TTS- und STT-Unterstützung
+- **Observability**: OpenTelemetry-Tracing und Metriken mit austauschbaren Exportern
 
 ---
 
-## Supported LLM Providers
+## Unterstützte LLM-Anbieter
 
-### Cloud Providers
+### Cloud-Anbieter
 
-| Provider         | Status |
-| ---------------- | ------ |
-| **OpenAI**       | ✅     |
-| **OpenRouter**   | ✅     |
-| **Anthropic**    | ✅     |
-| **DeepSeek**     | ✅     |
-| **xAI**          | ✅     |
-| **Phind**        | ✅     |
-| **Groq**         | ✅     |
-| **Google**       | ✅     |
-| **Azure OpenAI** | ✅     |
-| **MiniMax**      | ✅     |
+| Anbieter          | Status |
+| ----------------- | ------ |
+| **OpenAI**        | ✅     |
+| **OpenRouter**    | ✅     |
+| **Anthropic**     | ✅     |
+| **DeepSeek**      | ✅     |
+| **xAI**           | ✅     |
+| **Phind**         | ✅     |
+| **Groq**          | ✅     |
+| **Google**        | ✅     |
+| **Azure OpenAI**  | ✅     |
+| **MiniMax**       | ✅     |
 
-### Local Providers
+### Lokale Anbieter
 
-| Provider       | Status |
-| -------------- | ------ |
-| **Ollama**     | ✅     |
-| **Mistral-rs** | ✅     |
-| **Llama-Cpp**  | ✅     |
+| Anbieter      | Status |
+| ------------ | ------ |
+| **Ollama**   | ✅     |
+| **Mistral-rs** | ✅   |
+| **Llama-Cpp** | ✅    |
 
-### Experimental Providers
+### Experimentelle Anbieter
 
-See https://github.com/liquidos-ai/AutoAgents-Experimental-Backends
+Siehe https://github.com/liquidos-ai/AutoAgents-Experimental-Backends
 
-| Provider | Status          |
-| -------- | --------------- |
-| **Burn** | ⚠️ Experimental |
-| **Onnx** | ⚠️ Experimental |
+| Anbieter | Status            |
+| ------- | ----------------- |
+| **Burn** | ⚠️ Experimentell |
+| **Onnx** | ⚠️ Experimentell |
 
-Provider support is actively expanding based on community needs.
+Die Anbieter-Unterstützung wird aktiv anhand der Community-Bedürfnisse erweitert.
 
 ---
 
@@ -86,19 +84,19 @@ Provider support is actively expanding based on community needs.
 
 ![Benchmark](./assets/Benchmark.png)
 
-More info at [GitHub](https://github.com/liquidos-ai/autoagents-bench)
+Weitere Infos auf [GitHub](https://github.com/liquidos-ai/autoagents-bench)
 
 ---
 
 ## Installation
 
-### Prerequisites
+### Voraussetzungen
 
-- **Rust** (latest stable recommended)
-- **Cargo** package manager
-- **LeftHook** for Git hooks management
+- **Rust** (neueste stabile Version empfohlen)
+- **Cargo** als Paketmanager
+- **LeftHook** zur Verwaltung von Git Hooks
 
-### Install LeftHook
+### LeftHook installieren
 
 macOS (Homebrew):
 
@@ -112,7 +110,7 @@ Linux/Windows (npm):
 npm install -g lefthook
 ```
 
-### Clone and Build
+### Klonen und bauen
 
 ```bash
 git clone https://github.com/liquidos-ai/AutoAgents.git
@@ -121,7 +119,7 @@ lefthook install
 cargo build --workspace --all-features
 ```
 
-### Run Tests
+### Tests ausführen
 
 ```bash
 cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
@@ -129,7 +127,7 @@ cargo test --workspace --features default --exclude autoagents-burn --exclude au
 
 ---
 
-## Quick Start
+## Schnellstart
 
 ```rust
 use autoagents::core::agent::memory::SlidingWindowMemory;
@@ -239,56 +237,55 @@ async fn main() -> Result<(), Error> {
 
 ### AutoAgents CLI
 
-AutoAgents CLI helps in running Agentic Workflows from YAML configurations and serves them over HTTP. You can check it out at https://github.com/liquidos-ai/AutoAgents-CLI.
+AutoAgents CLI hilft beim Ausführen von Agenten-Workflows aus YAML-Konfigurationen und stellt sie über HTTP bereit. Siehe https://github.com/liquidos-ai/AutoAgents-CLI.
 
 ---
 
-## Examples
+## Beispiele
 
-Explore the examples to get started quickly:
+Entdecke die Beispiele für einen schnellen Einstieg:
 
 ### [Basic](examples/basic/)
 
-Demonstrates various examples like Simple Agent with Tools, Very Basic Agent, Edge Agent, Chaining, Actor Based Model,
-Streaming and Adding Agent Hooks.
+Zeigt verschiedene Beispiele wie einen einfachen Agenten mit Tools, einen sehr einfachen Agenten, Edge-Agenten, Chaining, ein Actor-basiertes Modell, Streaming und das Hinzufügen von Agent Hooks.
 
-### [MCP Integration](examples/mcp/)
+### [MCP-Integration](examples/mcp/)
 
-Demonstrates how to integrate AutoAgents with the Model Context Protocol (MCP).
+Zeigt, wie AutoAgents mit dem Model Context Protocol (MCP) integriert wird.
 
-### [Local Models](examples/mistral_rs)
+### [Lokale Modelle](examples/mistral_rs)
 
-Demonstrates how to integrate AutoAgents with the Mistral-rs for Local Models.
+Zeigt die Integration von AutoAgents mit Mistral-rs für lokale Modelle.
 
-### [Design Patterns](examples/design_patterns/)
+### [Entwurfsmuster](examples/design_patterns/)
 
-Demonstrates various design patterns like Chaining, Planning, Routing, Parallel and Reflection.
+Zeigt Muster wie Chaining, Planung, Routing, Parallelisierung und Reflexion.
 
-### [Providers](examples/providers/)
+### [Provider](examples/providers/)
 
-Contains examples demonstrating how to use different LLM providers with AutoAgents.
+Enthält Beispiele zur Nutzung verschiedener LLM-Provider mit AutoAgents.
 
-### [WASM Tool Execution](examples/wasm_runner/)
+### [WASM-Tool-Ausführung](examples/wasm_runner/)
 
-A simple agent which can run tools in WASM runtime.
+Ein einfacher Agent, der Tools in einer WASM-Runtime ausführen kann.
 
 ### [Coding Agent](examples/coding_agent/)
 
-A sophisticated ReAct-based coding agent with file manipulation capabilities.
+Ein anspruchsvoller ReAct-basierter Coding-Agent mit Dateimanipulationsfunktionen.
 
-### [Speech](examples/speech/)
+### [Sprache](examples/speech/)
 
-Run AutoAgents Speech Example with realtime TTS and STT.
+Führt das AutoAgents-Sprachbeispiel mit Echtzeit-TTS und STT aus.
 
 ### [Android Local Agent](https://github.com/liquidos-ai/AutoAgents-Android-Example)
 
-Example App that runs AutoAgents with Local models in Android using AutoAgents-llamacpp backend
+Beispiel-App, die AutoAgents mit lokalen Modellen auf Android über das autoagents-llamacpp-Backend ausführt.
 
 ---
 
-## Components
+## Komponenten
 
-AutoAgents is built with a modular architecture:
+AutoAgents ist modular aufgebaut:
 
 ```
 AutoAgents/
@@ -307,19 +304,19 @@ AutoAgents/
 ├── examples/                      # Example implementations
 ```
 
-### Core Components
+### Kernkomponenten
 
-- **Agent**: The fundamental unit of intelligence
-- **Environment**: Manages agent lifecycle and communication
-- **Memory**: Configurable memory systems
-- **Tools**: External capability integration
-- **Executors**: Different reasoning patterns (ReAct, Chain-of-Thought)
+- **Agent**: grundlegende Einheit der Intelligenz
+- **Umgebung**: verwaltet Lebenszyklus und Kommunikation von Agenten
+- **Speicher**: konfigurierbare Speichersysteme
+- **Tools**: Integration externer Fähigkeiten
+- **Executors**: verschiedene Denkmodelle (ReAct, Chain-of-Thought)
 
 ---
 
-## Development
+## Entwicklung
 
-### Running Tests
+### Tests ausführen
 
 ```bash
 cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
@@ -329,7 +326,7 @@ cargo install cargo-tarpaulin
 cargo tarpaulin --all-features --out html
 ```
 
-### Running Benchmarks
+### Benchmarks ausführen
 
 ```bash
 cargo bench -p autoagents-core --bench agent_runtime
@@ -337,72 +334,71 @@ cargo bench -p autoagents-core --bench agent_runtime
 
 ### Git Hooks
 
-This project uses LeftHook for Git hooks management. The hooks will automatically:
+Dieses Projekt nutzt LeftHook zur Verwaltung von Git Hooks. Die Hooks führen automatisch aus:
 
-- Format code with `cargo fmt --check`
-- Run linting with `cargo clippy -- -D warnings`
-- Execute tests with `cargo test --all-features --workspace --exclude autoagents-burn`
+- Formatierung mit `cargo fmt --check`
+- Linting mit `cargo clippy -- -D warnings`
+- Tests mit `cargo test --all-features --workspace --exclude autoagents-burn`
 
-### Contributing
+### Mitwirken
 
-We welcome contributions. Please see our [Contributing Guidelines](CONTRIBUTING.md)
-and [Code of Conduct](CODE_OF_CONDUCT.md) for details.
+Beiträge sind willkommen. Siehe [Contribution Guidelines](CONTRIBUTING.md) und [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ---
 
-## Documentation
+## Dokumentation
 
-- **[API Documentation](https://liquidos-ai.github.io/AutoAgents)**: Complete framework docs
-- **[Examples](examples/)**: Practical implementation examples
+- **[API-Dokumentation](https://liquidos-ai.github.io/AutoAgents)**: vollständige Framework-Dokumentation
+- **[Beispiele](examples/)**: praxisnahe Implementierungen
 
 ---
 
 ## Community
 
-- **GitHub Issues**: Bug reports and feature requests
-- **Discussions**: Community Q&A and ideas
-- **Discord**: Join our Discord Community using https://discord.gg/zfAF9MkEtK
+- **GitHub Issues**: Fehlerberichte und Feature-Wünsche
+- **Discussions**: Community Q&A und Ideen
+- **Discord**: Tritt unserer Discord-Community bei https://discord.gg/zfAF9MkEtK
 
 ---
 
 ## Performance
 
-AutoAgents is designed for high performance:
+AutoAgents ist auf hohe Performance ausgelegt:
 
-- **Memory Efficient**: Optimized memory usage with configurable backends
-- **Concurrent**: Full async/await support with tokio
-- **Scalable**: Horizontal scaling with multi-agent coordination
-- **Type Safe**: Compile-time guarantees with Rust's type system
+- **Speichereffizient**: optimierte Speichernutzung mit konfigurierbaren Backends
+- **Nebenläufig**: vollständige async/await-Unterstützung mit tokio
+- **Skalierbar**: horizontale Skalierung durch Multi-Agenten-Koordination
+- **Typsicher**: Compile-Time-Garantien durch Rusts Typsystem
 
 ---
 
-## License
+## Lizenz
 
-AutoAgents is dual-licensed under:
+AutoAgents ist dual-lizenziert:
 
 - **MIT License** ([MIT_LICENSE](MIT_LICENSE))
 - **Apache License 2.0** ([APACHE_LICENSE](APACHE_LICENSE))
 
-You may choose either license for your use case.
+Du kannst die passende Lizenz für deinen Anwendungsfall wählen.
 
 ---
 
-## Acknowledgments
+## Danksagung
 
-Built by the [Liquidos AI](https://liquidos.ai) team and wonderful community of researchers and engineers.
+Erstellt vom [Liquidos AI](https://liquidos.ai) Team und einer großartigen Community von Forschenden und Ingenieuren.
 
 <a href="https://github.com/liquidos-ai/AutoAgents/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=liquidos-ai/AutoAgents" />
 </a>
 
-Special thanks to:
+Besonderer Dank an:
 
-- The Rust community for the excellent ecosystem
-- LLM providers for enabling high-quality model APIs
-- All contributors who help improve AutoAgents
+- Die Rust-Community für das hervorragende Ökosystem
+- LLM-Provider für hochwertige Modell-APIs
+- Alle Mitwirkenden, die AutoAgents verbessern
 
 ---
 
-## Star History
+## Star-Verlauf
 
 [![Star History Chart](https://api.star-history.com/svg?repos=liquidos-ai/AutoAgents&type=Date)](https://www.star-history.com/#liquidos-ai/AutoAgents&Date)

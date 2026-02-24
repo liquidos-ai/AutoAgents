@@ -3,7 +3,7 @@
 
 # AutoAgents
 
-**A production-grade multi-agent framework in Rust**
+**面向生产的 Rust 多智能体框架**
 
 [![Crates.io](https://img.shields.io/crates/v/autoagents.svg)](https://crates.io/crates/autoagents)
 [![Documentation](https://docs.rs/autoagents/badge.svg)](https://liquidos-ai.github.io/AutoAgents)
@@ -14,105 +14,103 @@
 
 [English](README.md) | [中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [한국어](README.ko.md) | [Português (Brasil)](README.pt-BR.md)
 <br />
-<sub>Translations may lag behind the English README.</sub>
+<sub>该译文由社区维护，可能滞后；如有差异，以英文版为准。</sub>
 
-[Documentation](https://liquidos-ai.github.io/AutoAgents/) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
+[文档](https://liquidos-ai.github.io/AutoAgents/) | [示例](examples/) | [贡献指南](CONTRIBUTING.md)
 
 <br />
-<strong>Like this project?</strong> <a href="https://github.com/liquidos-ai/AutoAgents">Star us on GitHub</a>
+<strong>喜欢这个项目？</strong> <a href="https://github.com/liquidos-ai/AutoAgents">在 GitHub 给我们点星</a>
 </div>
 
 ---
 
-## Overview
+## 概览
 
-AutoAgents is a modular, multi-agent framework for building intelligent systems in Rust. It combines a type-safe agent
-model with structured tool calling, configurable memory, and pluggable LLM backends. The architecture is designed for
-performance, safety, and composability across server, edge.
+AutoAgents 是一个用于在 Rust 中构建智能系统的模块化多智能体框架。它结合了类型安全的智能体模型、结构化工具调用、可配置内存，以及可插拔的 LLM 后端。该架构面向性能、安全与可组合性，覆盖服务器与边缘环境。
 
 ---
 
-## Key Features
+## 关键特性
 
-- **Agent execution**: ReAct and basic executors, streaming responses, and structured outputs
-- **Tooling**: Derive macros for tools and outputs, plus a sandboxed WASM runtime for tool execution
-- **Memory**: Sliding window memory with extensible backends
-- **LLM providers**: Cloud and local backends behind a unified interface
-- **Multi-agent orchestration**: Typed pub/sub communication and environment management
-- **Speech-Processing**: Local TTS and STT support
-- **Observability**: OpenTelemetry tracing and metrics with pluggable exporters
-
----
-
-## Supported LLM Providers
-
-### Cloud Providers
-
-| Provider         | Status |
-| ---------------- | ------ |
-| **OpenAI**       | ✅     |
-| **OpenRouter**   | ✅     |
-| **Anthropic**    | ✅     |
-| **DeepSeek**     | ✅     |
-| **xAI**          | ✅     |
-| **Phind**        | ✅     |
-| **Groq**         | ✅     |
-| **Google**       | ✅     |
-| **Azure OpenAI** | ✅     |
-| **MiniMax**      | ✅     |
-
-### Local Providers
-
-| Provider       | Status |
-| -------------- | ------ |
-| **Ollama**     | ✅     |
-| **Mistral-rs** | ✅     |
-| **Llama-Cpp**  | ✅     |
-
-### Experimental Providers
-
-See https://github.com/liquidos-ai/AutoAgents-Experimental-Backends
-
-| Provider | Status          |
-| -------- | --------------- |
-| **Burn** | ⚠️ Experimental |
-| **Onnx** | ⚠️ Experimental |
-
-Provider support is actively expanding based on community needs.
+- **智能体执行**：ReAct 与基础执行器、流式响应、结构化输出
+- **工具化**：工具与输出的派生宏，以及用于工具执行的沙盒化 WASM 运行时
+- **记忆**：滑动窗口记忆与可扩展后端
+- **LLM 提供方**：统一接口下的云端与本地后端
+- **多智能体编排**：类型化的发布/订阅通信与环境管理
+- **语音处理**：本地 TTS 与 STT 支持
+- **可观测性**：OpenTelemetry 追踪与指标，支持可插拔导出器
 
 ---
 
-## Benchmarks
+## 支持的 LLM 提供方
+
+### 云端提供方
+
+| 提供方          | 状态 |
+| --------------- | ---- |
+| **OpenAI**      | ✅   |
+| **OpenRouter**  | ✅   |
+| **Anthropic**   | ✅   |
+| **DeepSeek**    | ✅   |
+| **xAI**         | ✅   |
+| **Phind**       | ✅   |
+| **Groq**        | ✅   |
+| **Google**      | ✅   |
+| **Azure OpenAI** | ✅   |
+| **MiniMax**     | ✅   |
+
+### 本地提供方
+
+| 提供方       | 状态 |
+| ------------ | ---- |
+| **Ollama**   | ✅   |
+| **Mistral-rs** | ✅ |
+| **Llama-Cpp** | ✅ |
+
+### 实验性提供方
+
+详见 https://github.com/liquidos-ai/AutoAgents-Experimental-Backends
+
+| 提供方 | 状态            |
+| ------ | --------------- |
+| **Burn** | ⚠️ 实验性     |
+| **Onnx** | ⚠️ 实验性     |
+
+提供方支持会根据社区需求持续扩展。
+
+---
+
+## 基准测试
 
 ![Benchmark](./assets/Benchmark.png)
 
-More info at [GitHub](https://github.com/liquidos-ai/autoagents-bench)
+更多信息见 [GitHub](https://github.com/liquidos-ai/autoagents-bench)
 
 ---
 
-## Installation
+## 安装
 
-### Prerequisites
+### 先决条件
 
-- **Rust** (latest stable recommended)
-- **Cargo** package manager
-- **LeftHook** for Git hooks management
+- **Rust**（推荐最新稳定版）
+- **Cargo** 包管理器
+- **LeftHook** 用于 Git hooks 管理
 
-### Install LeftHook
+### 安装 LeftHook
 
-macOS (Homebrew):
+macOS（Homebrew）：
 
 ```bash
 brew install lefthook
 ```
 
-Linux/Windows (npm):
+Linux/Windows（npm）：
 
 ```bash
 npm install -g lefthook
 ```
 
-### Clone and Build
+### 克隆并构建
 
 ```bash
 git clone https://github.com/liquidos-ai/AutoAgents.git
@@ -121,7 +119,7 @@ lefthook install
 cargo build --workspace --all-features
 ```
 
-### Run Tests
+### 运行测试
 
 ```bash
 cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
@@ -129,7 +127,7 @@ cargo test --workspace --features default --exclude autoagents-burn --exclude au
 
 ---
 
-## Quick Start
+## 快速开始
 
 ```rust
 use autoagents::core::agent::memory::SlidingWindowMemory;
@@ -239,56 +237,55 @@ async fn main() -> Result<(), Error> {
 
 ### AutoAgents CLI
 
-AutoAgents CLI helps in running Agentic Workflows from YAML configurations and serves them over HTTP. You can check it out at https://github.com/liquidos-ai/AutoAgents-CLI.
+AutoAgents CLI 用于根据 YAML 配置运行智能体工作流，并通过 HTTP 提供服务。可在 https://github.com/liquidos-ai/AutoAgents-CLI 查看。
 
 ---
 
-## Examples
+## 示例
 
-Explore the examples to get started quickly:
+浏览示例快速上手：
 
-### [Basic](examples/basic/)
+### [基础](examples/basic/)
 
-Demonstrates various examples like Simple Agent with Tools, Very Basic Agent, Edge Agent, Chaining, Actor Based Model,
-Streaming and Adding Agent Hooks.
+演示多种示例，如带工具的简单智能体、非常基础的智能体、边缘智能体、链式调用、Actor 模型、流式响应以及添加 Agent Hooks。
 
-### [MCP Integration](examples/mcp/)
+### [MCP 集成](examples/mcp/)
 
-Demonstrates how to integrate AutoAgents with the Model Context Protocol (MCP).
+演示如何将 AutoAgents 与 Model Context Protocol (MCP) 集成。
 
-### [Local Models](examples/mistral_rs)
+### [本地模型](examples/mistral_rs)
 
-Demonstrates how to integrate AutoAgents with the Mistral-rs for Local Models.
+演示如何将 AutoAgents 与 Mistral-rs 集成以使用本地模型。
 
-### [Design Patterns](examples/design_patterns/)
+### [设计模式](examples/design_patterns/)
 
-Demonstrates various design patterns like Chaining, Planning, Routing, Parallel and Reflection.
+演示链式、规划、路由、并行与反思等设计模式。
 
-### [Providers](examples/providers/)
+### [提供方](examples/providers/)
 
-Contains examples demonstrating how to use different LLM providers with AutoAgents.
+包含如何使用不同 LLM 提供方的示例。
 
-### [WASM Tool Execution](examples/wasm_runner/)
+### [WASM 工具执行](examples/wasm_runner/)
 
-A simple agent which can run tools in WASM runtime.
+一个可在 WASM 运行时中执行工具的简单智能体。
 
 ### [Coding Agent](examples/coding_agent/)
 
-A sophisticated ReAct-based coding agent with file manipulation capabilities.
+一个基于 ReAct 的复杂编码智能体，具备文件操作能力。
 
-### [Speech](examples/speech/)
+### [语音](examples/speech/)
 
-Run AutoAgents Speech Example with realtime TTS and STT.
+运行 AutoAgents 语音示例，支持实时 TTS 与 STT。
 
-### [Android Local Agent](https://github.com/liquidos-ai/AutoAgents-Android-Example)
+### [Android 本地智能体](https://github.com/liquidos-ai/AutoAgents-Android-Example)
 
-Example App that runs AutoAgents with Local models in Android using AutoAgents-llamacpp backend
+在 Android 上使用 AutoAgents-llamacpp 后端运行本地模型的示例应用。
 
 ---
 
-## Components
+## 组件
 
-AutoAgents is built with a modular architecture:
+AutoAgents 采用模块化架构：
 
 ```
 AutoAgents/
@@ -307,19 +304,19 @@ AutoAgents/
 ├── examples/                      # Example implementations
 ```
 
-### Core Components
+### 核心组件
 
-- **Agent**: The fundamental unit of intelligence
-- **Environment**: Manages agent lifecycle and communication
-- **Memory**: Configurable memory systems
-- **Tools**: External capability integration
-- **Executors**: Different reasoning patterns (ReAct, Chain-of-Thought)
+- **智能体**：智能能力的基本单元
+- **环境**：管理智能体生命周期与通信
+- **记忆**：可配置的记忆系统
+- **工具**：外部能力集成
+- **执行器**：不同推理模式（ReAct、Chain-of-Thought）
 
 ---
 
-## Development
+## 开发
 
-### Running Tests
+### 运行测试
 
 ```bash
 cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
@@ -329,7 +326,7 @@ cargo install cargo-tarpaulin
 cargo tarpaulin --all-features --out html
 ```
 
-### Running Benchmarks
+### 运行基准测试
 
 ```bash
 cargo bench -p autoagents-core --bench agent_runtime
@@ -337,72 +334,71 @@ cargo bench -p autoagents-core --bench agent_runtime
 
 ### Git Hooks
 
-This project uses LeftHook for Git hooks management. The hooks will automatically:
+本项目使用 LeftHook 进行 Git hooks 管理。Hooks 将自动：
 
-- Format code with `cargo fmt --check`
-- Run linting with `cargo clippy -- -D warnings`
-- Execute tests with `cargo test --all-features --workspace --exclude autoagents-burn`
+- 使用 `cargo fmt --check` 格式化代码
+- 使用 `cargo clippy -- -D warnings` 运行静态检查
+- 使用 `cargo test --all-features --workspace --exclude autoagents-burn` 执行测试
 
-### Contributing
+### 贡献
 
-We welcome contributions. Please see our [Contributing Guidelines](CONTRIBUTING.md)
-and [Code of Conduct](CODE_OF_CONDUCT.md) for details.
-
----
-
-## Documentation
-
-- **[API Documentation](https://liquidos-ai.github.io/AutoAgents)**: Complete framework docs
-- **[Examples](examples/)**: Practical implementation examples
+欢迎贡献。详情请参阅 [贡献指南](CONTRIBUTING.md) 和 [行为准则](CODE_OF_CONDUCT.md)。
 
 ---
 
-## Community
+## 文档
 
-- **GitHub Issues**: Bug reports and feature requests
-- **Discussions**: Community Q&A and ideas
-- **Discord**: Join our Discord Community using https://discord.gg/zfAF9MkEtK
-
----
-
-## Performance
-
-AutoAgents is designed for high performance:
-
-- **Memory Efficient**: Optimized memory usage with configurable backends
-- **Concurrent**: Full async/await support with tokio
-- **Scalable**: Horizontal scaling with multi-agent coordination
-- **Type Safe**: Compile-time guarantees with Rust's type system
+- **[API 文档](https://liquidos-ai.github.io/AutoAgents)**：完整框架文档
+- **[示例](examples/)**：实用实现示例
 
 ---
 
-## License
+## 社区
 
-AutoAgents is dual-licensed under:
-
-- **MIT License** ([MIT_LICENSE](MIT_LICENSE))
-- **Apache License 2.0** ([APACHE_LICENSE](APACHE_LICENSE))
-
-You may choose either license for your use case.
+- **GitHub Issues**：Bug 报告与功能请求
+- **Discussions**：社区问答与想法交流
+- **Discord**：加入我们的 Discord 社区 https://discord.gg/zfAF9MkEtK
 
 ---
 
-## Acknowledgments
+## 性能
 
-Built by the [Liquidos AI](https://liquidos.ai) team and wonderful community of researchers and engineers.
+AutoAgents 面向高性能设计：
+
+- **内存高效**：通过可配置后端优化内存使用
+- **并发**：完整的 tokio async/await 支持
+- **可扩展**：多智能体协作的水平扩展能力
+- **类型安全**：Rust 类型系统的编译期保障
+
+---
+
+## 许可证
+
+AutoAgents 采用双许可证：
+
+- **MIT License**（[MIT_LICENSE](MIT_LICENSE)）
+- **Apache License 2.0**（[APACHE_LICENSE](APACHE_LICENSE)）
+
+你可以根据使用场景选择其一。
+
+---
+
+## 致谢
+
+由 [Liquidos AI](https://liquidos.ai) 团队与优秀社区研究者和工程师构建。
 
 <a href="https://github.com/liquidos-ai/AutoAgents/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=liquidos-ai/AutoAgents" />
 </a>
 
-Special thanks to:
+特别感谢：
 
-- The Rust community for the excellent ecosystem
-- LLM providers for enabling high-quality model APIs
-- All contributors who help improve AutoAgents
+- Rust 社区提供的优秀生态
+- LLM 提供方带来的高质量模型 API
+- 所有帮助改进 AutoAgents 的贡献者
 
 ---
 
-## Star History
+## Star 历史
 
 [![Star History Chart](https://api.star-history.com/svg?repos=liquidos-ai/AutoAgents&type=Date)](https://www.star-history.com/#liquidos-ai/AutoAgents&Date)

@@ -3,7 +3,7 @@
 
 # AutoAgents
 
-**A production-grade multi-agent framework in Rust**
+**Rust 기반의 프로덕션급 멀티 에이전트 프레임워크**
 
 [![Crates.io](https://img.shields.io/crates/v/autoagents.svg)](https://crates.io/crates/autoagents)
 [![Documentation](https://docs.rs/autoagents/badge.svg)](https://liquidos-ai.github.io/AutoAgents)
@@ -14,91 +14,89 @@
 
 [English](README.md) | [中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [한국어](README.ko.md) | [Português (Brasil)](README.pt-BR.md)
 <br />
-<sub>Translations may lag behind the English README.</sub>
+<sub>이 번역은 커뮤니티에서 유지되며 영어 버전보다 늦을 수 있습니다. 차이가 있을 경우 영어 버전이 기준입니다.</sub>
 
-[Documentation](https://liquidos-ai.github.io/AutoAgents/) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
+[문서](https://liquidos-ai.github.io/AutoAgents/) | [예제](examples/) | [기여하기](CONTRIBUTING.md)
 
 <br />
-<strong>Like this project?</strong> <a href="https://github.com/liquidos-ai/AutoAgents">Star us on GitHub</a>
+<strong>이 프로젝트가 마음에 드시나요?</strong> <a href="https://github.com/liquidos-ai/AutoAgents">GitHub에서 스타를 눌러주세요</a>
 </div>
 
 ---
 
-## Overview
+## 개요
 
-AutoAgents is a modular, multi-agent framework for building intelligent systems in Rust. It combines a type-safe agent
-model with structured tool calling, configurable memory, and pluggable LLM backends. The architecture is designed for
-performance, safety, and composability across server, edge.
+AutoAgents는 Rust에서 지능형 시스템을 구축하기 위한 모듈식 멀티 에이전트 프레임워크입니다. 타입 안전한 에이전트 모델, 구조화된 도구 호출, 구성 가능한 메모리, 플러그형 LLM 백엔드를 결합합니다. 아키텍처는 서버와 엣지 환경 모두에서 성능, 안전성, 합성 가능성을 목표로 설계되었습니다.
 
 ---
 
-## Key Features
+## 핵심 기능
 
-- **Agent execution**: ReAct and basic executors, streaming responses, and structured outputs
-- **Tooling**: Derive macros for tools and outputs, plus a sandboxed WASM runtime for tool execution
-- **Memory**: Sliding window memory with extensible backends
-- **LLM providers**: Cloud and local backends behind a unified interface
-- **Multi-agent orchestration**: Typed pub/sub communication and environment management
-- **Speech-Processing**: Local TTS and STT support
-- **Observability**: OpenTelemetry tracing and metrics with pluggable exporters
-
----
-
-## Supported LLM Providers
-
-### Cloud Providers
-
-| Provider         | Status |
-| ---------------- | ------ |
-| **OpenAI**       | ✅     |
-| **OpenRouter**   | ✅     |
-| **Anthropic**    | ✅     |
-| **DeepSeek**     | ✅     |
-| **xAI**          | ✅     |
-| **Phind**        | ✅     |
-| **Groq**         | ✅     |
-| **Google**       | ✅     |
-| **Azure OpenAI** | ✅     |
-| **MiniMax**      | ✅     |
-
-### Local Providers
-
-| Provider       | Status |
-| -------------- | ------ |
-| **Ollama**     | ✅     |
-| **Mistral-rs** | ✅     |
-| **Llama-Cpp**  | ✅     |
-
-### Experimental Providers
-
-See https://github.com/liquidos-ai/AutoAgents-Experimental-Backends
-
-| Provider | Status          |
-| -------- | --------------- |
-| **Burn** | ⚠️ Experimental |
-| **Onnx** | ⚠️ Experimental |
-
-Provider support is actively expanding based on community needs.
+- **에이전트 실행**: ReAct 및 기본 실행기, 스트리밍 응답, 구조화된 출력
+- **도구**: 도구 및 출력용 파생 매크로, 도구 실행을 위한 샌드박스 WASM 런타임
+- **메모리**: 확장 가능한 백엔드와 함께하는 슬라이딩 윈도 메모리
+- **LLM 제공자**: 통합 인터페이스 뒤의 클라우드 및 로컬 백엔드
+- **멀티 에이전트 오케스트레이션**: 타입 기반 pub/sub 통신과 환경 관리
+- **음성 처리**: 로컬 TTS 및 STT 지원
+- **관측 가능성**: OpenTelemetry 트레이싱 및 메트릭, 플러그형 익스포터
 
 ---
 
-## Benchmarks
+## 지원 LLM 제공자
+
+### 클라우드 제공자
+
+| 제공자          | 상태 |
+| --------------- | ---- |
+| **OpenAI**      | ✅   |
+| **OpenRouter**  | ✅   |
+| **Anthropic**   | ✅   |
+| **DeepSeek**    | ✅   |
+| **xAI**         | ✅   |
+| **Phind**       | ✅   |
+| **Groq**        | ✅   |
+| **Google**      | ✅   |
+| **Azure OpenAI** | ✅   |
+| **MiniMax**     | ✅   |
+
+### 로컬 제공자
+
+| 제공자       | 상태 |
+| ------------ | ---- |
+| **Ollama**   | ✅   |
+| **Mistral-rs** | ✅ |
+| **Llama-Cpp** | ✅ |
+
+### 실험적 제공자
+
+자세히 보기: https://github.com/liquidos-ai/AutoAgents-Experimental-Backends
+
+| 제공자 | 상태           |
+| ------ | -------------- |
+| **Burn** | ⚠️ 실험적    |
+| **Onnx** | ⚠️ 실험적    |
+
+제공자 지원은 커뮤니티 요구에 따라 계속 확장됩니다.
+
+---
+
+## 벤치마크
 
 ![Benchmark](./assets/Benchmark.png)
 
-More info at [GitHub](https://github.com/liquidos-ai/autoagents-bench)
+자세한 정보는 [GitHub](https://github.com/liquidos-ai/autoagents-bench)에서 확인하세요.
 
 ---
 
-## Installation
+## 설치
 
-### Prerequisites
+### 사전 요구 사항
 
-- **Rust** (latest stable recommended)
-- **Cargo** package manager
-- **LeftHook** for Git hooks management
+- **Rust** (최신 안정 버전 권장)
+- **Cargo** 패키지 관리자
+- **LeftHook** Git hooks 관리용
 
-### Install LeftHook
+### LeftHook 설치
 
 macOS (Homebrew):
 
@@ -112,7 +110,7 @@ Linux/Windows (npm):
 npm install -g lefthook
 ```
 
-### Clone and Build
+### 클론 및 빌드
 
 ```bash
 git clone https://github.com/liquidos-ai/AutoAgents.git
@@ -121,7 +119,7 @@ lefthook install
 cargo build --workspace --all-features
 ```
 
-### Run Tests
+### 테스트 실행
 
 ```bash
 cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
@@ -129,7 +127,7 @@ cargo test --workspace --features default --exclude autoagents-burn --exclude au
 
 ---
 
-## Quick Start
+## 빠른 시작
 
 ```rust
 use autoagents::core::agent::memory::SlidingWindowMemory;
@@ -239,56 +237,55 @@ async fn main() -> Result<(), Error> {
 
 ### AutoAgents CLI
 
-AutoAgents CLI helps in running Agentic Workflows from YAML configurations and serves them over HTTP. You can check it out at https://github.com/liquidos-ai/AutoAgents-CLI.
+AutoAgents CLI는 YAML 구성으로 에이전트 워크플로를 실행하고 HTTP로 제공하도록 돕습니다. 자세한 내용은 https://github.com/liquidos-ai/AutoAgents-CLI 를 참고하세요.
 
 ---
 
-## Examples
+## 예제
 
-Explore the examples to get started quickly:
+예제를 통해 빠르게 시작하세요:
 
-### [Basic](examples/basic/)
+### [기본](examples/basic/)
 
-Demonstrates various examples like Simple Agent with Tools, Very Basic Agent, Edge Agent, Chaining, Actor Based Model,
-Streaming and Adding Agent Hooks.
+도구가 있는 간단한 에이전트, 매우 기본적인 에이전트, 엣지 에이전트, 체이닝, 액터 기반 모델, 스트리밍, Agent Hooks 추가 등 다양한 예제를 보여줍니다.
 
-### [MCP Integration](examples/mcp/)
+### [MCP 통합](examples/mcp/)
 
-Demonstrates how to integrate AutoAgents with the Model Context Protocol (MCP).
+AutoAgents를 Model Context Protocol (MCP)과 통합하는 방법을 보여줍니다.
 
-### [Local Models](examples/mistral_rs)
+### [로컬 모델](examples/mistral_rs)
 
-Demonstrates how to integrate AutoAgents with the Mistral-rs for Local Models.
+로컬 모델을 위해 AutoAgents와 Mistral-rs를 통합하는 방법을 보여줍니다.
 
-### [Design Patterns](examples/design_patterns/)
+### [디자인 패턴](examples/design_patterns/)
 
-Demonstrates various design patterns like Chaining, Planning, Routing, Parallel and Reflection.
+체이닝, 계획, 라우팅, 병렬, 리플렉션 등의 패턴을 보여줍니다.
 
-### [Providers](examples/providers/)
+### [제공자](examples/providers/)
 
-Contains examples demonstrating how to use different LLM providers with AutoAgents.
+AutoAgents에서 다양한 LLM 제공자를 사용하는 예제를 포함합니다.
 
-### [WASM Tool Execution](examples/wasm_runner/)
+### [WASM 도구 실행](examples/wasm_runner/)
 
-A simple agent which can run tools in WASM runtime.
+WASM 런타임에서 도구를 실행할 수 있는 간단한 에이전트입니다.
 
-### [Coding Agent](examples/coding_agent/)
+### [코딩 에이전트](examples/coding_agent/)
 
-A sophisticated ReAct-based coding agent with file manipulation capabilities.
+파일 조작 기능을 갖춘 ReAct 기반의 고급 코딩 에이전트입니다.
 
-### [Speech](examples/speech/)
+### [음성](examples/speech/)
 
-Run AutoAgents Speech Example with realtime TTS and STT.
+실시간 TTS 및 STT를 사용하는 AutoAgents 음성 예제를 실행합니다.
 
-### [Android Local Agent](https://github.com/liquidos-ai/AutoAgents-Android-Example)
+### [Android 로컬 에이전트](https://github.com/liquidos-ai/AutoAgents-Android-Example)
 
-Example App that runs AutoAgents with Local models in Android using AutoAgents-llamacpp backend
+autoagents-llamacpp 백엔드를 사용하여 Android에서 로컬 모델로 AutoAgents를 실행하는 예제 앱입니다.
 
 ---
 
-## Components
+## 구성 요소
 
-AutoAgents is built with a modular architecture:
+AutoAgents는 모듈형 아키텍처로 구성됩니다:
 
 ```
 AutoAgents/
@@ -307,19 +304,19 @@ AutoAgents/
 ├── examples/                      # Example implementations
 ```
 
-### Core Components
+### 핵심 구성 요소
 
-- **Agent**: The fundamental unit of intelligence
-- **Environment**: Manages agent lifecycle and communication
-- **Memory**: Configurable memory systems
-- **Tools**: External capability integration
-- **Executors**: Different reasoning patterns (ReAct, Chain-of-Thought)
+- **에이전트**: 지능의 기본 단위
+- **환경**: 에이전트 라이프사이클과 통신 관리
+- **메모리**: 구성 가능한 메모리 시스템
+- **도구**: 외부 기능 통합
+- **실행기**: 다양한 추론 패턴 (ReAct, Chain-of-Thought)
 
 ---
 
-## Development
+## 개발
 
-### Running Tests
+### 테스트 실행
 
 ```bash
 cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
@@ -329,7 +326,7 @@ cargo install cargo-tarpaulin
 cargo tarpaulin --all-features --out html
 ```
 
-### Running Benchmarks
+### 벤치마크 실행
 
 ```bash
 cargo bench -p autoagents-core --bench agent_runtime
@@ -337,72 +334,71 @@ cargo bench -p autoagents-core --bench agent_runtime
 
 ### Git Hooks
 
-This project uses LeftHook for Git hooks management. The hooks will automatically:
+이 프로젝트는 LeftHook을 사용해 Git hooks를 관리합니다. hooks는 자동으로 다음을 수행합니다:
 
-- Format code with `cargo fmt --check`
-- Run linting with `cargo clippy -- -D warnings`
-- Execute tests with `cargo test --all-features --workspace --exclude autoagents-burn`
+- `cargo fmt --check` 로 코드 포맷
+- `cargo clippy -- -D warnings` 로 린트
+- `cargo test --all-features --workspace --exclude autoagents-burn` 로 테스트 실행
 
-### Contributing
+### 기여하기
 
-We welcome contributions. Please see our [Contributing Guidelines](CONTRIBUTING.md)
-and [Code of Conduct](CODE_OF_CONDUCT.md) for details.
-
----
-
-## Documentation
-
-- **[API Documentation](https://liquidos-ai.github.io/AutoAgents)**: Complete framework docs
-- **[Examples](examples/)**: Practical implementation examples
+기여를 환영합니다. 자세한 내용은 [기여 가이드](CONTRIBUTING.md)와 [행동 강령](CODE_OF_CONDUCT.md)을 참고하세요.
 
 ---
 
-## Community
+## 문서
 
-- **GitHub Issues**: Bug reports and feature requests
-- **Discussions**: Community Q&A and ideas
-- **Discord**: Join our Discord Community using https://discord.gg/zfAF9MkEtK
-
----
-
-## Performance
-
-AutoAgents is designed for high performance:
-
-- **Memory Efficient**: Optimized memory usage with configurable backends
-- **Concurrent**: Full async/await support with tokio
-- **Scalable**: Horizontal scaling with multi-agent coordination
-- **Type Safe**: Compile-time guarantees with Rust's type system
+- **[API 문서](https://liquidos-ai.github.io/AutoAgents)**: 전체 프레임워크 문서
+- **[예제](examples/)**: 실용적인 구현 예시
 
 ---
 
-## License
+## 커뮤니티
 
-AutoAgents is dual-licensed under:
+- **GitHub Issues**: 버그 보고 및 기능 요청
+- **Discussions**: 커뮤니티 Q&A 및 아이디어
+- **Discord**: Discord 커뮤니티 참여 https://discord.gg/zfAF9MkEtK
+
+---
+
+## 성능
+
+AutoAgents는 고성능을 목표로 설계되었습니다:
+
+- **메모리 효율**: 구성 가능한 백엔드로 메모리 사용 최적화
+- **동시성**: tokio 기반의 async/await 완전 지원
+- **확장성**: 멀티 에이전트 조정으로 수평 확장
+- **타입 안전성**: Rust 타입 시스템의 컴파일 타임 보장
+
+---
+
+## 라이선스
+
+AutoAgents는 이중 라이선스를 사용합니다:
 
 - **MIT License** ([MIT_LICENSE](MIT_LICENSE))
 - **Apache License 2.0** ([APACHE_LICENSE](APACHE_LICENSE))
 
-You may choose either license for your use case.
+사용 사례에 따라 원하는 라이선스를 선택할 수 있습니다.
 
 ---
 
-## Acknowledgments
+## 감사의 말
 
-Built by the [Liquidos AI](https://liquidos.ai) team and wonderful community of researchers and engineers.
+[Liquidos AI](https://liquidos.ai) 팀과 훌륭한 연구자 및 엔지니어 커뮤니티가 함께 만들었습니다.
 
 <a href="https://github.com/liquidos-ai/AutoAgents/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=liquidos-ai/AutoAgents" />
 </a>
 
-Special thanks to:
+특별 감사:
 
-- The Rust community for the excellent ecosystem
-- LLM providers for enabling high-quality model APIs
-- All contributors who help improve AutoAgents
+- 뛰어난 생태계를 제공하는 Rust 커뮤니티
+- 고품질 모델 API를 제공하는 LLM 제공자
+- AutoAgents 개선에 기여하는 모든 분들
 
 ---
 
-## Star History
+## 스타 기록
 
 [![Star History Chart](https://api.star-history.com/svg?repos=liquidos-ai/AutoAgents&type=Date)](https://www.star-history.com/#liquidos-ai/AutoAgents&Date)
