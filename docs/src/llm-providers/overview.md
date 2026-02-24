@@ -15,6 +15,7 @@ AutoAgents supports a wide range of LLM providers, allowing you to choose the be
 | **Groq**         | ✅      |
 | **Google**       | ✅      |
 | **Azure OpenAI** | ✅      |
+| **MiniMax**      | ✅      |
 
 ### Local Providers
 

@@ -55,6 +55,7 @@ performance, safety, and composability across server, edge.
 | **Groq**         | ✅     |
 | **Google**       | ✅     |
 | **Azure OpenAI** | ✅     |
+| **MiniMax**      | ✅     |
 
 ### Local Providers
 
