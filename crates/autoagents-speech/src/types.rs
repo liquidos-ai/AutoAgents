@@ -142,10 +142,52 @@ pub struct SpeechResponse {
     pub duration_ms: u64,
 }
 
-/// Audio chunk for streaming
+/// Audio chunk for streaming TTS
 #[derive(Clone, Debug)]
 pub struct AudioChunk {
     pub samples: Vec<f32>,
+    pub is_final: bool,
+}
+
+/// Timestamp for a token in transcription
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TokenTimestamp {
+    /// Token text
+    pub text: String,
+    /// Start time in seconds
+    pub start: f32,
+    /// End time in seconds
+    pub end: f32,
+}
+
+/// Transcription request for STT
+#[derive(Clone, Debug)]
+pub struct TranscriptionRequest {
+    /// Audio input to transcribe
+    pub audio: AudioData,
+    /// Optional language hint (for multilingual models)
+    pub language: Option<String>,
+    /// Whether to include timestamps
+    pub include_timestamps: bool,
+}
+
+/// Transcription response from STT
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TranscriptionResponse {
+    /// Transcribed text
+    pub text: String,
+    /// Optional token-level timestamps
+    pub timestamps: Option<Vec<TokenTimestamp>>,
+    /// Processing duration in milliseconds
+    pub duration_ms: u64,
+}
+
+/// Text chunk for streaming STT
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TextChunk {
+    /// Partial or final transcribed text
+    pub text: String,
+    /// Whether this is the final chunk
     pub is_final: bool,
 }
 

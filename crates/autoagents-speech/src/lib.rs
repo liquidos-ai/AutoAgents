@@ -13,7 +13,11 @@
 //! - **Streaming Support**: Optional streaming for real-time audio generation
 //! - **Model Management**: Support for multiple models and languages
 //!
-//! ### STT (Speech-to-Text) - Coming Soon
+//! ### STT (Speech-to-Text)
+//! - **Transcription**: Convert audio to text
+//! - **Streaming Support**: Real-time audio transcription
+//! - **Timestamp Support**: Token-level timestamps for transcriptions
+//! - **Multilingual**: Support for multiple languages with auto-detection
 //!
 //! ## Architecture
 //!
@@ -24,37 +28,28 @@
 //! - `TTSSpeechProvider`: Speech generation capabilities
 //! - `TTSModelsProvider`: Model and language support
 //!
+//! ### STT Traits
+//! - `STTProvider`: Marker trait combining all STT capabilities
+//! - `STTSpeechProvider`: Transcription capabilities
+//! - `STTModelsProvider`: Model and language support
+//!
 //! ## Providers
 //!
 //! Enable providers using feature flags:
-//! - `pocket-tts`: Pocket-TTS model support
+//! - `pocket-tts`: Pocket-TTS model support (TTS)
+//! - `parakeet`: Parakeet (NVIDIA) model support (STT)
+//! - `vad`: Silero VAD support (speech segmentation)
 //!
-//! ## Example
-//!
-//! ```rust
-//! use autoagents_speech::{TTSProvider, SpeechRequest, VoiceIdentifier, AudioFormat};
-//!
-//! async fn generate_speech(provider: &dyn TTSProvider, text: &str) {
-//!     let request = SpeechRequest {
-//!         text: text.to_string(),
-//!         voice: VoiceIdentifier::new("alba"),
-//!         format: AudioFormat::Wav,
-//!         sample_rate: Some(24000),
-//!     };
-//!
-//!     let response = provider.generate_speech(request).await.unwrap();
-//!     println!("Generated {} samples", response.audio.samples.len());
-//! }
-//! ```
 
 pub mod error;
+pub mod model_source;
 mod provider;
 pub mod types;
 
 // Provider implementations
 pub mod providers;
 
-// Re-export main types
+// Re-export main TTS types
 pub use error::{TTSError, TTSResult};
 pub use provider::{TTSModelsProvider, TTSProvider, TTSSpeechProvider};
 pub use types::{
@@ -62,5 +57,17 @@ pub use types::{
     VoiceIdentifier,
 };
 
+// Re-export main STT types
+pub use error::{STTError, STTResult};
+pub use model_source::ModelSource;
+pub use provider::{STTModelsProvider, STTProvider, STTSpeechProvider};
+pub use types::{TextChunk, TokenTimestamp, TranscriptionRequest, TranscriptionResponse};
+
 #[cfg(feature = "playback")]
 pub mod playback;
+
+#[cfg(feature = "audio-capture")]
+pub mod audio_capture;
+
+#[cfg(feature = "vad")]
+pub mod vad;

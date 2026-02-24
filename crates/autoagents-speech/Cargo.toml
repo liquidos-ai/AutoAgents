@@ -10,9 +10,19 @@ categories.workspace = true
 
 [features]
 default = []
-full = ["pocket-tts", "playback"]
+full = ["pocket-tts", "parakeet", "playback", "audio-capture", "vad"]
 pocket-tts = ["dep:pocket-tts", "dep:candle-core", "dep:uuid", "dep:anyhow", "dep:tokio-stream"]
+parakeet = ["dep:parakeet-rs"]
 playback = ["dep:rodio"]
+audio-capture = ["dep:cpal", "dep:hound", "dep:symphonia"]
+model-hf = ["dep:hf-hub"]
+vad = ["dep:ort", "dep:ndarray", "model-hf"]
+
+# Forward parakeet-rs execution provider features
+cuda = ["parakeet", "parakeet-rs/cuda"]
+tensorrt = ["parakeet", "parakeet-rs/tensorrt"]
+directml = ["parakeet", "parakeet-rs/directml"]
+coreml = ["parakeet", "parakeet-rs/coreml"]
 
 [dependencies]
 async-trait = { workspace = true }
@@ -24,7 +34,7 @@ tokio = { workspace = true }
 base64 = { workspace = true }
 
 # Pocket-TTS dependencies (optional, enabled by feature)
-pocket-tts = { version = "0.3.1", optional = true }
+pocket-tts = { version = "0.6.2", optional = true }
 candle-core = { version = "0.9.2", optional = true }
 candle-nn = { version = "0.9.2", optional = true }
 candle-transformers = { version = "0.9.2", optional = true }
@@ -35,8 +45,20 @@ tokio-stream = { workspace = true, optional = true }
 # Playback dependencies
 rodio = { workspace = true, optional = true }
 
+# Audio capture
+cpal = { version = "0.16.0", optional = true }
+hound = { workspace = true, optional = true }
+symphonia = { version = "0.5", optional = true, default-features = false, features = ["flac", "ogg", "vorbis", "mp3", "pcm"] }
+
+# VAD (optional)
+ort = { version = "=2.0.0-rc.11", optional = true }
+ndarray = { version = "0.17.2", optional = true }
+hf-hub = { version = "0.4.3", default-features = false, features = ["ureq"], optional = true }
+
+# Parakeet dependencies (optional, enabled by feature)
+parakeet-rs = { version = "0.3.3", optional = true }
+
 [dev-dependencies]
 tokio-test = { workspace = true }
 tempfile = { workspace = true }
-hound = { workspace = true }
 env_logger = { workspace = true }

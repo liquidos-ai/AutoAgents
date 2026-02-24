@@ -24,7 +24,7 @@
 
 AutoAgents is a modular, multi-agent framework for building intelligent systems in Rust. It combines a type-safe agent
 model with structured tool calling, configurable memory, and pluggable LLM backends. The architecture is designed for
-performance, safety, and composability across server, edge, and browser targets.
+performance, safety, and composability across server, edge.
 
 ---
 
@@ -35,6 +35,7 @@ performance, safety, and composability across server, edge, and browser targets.
 - **Memory**: Sliding window memory with extensible backends
 - **LLM providers**: Cloud and local backends behind a unified interface
 - **Multi-agent orchestration**: Typed pub/sub communication and environment management
+- **Speech-Processing**: Local TTS and STT support
 - **Observability**: OpenTelemetry tracing and metrics with pluggable exporters
 
 ---
@@ -272,7 +273,7 @@ A sophisticated ReAct-based coding agent with file manipulation capabilities.
 
 ### [Speech](examples/speech/)
 
-Run AutoAgents Speech Example with realtime TTS.
+Run AutoAgents Speech Example with realtime TTS and STT.
 
 ### [Android Local Agent](https://github.com/liquidos-ai/AutoAgents-Android-Example)
 
