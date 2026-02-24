@@ -8,8 +8,8 @@ use autoagents_core::vector_store::{
     DEFAULT_VECTOR_NAME, NamedVectorDocument, PreparedDocument, VectorSearchRequest,
     VectorStoreError, VectorStoreIndex, embed_documents, embed_named_documents, normalize_id,
 };
+use qdrant_client::Payload;
 use qdrant_client::Qdrant;
-use qdrant_client::client::Payload;
 use qdrant_client::qdrant::{
     Condition, CreateCollectionBuilder, DeletePointsBuilder, Distance, Filter as QdrantFilter,
     PointStruct, Range, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
