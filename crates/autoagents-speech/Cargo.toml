@@ -11,7 +11,7 @@ categories.workspace = true
 [features]
 default = []
 full = ["pocket-tts", "parakeet", "playback", "audio-capture", "vad"]
-pocket-tts = ["dep:pocket-tts", "dep:candle-core", "dep:uuid", "dep:anyhow", "dep:tokio-stream", "dep:sentencepiece"]
+pocket-tts = ["dep:pocket-tts", "dep:candle-core", "dep:uuid", "dep:anyhow", "dep:tokio-stream"]
 parakeet = ["dep:parakeet-rs"]
 playback = ["dep:rodio"]
 audio-capture = ["dep:cpal", "dep:hound", "dep:symphonia"]
@@ -34,12 +34,7 @@ tokio = { workspace = true }
 base64 = { workspace = true }
 
 # Pocket-TTS dependencies (optional, enabled by feature)
-pocket-tts = { version = "0.3.1", optional = true }
-# Force system sentencepiece to avoid duplicate protobuf symbols with ort-sys when
-# both pocket-tts (via candle → tokenizers → sentencepiece-sys) and vad (via ort-sys)
-# are enabled together. Cargo's feature unification propagates this to all transitive
-# dependents automatically.
-sentencepiece = { version = "0.13", optional = true, features = ["system"] }
+pocket-tts = { version = "0.6.2", optional = true }
 candle-core = { version = "0.9.2", optional = true }
 candle-nn = { version = "0.9.2", optional = true }
 candle-transformers = { version = "0.9.2", optional = true }

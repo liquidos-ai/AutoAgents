@@ -542,7 +542,6 @@ dependencies = [
  "parakeet-rs",
  "pocket-tts",
  "rodio",
- "sentencepiece",
  "serde",
  "serde_json",
  "symphonia",
@@ -6254,9 +6253,9 @@ dependencies = [
 
 [[package]]
 name = "pocket-tts"
-version = "0.3.3"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c70f5f3b0c67ab58a6dc74da47243bdbb2bc04588773e85e4ad0c23a1d92866"
+checksum = "8633c5e97cfe7855486cd6b6f0d9fe90443e405d0873e11fa18116687c5957af"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -6264,6 +6263,7 @@ dependencies = [
  "candle-nn",
  "candle-transformers",
  "console_error_panic_hook",
+ "getrandom 0.2.17",
  "getrandom 0.3.4",
  "hf-hub",
  "hound",
@@ -6277,12 +6277,12 @@ dependencies = [
  "regex",
  "rubato 0.14.1",
  "safetensors 0.5.3",
- "sentencepiece",
  "serde",
  "serde_json",
  "serde_yaml",
  "thiserror 2.0.18",
  "tokenizers 0.21.4",
+ "tracing",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -7681,32 +7681,6 @@ checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 dependencies = [
  "serde",
  "serde_core",
-]
-
-[[package]]
-name = "sentencepiece"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3baa1506c7718f6b70bcac5475e563176dd51bb669dae38181abbf3070517453"
-dependencies = [
- "libc",
- "num-derive",
- "num-traits",
- "prost 0.14.3",
- "prost-derive 0.14.3",
- "sentencepiece-sys",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "sentencepiece-sys"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa4f9b54dc005df8ec1c3f9e2347cea6b6657ec5460977a982e7a4e09ef49411"
-dependencies = [
- "cc",
- "cmake",
- "pkg-config",
 ]
 
 [[package]]
