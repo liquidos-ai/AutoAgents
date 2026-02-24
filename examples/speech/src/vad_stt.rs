@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 const VAD_HF_REPO: &str = "freddyaboulton/silero-vad";
 const VAD_HF_FILE: &str = "silero_vad.onnx";
 const PARAKEET_HF_REPO: &str = "altunenes/parakeet-rs";
-const PARAKEET_TDT_DIR: &str = "nemotron-speech-streaming-en-0.6b";
+const PARAKEET_NEMOTRON_DIR: &str = "nemotron-speech-streaming-en-0.6b";
 
 #[derive(Debug, ValueEnum, Clone)]
 pub enum InputMode {
@@ -159,7 +159,7 @@ fn print_segment(segment: &SegmentTranscription) {
 }
 
 pub fn build_parakeet_provider() -> Result<Parakeet, Box<dyn std::error::Error>> {
-    let model_path = ModelSource::from_hf_dir(PARAKEET_HF_REPO, PARAKEET_TDT_DIR).resolve()?;
+    let model_path = ModelSource::from_hf_dir(PARAKEET_HF_REPO, PARAKEET_NEMOTRON_DIR).resolve()?;
     let config = ParakeetConfig::new(
         ModelVariant::Nemotron,
         model_path.to_string_lossy().to_string(),

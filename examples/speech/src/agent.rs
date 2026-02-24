@@ -16,6 +16,7 @@ use autoagents_speech::vad::{SegmentTranscription, SileroVad, VadSttConfig, VadS
 use autoagents_speech::{AudioFormat, SpeechRequest, TTSSpeechProvider, VoiceIdentifier};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -85,18 +86,16 @@ pub struct AgentArgs {
 
 pub async fn run(args: AgentArgs) -> Result<(), Box<dyn std::error::Error>> {
     reset_exit_flag();
-    let mut pipeline = build_pipeline(&args)?;
     let agent_handle = build_agent(args.agent_model.as_deref()).await?;
     let tts = PocketTTS::new(None)?;
     let player = AudioPlayer::try_new().ok();
 
     match args.input {
         InputMode::File => {
+            let mut pipeline = build_pipeline(&args)?;
             run_file(&args, &mut pipeline, &agent_handle, &tts, player.as_ref()).await?
         }
-        InputMode::Mic => {
-            run_mic(&args, &mut pipeline, &agent_handle, &tts, player.as_ref()).await?
-        }
+        InputMode::Mic => run_mic_streaming(&args, &agent_handle, &tts, player.as_ref()).await?,
     }
 
     Ok(())
@@ -176,9 +175,8 @@ async fn run_file(
     Ok(())
 }
 
-async fn run_mic(
+async fn run_mic_streaming(
     args: &AgentArgs,
-    pipeline: &mut VadPipeline,
     agent: &SpeechAgentHandle,
     tts: &PocketTTS,
     player: Option<&AudioPlayer>,
@@ -192,19 +190,46 @@ async fn run_mic(
         Err(err) => return Err(err.into()),
     };
 
-    let window_samples = pipeline.window_samples();
-    let window_ms = pipeline.window_ms();
-    let poll_interval = Duration::from_millis((window_ms / 3).max(10) as u64);
+    let stt = build_parakeet_provider()?;
+    let mut segmenter = build_vad_segmenter()?;
+    let model_variant = stt.config().model_variant;
+    let chunk_samples = model_variant.chunk_size();
+    let chunk_ms = model_variant.chunk_duration_ms();
+    let poll_interval = Duration::from_millis((chunk_ms / 4).max(10) as u64);
+
     let stream = capture.start_stream()?;
     println!("Listening for speech. Press Ctrl+C to stop.");
 
+    let mut current_text = String::new();
+    let mut last_print_len = 0usize;
+
     loop {
         tokio::time::sleep(poll_interval).await;
-        while let Some(chunk) = stream.read_chunk(window_samples)? {
-            let segments = pipeline.process_audio(&chunk).await?;
-            for segment in segments {
+        while let Some(chunk) = stream.read_chunk(chunk_samples)? {
+            let segments = segmenter.process_audio(&chunk)?;
+            let text_chunk = stt.process_chunk(chunk.samples).await?;
+
+            if !text_chunk.text.is_empty() {
+                merge_partial_text(&mut current_text, &text_chunk.text);
+                let display = format!("User: {}", current_text.trim_end());
+                if last_print_len > display.len() {
+                    let padding = " ".repeat(last_print_len - display.len());
+                    print!("\r{display}{padding}");
+                } else {
+                    print!("\r{display}");
+                }
+                last_print_len = display.len();
+                std::io::stdout().flush()?;
+            }
+
+            if text_chunk.is_final || !segments.is_empty() {
+                println!();
                 let should_exit =
-                    handle_segment(args, &segment, agent, tts, player, Some(&stream)).await?;
+                    handle_user_text(args, current_text.trim(), agent, tts, player, Some(&stream))
+                        .await?;
+                current_text.clear();
+                last_print_len = 0;
+                stt.reset().await;
                 if should_exit {
                     println!("Exit requested. Ending session.");
                     return Ok(());
@@ -230,6 +255,21 @@ async fn handle_segment(
     let start_sec = segment.segment.start_ms as f32 / 1000.0;
     let end_sec = segment.segment.end_ms as f32 / 1000.0;
     println!("[{start_sec:.2}s - {end_sec:.2}s] User: {user_text}");
+
+    handle_user_text(args, user_text, agent, tts, player, stream).await
+}
+
+async fn handle_user_text(
+    args: &AgentArgs,
+    user_text: &str,
+    agent: &SpeechAgentHandle,
+    tts: &PocketTTS,
+    player: Option<&AudioPlayer>,
+    stream: Option<&AudioCaptureStream>,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    if user_text.is_empty() {
+        return Ok(false);
+    }
 
     let output = agent.agent.run(Task::new(user_text)).await?;
     let response_text = output.trim().to_string();
@@ -266,4 +306,31 @@ async fn handle_segment(
     }
 
     Ok(should_exit)
+}
+
+fn merge_partial_text(current: &mut String, incoming: &str) {
+    let incoming = incoming.trim();
+    if incoming.is_empty() {
+        return;
+    }
+
+    if current.is_empty() {
+        current.push_str(incoming);
+        return;
+    }
+
+    if incoming.starts_with(current.as_str()) {
+        current.clear();
+        current.push_str(incoming);
+        return;
+    }
+
+    if current.starts_with(incoming) {
+        return;
+    }
+
+    if !current.ends_with(' ') {
+        current.push(' ');
+    }
+    current.push_str(incoming);
 }

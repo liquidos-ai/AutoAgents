@@ -4,20 +4,13 @@ Four runnable examples in one binary, selected at runtime with `--usecase`:
 
 | Usecase | Description |
 |---------|-------------|
-| `vad`   | VAD-driven Speech-to-Text (Silero VAD + Parakeet TDT) |
-| `stt`   | Transcribe a WAV file (Parakeet TDT) |
+| `vad`   | VAD-driven Speech-to-Text (Silero VAD + Parakeet Nemotron) |
+| `stt`   | Transcribe a WAV file (Parakeet Nemotron) |
 | `tts`   | Synthesise speech from text (Pocket-TTS) |
 | `agent` | Full voice loop: VAD → STT → LLM Agent → TTS |
 
 ## Prerequisites
 
-### System dependency (Linux)
-
-Install system SentencePiece to avoid a protobuf symbol conflict between `ort-sys` and `sentencepiece-sys`:
-
-```bash
-sudo apt install libsentencepiece-dev
-```
 Set `HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN` if the repository requires authentication.
 
 ## Building
@@ -44,7 +37,7 @@ cargo run -p speech-examples --release -- --usecase vad --input mic --max-second
 cargo run -p speech-examples --release -- --usecase vad --input file --audio-file /path/to/audio.wav
 ```
 
-### STT only — WAV file
+### STT only — WAV file (Nemotron)
 
 ```bash
 cargo run -p speech-examples --release -- --usecase stt --audio-file /path/to/audio.wav
@@ -85,6 +78,7 @@ cargo run -p speech-examples --release -- --usecase agent --input mic --max-seco
 
 - Input audio is automatically resampled to 16 kHz mono before VAD/STT processing.
 - The segmenter is tuned for low-latency real-time use: 30 ms VAD windows, 450 ms silence timeout, conservative speech/silence thresholds.
+- Agent mic input uses Parakeet Nemotron streaming with VAD end-of-utterance detection (English only). Ensure the `nemotron-speech-streaming-en-0.6b` model directory is available in the HuggingFace repo.
 - The agent example requires `OPENAI_API_KEY` to be set.
 - Say "goodbye" or "stop" to trigger the agent's `exit_conversation` tool and end the session cleanly.
 
