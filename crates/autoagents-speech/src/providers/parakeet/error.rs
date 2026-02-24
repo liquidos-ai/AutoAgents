@@ -46,9 +46,7 @@ pub enum ParakeetError {
     ChunkProcessingError(String, usize, usize, String),
 
     /// Streaming error
-    #[error(
-        "Streaming operation failed: {0}\nModel variant: {1}\nOperation: {2}\nSuggestion: {3}"
-    )]
+    #[error("Streaming operation failed: {0}\nModel variant: {1}\nOperation: {2}\nSuggestion: {3}")]
     StreamingError(String, String, String, String),
 
     /// Configuration error
@@ -260,13 +258,7 @@ impl From<ParakeetError> for crate::error::STTError {
                 )
             }
             ParakeetError::InvalidAudioFormat(msg, exp_rate, exp_ch, _act_rate, act_ch) => {
-                crate::error::STTError::InvalidAudioFormat(
-                    msg,
-                    exp_rate,
-                    0,
-                    exp_ch,
-                    act_ch,
-                )
+                crate::error::STTError::InvalidAudioFormat(msg, exp_rate, 0, exp_ch, act_ch)
             }
             ParakeetError::ChunkProcessingError(msg, chunk_size, expected, model) => {
                 crate::error::STTError::Other(
@@ -294,7 +286,10 @@ impl From<ParakeetError> for crate::error::STTError {
             }
             ParakeetError::FeatureExtractionError(msg, audio_length) => {
                 crate::error::STTError::Other(
-                    format!("Feature extraction error: {} (audio: {} samples)", msg, audio_length),
+                    format!(
+                        "Feature extraction error: {} (audio: {} samples)",
+                        msg, audio_length
+                    ),
                     "Parakeet provider".to_string(),
                 )
             }

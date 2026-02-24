@@ -87,7 +87,16 @@ impl STTSpeechProvider for Parakeet {
         let chunks: Vec<Vec<f32>> = audio
             .samples
             .chunks(chunk_size)
-            .map(|chunk| chunk.to_vec())
+            .map(|chunk| {
+                if chunk.len() == chunk_size {
+                    chunk.to_vec()
+                } else {
+                    let mut padded = Vec::with_capacity(chunk_size);
+                    padded.extend_from_slice(chunk);
+                    padded.resize(chunk_size, 0.0);
+                    padded
+                }
+            })
             .collect();
 
         let stream = futures::stream::iter(chunks).then(move |chunk| {

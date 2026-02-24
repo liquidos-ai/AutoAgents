@@ -10,7 +10,6 @@ use std::pin::Pin;
 ///
 /// This trait combines all TTS capabilities into a single provider interface.
 /// Providers should implement this marker trait along with the specific capability traits.
-#[async_trait]
 pub trait TTSProvider: TTSSpeechProvider + TTSModelsProvider + Send + Sync {}
 
 /// Trait for TTS speech generation capabilities
@@ -81,15 +80,10 @@ pub trait TTSModelsProvider: Send + Sync {
     }
 }
 
-//
-// STT Provider Traits
-//
-
 /// Marker trait for STT providers
 ///
 /// This trait combines all STT capabilities into a single provider interface.
 /// Providers should implement this marker trait along with the specific capability traits.
-#[async_trait]
 pub trait STTProvider: STTSpeechProvider + STTModelsProvider + Send + Sync {}
 
 /// Trait for STT transcription capabilities
@@ -173,10 +167,6 @@ mod tests {
     };
     use async_trait::async_trait;
 
-    //
-    // TTS Tests
-    //
-
     #[derive(Debug)]
     struct DummyProvider;
 
@@ -237,10 +227,6 @@ mod tests {
         assert_eq!(provider.default_sample_rate(), 24000);
         assert_eq!(provider.supported_languages(), vec!["en".to_string()]);
     }
-
-    //
-    // STT Tests
-    //
 
     #[derive(Debug)]
     struct DummySTTProvider;

@@ -1,19 +1,32 @@
 //! Parakeet STT backend implementation
 
-#![allow(clippy::upper_case_acronyms)]
-
 use super::config::ParakeetConfig;
 use super::error::{ParakeetError, Result};
 use super::model::ModelVariant;
-use crate::{TextChunk, TokenTimestamp, TranscriptionRequest, TranscriptionResponse};
+use crate::{AudioData, TextChunk, TokenTimestamp, TranscriptionRequest, TranscriptionResponse};
+use parakeet_rs::Transcriber;
 use parakeet_rs::{
     ExecutionConfig, ExecutionProvider, Nemotron, ParakeetEOU, ParakeetTDT, TimedToken,
-    TimestampMode, Transcriber,
+    TimestampMode,
 };
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+fn validate_audio(audio: &AudioData) -> Result<()> {
+    if audio.sample_rate != 16000 || audio.channels != 1 {
+        return Err(ParakeetError::invalid_audio_format(
+            "Audio must be 16 kHz mono",
+            16000,
+            1,
+            audio.sample_rate,
+            audio.channels as u16,
+        ));
+    }
+    Ok(())
+}
+
 /// Backend implementation for Parakeet STT
+#[allow(clippy::upper_case_acronyms)]
 pub enum ParakeetBackend {
     TDT(Arc<Mutex<ParakeetTDT>>),
     Nemotron(Arc<Mutex<Nemotron>>),
@@ -83,26 +96,7 @@ impl ParakeetBackend {
         let start = Instant::now();
         let audio = request.audio;
 
-        // Validate audio format
-        if audio.sample_rate != 16000 {
-            return Err(ParakeetError::invalid_audio_format(
-                "Sample rate mismatch",
-                16000,
-                1,
-                audio.sample_rate,
-                audio.channels as u16,
-            ));
-        }
-
-        if audio.channels != 1 {
-            return Err(ParakeetError::invalid_audio_format(
-                "Channel count mismatch",
-                16000,
-                1,
-                audio.sample_rate,
-                audio.channels as u16,
-            ));
-        }
+        validate_audio(&audio)?;
 
         let result = match self {
             ParakeetBackend::TDT(model) => {
@@ -113,26 +107,31 @@ impl ParakeetBackend {
                     None
                 };
 
-                let parakeet_result = tokio::task::spawn_blocking(move || {
-                    let mut model = model.lock().unwrap();
-                    model.transcribe_samples(
-                        audio.samples,
-                        audio.sample_rate,
-                        audio.channels as u16,
-                        timestamp_mode,
-                    )
-                })
-                .await
-                .map_err(|e| ParakeetError::transcription_error_detailed(
-                    e.to_string(),
-                    "spawn_blocking",
-                    "async task execution"
-                ))?
-                .map_err(|e| ParakeetError::transcription_error_detailed(
-                    e.to_string(),
-                    "TDT transcription",
-                    "model processing"
-                ))?;
+                let parakeet_result: parakeet_rs::TranscriptionResult =
+                    tokio::task::spawn_blocking(move || {
+                        let mut model = model.lock().unwrap();
+                        model.transcribe_samples(
+                            audio.samples,
+                            audio.sample_rate,
+                            audio.channels as u16,
+                            timestamp_mode,
+                        )
+                    })
+                    .await
+                    .map_err(|e| {
+                        ParakeetError::transcription_error_detailed(
+                            e.to_string(),
+                            "spawn_blocking",
+                            "async task execution",
+                        )
+                    })?
+                    .map_err(|e| {
+                        ParakeetError::transcription_error_detailed(
+                            e.to_string(),
+                            "TDT transcription",
+                            "model processing",
+                        )
+                    })?;
 
                 InternalTranscriptionResult::from(parakeet_result)
             }
@@ -144,16 +143,20 @@ impl ParakeetBackend {
                     model.transcribe_audio(&audio.samples)
                 })
                 .await
-                .map_err(|e| ParakeetError::transcription_error_detailed(
-                    e.to_string(),
-                    "spawn_blocking",
-                    "async task execution"
-                ))?
-                .map_err(|e| ParakeetError::transcription_error_detailed(
-                    e.to_string(),
-                    "Nemotron transcription",
-                    "streaming model processing"
-                ))?;
+                .map_err(|e| {
+                    ParakeetError::transcription_error_detailed(
+                        e.to_string(),
+                        "spawn_blocking",
+                        "async task execution",
+                    )
+                })?
+                .map_err(|e| {
+                    ParakeetError::transcription_error_detailed(
+                        e.to_string(),
+                        "Nemotron transcription",
+                        "streaming model processing",
+                    )
+                })?;
 
                 InternalTranscriptionResult::Text(text)
             }
@@ -177,16 +180,20 @@ impl ParakeetBackend {
                     Ok(result_text)
                 })
                 .await
-                .map_err(|e| ParakeetError::transcription_error_detailed(
-                    e.to_string(),
-                    "spawn_blocking",
-                    "async task execution"
-                ))?
-                .map_err(|e| ParakeetError::transcription_error_detailed(
-                    e.to_string(),
-                    "EOU transcription",
-                    "chunk processing"
-                ))?;
+                .map_err(|e| {
+                    ParakeetError::transcription_error_detailed(
+                        e.to_string(),
+                        "spawn_blocking",
+                        "async task execution",
+                    )
+                })?
+                .map_err(|e| {
+                    ParakeetError::transcription_error_detailed(
+                        e.to_string(),
+                        "EOU transcription",
+                        "chunk processing",
+                    )
+                })?;
 
                 InternalTranscriptionResult::Text(text)
             }
@@ -223,26 +230,40 @@ impl ParakeetBackend {
 
     /// Transcribe audio chunk (streaming mode)
     pub async fn transcribe_chunk(&self, audio: Vec<f32>) -> Result<TextChunk> {
-        let audio_len = audio.len(); // Capture length before moving
-        
+        let audio_len = audio.len();
+
         match self {
             ParakeetBackend::Nemotron(model) => {
+                let expected = ModelVariant::Nemotron.chunk_size();
+                if audio_len != expected {
+                    return Err(ParakeetError::chunk_processing_error(
+                        "unexpected chunk size",
+                        audio_len,
+                        expected,
+                        "Nemotron",
+                    ));
+                }
+
                 let model = model.clone();
                 let text = tokio::task::spawn_blocking(move || {
                     let mut model = model.lock().unwrap();
                     model.transcribe_chunk(&audio)
                 })
                 .await
-                .map_err(|e| ParakeetError::transcription_error_detailed(
-                    e.to_string(),
-                    "spawn_blocking",
-                    "async chunk processing"
-                ))?
-                .map_err(|e| ParakeetError::transcription_error_detailed(
-                    e.to_string(),
-                    "Nemotron chunk transcription",
-                    format!("{} samples", audio_len)
-                ))?;
+                .map_err(|e| {
+                    ParakeetError::transcription_error_detailed(
+                        e.to_string(),
+                        "spawn_blocking",
+                        "async chunk processing",
+                    )
+                })?
+                .map_err(|e| {
+                    ParakeetError::transcription_error_detailed(
+                        e.to_string(),
+                        "Nemotron chunk transcription",
+                        format!("{} samples", audio_len),
+                    )
+                })?;
 
                 Ok(TextChunk {
                     text,
@@ -250,22 +271,36 @@ impl ParakeetBackend {
                 })
             }
             ParakeetBackend::EOU(model) => {
+                let expected = ModelVariant::EOU.chunk_size();
+                if audio_len != expected {
+                    return Err(ParakeetError::chunk_processing_error(
+                        "unexpected chunk size",
+                        audio_len,
+                        expected,
+                        "EOU",
+                    ));
+                }
+
                 let model = model.clone();
                 let result = tokio::task::spawn_blocking(move || {
                     let mut model = model.lock().unwrap();
                     model.transcribe(&audio, false) // reset_on_eou = false (matches parakeet-rs examples)
                 })
                 .await
-                .map_err(|e| ParakeetError::transcription_error_detailed(
-                    e.to_string(),
-                    "spawn_blocking",
-                    "async chunk processing"
-                ))?
-                .map_err(|e| ParakeetError::transcription_error_detailed(
-                    e.to_string(),
-                    "EOU chunk transcription",
-                    format!("{} samples", audio_len)
-                ))?;
+                .map_err(|e| {
+                    ParakeetError::transcription_error_detailed(
+                        e.to_string(),
+                        "spawn_blocking",
+                        "async chunk processing",
+                    )
+                })?
+                .map_err(|e| {
+                    ParakeetError::transcription_error_detailed(
+                        e.to_string(),
+                        "EOU chunk transcription",
+                        format!("{} samples", audio_len),
+                    )
+                })?;
 
                 // Check if EOU was detected
                 let is_final = result.ends_with(" [EOU]");
@@ -281,7 +316,7 @@ impl ParakeetBackend {
                 "TDT model does not support streaming",
                 "TDT",
                 "chunk processing",
-                "Use Nemotron or EOU models for streaming transcription"
+                "Use Nemotron or EOU models for streaming transcription",
             )),
         }
     }
@@ -305,6 +340,7 @@ impl ParakeetBackend {
 }
 
 /// Enum to handle both text-only and timestamped results
+#[allow(clippy::upper_case_acronyms)]
 enum InternalTranscriptionResult {
     Text(String),
     WithTimestamps {

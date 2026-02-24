@@ -8,14 +8,15 @@ repository.workspace = true
 publish = false
 
 [features]
-default = []
-parakeet = ["autoagents-speech/parakeet"]
+cuda = ["autoagents-speech/cuda"]
 
 [dependencies]
-autoagents-speech = { workspace = true, features = ["pocket-tts", "playback"] }
+autoagents-speech = { workspace = true, features = ["audio-capture", "vad", "parakeet", "pocket-tts", "playback"] }
 tokio = { workspace = true }
 hound = { workspace = true }
 env_logger = { workspace = true }
-futures = { workspace = true }
 clap = { workspace = true }
-cpal = "0.15"
+autoagents = { workspace = true, features = ["openai"] }
+autoagents-derive = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
