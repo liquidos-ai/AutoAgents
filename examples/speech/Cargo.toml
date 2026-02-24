@@ -11,7 +11,7 @@ publish = false
 cuda = ["autoagents-speech/cuda"]
 
 [dependencies]
-autoagents-speech = { workspace = true, features = ["audio-capture", "vad", "parakeet", "pocket-tts", "playback"] }
+autoagents-speech = { workspace = true, features = ["audio-capture", "vad", "parakeet", "pocket-tts", "playback", "vad-ort"] }
 tokio = { workspace = true }
 hound = { workspace = true }
 env_logger = { workspace = true }

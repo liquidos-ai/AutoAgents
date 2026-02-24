@@ -1,15 +1,66 @@
 use super::error::{VadError, VadResult};
 use super::result::VadThresholds;
 
+/// Execution device for the Silero VAD engine.
+#[derive(Debug, Clone)]
+pub enum VadDevice {
+    Cpu,
+    /// Require CUDA (errors if unavailable or feature not enabled).
+    Cuda {
+        gpu_id: usize,
+    },
+    /// Require Metal (errors if unavailable or feature not enabled).
+    Metal {
+        gpu_id: usize,
+    },
+    /// Use CUDA if available; otherwise fall back to CPU.
+    CudaIfAvailable {
+        gpu_id: usize,
+    },
+    /// Use Metal if available; otherwise fall back to CPU.
+    MetalIfAvailable {
+        gpu_id: usize,
+    },
+}
+
 /// Configuration for the Silero VAD engine.
 #[derive(Debug, Clone)]
 pub struct VadConfig {
     pub sample_rate: u32,
+    pub device: VadDevice,
 }
 
 impl VadConfig {
     pub fn new(sample_rate: u32) -> Self {
-        Self { sample_rate }
+        Self {
+            sample_rate,
+            device: VadDevice::Cpu,
+        }
+    }
+
+    pub fn with_device(mut self, device: VadDevice) -> Self {
+        self.device = device;
+        self
+    }
+
+    pub fn with_cuda(mut self, gpu_id: usize) -> Self {
+        self.device = VadDevice::Cuda { gpu_id };
+        self
+    }
+
+    pub fn with_metal(mut self, gpu_id: usize) -> Self {
+        self.device = VadDevice::Metal { gpu_id };
+        self
+    }
+
+    pub fn with_cuda_if_available(mut self, gpu_id: usize) -> Self {
+        self.device = VadDevice::CudaIfAvailable { gpu_id };
+        self
+    }
+
+    pub fn with_metal_if_available(mut self, gpu_id: usize) -> Self {
+        self.device = VadDevice::MetalIfAvailable { gpu_id };
+        self
     }
 
     pub fn validate(&self) -> VadResult<()> {
@@ -24,6 +75,7 @@ impl Default for VadConfig {
     fn default() -> Self {
         Self {
             sample_rate: 16_000,
+            device: VadDevice::Cpu,
         }
     }
 }

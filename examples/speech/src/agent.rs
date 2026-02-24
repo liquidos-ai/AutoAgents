@@ -66,7 +66,7 @@ impl ToolRuntime for ExitConversation {
 
 #[agent(
     name = "speech_assistant",
-    description = "You are a concise voice assistant, Your name is Tess. Respond in short, speakable sentences.
+    description = "You are a concise voice assistant who has a soul, Your name is Tess. Respond in short, speakable sentences.
 
 If the user asks to stop, end the conversation, or says goodbye, call the exit_conversation tool instead of continuing.",
     tools = [ExitConversation],

@@ -66,11 +66,11 @@ pub fn build_vad_segmenter() -> Result<VadSegmenter<SileroVad>, Box<dyn std::err
     let vad = SileroVad::new(vad_source, VadConfig::default())?;
     let config = SegmenterConfig::default()
         .with_window_ms(30)
-        .with_min_speech_ms(120)
-        .with_min_silence_ms(450)
-        .with_pre_roll_ms(120)
-        .with_max_segment_ms(5_000)
-        .with_thresholds(autoagents_speech::vad::VadThresholds::new(0.45, 0.25));
+        .with_min_speech_ms(80)
+        .with_min_silence_ms(700)
+        .with_pre_roll_ms(400)
+        .with_max_segment_ms(12_000)
+        .with_thresholds(autoagents_speech::vad::VadThresholds::new(0.4, 0.2));
     let segmenter = VadSegmenter::new(vad, config)?;
     Ok(segmenter)
 }

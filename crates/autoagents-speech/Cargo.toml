@@ -11,18 +11,18 @@ categories.workspace = true
 [features]
 default = []
 full = ["pocket-tts", "parakeet", "playback", "audio-capture", "vad"]
-pocket-tts = ["dep:pocket-tts", "dep:candle-core", "dep:uuid", "dep:anyhow", "dep:tokio-stream", "dep:sentencepiece"]
+pocket-tts = ["dep:pocket-tts", "dep:candle-core", "dep:uuid", "dep:anyhow", "dep:tokio-stream"]
 parakeet = ["dep:parakeet-rs"]
 playback = ["dep:rodio"]
 audio-capture = ["dep:cpal", "dep:hound", "dep:symphonia"]
 model-hf = ["dep:hf-hub"]
-vad = ["dep:ort", "dep:ndarray", "model-hf"]
+vad = ["dep:candle-onnx", "dep:candle-core", "model-hf"]
+vad-ort = ["dep:ort", "dep:ndarray", "model-hf"]
+vad-compare = ["vad", "vad-ort", "audio-capture"]
 
-# Forward parakeet-rs execution provider features
-cuda = ["parakeet", "parakeet-rs/cuda"]
-tensorrt = ["parakeet", "parakeet-rs/tensorrt"]
-directml = ["parakeet", "parakeet-rs/directml"]
-coreml = ["parakeet", "parakeet-rs/coreml"]
+# Forward execution provider features
+cuda = ["parakeet", "parakeet-rs/cuda", "candle-core/cuda"]
+metal = ["candle-core/metal"]
 
 [dependencies]
 async-trait = { workspace = true }
@@ -34,15 +34,11 @@ tokio = { workspace = true }
 base64 = { workspace = true }
 
 # Pocket-TTS dependencies (optional, enabled by feature)
-pocket-tts = { version = "0.3.1", optional = true }
-# Force system sentencepiece to avoid duplicate protobuf symbols with ort-sys when
-# both pocket-tts (via candle → tokenizers → sentencepiece-sys) and vad (via ort-sys)
-# are enabled together. Cargo's feature unification propagates this to all transitive
-# dependents automatically.
-sentencepiece = { version = "0.13", optional = true, features = ["system"] }
+pocket-tts = { version = "0.6.2", optional = true }
+# sentencepiece = { version = "0.13", optional = true, features = ["system"] }
 candle-core = { version = "0.9.2", optional = true }
 candle-nn = { version = "0.9.2", optional = true }
-candle-transformers = { version = "0.9.2", optional = true }
+# candle-transformers = { version = "0.9.2", optional = true }
 uuid = { workspace = true, features = ["v4"], optional = true }
 anyhow = { workspace = true, optional = true }
 tokio-stream = { workspace = true, optional = true }
@@ -56,6 +52,7 @@ hound = { workspace = true, optional = true }
 symphonia = { version = "0.5", optional = true, default-features = false, features = ["flac", "ogg", "vorbis", "mp3", "pcm"] }
 
 # VAD (optional)
+candle-onnx = { version = "0.9.2", optional = true }
 ort = { version = "=2.0.0-rc.11", optional = true }
 ndarray = { version = "0.17.2", optional = true }
 hf-hub = { version = "0.4.3", default-features = false, features = ["ureq"], optional = true }

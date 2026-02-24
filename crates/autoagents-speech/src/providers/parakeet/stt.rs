@@ -77,12 +77,6 @@ impl ParakeetBackend {
             let exec_provider = match provider_str.to_lowercase().as_str() {
                 #[cfg(feature = "cuda")]
                 "cuda" => ExecutionProvider::Cuda,
-                #[cfg(feature = "tensorrt")]
-                "tensorrt" => ExecutionProvider::TensorRT,
-                #[cfg(feature = "directml")]
-                "directml" => ExecutionProvider::DirectML,
-                #[cfg(feature = "coreml")]
-                "coreml" => ExecutionProvider::CoreML,
                 _ => ExecutionProvider::Cpu,
             };
             config = config.with_execution_provider(exec_provider);

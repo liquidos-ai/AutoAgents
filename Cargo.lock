@@ -533,7 +533,7 @@ dependencies = [
  "base64 0.22.1",
  "candle-core 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "candle-nn 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "candle-transformers",
+ "candle-onnx",
  "cpal",
  "env_logger",
  "futures",
@@ -544,7 +544,6 @@ dependencies = [
  "parakeet-rs",
  "pocket-tts",
  "rodio",
- "sentencepiece",
  "serde",
  "serde_json",
  "symphonia",
@@ -847,6 +846,17 @@ dependencies = [
  "rustc-hash 2.1.1",
  "shlex",
  "syn 2.0.116",
+]
+
+[[package]]
+name = "bindgen_cuda"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "282be55fb326843bb67cccceeeaf21c961ef303f60018f9a2ab69494dad8eaf9"
+dependencies = [
+ "glob",
+ "num_cpus",
+ "rayon",
 ]
 
 [[package]]
@@ -1189,6 +1199,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c15b675b80d994b2eadb20a4bbe434eabeb454eac3ee5e2b4cf6f147ee9be091"
 dependencies = [
  "byteorder",
+ "candle-kernels 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "candle-metal-kernels 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "candle-ug 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cudarc 0.19.2",
  "float8 0.6.1",
  "gemm 0.19.0",
  "half",
@@ -1196,6 +1210,8 @@ dependencies = [
  "memmap2",
  "num-traits",
  "num_cpus",
+ "objc2-foundation",
+ "objc2-metal",
  "rand 0.9.2",
  "rand_distr 0.5.1",
  "rayon",
@@ -1212,9 +1228,9 @@ source = "git+https://github.com/huggingface/candle.git?rev=c3bb5bf#c3bb5bfb90c9
 dependencies = [
  "accelerate-src",
  "byteorder",
- "candle-kernels",
- "candle-metal-kernels",
- "candle-ug",
+ "candle-kernels 0.9.2 (git+https://github.com/huggingface/candle.git?rev=c3bb5bf)",
+ "candle-metal-kernels 0.9.2 (git+https://github.com/huggingface/candle.git?rev=c3bb5bf)",
+ "candle-ug 0.9.2 (git+https://github.com/huggingface/candle.git?rev=c3bb5bf)",
  "cudarc 0.19.2",
  "float8 0.7.0",
  "gemm 0.19.0",
@@ -1250,9 +1266,33 @@ dependencies = [
 [[package]]
 name = "candle-kernels"
 version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8455f84bd810047c7c41216683c1020c915a9f8a740b3b0eabdd4fb2fbaa660"
+dependencies = [
+ "bindgen_cuda",
+]
+
+[[package]]
+name = "candle-kernels"
+version = "0.9.2"
 source = "git+https://github.com/huggingface/candle.git?rev=c3bb5bf#c3bb5bfb90c9cb5e003a803e3d8941067f32d880"
 dependencies = [
  "cudaforge",
+]
+
+[[package]]
+name = "candle-metal-kernels"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fdfe9d06de16ce49961e49084e5b79a75a9bdf157246e7c7b6328e87a7aa25d"
+dependencies = [
+ "half",
+ "objc2",
+ "objc2-foundation",
+ "objc2-metal",
+ "once_cell",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
@@ -1292,7 +1332,7 @@ source = "git+https://github.com/huggingface/candle.git?rev=c3bb5bf#c3bb5bfb90c9
 dependencies = [
  "accelerate-src",
  "candle-core 0.9.2 (git+https://github.com/huggingface/candle.git?rev=c3bb5bf)",
- "candle-metal-kernels",
+ "candle-metal-kernels 0.9.2 (git+https://github.com/huggingface/candle.git?rev=c3bb5bf)",
  "half",
  "intel-mkl-src",
  "libc",
@@ -1302,6 +1342,18 @@ dependencies = [
  "safetensors 0.7.0",
  "serde",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "candle-onnx"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3281776daed25d20f2a7846151561bac63091d41115ba9a5d8ac50891fb749d6"
+dependencies = [
+ "candle-core 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "candle-nn 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "prost 0.14.3",
+ "prost-build",
 ]
 
 [[package]]
@@ -1321,6 +1373,17 @@ dependencies = [
  "serde_json",
  "serde_plain",
  "tracing",
+]
+
+[[package]]
+name = "candle-ug"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c22d62be69068bf58987a45f690612739d8d2ea1bf508c1b87dc6815a019575d"
+dependencies = [
+ "ug",
+ "ug-cuda",
+ "ug-metal",
 ]
 
 [[package]]
@@ -3084,6 +3147,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
 
 [[package]]
+name = "fixedbitset"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
+
+[[package]]
 name = "flate2"
 version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3100,6 +3169,7 @@ version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "719a903cc23e4a89e87962c2a80fdb45cdaad0983a89bd150bb57b4c8571a7d5"
 dependencies = [
+ "cudarc 0.19.2",
  "half",
  "num-traits",
  "rand 0.9.2",
@@ -5130,7 +5200,7 @@ dependencies = [
  "bytemuck_derive",
  "candle-core 0.9.2 (git+https://github.com/huggingface/candle.git?rev=c3bb5bf)",
  "candle-flash-attn",
- "candle-metal-kernels",
+ "candle-metal-kernels 0.9.2 (git+https://github.com/huggingface/candle.git?rev=c3bb5bf)",
  "candle-nn 0.9.2 (git+https://github.com/huggingface/candle.git?rev=c3bb5bf)",
  "cfgrammar",
  "chrono",
@@ -5249,7 +5319,7 @@ source = "git+https://github.com/EricLBuehler/mistral.rs.git#c520b856ca1e737e426
 dependencies = [
  "anyhow",
  "candle-core 0.9.2 (git+https://github.com/huggingface/candle.git?rev=c3bb5bf)",
- "candle-metal-kernels",
+ "candle-metal-kernels 0.9.2 (git+https://github.com/huggingface/candle.git?rev=c3bb5bf)",
  "cudaforge",
  "float8 0.7.0",
  "half",
@@ -5265,7 +5335,7 @@ source = "git+https://github.com/EricLBuehler/mistral.rs.git#c520b856ca1e737e426
 dependencies = [
  "byteorder",
  "candle-core 0.9.2 (git+https://github.com/huggingface/candle.git?rev=c3bb5bf)",
- "candle-metal-kernels",
+ "candle-metal-kernels 0.9.2 (git+https://github.com/huggingface/candle.git?rev=c3bb5bf)",
  "candle-nn 0.9.2 (git+https://github.com/huggingface/candle.git?rev=c3bb5bf)",
  "cudaforge",
  "float8 0.7.0",
@@ -5328,6 +5398,12 @@ dependencies = [
  "num-traits",
  "pxfm",
 ]
+
+[[package]]
+name = "multimap"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
 
 [[package]]
 name = "nalgebra"
@@ -6174,7 +6250,18 @@ version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4c5cc86750666a3ed20bdaf5ca2a0344f9c67674cae0515bec2da16fbaa47db"
 dependencies = [
- "fixedbitset",
+ "fixedbitset 0.4.2",
+ "indexmap 2.13.0",
+]
+
+[[package]]
+name = "petgraph"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8701b58ea97060d5e5b155d383a69952a60943f0e6dfe30b04c287beb0b27455"
+dependencies = [
+ "fixedbitset 0.5.7",
+ "hashbrown 0.15.5",
  "indexmap 2.13.0",
 ]
 
@@ -6312,9 +6399,9 @@ dependencies = [
 
 [[package]]
 name = "pocket-tts"
-version = "0.3.3"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c70f5f3b0c67ab58a6dc74da47243bdbb2bc04588773e85e4ad0c23a1d92866"
+checksum = "8633c5e97cfe7855486cd6b6f0d9fe90443e405d0873e11fa18116687c5957af"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -6322,6 +6409,7 @@ dependencies = [
  "candle-nn 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "candle-transformers",
  "console_error_panic_hook",
+ "getrandom 0.2.17",
  "getrandom 0.3.4",
  "hf-hub",
  "hound",
@@ -6335,12 +6423,12 @@ dependencies = [
  "regex",
  "rubato 0.14.1",
  "safetensors 0.5.3",
- "sentencepiece",
  "serde",
  "serde_json",
  "serde_yaml",
  "thiserror 2.0.18",
  "tokenizers 0.21.4",
+ "tracing",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -6525,6 +6613,25 @@ checksum = "d2ea70524a2f82d518bce41317d0fae74151505651af45faf1ffbd6fd33f0568"
 dependencies = [
  "bytes",
  "prost-derive 0.14.3",
+]
+
+[[package]]
+name = "prost-build"
+version = "0.14.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
+dependencies = [
+ "heck",
+ "itertools 0.14.0",
+ "log",
+ "multimap",
+ "petgraph 0.8.3",
+ "prettyplease",
+ "prost 0.14.3",
+ "prost-types 0.14.3",
+ "regex",
+ "syn 2.0.116",
+ "tempfile",
 ]
 
 [[package]]
@@ -7739,32 +7846,6 @@ checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 dependencies = [
  "serde",
  "serde_core",
-]
-
-[[package]]
-name = "sentencepiece"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3baa1506c7718f6b70bcac5475e563176dd51bb669dae38181abbf3070517453"
-dependencies = [
- "libc",
- "num-derive",
- "num-traits",
- "prost 0.14.3",
- "prost-derive 0.14.3",
- "sentencepiece-sys",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "sentencepiece-sys"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa4f9b54dc005df8ec1c3f9e2347cea6b6657ec5460977a982e7a4e09ef49411"
-dependencies = [
- "cc",
- "cmake",
- "pkg-config",
 ]
 
 [[package]]
@@ -9967,7 +10048,7 @@ dependencies = [
  "im-rc",
  "indexmap 2.13.0",
  "log",
- "petgraph",
+ "petgraph 0.6.5",
  "serde",
  "serde_derive",
  "serde_yaml",

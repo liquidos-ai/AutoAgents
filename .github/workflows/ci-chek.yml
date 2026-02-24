@@ -35,7 +35,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake libasound2-dev pkg-config
+          sudo apt-get install -y cmake libasound2-dev pkg-config protobuf-compiler
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -89,7 +89,17 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libasound2-dev
+          sudo apt-get install -y pkg-config libasound2-dev protobuf-compiler
+
+      - name: Install macOS deps
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew update
+          brew install protobuf
+
+      - name: Install Windows deps
+        if: matrix.os == 'windows-latest'
+        run: choco install protoc -y
 
       - name: Build Workspace
         run: cargo build --workspace --release
