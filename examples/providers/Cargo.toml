@@ -10,7 +10,7 @@ categories.workspace = true
 publish = false
 
 [dependencies]
-autoagents = { workspace = true, features = ["openai", "anthropic", "ollama", "groq", "openrouter", "logging"] }
+autoagents = { workspace = true, features = ["openai", "anthropic", "ollama", "groq", "openrouter", "minimax", "logging"] }
 autoagents-derive = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }

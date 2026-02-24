@@ -27,3 +27,6 @@ pub mod azure_openai;
 
 #[cfg(feature = "openrouter")]
 pub mod openrouter;
+
+#[cfg(feature = "minimax")]
+pub mod minimax;
