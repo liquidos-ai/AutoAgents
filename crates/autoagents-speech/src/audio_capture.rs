@@ -41,7 +41,11 @@ impl AudioCaptureConfig {
 
 impl Default for AudioCaptureConfig {
     fn default() -> Self {
-        Self::new(16_000, 1)
+        Self {
+            target_sample_rate: 16_000,
+            target_channels: 1,
+            normalize: true,
+        }
     }
 }
 
@@ -130,11 +134,11 @@ impl AudioCapture {
             (duration.as_secs_f32() * input_sample_rate as f32) as usize * input_channels;
         let buffer = Arc::new(Mutex::new(Vec::with_capacity(expected_samples)));
         let stream_error = Arc::new(Mutex::new(None::<String>));
-        let stream = self.build_stream(buffer.clone(), stream_error.clone())?;
-
-        stream.play()?;
-        std::thread::sleep(duration);
-        drop(stream);
+        {
+            let stream = self.build_stream(buffer.clone(), stream_error.clone())?;
+            stream.play()?;
+            std::thread::sleep(duration);
+        }
 
         if let Some(message) = stream_error.lock().ok().and_then(|e| e.clone()) {
             return Err(AudioCaptureError::StreamError(message));
@@ -378,12 +382,12 @@ fn read_audio_samples(path: &Path) -> AudioCaptureResult<(Vec<f32>, u32, usize)>
     use symphonia::core::codecs::DecoderOptions;
     use symphonia::core::errors::Error as SymphoniaError;
     use symphonia::core::formats::FormatOptions;
-    use symphonia::core::io::MediaSourceStream;
+    use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
     use symphonia::core::meta::MetadataOptions;
     use symphonia::core::probe::Hint;
 
     let src = std::fs::File::open(path).map_err(AudioCaptureError::Io)?;
-    let mss = MediaSourceStream::new(Box::new(src), Default::default());
+    let mss = MediaSourceStream::new(Box::new(src), MediaSourceStreamOptions::default());
 
     let mut hint = Hint::new();
     hint.with_extension(&ext);

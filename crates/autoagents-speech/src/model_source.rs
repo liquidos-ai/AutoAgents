@@ -1,5 +1,10 @@
 use std::path::{Path, PathBuf};
 
+const HF_ENDPOINT_ENV: &str = "HF_ENDPOINT";
+const HUGGINGFACE_HUB_TOKEN_ENV: &str = "HUGGINGFACE_HUB_TOKEN";
+const HF_TOKEN_ENV: &str = "HF_TOKEN";
+const HUGGINGFACE_TOKEN_ENV: &str = "HUGGINGFACE_TOKEN";
+
 /// Source for loading a model from disk or HuggingFace.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelSource {
@@ -156,7 +161,7 @@ fn resolve_hf(
 
     let cache = Cache::from_env();
     let mut api_builder = ApiBuilder::from_cache(cache);
-    if let Ok(endpoint) = std::env::var("HF_ENDPOINT") {
+    if let Ok(endpoint) = std::env::var(HF_ENDPOINT_ENV) {
         api_builder = api_builder.with_endpoint(endpoint);
     }
     if let Some(token) = hf_token() {
@@ -192,7 +197,7 @@ fn resolve_hf_dir(
 
     let cache = Cache::from_env();
     let mut api_builder = ApiBuilder::from_cache(cache);
-    if let Ok(endpoint) = std::env::var("HF_ENDPOINT") {
+    if let Ok(endpoint) = std::env::var(HF_ENDPOINT_ENV) {
         api_builder = api_builder.with_endpoint(endpoint);
     }
     if let Some(token) = hf_token() {
@@ -274,10 +279,10 @@ fn resolve_hf(
 
 #[cfg(feature = "model-hf")]
 fn hf_token() -> Option<String> {
-    std::env::var("HUGGINGFACE_HUB_TOKEN")
+    std::env::var(HUGGINGFACE_HUB_TOKEN_ENV)
         .ok()
-        .or_else(|| std::env::var("HF_TOKEN").ok())
-        .or_else(|| std::env::var("HUGGINGFACE_TOKEN").ok())
+        .or_else(|| std::env::var(HF_TOKEN_ENV).ok())
+        .or_else(|| std::env::var(HUGGINGFACE_TOKEN_ENV).ok())
 }
 
 #[cfg(test)]

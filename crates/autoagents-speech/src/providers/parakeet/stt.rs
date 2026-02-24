@@ -167,7 +167,7 @@ impl ParakeetBackend {
 
                 let text = tokio::task::spawn_blocking(move || {
                     let mut model = model.lock().unwrap();
-                    let mut result_text = String::new();
+                    let mut result_text = String::default();
 
                     for chunk in audio.samples.chunks(chunk_size) {
                         match model.transcribe(chunk, false) {
