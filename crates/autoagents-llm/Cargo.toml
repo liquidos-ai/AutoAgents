@@ -22,6 +22,7 @@ full = [
     "groq",
     "azure_openai",
     "openrouter",
+    "minimax",
 ]
 openai = []
 anthropic = []
@@ -33,6 +34,7 @@ google = []
 groq = []
 azure_openai = []
 openrouter = []
+minimax = []
 
 [dependencies]
 async-trait = { workspace = true }

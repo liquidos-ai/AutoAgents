@@ -2,6 +2,7 @@
 
 mod anthropic;
 mod groq;
+mod minimax;
 mod ollama;
 mod openai;
 mod openrouter;
@@ -16,6 +17,7 @@ pub enum Backend {
     Anthropic,
     Ollama,
     Groq,
+    MiniMax,
 }
 
 #[derive(Parser, Debug)]
@@ -53,6 +55,10 @@ async fn main() -> anyhow::Result<()> {
         Backend::Groq => {
             println!("Using Groq backend (requires GROQ_API_KEY)");
             groq::run().await?;
+        }
+        Backend::MiniMax => {
+            println!("Using MiniMax backend (requires MINIMAX_API_KEY)");
+            minimax::run().await?;
         }
     }
 
