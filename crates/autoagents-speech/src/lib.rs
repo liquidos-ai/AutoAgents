@@ -38,47 +38,11 @@
 //! Enable providers using feature flags:
 //! - `pocket-tts`: Pocket-TTS model support (TTS)
 //! - `parakeet`: Parakeet (NVIDIA) model support (STT)
+//! - `vad`: Silero VAD support (speech segmentation)
 //!
-//! ## Example - TTS
-//!
-//! ```rust
-//! use autoagents_speech::{TTSProvider, SpeechRequest, VoiceIdentifier, AudioFormat};
-//!
-//! async fn generate_speech(provider: &dyn TTSProvider, text: &str) {
-//!     let request = SpeechRequest {
-//!         text: text.to_string(),
-//!         voice: VoiceIdentifier::new("alba"),
-//!         format: AudioFormat::Wav,
-//!         sample_rate: Some(24000),
-//!     };
-//!
-//!     let response = provider.generate_speech(request).await.unwrap();
-//!     println!("Generated {} samples", response.audio.samples.len());
-//! }
-//! ```
-//!
-//! ## Example - STT
-//!
-//! ```rust
-//! use autoagents_speech::{STTProvider, TranscriptionRequest, AudioData};
-//!
-//! async fn transcribe_audio(provider: &dyn STTProvider, audio: Vec<f32>) {
-//!     let request = TranscriptionRequest {
-//!         audio: AudioData {
-//!             samples: audio,
-//!             sample_rate: 16000,
-//!             channels: 1,
-//!         },
-//!         language: None,
-//!         include_timestamps: false,
-//!     };
-//!
-//!     let response = provider.transcribe(request).await.unwrap();
-//!     println!("Transcription: {}", response.text);
-//! }
-//! ```
 
 pub mod error;
+pub mod model_source;
 mod provider;
 pub mod types;
 
@@ -95,8 +59,15 @@ pub use types::{
 
 // Re-export main STT types
 pub use error::{STTError, STTResult};
+pub use model_source::ModelSource;
 pub use provider::{STTModelsProvider, STTProvider, STTSpeechProvider};
 pub use types::{TextChunk, TokenTimestamp, TranscriptionRequest, TranscriptionResponse};
 
 #[cfg(feature = "playback")]
 pub mod playback;
+
+#[cfg(feature = "audio-capture")]
+pub mod audio_capture;
+
+#[cfg(feature = "vad")]
+pub mod vad;
