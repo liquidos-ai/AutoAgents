@@ -58,11 +58,10 @@ hf-hub = { version = "0.4.3", default-features = false, features = ["ureq"], opt
 parakeet-rs = { version = "0.3.3", optional = true }
 
 # VAD (optional)
-[target.'cfg(not(any(target_arch = "aarch64", target_arch = "arm")))'.dependencies]
 ort = { version = "2.0.0-rc.11" , optional = true }
 
-# ARM / Raspberry Pi
-[target.'cfg(any(target_arch = "aarch64", target_arch = "arm"))'.dependencies]
+# Linux ARM / Raspberry Pi
+[target.'cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))'.dependencies]
 ort = { version = "2.0.0-rc.11", default-features = false, optional = true, features = [ "std", "ndarray", "tracing", "load-dynamic" ] }
 
 [dev-dependencies]
