@@ -162,8 +162,8 @@ pub trait STTModelsProvider: Send + Sync {
 mod tests {
     use super::*;
     use crate::{
-        AudioData, AudioFormat, ModelInfo, SpeechRequest, SpeechResponse, TranscriptionRequest,
-        TranscriptionResponse, VoiceIdentifier,
+        AudioData, AudioFormat, ModelInfo, SharedAudioData, SpeechRequest, SpeechResponse,
+        TranscriptionRequest, TranscriptionResponse, VoiceIdentifier,
     };
     use async_trait::async_trait;
 
@@ -263,11 +263,11 @@ mod tests {
     async fn test_stt_default_streaming_not_supported() {
         let provider = DummySTTProvider;
         let request = TranscriptionRequest {
-            audio: AudioData {
+            audio: SharedAudioData::new(AudioData {
                 samples: vec![0.0; 16000],
                 sample_rate: 16000,
                 channels: 1,
-            },
+            }),
             language: None,
             include_timestamps: false,
         };

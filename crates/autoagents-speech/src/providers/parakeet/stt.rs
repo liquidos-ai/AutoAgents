@@ -9,7 +9,6 @@ use parakeet_rs::{
     ExecutionConfig, ExecutionProvider, Nemotron, ParakeetEOU, ParakeetTDT, TimedToken,
     TimestampMode,
 };
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 fn validate_audio(audio: &AudioData) -> Result<()> {
@@ -26,11 +25,13 @@ fn validate_audio(audio: &AudioData) -> Result<()> {
 }
 
 /// Backend implementation for Parakeet STT
+///
+/// Each variant is boxed to reduce stack size, as the model structs are large.
 #[allow(clippy::upper_case_acronyms)]
 pub enum ParakeetBackend {
-    TDT(Arc<Mutex<ParakeetTDT>>),
-    Nemotron(Arc<Mutex<Nemotron>>),
-    EOU(Arc<Mutex<ParakeetEOU>>),
+    TDT(Box<ParakeetTDT>),
+    Nemotron(Box<Nemotron>),
+    EOU(Box<ParakeetEOU>),
 }
 
 impl ParakeetBackend {
@@ -46,7 +47,7 @@ impl ParakeetBackend {
                         reason: e.to_string(),
                         variant: "TDT".to_string(),
                     })?;
-                Ok(ParakeetBackend::TDT(Arc::new(Mutex::new(model))))
+                Ok(ParakeetBackend::TDT(Box::new(model)))
             }
             ModelVariant::Nemotron => {
                 let model = Nemotron::from_pretrained(&config.model_path, Some(exec_config))
@@ -55,7 +56,7 @@ impl ParakeetBackend {
                         reason: e.to_string(),
                         variant: "Nemotron".to_string(),
                     })?;
-                Ok(ParakeetBackend::Nemotron(Arc::new(Mutex::new(model))))
+                Ok(ParakeetBackend::Nemotron(Box::new(model)))
             }
             ModelVariant::EOU => {
                 let model = ParakeetEOU::from_pretrained(&config.model_path, Some(exec_config))
@@ -64,7 +65,7 @@ impl ParakeetBackend {
                         reason: e.to_string(),
                         variant: "EOU".to_string(),
                     })?;
-                Ok(ParakeetBackend::EOU(Arc::new(Mutex::new(model))))
+                Ok(ParakeetBackend::EOU(Box::new(model)))
             }
         }
     }
@@ -92,39 +93,31 @@ impl ParakeetBackend {
     }
 
     /// Transcribe audio to text
-    pub async fn transcribe(&self, request: TranscriptionRequest) -> Result<TranscriptionResponse> {
+    pub async fn transcribe(
+        &mut self,
+        request: TranscriptionRequest,
+    ) -> Result<TranscriptionResponse> {
         let start = Instant::now();
-        let audio = request.audio;
+        let audio = request.audio; // Arc<AudioData>
 
         validate_audio(&audio)?;
 
         let result = match self {
             ParakeetBackend::TDT(model) => {
-                let model = model.clone();
                 let timestamp_mode = if request.include_timestamps {
                     Some(TimestampMode::Words)
                 } else {
                     None
                 };
+                // TDT needs an owned Vec<f32>; clone the samples out of the Arc.
+                let samples = audio.samples.clone();
+                let sample_rate = audio.sample_rate;
+                let channels = audio.channels as u16;
 
                 let parakeet_result: parakeet_rs::TranscriptionResult =
-                    tokio::task::spawn_blocking(move || {
-                        let mut model = model.lock().unwrap();
-                        model.transcribe_samples(
-                            audio.samples,
-                            audio.sample_rate,
-                            audio.channels as u16,
-                            timestamp_mode,
-                        )
+                    tokio::task::block_in_place(|| {
+                        model.transcribe_samples(samples, sample_rate, channels, timestamp_mode)
                     })
-                    .await
-                    .map_err(|e| {
-                        ParakeetError::transcription_error_detailed(
-                            e.to_string(),
-                            "spawn_blocking",
-                            "async task execution",
-                        )
-                    })?
                     .map_err(|e| {
                         ParakeetError::transcription_error_detailed(
                             e.to_string(),
@@ -136,20 +129,10 @@ impl ParakeetBackend {
                 InternalTranscriptionResult::from(parakeet_result)
             }
             ParakeetBackend::Nemotron(model) => {
-                let model = model.clone();
-                let text = tokio::task::spawn_blocking(move || {
-                    let mut model = model.lock().unwrap();
+                let text = tokio::task::block_in_place(|| {
                     model.reset();
                     model.transcribe_audio(&audio.samples)
                 })
-                .await
-                .map_err(|e| {
-                    ParakeetError::transcription_error_detailed(
-                        e.to_string(),
-                        "spawn_blocking",
-                        "async task execution",
-                    )
-                })?
                 .map_err(|e| {
                     ParakeetError::transcription_error_detailed(
                         e.to_string(),
@@ -161,16 +144,13 @@ impl ParakeetBackend {
                 InternalTranscriptionResult::Text(text)
             }
             ParakeetBackend::EOU(model) => {
-                let model = model.clone();
-                // For EOU, process entire audio in chunks
-                let chunk_size = ModelVariant::EOU.chunk_size(); // 160ms at 16kHz
+                let chunk_size = ModelVariant::EOU.chunk_size();
 
-                let text = tokio::task::spawn_blocking(move || {
-                    let mut model = model.lock().unwrap();
+                let text = tokio::task::block_in_place(|| {
                     let mut result_text = String::default();
 
                     for chunk in audio.samples.chunks(chunk_size) {
-                        match model.transcribe(chunk, false) {
+                        match model.transcribe(chunk, true) {
                             Ok(text) => {
                                 result_text.push_str(&text);
                             }
@@ -179,14 +159,6 @@ impl ParakeetBackend {
                     }
                     Ok(result_text)
                 })
-                .await
-                .map_err(|e| {
-                    ParakeetError::transcription_error_detailed(
-                        e.to_string(),
-                        "spawn_blocking",
-                        "async task execution",
-                    )
-                })?
                 .map_err(|e| {
                     ParakeetError::transcription_error_detailed(
                         e.to_string(),
@@ -229,7 +201,7 @@ impl ParakeetBackend {
     }
 
     /// Transcribe audio chunk (streaming mode)
-    pub async fn transcribe_chunk(&self, audio: Vec<f32>) -> Result<TextChunk> {
+    pub async fn transcribe_chunk(&mut self, audio: Vec<f32>) -> Result<TextChunk> {
         let audio_len = audio.len();
 
         match self {
@@ -244,26 +216,15 @@ impl ParakeetBackend {
                     ));
                 }
 
-                let model = model.clone();
-                let text = tokio::task::spawn_blocking(move || {
-                    let mut model = model.lock().unwrap();
-                    model.transcribe_chunk(&audio)
-                })
-                .await
-                .map_err(|e| {
-                    ParakeetError::transcription_error_detailed(
-                        e.to_string(),
-                        "spawn_blocking",
-                        "async chunk processing",
-                    )
-                })?
-                .map_err(|e| {
-                    ParakeetError::transcription_error_detailed(
-                        e.to_string(),
-                        "Nemotron chunk transcription",
-                        format!("{} samples", audio_len),
-                    )
-                })?;
+                let text = tokio::task::block_in_place(|| model.transcribe_chunk(&audio)).map_err(
+                    |e| {
+                        ParakeetError::transcription_error_detailed(
+                            e.to_string(),
+                            "Nemotron chunk transcription",
+                            format!("{} samples", audio_len),
+                        )
+                    },
+                )?;
 
                 Ok(TextChunk {
                     text,
@@ -281,26 +242,16 @@ impl ParakeetBackend {
                     ));
                 }
 
-                let model = model.clone();
-                let result = tokio::task::spawn_blocking(move || {
-                    let mut model = model.lock().unwrap();
-                    model.transcribe(&audio, false) // reset_on_eou = false (matches parakeet-rs examples)
-                })
-                .await
-                .map_err(|e| {
-                    ParakeetError::transcription_error_detailed(
-                        e.to_string(),
-                        "spawn_blocking",
-                        "async chunk processing",
-                    )
-                })?
-                .map_err(|e| {
-                    ParakeetError::transcription_error_detailed(
-                        e.to_string(),
-                        "EOU chunk transcription",
-                        format!("{} samples", audio_len),
-                    )
-                })?;
+                // reset_on_eou=true: model auto-resets its state when EOU is detected,
+                // which is the correct behaviour for streaming utterance boundaries.
+                let result = tokio::task::block_in_place(|| model.transcribe(&audio, true))
+                    .map_err(|e| {
+                        ParakeetError::transcription_error_detailed(
+                            e.to_string(),
+                            "EOU chunk transcription",
+                            format!("{} samples", audio_len),
+                        )
+                    })?;
 
                 // Check if EOU was detected
                 let is_final = result.ends_with(" [EOU]");
@@ -322,21 +273,36 @@ impl ParakeetBackend {
     }
 
     /// Reset streaming state
-    pub fn reset(&self) {
+    pub fn reset(&mut self) {
         match self {
             ParakeetBackend::Nemotron(model) => {
-                let mut model = model.lock().unwrap();
                 model.reset();
             }
-            ParakeetBackend::EOU(_model) => {
-                // EOU has soft reset built into transcribe() when reset_on_eou=true
-                // No explicit reset needed
+            ParakeetBackend::EOU(_) => {
+                // ParakeetEOU has no public reset(); state is reset automatically on each EOU
+                // detection via reset_on_eou=true in transcribe_chunk(), and cleared on the
+                // next session start via the first transcribe() call.
             }
             ParakeetBackend::TDT(_) => {
                 // TDT doesn't have state to reset
             }
         }
     }
+}
+
+/// Validate that the requested language is supported by the given model variant
+pub(super) fn validate_language(language: Option<&str>, variant: &ModelVariant) -> Result<()> {
+    if let Some(lang) = language {
+        let supported = variant.supported_languages();
+        if !supported.iter().any(|s| s == lang) {
+            return Err(ParakeetError::language_not_supported(
+                lang,
+                variant.to_string(),
+                supported.join(", "),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Enum to handle both text-only and timestamped results

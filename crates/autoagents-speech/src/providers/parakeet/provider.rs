@@ -2,13 +2,13 @@
 
 use super::config::ParakeetConfig;
 use super::error::Result;
-use super::stt::ParakeetBackend;
+use super::stt::{ParakeetBackend, validate_language};
 use crate::{
     ModelInfo, STTModelsProvider, STTProvider, STTResult, STTSpeechProvider, TextChunk,
     TranscriptionRequest, TranscriptionResponse,
 };
 use async_trait::async_trait;
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -36,13 +36,18 @@ impl Parakeet {
 
     /// Reset streaming state
     pub async fn reset(&self) {
-        let backend = self.backend.lock().await;
+        let mut backend = self.backend.lock().await;
         backend.reset();
     }
 
-    /// Process audio chunk in streaming mode
+    /// Process a single audio chunk in streaming mode.
+    ///
+    /// Callers must call `reset()` before starting a new streaming session and must
+    /// provide chunks of exactly `config.model_variant.chunk_size()` samples.
+    /// For pre-recorded audio, prefer `transcribe_stream()` which handles chunking
+    /// and padding automatically.
     pub async fn process_chunk(&self, audio_chunk: Vec<f32>) -> STTResult<TextChunk> {
-        let backend = self.backend.lock().await;
+        let mut backend = self.backend.lock().await;
         backend
             .transcribe_chunk(audio_chunk)
             .await
@@ -56,7 +61,9 @@ impl STTProvider for Parakeet {}
 #[async_trait]
 impl STTSpeechProvider for Parakeet {
     async fn transcribe(&self, request: TranscriptionRequest) -> STTResult<TranscriptionResponse> {
-        let backend = self.backend.lock().await;
+        validate_language(request.language.as_deref(), &self.config.model_variant)
+            .map_err(crate::error::STTError::from)?;
+        let mut backend = self.backend.lock().await;
         backend.transcribe(request).await.map_err(Into::into)
     }
 
@@ -71,39 +78,45 @@ impl STTSpeechProvider for Parakeet {
             )));
         }
 
+        // request.audio is already Arc<AudioData>; clone the Arc (cheap) for use in the stream.
         let audio = request.audio;
         let backend = self.backend.clone();
 
         // Reset state before streaming
         {
-            let b = backend.lock().await;
+            let mut b = backend.lock().await;
             b.reset();
         }
 
-        // Create stream that processes chunks
-        // Get the recommended chunk size for this model variant
         let chunk_size = self.config.model_variant.chunk_size();
 
-        let chunks: Vec<Vec<f32>> = audio
-            .samples
-            .chunks(chunk_size)
-            .map(|chunk| {
-                if chunk.len() == chunk_size {
-                    chunk.to_vec()
-                } else {
-                    let mut padded = Vec::with_capacity(chunk_size);
-                    padded.extend_from_slice(chunk);
-                    padded.resize(chunk_size, 0.0);
-                    padded
-                }
-            })
-            .collect();
-
-        let stream = futures::stream::iter(chunks).then(move |chunk| {
+        // Lazily produce chunks via unfold to avoid a full upfront copy of all audio.
+        // The Tokio mutex is acquired and released for each chunk so that other tasks
+        // are not starved between inferences.
+        let stream = futures::stream::unfold(0usize, move |offset| {
+            let audio = audio.clone(); // cheap Arc clone
             let backend = backend.clone();
             async move {
-                let b = backend.lock().await;
-                b.transcribe_chunk(chunk).await.map_err(Into::into)
+                let samples = &audio.samples;
+                if offset >= samples.len() {
+                    return None;
+                }
+
+                let end = (offset + chunk_size).min(samples.len());
+                let chunk = if end - offset == chunk_size {
+                    samples[offset..end].to_vec()
+                } else {
+                    let mut padded = Vec::with_capacity(chunk_size);
+                    padded.extend_from_slice(&samples[offset..end]);
+                    padded.resize(chunk_size, 0.0);
+                    padded
+                };
+
+                let next_offset = offset + chunk_size;
+                let mut b = backend.lock().await;
+                let result = b.transcribe_chunk(chunk).await.map_err(Into::into);
+                // Mutex is released here when `b` is dropped, before the caller resumes.
+                Some((result, next_offset))
             }
         });
 

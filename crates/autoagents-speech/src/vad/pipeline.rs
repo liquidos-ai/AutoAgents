@@ -3,6 +3,7 @@ use super::config::VadSttConfig;
 use super::error::VadError;
 use super::segmenter::{SpeechSegment, VadSegmenter};
 use crate::{STTError, STTSpeechProvider, TranscriptionRequest, TranscriptionResponse};
+use futures::future::try_join_all;
 
 #[derive(Debug, Clone)]
 pub struct SegmentTranscription {
@@ -66,15 +67,24 @@ impl<V: VadEngine, S: STTSpeechProvider> VadSttPipeline<V, S> {
         &self,
         segments: Vec<SpeechSegment>,
     ) -> Result<Vec<SegmentTranscription>, VadPipelineError> {
-        let mut transcriptions = Vec::with_capacity(segments.len());
-        for segment in segments {
-            let transcription = self.transcribe_segment(&segment).await?;
-            transcriptions.push(SegmentTranscription {
+        // Run all segment transcriptions concurrently. For a single-backend STT provider,
+        // the calls will serialise on the provider's internal mutex; for multi-instance
+        // providers they may run in parallel.
+        let futures: Vec<_> = segments
+            .iter()
+            .map(|segment| self.transcribe_segment(segment))
+            .collect();
+
+        let transcriptions = try_join_all(futures).await?;
+
+        Ok(segments
+            .into_iter()
+            .zip(transcriptions)
+            .map(|(segment, transcription)| SegmentTranscription {
                 segment,
                 transcription,
-            });
-        }
-        Ok(transcriptions)
+            })
+            .collect())
     }
 
     async fn transcribe_segment(
@@ -82,7 +92,7 @@ impl<V: VadEngine, S: STTSpeechProvider> VadSttPipeline<V, S> {
         segment: &SpeechSegment,
     ) -> Result<TranscriptionResponse, VadPipelineError> {
         let request = TranscriptionRequest {
-            audio: segment.audio.clone(),
+            audio: segment.audio.clone(), // cheap Arc clone — no audio data is copied
             language: self.config.language.clone(),
             include_timestamps: self.config.include_timestamps,
         };
