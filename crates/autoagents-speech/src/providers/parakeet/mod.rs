@@ -14,7 +14,7 @@
 //!
 //! ```no_run
 //! use autoagents_speech::providers::parakeet::{Parakeet, ParakeetConfig, ModelVariant};
-//! use autoagents_speech::{STTSpeechProvider, TranscriptionRequest, AudioData};
+//! use autoagents_speech::{STTSpeechProvider, TranscriptionRequest, AudioData, SharedAudioData};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,11 +24,11 @@
 //!
 //!     // Transcribe with timestamps
 //!     let request = TranscriptionRequest {
-//!         audio: AudioData {
+//!         audio: SharedAudioData::new(AudioData {
 //!             samples: vec![0.0; 16000], // 1 second of audio
 //!             sample_rate: 16000,
 //!             channels: 1,
-//!         },
+//!         }),
 //!         language: None, // Auto-detect
 //!         include_timestamps: true,
 //!     };
@@ -50,7 +50,7 @@
 //!
 //! ```no_run
 //! use autoagents_speech::providers::parakeet::{Parakeet, ParakeetConfig, ModelVariant};
-//! use autoagents_speech::{STTSpeechProvider, TranscriptionRequest, AudioData};
+//! use autoagents_speech::{STTSpeechProvider, TranscriptionRequest, AudioData, SharedAudioData};
 //! use futures::StreamExt;
 //!
 //! #[tokio::main]
@@ -61,11 +61,11 @@
 //!
 //!     // Stream transcription
 //!     let request = TranscriptionRequest {
-//!         audio: AudioData {
+//!         audio: SharedAudioData::new(AudioData {
 //!             samples: vec![0.0; 16000 * 10], // 10 seconds of audio
 //!             sample_rate: 16000,
 //!             channels: 1,
-//!         },
+//!         }),
 //!         language: Some("en".to_string()),
 //!         include_timestamps: false,
 //!     };
@@ -85,7 +85,7 @@
 //!
 //! ```no_run
 //! use autoagents_speech::providers::parakeet::{Parakeet, ParakeetConfig, ModelVariant};
-//! use autoagents_speech::{STTSpeechProvider, TranscriptionRequest, AudioData};
+//! use autoagents_speech::{STTSpeechProvider, TranscriptionRequest, AudioData, SharedAudioData};
 //! use futures::StreamExt;
 //!
 //! #[tokio::main]
@@ -96,11 +96,11 @@
 //!
 //!     // Stream transcription with EOU detection
 //!     let request = TranscriptionRequest {
-//!         audio: AudioData {
+//!         audio: SharedAudioData::new(AudioData {
 //!             samples: vec![0.0; 16000 * 10], // 10 seconds of audio
 //!             sample_rate: 16000,
 //!             channels: 1,
-//!         },
+//!         }),
 //!         language: Some("en".to_string()),
 //!         include_timestamps: false,
 //!     };
@@ -109,7 +109,7 @@
 //!
 //!     while let Some(chunk) = stream.next().await {
 //!         let chunk = chunk?;
-//!         
+//!
 //!         if chunk.is_final {
 //!             // End of utterance detected
 //!             println!("\n[EOU detected] {}", chunk.text);

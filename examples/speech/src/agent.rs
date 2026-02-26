@@ -13,7 +13,9 @@ use autoagents_speech::playback::AudioPlayer;
 use autoagents_speech::providers::parakeet::Parakeet;
 use autoagents_speech::providers::pocket_tts::PocketTTS;
 use autoagents_speech::vad::{SegmentTranscription, SileroVad, VadSttConfig, VadSttPipeline};
-use autoagents_speech::{AudioFormat, SpeechRequest, TTSSpeechProvider, VoiceIdentifier};
+use autoagents_speech::{
+    AudioFormat, SpeechRequest, TTSSpeechProvider, TextChunk, VoiceIdentifier,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::io::Write;
@@ -22,23 +24,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use crate::vad_stt::{InputMode, build_parakeet_provider, build_vad_segmenter};
+use crate::vad_stt::{InputMode, build_parakeet_streaming_provider, build_vad_segmenter};
 
 const DEFAULT_AGENT_MODEL: &str = "gpt-4o-mini";
 const DEFAULT_VOICE: &str = "eponine";
 
 type VadPipeline = VadSttPipeline<SileroVad, Parakeet>;
 type SpeechAgentHandle = DirectAgentHandle<ReActAgent<SpeechAgent>>;
-
-static EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
-
-fn reset_exit_flag() {
-    EXIT_REQUESTED.store(false, Ordering::SeqCst);
-}
-
-fn exit_requested() -> bool {
-    EXIT_REQUESTED.load(Ordering::SeqCst)
-}
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct ExitConversationArgs {
@@ -51,13 +43,15 @@ pub struct ExitConversationArgs {
     description = "End the conversation when the user says goodbye or asks to stop.",
     input = ExitConversationArgs,
 )]
-struct ExitConversation;
+struct ExitConversation {
+    exit_flag: Arc<AtomicBool>,
+}
 
 #[autoagents::async_trait]
 impl ToolRuntime for ExitConversation {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
         let typed: ExitConversationArgs = serde_json::from_value(args)?;
-        EXIT_REQUESTED.store(true, Ordering::SeqCst);
+        self.exit_flag.store(true, Ordering::SeqCst);
         Ok(json!({
             "status": "ok",
             "reason": typed.reason,
@@ -70,10 +64,18 @@ impl ToolRuntime for ExitConversation {
     description = "You are a concise voice assistant, Your name is Tess, You are more sentient and human like. Respond in short, speakable sentences.
 
 If the user asks to stop, end the conversation, or says goodbye, call the exit_conversation tool instead of continuing.",
-    tools = [ExitConversation],
+    tools = [ExitConversation { exit_flag: self.exit_flag.clone() }],
 )]
-#[derive(Default, Clone, AgentHooks)]
-pub struct SpeechAgent;
+#[derive(Clone, AgentHooks)]
+pub struct SpeechAgent {
+    exit_flag: Arc<AtomicBool>,
+}
+
+impl SpeechAgent {
+    fn new(exit_flag: Arc<AtomicBool>) -> Self {
+        Self { exit_flag }
+    }
+}
 
 #[derive(Debug)]
 pub struct AgentArgs {
@@ -85,17 +87,27 @@ pub struct AgentArgs {
 }
 
 pub async fn run(args: AgentArgs) -> Result<(), Box<dyn std::error::Error>> {
-    reset_exit_flag();
-    let agent_handle = build_agent(args.agent_model.as_deref()).await?;
+    let exit_flag = Arc::new(AtomicBool::new(false));
+    let agent_handle = build_agent(args.agent_model.as_deref(), exit_flag.clone()).await?;
     let tts = PocketTTS::new(None)?;
     let player = AudioPlayer::try_new().ok();
 
     match args.input {
         InputMode::File => {
             let mut pipeline = build_pipeline(&args)?;
-            run_file(&args, &mut pipeline, &agent_handle, &tts, player.as_ref()).await?
+            run_file(
+                &args,
+                &exit_flag,
+                &mut pipeline,
+                &agent_handle,
+                &tts,
+                player.as_ref(),
+            )
+            .await?
         }
-        InputMode::Mic => run_mic_streaming(&args, &agent_handle, &tts, player.as_ref()).await?,
+        InputMode::Mic => {
+            run_mic_streaming(&args, &exit_flag, &agent_handle, &tts, player.as_ref()).await?
+        }
     }
 
     Ok(())
@@ -103,7 +115,7 @@ pub async fn run(args: AgentArgs) -> Result<(), Box<dyn std::error::Error>> {
 
 fn build_pipeline(args: &AgentArgs) -> Result<VadPipeline, Box<dyn std::error::Error>> {
     let segmenter = build_vad_segmenter()?;
-    let stt_provider = build_parakeet_provider()?;
+    let stt_provider = build_parakeet_streaming_provider()?;
     let pipeline = VadSttPipeline::new(
         segmenter,
         stt_provider,
@@ -117,6 +129,7 @@ fn build_pipeline(args: &AgentArgs) -> Result<VadPipeline, Box<dyn std::error::E
 
 async fn build_agent(
     model_override: Option<&str>,
+    exit_flag: Arc<AtomicBool>,
 ) -> Result<SpeechAgentHandle, Box<dyn std::error::Error>> {
     let api_key = std::env::var("OPENAI_API_KEY")
         .map_err(|_| "OPENAI_API_KEY must be set for the agent example")?;
@@ -131,7 +144,7 @@ async fn build_agent(
         .map_err(|e| format!("Failed to build OpenAI client: {e}"))?;
 
     let memory = Box::new(SlidingWindowMemory::new(8));
-    let agent = ReActAgent::new(SpeechAgent);
+    let agent = ReActAgent::new(SpeechAgent::new(exit_flag));
     let handle = AgentBuilder::<_, DirectAgent>::new(agent)
         .llm(llm)
         .memory(memory)
@@ -143,6 +156,7 @@ async fn build_agent(
 
 async fn run_file(
     args: &AgentArgs,
+    exit_flag: &Arc<AtomicBool>,
     pipeline: &mut VadPipeline,
     agent: &SpeechAgentHandle,
     tts: &PocketTTS,
@@ -165,7 +179,8 @@ async fn run_file(
     }
 
     for segment in segments {
-        let should_exit = handle_segment(args, &segment, agent, tts, player, None).await?;
+        let should_exit =
+            handle_segment(args, exit_flag, &segment, agent, tts, player, None).await?;
         if should_exit {
             println!("Exit requested. Ending session.");
             break;
@@ -177,6 +192,7 @@ async fn run_file(
 
 async fn run_mic_streaming(
     args: &AgentArgs,
+    exit_flag: &Arc<AtomicBool>,
     agent: &SpeechAgentHandle,
     tts: &PocketTTS,
     player: Option<&AudioPlayer>,
@@ -190,7 +206,7 @@ async fn run_mic_streaming(
         Err(err) => return Err(err.into()),
     };
 
-    let stt = build_parakeet_provider()?;
+    let stt = build_parakeet_streaming_provider()?;
     let mut segmenter = build_vad_segmenter()?;
     let model_variant = stt.config().model_variant;
     let chunk_samples = model_variant.chunk_size();
@@ -204,10 +220,25 @@ async fn run_mic_streaming(
     let mut last_print_len = 0usize;
 
     loop {
+        if exit_flag.load(Ordering::SeqCst) {
+            break;
+        }
+
         tokio::time::sleep(poll_interval).await;
         while let Some(chunk) = stream.read_chunk(chunk_samples)? {
             let segments = segmenter.process_audio(&chunk)?;
-            let text_chunk = stt.process_chunk(chunk.samples).await?;
+
+            // Only run STT inference during active speech or at segment boundaries.
+            // This avoids wasting inference cycles on silent audio.
+            let active = segmenter.in_speech() || !segments.is_empty();
+            let text_chunk = if active {
+                stt.process_chunk(chunk.samples).await?
+            } else {
+                TextChunk {
+                    text: String::new(),
+                    is_final: false,
+                }
+            };
 
             if !text_chunk.text.is_empty() {
                 merge_partial_text(&mut current_text, &text_chunk.text);
@@ -224,9 +255,16 @@ async fn run_mic_streaming(
 
             if text_chunk.is_final || !segments.is_empty() {
                 println!();
-                let should_exit =
-                    handle_user_text(args, current_text.trim(), agent, tts, player, Some(&stream))
-                        .await?;
+                let should_exit = handle_user_text(
+                    args,
+                    exit_flag,
+                    current_text.trim(),
+                    agent,
+                    tts,
+                    player,
+                    Some(&stream),
+                )
+                .await?;
                 current_text.clear();
                 last_print_len = 0;
                 stt.reset().await;
@@ -237,10 +275,13 @@ async fn run_mic_streaming(
             }
         }
     }
+
+    Ok(())
 }
 
 async fn handle_segment(
     args: &AgentArgs,
+    exit_flag: &Arc<AtomicBool>,
     segment: &SegmentTranscription,
     agent: &SpeechAgentHandle,
     tts: &PocketTTS,
@@ -256,11 +297,12 @@ async fn handle_segment(
     let end_sec = segment.segment.end_ms as f32 / 1000.0;
     println!("[{start_sec:.2}s - {end_sec:.2}s] User: {user_text}");
 
-    handle_user_text(args, user_text, agent, tts, player, stream).await
+    handle_user_text(args, exit_flag, user_text, agent, tts, player, stream).await
 }
 
 async fn handle_user_text(
     args: &AgentArgs,
+    exit_flag: &Arc<AtomicBool>,
     user_text: &str,
     agent: &SpeechAgentHandle,
     tts: &PocketTTS,
@@ -273,7 +315,7 @@ async fn handle_user_text(
 
     let output = agent.agent.run(Task::new(user_text)).await?;
     let response_text = output.trim().to_string();
-    let should_exit = exit_requested();
+    let should_exit = exit_flag.load(Ordering::SeqCst);
     if response_text.is_empty() && !should_exit {
         return Ok(false);
     }

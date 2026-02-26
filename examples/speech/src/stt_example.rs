@@ -1,8 +1,8 @@
 use autoagents_speech::audio_capture::{AudioCapture, AudioCaptureConfig};
-use autoagents_speech::{STTSpeechProvider, TranscriptionRequest};
+use autoagents_speech::{STTSpeechProvider, SharedAudioData, TranscriptionRequest};
 use std::path::PathBuf;
 
-use crate::vad_stt::build_parakeet_provider;
+use crate::vad_stt::build_parakeet_batch_provider;
 
 #[derive(Debug)]
 pub struct SttArgs {
@@ -11,12 +11,12 @@ pub struct SttArgs {
 }
 
 pub async fn run(args: SttArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let provider = build_parakeet_provider()?;
+    let provider = build_parakeet_batch_provider()?;
 
     let audio =
         AudioCapture::read_audio_with_config(&args.audio_file, AudioCaptureConfig::default())?;
     let request = TranscriptionRequest {
-        audio,
+        audio: SharedAudioData::new(audio),
         language: args.language,
         include_timestamps: true,
     };
