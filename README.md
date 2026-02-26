@@ -98,6 +98,13 @@ More info at [GitHub](https://github.com/liquidos-ai/autoagents-bench)
 - **Cargo** package manager
 - **LeftHook** for Git hooks management
 
+### Prerequisite
+
+```bash
+sudo apt update
+sudo apt install build-essential libasound2-dev alsa-utils pkg-config libssl-dev -y
+```
+
 ### Install LeftHook
 
 macOS (Homebrew):
@@ -324,7 +331,6 @@ AutoAgents/
 sudo apt update
 sudo apt install build-essential libasound2-dev alsa-utils pkg-config libssl-dev -y
 ```
-
 
 ### Running Tests
 

@@ -17,7 +17,7 @@ playback = ["dep:rodio"]
 audio-capture = ["dep:cpal", "dep:hound", "dep:symphonia"]
 model-hf = ["dep:hf-hub"]
 vad = ["dep:ort", "dep:ndarray", "model-hf"]
-ort-load-dynamic = ["ort/load-dynamic"]
+ort-load-dynamic = ["vad", "ort/load-dynamic"]
 
 # Forward parakeet-rs execution provider features
 cuda = ["parakeet", "parakeet-rs/cuda", "ort/cuda"]
