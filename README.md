@@ -319,6 +319,13 @@ AutoAgents/
 
 ## Development
 
+### Prerequisite
+```bash
+sudo apt update
+sudo apt install build-essential libasound2-dev alsa-utils pkg-config libssl-dev -y
+```
+
+
 ### Running Tests
 
 ```bash

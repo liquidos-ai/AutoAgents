@@ -17,6 +17,7 @@ playback = ["dep:rodio"]
 audio-capture = ["dep:cpal", "dep:hound", "dep:symphonia"]
 model-hf = ["dep:hf-hub"]
 vad = ["dep:ort", "dep:ndarray", "model-hf"]
+ort-load-dynamic = ["ort/load-dynamic"]
 
 # Forward parakeet-rs execution provider features
 cuda = ["parakeet", "parakeet-rs/cuda", "ort/cuda"]
@@ -58,11 +59,7 @@ hf-hub = { version = "0.4.3", default-features = false, features = ["ureq"], opt
 parakeet-rs = { version = "0.3.3", optional = true }
 
 # VAD (optional)
-ort = { version = "2.0.0-rc.11" , optional = true }
-
-# Linux ARM / Raspberry Pi
-[target.'cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))'.dependencies]
-ort = { version = "2.0.0-rc.11", default-features = false, optional = true, features = [ "std", "ndarray", "tracing", "load-dynamic" ] }
+ort = { version = "2.0.0-rc.11" , optional = true, default-features = false , features = [ "std", "ndarray", "tracing" ]  }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
