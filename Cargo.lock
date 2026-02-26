@@ -530,8 +530,6 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "candle-core",
- "candle-nn",
- "candle-transformers",
  "cpal",
  "env_logger",
  "futures",
