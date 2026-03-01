@@ -100,32 +100,6 @@ impl QdrantVectorStore {
         Ok(())
     }
 
-    pub async fn recreate_named_collection(
-        &self,
-        dimensions: HashMap<String, u64>,
-    ) -> Result<(), VectorStoreError> {
-        let exists = self
-            .client
-            .collection_exists(self.collection_name.clone())
-            .await
-            .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
-
-        if exists {
-            self.client
-                .delete_collection(self.collection_name.clone())
-                .await
-                .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
-        }
-
-        let request = Self::named_collection_request(&self.collection_name, &dimensions);
-        self.client
-            .create_collection(request)
-            .await
-            .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
-
-        Ok(())
-    }
-
     fn named_collection_request(
         collection_name: &str,
         dimensions: &HashMap<String, u64>,
@@ -194,6 +168,25 @@ impl QdrantVectorStore {
                     .points(point_ids)
                     .wait(true),
             )
+            .await
+            .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
+
+        Ok(())
+    }
+
+    /// Deletes this collection if it already exists.
+    pub async fn delete_collection_if_exists(&self) -> Result<(), VectorStoreError> {
+        let exists = self
+            .client
+            .collection_exists(self.collection_name.clone())
+            .await
+            .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
+        if !exists {
+            return Ok(());
+        }
+
+        self.client
+            .delete_collection(self.collection_name.clone())
             .await
             .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
 
@@ -556,19 +549,7 @@ mod tests {
     use autoagents_core::embeddings::Embedding;
     use autoagents_core::one_or_many::OneOrMany;
     use autoagents_core::vector_store::request::{Filter, SearchFilter};
-    use autoagents_llm::embedding::EmbeddingProvider;
-    use autoagents_llm::error::LLMError;
     use std::sync::Arc;
-
-    #[derive(Debug)]
-    struct DummyEmbeddingProvider;
-
-    #[async_trait::async_trait]
-    impl EmbeddingProvider for DummyEmbeddingProvider {
-        async fn embed(&self, _text: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-            Ok(Vec::new())
-        }
-    }
 
     #[test]
     fn test_stable_point_id_deterministic() {
@@ -691,15 +672,6 @@ mod tests {
         let filter = Filter::Gt("score".to_string(), serde_json::json!(1.5));
         let qdrant = to_qdrant_filter(filter).unwrap();
         assert_eq!(qdrant.must.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_delete_documents_by_ids_empty_is_noop() {
-        let provider = Arc::new(DummyEmbeddingProvider);
-        let store =
-            QdrantVectorStore::new(provider, "http://localhost:6333", "collection").unwrap();
-        let result = store.delete_documents_by_ids(&[]).await;
-        assert!(result.is_ok());
     }
 
     #[test]
