@@ -18,7 +18,7 @@ Each backend requires different setup:
 
 ```bash
 export OPENAI_API_KEY=your_api_key_here
-cargo run --package providers -- --backend openai
+cargo run --package providers -- --backend open-ai
 ```
 
 ### Anthropic

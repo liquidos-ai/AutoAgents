@@ -8,7 +8,10 @@ use std::fmt::Debug;
 pub trait ModelListResponse: std::fmt::Debug {
     fn get_models(&self) -> Vec<String>;
     fn get_models_raw(&self) -> Vec<Box<dyn ModelListRawEntry>>;
-    fn get_backend(&self) -> LLMBackend;
+    /// Returns an identifier for the backend that produced this response.
+    /// Built-in providers return their canonical lowercase name (e.g. `"openai"`,
+    /// `"anthropic"`). Third-party implementors may return any string that uniquely identifies their backend
+    fn get_backend(&self) -> String;
 }
 
 pub trait ModelListRawEntry: Debug {
@@ -95,8 +98,8 @@ impl ModelListResponse for StandardModelListResponse {
             .collect()
     }
 
-    fn get_backend(&self) -> LLMBackend {
-        self.backend.clone()
+    fn get_backend(&self) -> String {
+        self.backend.to_string()
     }
 }
 
@@ -132,20 +135,12 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
     struct MockModelListResponse {
         models: Vec<String>,
         raw_entries: Vec<MockModelEntry>,
-        backend: LLMBackend,
-    }
-
-    impl std::fmt::Debug for MockModelListResponse {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("MockModelListResponse")
-                .field("models", &self.models)
-                .field("raw_entries", &self.raw_entries)
-                .field("backend", &self.backend)
-                .finish()
-        }
+        /// Backend identifier — plain string, no coupling to LLMBackend enum.
+        backend: String,
     }
 
     impl ModelListResponse for MockModelListResponse {
@@ -160,7 +155,7 @@ mod tests {
                 .collect()
         }
 
-        fn get_backend(&self) -> LLMBackend {
+        fn get_backend(&self) -> String {
             self.backend.clone()
         }
     }
@@ -213,7 +208,7 @@ mod tests {
             Ok(Box::new(MockModelListResponse {
                 models: self.models.clone(),
                 raw_entries,
-                backend: LLMBackend::OpenAI,
+                backend: "openai".to_string(),
             }))
         }
     }
@@ -304,7 +299,7 @@ mod tests {
         let response = MockModelListResponse {
             models: models.clone(),
             raw_entries: vec![],
-            backend: LLMBackend::OpenAI,
+            backend: "openai".to_string(),
         };
 
         assert_eq!(response.get_models(), models);
@@ -328,7 +323,7 @@ mod tests {
         let response = MockModelListResponse {
             models: vec!["model1".to_string(), "model2".to_string()],
             raw_entries: raw_entries.clone(),
-            backend: LLMBackend::Anthropic,
+            backend: "anthropic".to_string(),
         };
 
         let raw = response.get_models_raw();
@@ -342,10 +337,10 @@ mod tests {
         let response = MockModelListResponse {
             models: vec![],
             raw_entries: vec![],
-            backend: LLMBackend::Google,
+            backend: "google".to_string(),
         };
 
-        assert!(matches!(response.get_backend(), LLMBackend::Google));
+        assert_eq!(response.get_backend(), "google");
     }
 
     #[tokio::test]
@@ -359,7 +354,7 @@ mod tests {
         let response = result.unwrap();
         assert_eq!(response.get_models(), models);
         assert_eq!(response.get_models_raw().len(), 2);
-        assert!(matches!(response.get_backend(), LLMBackend::OpenAI));
+        assert_eq!(response.get_backend(), "openai");
     }
 
     #[tokio::test]
@@ -452,12 +447,12 @@ mod tests {
         let response = MockModelListResponse {
             models: vec!["test-model".to_string()],
             raw_entries: vec![],
-            backend: LLMBackend::Ollama,
+            backend: "ollama".to_string(),
         };
 
         let boxed: Box<dyn ModelListResponse> = Box::new(response);
         assert_eq!(boxed.get_models(), vec!["test-model".to_string()]);
-        assert!(matches!(boxed.get_backend(), LLMBackend::Ollama));
+        assert_eq!(boxed.get_backend(), "ollama");
     }
 
     #[test]
@@ -515,27 +510,25 @@ mod tests {
 
     #[test]
     fn test_backend_variants() {
-        let backends = vec![
-            LLMBackend::OpenAI,
-            LLMBackend::Anthropic,
-            LLMBackend::Ollama,
-            LLMBackend::DeepSeek,
-            LLMBackend::XAI,
-            LLMBackend::Phind,
-            LLMBackend::Google,
-            LLMBackend::Groq,
-            LLMBackend::AzureOpenAI,
+        let cases = [
+            (LLMBackend::OpenAI, "openai"),
+            (LLMBackend::Anthropic, "anthropic"),
+            (LLMBackend::Ollama, "ollama"),
+            (LLMBackend::DeepSeek, "deepseek"),
+            (LLMBackend::XAI, "xai"),
+            (LLMBackend::Phind, "phind"),
+            (LLMBackend::Google, "google"),
+            (LLMBackend::Groq, "groq"),
+            (LLMBackend::AzureOpenAI, "azure-openai"),
         ];
 
-        for backend in backends {
-            let response = MockModelListResponse {
-                models: vec![],
-                raw_entries: vec![],
-                backend: backend.clone(),
+        for (backend, expected) in cases {
+            // StandardModelListResponse stores LLMBackend internally and returns String
+            let response = StandardModelListResponse {
+                inner: StandardModelListResponseInner { data: vec![] },
+                backend,
             };
-            // Use a more flexible assertion since matches! doesn't work with clone
-            let result_backend = response.get_backend();
-            assert!(std::mem::discriminant(&result_backend) == std::mem::discriminant(&backend));
+            assert_eq!(response.get_backend(), expected);
         }
     }
 
@@ -632,6 +625,6 @@ mod tests {
         };
         assert_eq!(response.get_models(), vec!["m1".to_string()]);
         assert_eq!(response.get_models_raw().len(), 1);
-        assert!(matches!(response.get_backend(), LLMBackend::OpenAI));
+        assert_eq!(response.get_backend(), "openai");
     }
 }

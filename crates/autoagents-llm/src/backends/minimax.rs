@@ -74,6 +74,10 @@ impl MiniMax {
 
 impl LLMProvider for MiniMax {}
 
+impl crate::HasConfig for MiniMax {
+    type Config = crate::NoConfig;
+}
+
 #[async_trait]
 impl CompletionProvider for MiniMax {
     async fn complete(

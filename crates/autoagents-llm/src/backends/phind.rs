@@ -278,6 +278,10 @@ impl ModelsProvider for Phind {}
 /// Implementation of the LLMProvider trait for Phind.
 impl LLMProvider for Phind {}
 
+impl crate::HasConfig for Phind {
+    type Config = crate::NoConfig;
+}
+
 impl LLMBuilder<Phind> {
     pub fn build(self) -> Result<Arc<Phind>, LLMError> {
         let phind = Phind::new(

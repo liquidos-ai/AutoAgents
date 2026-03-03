@@ -87,6 +87,10 @@ impl Groq {
 
 impl LLMProvider for Groq {}
 
+impl crate::HasConfig for Groq {
+    type Config = crate::NoConfig;
+}
+
 #[async_trait]
 impl CompletionProvider for Groq {
     async fn complete(

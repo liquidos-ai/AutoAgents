@@ -679,6 +679,10 @@ impl EmbeddingProvider for Google {
 
 impl LLMProvider for Google {}
 
+impl crate::HasConfig for Google {
+    type Config = crate::NoConfig;
+}
+
 /// Parses a Server-Sent Events (SSE) chunk from Google's streaming API.
 ///
 /// # Arguments

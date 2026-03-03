@@ -51,6 +51,19 @@ pub mod providers;
 //Re-export for convenience
 pub use async_trait::async_trait;
 
+/// Unit config for providers with no provider-specific options.
+#[derive(Debug, Default, Clone)]
+pub struct NoConfig;
+
+/// Provides an associated configuration type for LLM provider builders.
+///
+/// Implement this alongside [`LLMProvider`] to expose provider-specific builder
+/// options. Use [`NoConfig`] for providers with no special options.
+pub trait HasConfig {
+    /// Provider-specific configuration type.
+    type Config: Default + Send + Sync + 'static;
+}
+
 /// Core trait that all LLM providers must implement, combining chat, completion
 /// and embedding capabilities into a unified interface
 pub trait LLMProvider:
@@ -104,6 +117,7 @@ pub fn default_call_type() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::HasConfig;
     use crate::chat::{ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat, Tool};
     use crate::completion::CompletionProvider;
     use crate::embedding::EmbeddingProvider;
@@ -431,6 +445,10 @@ mod tests {
     impl models::ModelsProvider for MockLLMProvider {}
 
     impl LLMProvider for MockLLMProvider {}
+
+    impl HasConfig for MockLLMProvider {
+        type Config = NoConfig;
+    }
 
     struct MockChatResponse {
         text: Option<String>,

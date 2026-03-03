@@ -520,6 +520,10 @@ impl CompletionProvider for AzureOpenAI {
 
 impl LLMProvider for AzureOpenAI {}
 
+impl crate::HasConfig for AzureOpenAI {
+    type Config = crate::NoConfig;
+}
+
 #[cfg(feature = "azure_openai")]
 #[async_trait]
 impl EmbeddingProvider for AzureOpenAI {

@@ -31,7 +31,7 @@ pub async fn load_model(args: &TextArgs) -> Result<Arc<MistralRsProvider>, Error
     let repo_id = args
         .repo_id
         .clone()
-        .unwrap_or_else(|| "microsoft/Phi-3.5-mini-instruct".to_string());
+        .unwrap_or_else(|| "NousResearch/Hermes-3-Llama-3.1-8B".to_string());
 
     println!("   Repository: {}", repo_id);
     println!("   Quantization: ISQ Q8_0 (8-bit)");
