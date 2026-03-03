@@ -73,6 +73,10 @@ impl OpenRouter {
 
 impl LLMProvider for OpenRouter {}
 
+impl crate::HasConfig for OpenRouter {
+    type Config = crate::NoConfig;
+}
+
 #[async_trait]
 impl CompletionProvider for OpenRouter {
     async fn complete(

@@ -19,7 +19,7 @@ The example showcases four different use cases:
 cargo run --package mistral_rs --release -- --model-type text
 ```
 
-Uses Phi-3.5-mini-instruct with 8-bit ISQ quantization.
+Uses NousResearch/Hermes-3-Llama-3.1-8B with 8-bit ISQ quantization.
 
 ### Vision Model
 
@@ -32,7 +32,7 @@ Uses SmolVLM-Instruct for image understanding. Make sure you have `test_img.jpg`
 ### GGUF Model
 
 ```bash
-cargo run --package mistral_rs --release -- --model-type gguf --model-dir models/phi-3.5
+cargo run --package mistral_rs --release -- --model-type gguf --model-dir ./models
 ```
 
 Loads a quantized GGUF model from local files. You'll need to download the model files first.

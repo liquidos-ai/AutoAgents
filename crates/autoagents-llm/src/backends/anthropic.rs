@@ -918,8 +918,8 @@ impl ModelListResponse for AnthropicModelListResponse {
             .collect()
     }
 
-    fn get_backend(&self) -> LLMBackend {
-        LLMBackend::Anthropic
+    fn get_backend(&self) -> String {
+        LLMBackend::Anthropic.to_string()
     }
 }
 
@@ -967,6 +967,10 @@ impl ModelsProvider for Anthropic {
 }
 
 impl crate::LLMProvider for Anthropic {}
+
+impl crate::HasConfig for Anthropic {
+    type Config = crate::NoConfig;
+}
 
 /// Parses a Server-Sent Events (SSE) chunk from Anthropic's streaming API.
 ///

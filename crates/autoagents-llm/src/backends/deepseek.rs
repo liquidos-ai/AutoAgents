@@ -202,6 +202,10 @@ impl ModelsProvider for DeepSeek {}
 
 impl LLMProvider for DeepSeek {}
 
+impl crate::HasConfig for DeepSeek {
+    type Config = crate::NoConfig;
+}
+
 impl LLMBuilder<DeepSeek> {
     pub fn build(self) -> Result<Arc<DeepSeek>, LLMError> {
         let api_key = self.api_key.ok_or_else(|| {

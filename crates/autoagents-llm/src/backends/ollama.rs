@@ -20,6 +20,22 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 
+/// Provider-specific configuration for the Ollama backend.
+#[derive(Debug, Default, Clone)]
+pub struct OllamaConfig {
+    pub keep_alive: Option<String>,
+    pub system: Option<String>,
+    pub think: Option<bool>,
+    pub stop: Option<Vec<String>>,
+    pub seed: Option<i64>,
+    pub presence_penalty: Option<f32>,
+    pub frequency_penalty: Option<f32>,
+    pub num_ctx: Option<u32>,
+    pub repeat_penalty: Option<f32>,
+    pub repeat_last_n: Option<i32>,
+    pub min_p: Option<f32>,
+}
+
 /// Client for interacting with Ollama's API.
 ///
 /// Provides methods for chat and completion requests using Ollama's models.
@@ -33,6 +49,16 @@ pub struct Ollama {
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,
     pub keep_alive: Option<String>,
+    pub system: Option<String>,
+    pub think: Option<bool>,
+    pub stop: Option<Vec<String>>,
+    pub seed: Option<i64>,
+    pub presence_penalty: Option<f32>,
+    pub frequency_penalty: Option<f32>,
+    pub num_ctx: Option<u32>,
+    pub repeat_penalty: Option<f32>,
+    pub repeat_last_n: Option<i32>,
+    pub min_p: Option<f32>,
     client: Client,
 }
 
@@ -48,6 +74,10 @@ struct OllamaChatRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<OllamaTool>>,
     keep_alive: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    think: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -60,6 +90,22 @@ struct OllamaOptions {
     top_p: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     top_k: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_ctx: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seed: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stop: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repeat_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repeat_last_n: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    presence_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    frequency_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_p: Option<f32>,
 }
 
 /// Individual message in an Ollama chat conversation.
@@ -150,6 +196,12 @@ struct OllamaGenerateRequest<'a> {
     prompt: &'a str,
     raw: bool,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    think: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<OllamaOptions>,
 }
 
 #[derive(Serialize)]
@@ -356,6 +408,16 @@ impl Ollama {
         top_p: Option<f32>,
         top_k: Option<u32>,
         keep_alive: Option<String>,
+        system: Option<String>,
+        think: Option<bool>,
+        stop: Option<Vec<String>>,
+        seed: Option<i64>,
+        presence_penalty: Option<f32>,
+        frequency_penalty: Option<f32>,
+        num_ctx: Option<u32>,
+        repeat_penalty: Option<f32>,
+        repeat_last_n: Option<i32>,
+        min_p: Option<f32>,
     ) -> Self {
         let mut builder = Client::builder();
         if let Some(sec) = timeout_seconds {
@@ -371,6 +433,16 @@ impl Ollama {
             top_p,
             top_k,
             keep_alive,
+            system,
+            think,
+            stop,
+            seed,
+            presence_penalty,
+            frequency_penalty,
+            num_ctx,
+            repeat_penalty,
+            repeat_last_n,
+            min_p,
             client: builder.build().expect("Failed to build reqwest Client"),
         }
     }
@@ -426,10 +498,20 @@ impl Ollama {
                 num_predict: self.max_tokens,
                 top_p: self.top_p,
                 top_k: self.top_k,
+                num_ctx: self.num_ctx,
+                seed: self.seed,
+                stop: self.stop.clone(),
+                repeat_penalty: self.repeat_penalty,
+                repeat_last_n: self.repeat_last_n,
+                presence_penalty: self.presence_penalty,
+                frequency_penalty: self.frequency_penalty,
+                min_p: self.min_p,
             }),
             keep_alive,
             format,
             tools: ollama_tools,
+            system: self.system.clone(),
+            think: self.think,
         };
 
         if log::log_enabled!(log::Level::Trace)
@@ -512,6 +594,22 @@ impl CompletionProvider for Ollama {
             prompt: &req.prompt,
             raw: true,
             stream: false,
+            system: self.system.clone(),
+            think: self.think,
+            options: Some(OllamaOptions {
+                temperature: self.temperature,
+                num_predict: self.max_tokens,
+                top_p: self.top_p,
+                top_k: self.top_k,
+                num_ctx: self.num_ctx,
+                seed: self.seed,
+                stop: self.stop.clone(),
+                repeat_penalty: self.repeat_penalty,
+                repeat_last_n: self.repeat_last_n,
+                presence_penalty: self.presence_penalty,
+                frequency_penalty: self.frequency_penalty,
+                min_p: self.min_p,
+            }),
         };
 
         let resp = self
@@ -564,9 +662,73 @@ impl ModelsProvider for Ollama {}
 
 impl crate::LLMProvider for Ollama {}
 
+impl crate::HasConfig for Ollama {
+    type Config = OllamaConfig;
+}
+
 impl LLMBuilder<Ollama> {
-    pub fn keep_alive(mut self, keep_alive: impl Into<String>) -> Self {
-        self.keep_alive = Some(keep_alive.into());
+    pub fn keep_alive(mut self, v: impl Into<String>) -> Self {
+        self.config.keep_alive = Some(v.into());
+        self
+    }
+
+    /// Sets the system message override.
+    pub fn system(mut self, v: impl Into<String>) -> Self {
+        self.config.system = Some(v.into());
+        self
+    }
+
+    /// Enables or disables thinking/reasoning mode.
+    pub fn think(mut self, v: bool) -> Self {
+        self.config.think = Some(v);
+        self
+    }
+
+    /// Sets stop sequences.
+    pub fn stop(mut self, v: Vec<String>) -> Self {
+        self.config.stop = Some(v);
+        self
+    }
+
+    /// Sets a fixed seed for reproducible output.
+    pub fn seed(mut self, v: i64) -> Self {
+        self.config.seed = Some(v);
+        self
+    }
+
+    /// Sets presence penalty.
+    pub fn presence_penalty(mut self, v: f32) -> Self {
+        self.config.presence_penalty = Some(v);
+        self
+    }
+
+    /// Sets frequency penalty.
+    pub fn frequency_penalty(mut self, v: f32) -> Self {
+        self.config.frequency_penalty = Some(v);
+        self
+    }
+
+    /// Sets the context window size.
+    pub fn num_ctx(mut self, n: u32) -> Self {
+        self.config.num_ctx = Some(n);
+        self
+    }
+
+    /// Sets the repetition penalty.
+    pub fn repeat_penalty(mut self, v: f32) -> Self {
+        self.config.repeat_penalty = Some(v);
+        self
+    }
+
+    /// Sets the look-back window for the repetition penalty.
+    pub fn repeat_last_n(mut self, n: i32) -> Self {
+        self.config.repeat_last_n = Some(n);
+        self
+    }
+
+    /// Sets the min probability threshold (alternative to top_p).
+    pub fn min_p(mut self, v: f32) -> Self {
+        self.config.min_p = Some(v);
         self
     }
 
@@ -584,7 +746,17 @@ impl LLMBuilder<Ollama> {
             self.timeout_seconds,
             self.top_p,
             self.top_k,
-            self.keep_alive,
+            self.config.keep_alive,
+            self.config.system,
+            self.config.think,
+            self.config.stop,
+            self.config.seed,
+            self.config.presence_penalty,
+            self.config.frequency_penalty,
+            self.config.num_ctx,
+            self.config.repeat_penalty,
+            self.config.repeat_last_n,
+            self.config.min_p,
         );
 
         Ok(Arc::new(ollama))
@@ -608,7 +780,17 @@ impl EmbeddingBuilder<Ollama> {
             self.timeout_seconds,
             None,
             None,
-            None,
+            None, // keep_alive
+            None, // system
+            None, // think
+            None, // stop
+            None, // seed
+            None, // presence_penalty
+            None, // frequency_penalty
+            None, // num_ctx
+            None, // repeat_penalty
+            None, // repeat_last_n
+            None, // min_p
         );
 
         Ok(Arc::new(provider))

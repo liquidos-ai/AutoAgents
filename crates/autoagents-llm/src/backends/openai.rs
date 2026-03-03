@@ -25,10 +25,16 @@ use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-/// OpenAI configuration for the generic provider
-struct OpenAIConfig;
+/// Provider-specific configuration for the OpenAI builder.
+#[derive(Debug, Default, Clone)]
+pub struct OpenAIConfig {
+    pub voice: Option<String>,
+}
 
-impl OpenAIProviderConfig for OpenAIConfig {
+/// Internal OpenAI provider config (for OpenAICompatibleProvider)
+struct OpenAIInternalCfg;
+
+impl OpenAIProviderConfig for OpenAIInternalCfg {
     const PROVIDER_NAME: &'static str = "OpenAI";
     const DEFAULT_BASE_URL: &'static str = "https://api.openai.com/v1/";
     const DEFAULT_MODEL: &'static str = "gpt-4.1-nano";
@@ -43,7 +49,7 @@ impl OpenAIProviderConfig for OpenAIConfig {
 /// Client for OpenAI API
 pub struct OpenAI {
     // Delegate to the generic provider for common functionality
-    provider: OpenAICompatibleProvider<OpenAIConfig>,
+    provider: OpenAICompatibleProvider<OpenAIInternalCfg>,
     pub enable_web_search: bool,
     pub web_search_context_size: Option<String>,
     pub web_search_user_location_type: Option<String>,
@@ -218,7 +224,7 @@ impl OpenAI {
             return Err(LLMError::AuthError("Missing OpenAI API key".to_string()));
         }
         Ok(OpenAI {
-            provider: <OpenAICompatibleProvider<OpenAIConfig>>::new(
+            provider: <OpenAICompatibleProvider<OpenAIInternalCfg>>::new(
                 api_key_str,
                 base_url,
                 model,
@@ -490,6 +496,10 @@ impl ModelsProvider for OpenAI {
 
 impl LLMProvider for OpenAI {}
 
+impl crate::HasConfig for OpenAI {
+    type Config = OpenAIConfig;
+}
+
 // Helper methods to access provider fields
 impl OpenAI {
     pub fn api_key(&self) -> &str {
@@ -650,7 +660,7 @@ impl OpenAI {
 impl LLMBuilder<OpenAI> {
     /// Set the voice.
     pub fn voice(mut self, voice: impl Into<String>) -> Self {
-        self.voice = Some(voice.into());
+        self.config.voice = Some(voice.into());
         self
     }
 
@@ -672,7 +682,7 @@ impl LLMBuilder<OpenAI> {
             self.tool_choice,
             self.normalize_response,
             self.reasoning_effort,
-            self.voice,
+            self.config.voice,
             self.extra_body,
             None,
             None,

@@ -587,6 +587,10 @@ impl ModelsProvider for XAI {
 
 impl LLMProvider for XAI {}
 
+impl crate::HasConfig for XAI {
+    type Config = crate::NoConfig;
+}
+
 /// Parses a Server-Sent Events (SSE) chunk from X.AI's streaming API.
 ///
 /// # Arguments

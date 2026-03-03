@@ -4,7 +4,7 @@
 //! LLM (Large Language Model) provider instances with various settings and options.
 
 use crate::{
-    LLMProvider,
+    HasConfig, LLMProvider,
     chat::{FunctionTool, ParameterProperty, ParametersSchema, ReasoningEffort, Tool, ToolChoice},
     error::LLMError,
 };
@@ -90,11 +90,30 @@ impl std::str::FromStr for LLMBackend {
     }
 }
 
+impl std::fmt::Display for LLMBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            LLMBackend::OpenAI => "openai",
+            LLMBackend::Anthropic => "anthropic",
+            LLMBackend::Ollama => "ollama",
+            LLMBackend::DeepSeek => "deepseek",
+            LLMBackend::XAI => "xai",
+            LLMBackend::Phind => "phind",
+            LLMBackend::Google => "google",
+            LLMBackend::Groq => "groq",
+            LLMBackend::AzureOpenAI => "azure-openai",
+            LLMBackend::OpenRouter => "openrouter",
+            LLMBackend::MiniMax => "minimax",
+        };
+        f.write_str(s)
+    }
+}
+
 /// Builder for configuring and instantiating LLM providers.
 ///
 /// Provides a fluent interface for setting various configuration options
 /// like model selection, API keys, generation parameters, etc.
-pub struct LLMBuilder<L: LLMProvider> {
+pub struct LLMBuilder<L: LLMProvider + HasConfig> {
     /// Selected backend provider
     pub(crate) backend: PhantomData<L>,
     /// API key for authentication with the provider
@@ -135,20 +154,15 @@ pub struct LLMBuilder<L: LLMProvider> {
     pub(crate) api_version: Option<String>,
     /// Deployment Id
     pub(crate) deployment_id: Option<String>,
-    /// Voice
-    #[allow(dead_code)]
-    pub(crate) voice: Option<String>,
     /// Whether to normalize response format
-    #[allow(dead_code)]
     pub(crate) normalize_response: Option<bool>,
     /// ExtraBody
     pub(crate) extra_body: Option<serde_json::Value>,
-    /// Keep Alive
-    #[allow(dead_code)]
-    pub(crate) keep_alive: Option<String>,
+    /// Provider-specific configuration
+    pub config: L::Config,
 }
 
-impl<L: LLMProvider> Default for LLMBuilder<L> {
+impl<L: LLMProvider + HasConfig> Default for LLMBuilder<L> {
     fn default() -> Self {
         Self {
             backend: PhantomData,
@@ -171,15 +185,14 @@ impl<L: LLMProvider> Default for LLMBuilder<L> {
             reasoning_budget_tokens: None,
             api_version: None,
             deployment_id: None,
-            voice: None,
             normalize_response: Some(true), //Defaulting so it accumilates tool calls in streams, easy for agent handling
             extra_body: None,
-            keep_alive: None,
+            config: L::Config::default(),
         }
     }
 }
 
-impl<L: LLMProvider> LLMBuilder<L> {
+impl<L: LLMProvider + HasConfig> LLMBuilder<L> {
     /// Creates a new empty builder instance with default values.
     pub fn new() -> Self {
         Self::default()
@@ -713,6 +726,10 @@ mod tests {
     impl crate::models::ModelsProvider for MockLLMProvider {}
 
     impl crate::LLMProvider for MockLLMProvider {}
+
+    impl crate::HasConfig for MockLLMProvider {
+        type Config = crate::NoConfig;
+    }
 
     #[test]
     fn test_llm_builder_new() {
