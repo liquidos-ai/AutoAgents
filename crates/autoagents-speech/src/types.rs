@@ -18,7 +18,7 @@ pub struct ModelInfo {
 #[derive(Clone, Debug)]
 pub struct AudioData {
     /// Audio samples normalized to [-1.0, 1.0]
-    pub samples: Vec<f32>, //TODO: Need to check if we can optimize it using lower precission
+    pub samples: Vec<f32>,
     /// Number of audio channels (typically 1 for mono)
     pub channels: usize,
     /// Sample rate in Hz
@@ -163,8 +163,8 @@ pub struct TokenTimestamp {
 /// Transcription request for STT
 #[derive(Clone, Debug)]
 pub struct TranscriptionRequest {
-    /// Audio input to transcribe
-    pub audio: AudioData,
+    /// Audio input to transcribe (shared to avoid copies at segment boundaries)
+    pub audio: SharedAudioData,
     /// Optional language hint (for multilingual models)
     pub language: Option<String>,
     /// Whether to include timestamps

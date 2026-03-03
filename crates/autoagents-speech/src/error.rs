@@ -9,12 +9,6 @@ pub enum TTSError {
     )]
     ProviderError(String, String),
 
-    /// Voice not found
-    #[error(
-        "Voice not found: '{0}'\nAvailable voices: {1}\nSuggestion: Use list_predefined_voices() to see all available voices"
-    )]
-    VoiceNotFound(String, String),
-
     /// Invalid voice data
     #[error(
         "Invalid voice data: {0}\nContext: {1}\nSuggestion: Ensure voice embeddings are properly downloaded from HuggingFace"
@@ -33,41 +27,17 @@ pub enum TTSError {
     )]
     StreamingNotSupported(String),
 
-    /// Format not supported
-    #[error(
-        "Audio format not supported: {0:?}\nProvider: {1}\nSupported formats: {2}\nSuggestion: Use one of the supported formats"
-    )]
-    FormatNotSupported(crate::types::AudioFormat, String, String),
-
     /// IO error
     #[error(
         "IO error during TTS operation: {0}\nOperation: {1}\nPath: {2}\nSuggestion: Check file permissions and disk space"
     )]
     IoError(std::io::Error, String, String),
 
-    /// Serialization error
-    #[error(
-        "Serialization error: {0}\nData type: {1}\nSuggestion: Check that data structure is serializable"
-    )]
-    SerializationError(String, String),
-
     /// Model not found
     #[error(
         "Model not found: '{0}'\nModel path: {1}\nSuggestion: Ensure model is downloaded from HuggingFace. Check HUGGINGFACE_TOKEN environment variable"
     )]
     ModelNotFound(String, String),
-
-    /// Invalid configuration
-    #[error(
-        "Invalid configuration: {0}\nParameter: {1}\nValid range: {2}\nSuggestion: Review configuration documentation"
-    )]
-    InvalidConfiguration(String, String, String),
-
-    /// Provider not ready
-    #[error(
-        "Provider not ready: {0}\nProvider: {1}\nInitialization state: {2}\nSuggestion: Wait for provider initialization or check logs for errors"
-    )]
-    ProviderNotReady(String, String, String),
 
     /// Other errors
     #[error("TTS error: {0}\nContext: {1}")]
@@ -115,24 +85,6 @@ pub enum STTError {
         "Model not found: '{0}'\nModel path: {1}\nSuggestion: Ensure model is downloaded from HuggingFace"
     )]
     ModelNotFound(String, String),
-
-    /// Invalid configuration
-    #[error(
-        "Invalid configuration: {0}\nParameter: {1}\nValid range: {2}\nSuggestion: Review configuration documentation"
-    )]
-    InvalidConfiguration(String, String, String),
-
-    /// Provider not ready
-    #[error(
-        "Provider not ready: {0}\nProvider: {1}\nInitialization state: {2}\nSuggestion: Wait for provider initialization or check logs for errors"
-    )]
-    ProviderNotReady(String, String, String),
-
-    /// Language not supported
-    #[error(
-        "Language not supported: '{0}'\nProvider: {1}\nSupported languages: {2}\nSuggestion: Use a supported language or switch to a multilingual model"
-    )]
-    LanguageNotSupported(String, String, String),
 
     /// Other errors
     #[error("STT error: {0}\nContext: {1}")]

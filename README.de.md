@@ -96,6 +96,13 @@ Weitere Infos auf [GitHub](https://github.com/liquidos-ai/autoagents-bench)
 - **Cargo** als Paketmanager
 - **LeftHook** zur Verwaltung von Git Hooks
 
+### Prerequisite
+
+```bash
+sudo apt update
+sudo apt install build-essential libasound2-dev alsa-utils pkg-config libssl-dev -y
+```
+
 ### LeftHook installieren
 
 macOS (Homebrew):

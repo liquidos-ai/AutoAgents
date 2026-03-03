@@ -5,12 +5,6 @@ use thiserror::Error;
 /// Parakeet-specific errors
 #[derive(Error, Debug)]
 pub enum ParakeetError {
-    /// Model initialization error
-    #[error(
-        "Model initialization failed: {0}\nModel variant: {1}\nModel path: {2}\nDevice: {3}\nSuggestion: Ensure model files exist at the specified path and have correct format (ONNX)"
-    )]
-    ModelInitError(String, String, String, String),
-
     /// Model loading failed
     #[error(
         "Failed to load model from {path}: {reason}\nModel variant: {variant}\nSuggestion: Verify model path exists and files are not corrupted. Check model was exported correctly."
@@ -26,12 +20,6 @@ pub enum ParakeetError {
         "Transcription failed: {0}\nStage: {1}\nDetails: {2}\nSuggestion: Check audio format matches expected 16kHz mono PCM, and model state is valid"
     )]
     TranscriptionError(String, String, String),
-
-    /// Audio processing error
-    #[error(
-        "Audio processing failed: {0}\nExpected: {1}\nActual: {2}\nSuggestion: Verify audio is in correct format (16kHz, mono, f32 samples)"
-    )]
-    AudioProcessingError(String, String, String),
 
     /// Invalid audio format
     #[error(
@@ -49,24 +37,6 @@ pub enum ParakeetError {
     #[error("Streaming operation failed: {0}\nModel variant: {1}\nOperation: {2}\nSuggestion: {3}")]
     StreamingError(String, String, String, String),
 
-    /// Configuration error
-    #[error(
-        "Configuration error: {0}\nParameter: {1}\nValue: {2}\nSuggestion: Check configuration parameters match model requirements"
-    )]
-    ConfigError(String, String, String),
-
-    /// Execution provider error
-    #[error(
-        "Execution provider error: {0}\nProvider: {1}\nSuggestion: Try using 'cpu' provider or ensure CUDA/CoreML is properly installed"
-    )]
-    ExecutionProviderError(String, String),
-
-    /// Feature extraction error
-    #[error(
-        "Feature extraction failed: {0}\nAudio length: {1} samples\nSuggestion: Ensure audio contains valid speech and is not corrupted"
-    )]
-    FeatureExtractionError(String, usize),
-
     /// Language not supported
     #[error(
         "Language not supported: {0}\nModel variant: {1}\nSupported languages: {2}\nSuggestion: Use TDT model for multilingual support or specify a supported language"
@@ -80,22 +50,9 @@ pub enum ParakeetError {
     /// IO error
     #[error("IO error: {0}\nFile path: {1}\nOperation: {2}")]
     IoError(std::io::Error, String, String),
-
-    /// Other errors
-    #[error("Parakeet provider error: {0}\nContext: {1}")]
-    Other(String, String),
 }
 
 impl ParakeetError {
-    /// Create a simple transcription error with context
-    pub fn transcription_error(msg: impl Into<String>) -> Self {
-        Self::TranscriptionError(
-            msg.into(),
-            "unknown stage".to_string(),
-            "no additional details".to_string(),
-        )
-    }
-
     /// Create a transcription error with detailed context
     pub fn transcription_error_detailed(
         msg: impl Into<String>,
@@ -103,38 +60,6 @@ impl ParakeetError {
         details: impl Into<String>,
     ) -> Self {
         Self::TranscriptionError(msg.into(), stage.into(), details.into())
-    }
-
-    /// Create a model initialization error
-    pub fn model_init_error(
-        msg: impl Into<String>,
-        variant: impl Into<String>,
-        path: impl Into<String>,
-        device: impl Into<String>,
-    ) -> Self {
-        Self::ModelInitError(msg.into(), variant.into(), path.into(), device.into())
-    }
-
-    /// Create a model load error
-    pub fn model_load_error(
-        path: impl Into<String>,
-        reason: impl Into<String>,
-        variant: impl Into<String>,
-    ) -> Self {
-        Self::ModelLoadError {
-            path: path.into(),
-            reason: reason.into(),
-            variant: variant.into(),
-        }
-    }
-
-    /// Create an audio processing error
-    pub fn audio_processing_error(
-        msg: impl Into<String>,
-        expected: impl Into<String>,
-        actual: impl Into<String>,
-    ) -> Self {
-        Self::AudioProcessingError(msg.into(), expected.into(), actual.into())
     }
 
     /// Create an invalid audio format error
@@ -179,25 +104,6 @@ impl ParakeetError {
         )
     }
 
-    /// Create a configuration error
-    pub fn config_error(
-        msg: impl Into<String>,
-        parameter: impl Into<String>,
-        value: impl Into<String>,
-    ) -> Self {
-        Self::ConfigError(msg.into(), parameter.into(), value.into())
-    }
-
-    /// Create an execution provider error
-    pub fn execution_provider_error(msg: impl Into<String>, provider: impl Into<String>) -> Self {
-        Self::ExecutionProviderError(msg.into(), provider.into())
-    }
-
-    /// Create a feature extraction error
-    pub fn feature_extraction_error(msg: impl Into<String>, audio_length: usize) -> Self {
-        Self::FeatureExtractionError(msg.into(), audio_length)
-    }
-
     /// Create a language not supported error
     pub fn language_not_supported(
         lang: impl Into<String>,
@@ -205,15 +111,6 @@ impl ParakeetError {
         supported: impl Into<String>,
     ) -> Self {
         Self::LanguageNotSupported(lang.into(), variant.into(), supported.into())
-    }
-
-    /// Create a parakeet library error
-    pub fn library_error(
-        msg: impl Into<String>,
-        operation: impl Into<String>,
-        context: impl Into<String>,
-    ) -> Self {
-        Self::ParakeetLibraryError(msg.into(), operation.into(), context.into())
     }
 }
 
@@ -224,15 +121,6 @@ pub type Result<T> = std::result::Result<T, ParakeetError>;
 impl From<ParakeetError> for crate::error::STTError {
     fn from(err: ParakeetError) -> Self {
         match err {
-            ParakeetError::ModelInitError(msg, variant, path, device) => {
-                crate::error::STTError::ProviderError(
-                    format!(
-                        "{} (variant: {}, path: {}, device: {})",
-                        msg, variant, path, device
-                    ),
-                    "Parakeet".to_string(),
-                )
-            }
             ParakeetError::ModelLoadError {
                 path,
                 reason,
@@ -248,17 +136,8 @@ impl From<ParakeetError> for crate::error::STTError {
                     16000,
                 )
             }
-            ParakeetError::AudioProcessingError(msg, expected, actual) => {
-                crate::error::STTError::Other(
-                    format!(
-                        "Audio processing failed: {} (expected: {}, actual: {})",
-                        msg, expected, actual
-                    ),
-                    "Parakeet provider".to_string(),
-                )
-            }
-            ParakeetError::InvalidAudioFormat(msg, exp_rate, exp_ch, _act_rate, act_ch) => {
-                crate::error::STTError::InvalidAudioFormat(msg, exp_rate, 0, exp_ch, act_ch)
+            ParakeetError::InvalidAudioFormat(msg, exp_rate, exp_ch, act_rate, act_ch) => {
+                crate::error::STTError::InvalidAudioFormat(msg, exp_rate, act_rate, exp_ch, act_ch)
             }
             ParakeetError::ChunkProcessingError(msg, chunk_size, expected, model) => {
                 crate::error::STTError::Other(
@@ -274,24 +153,6 @@ impl From<ParakeetError> for crate::error::STTError {
                     "{} (variant: {}, operation: {}, suggestion: {})",
                     msg, variant, operation, suggestion
                 ))
-            }
-            ParakeetError::ConfigError(msg, parameter, value) => {
-                crate::error::STTError::InvalidConfiguration(msg, parameter, value)
-            }
-            ParakeetError::ExecutionProviderError(msg, provider) => {
-                crate::error::STTError::ProviderError(
-                    format!("{} (provider: {})", msg, provider),
-                    "Parakeet".to_string(),
-                )
-            }
-            ParakeetError::FeatureExtractionError(msg, audio_length) => {
-                crate::error::STTError::Other(
-                    format!(
-                        "Feature extraction error: {} (audio: {} samples)",
-                        msg, audio_length
-                    ),
-                    "Parakeet provider".to_string(),
-                )
             }
             ParakeetError::LanguageNotSupported(lang, variant, supported) => {
                 crate::error::STTError::Other(
@@ -310,9 +171,6 @@ impl From<ParakeetError> for crate::error::STTError {
             }
             ParakeetError::IoError(e, path, operation) => {
                 crate::error::STTError::IoError(e, operation, path)
-            }
-            ParakeetError::Other(msg, context) => {
-                crate::error::STTError::Other(msg, format!("Parakeet: {}", context))
             }
         }
     }
@@ -341,17 +199,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_transcription_error_helpers() {
-        let err = ParakeetError::transcription_error("failed");
-        match err {
-            ParakeetError::TranscriptionError(msg, stage, details) => {
-                assert_eq!(msg, "failed");
-                assert_eq!(stage, "unknown stage");
-                assert_eq!(details, "no additional details");
-            }
-            other => panic!("Unexpected error: {other:?}"),
-        }
-
+    fn test_transcription_error_detailed_helper() {
         let detailed =
             ParakeetError::transcription_error_detailed("bad", "decode", "buffer overflow");
         match detailed {
@@ -359,34 +207,6 @@ mod tests {
                 assert_eq!(msg, "bad");
                 assert_eq!(stage, "decode");
                 assert_eq!(details, "buffer overflow");
-            }
-            other => panic!("Unexpected error: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_model_init_error_helper() {
-        let err = ParakeetError::model_init_error("init failed", "EOU", "/path/to/model", "cpu");
-        match err {
-            ParakeetError::ModelInitError(msg, variant, path, device) => {
-                assert_eq!(msg, "init failed");
-                assert_eq!(variant, "EOU");
-                assert_eq!(path, "/path/to/model");
-                assert_eq!(device, "cpu");
-            }
-            other => panic!("Unexpected error: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_audio_processing_error_helper() {
-        let err =
-            ParakeetError::audio_processing_error("wrong format", "16kHz mono", "48kHz stereo");
-        match err {
-            ParakeetError::AudioProcessingError(msg, expected, actual) => {
-                assert_eq!(msg, "wrong format");
-                assert_eq!(expected, "16kHz mono");
-                assert_eq!(actual, "48kHz stereo");
             }
             other => panic!("Unexpected error: {other:?}"),
         }
@@ -403,20 +223,6 @@ mod tests {
                 assert_eq!(model, "EOU");
             }
             other => panic!("Unexpected error: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_parakeet_error_conversion() {
-        let err = ParakeetError::config_error("bad value", "language", "xyz");
-        let converted: crate::error::STTError = err.into();
-        match converted {
-            crate::error::STTError::InvalidConfiguration(msg, param, value) => {
-                assert_eq!(msg, "bad value");
-                assert_eq!(param, "language");
-                assert_eq!(value, "xyz");
-            }
-            other => panic!("Unexpected conversion: {other:?}"),
         }
     }
 

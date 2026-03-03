@@ -5,12 +5,6 @@ use thiserror::Error;
 /// Pocket-TTS specific errors
 #[derive(Error, Debug)]
 pub enum PocketTTSError {
-    /// Model initialization error
-    #[error(
-        "Model initialization failed: {0}\nModel variant: {1}\nDevice: {2}\nSuggestion: Ensure sufficient memory available and model files are accessible"
-    )]
-    ModelInitError(String, String, String),
-
     /// Voice processing error
     #[error(
         "Voice processing failed: {0}\nVoice name: {1}\nOperation: {2}\nSuggestion: Check voice name spelling and ensure voice embeddings are downloaded"
@@ -48,10 +42,6 @@ pub enum PocketTTSError {
         "Download failed: {0}\nResource: {1}\nURL: {2}\nSuggestion: Check internet connection and HuggingFace access token"
     )]
     DownloadError(String, String, String),
-
-    /// Other errors
-    #[error("Pocket-TTS error: {0}\nContext: {1}")]
-    Other(String, String),
 }
 
 impl PocketTTSError {
@@ -122,10 +112,6 @@ pub type Result<T> = std::result::Result<T, PocketTTSError>;
 impl From<PocketTTSError> for crate::TTSError {
     fn from(err: PocketTTSError) -> Self {
         match err {
-            PocketTTSError::ModelInitError(msg, variant, device) => crate::TTSError::ProviderError(
-                format!("{} (variant: {}, device: {})", msg, variant, device),
-                "pocket-tts".to_string(),
-            ),
             PocketTTSError::VoiceError(msg, voice, op) => crate::TTSError::InvalidVoiceData(
                 format!("{} (voice: {}, operation: {})", msg, voice, op),
                 "pocket-tts".to_string(),
@@ -155,9 +141,6 @@ impl From<PocketTTSError> for crate::TTSError {
             ),
             PocketTTSError::DownloadError(msg, resource, url) => {
                 crate::TTSError::ModelNotFound(format!("{} (resource: {})", msg, resource), url)
-            }
-            PocketTTSError::Other(msg, ctx) => {
-                crate::TTSError::Other(msg, format!("pocket-tts: {}", ctx))
             }
         }
     }

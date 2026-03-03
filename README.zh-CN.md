@@ -96,6 +96,13 @@ AutoAgents 是一个用于在 Rust 中构建智能系统的模块化多智能体
 - **Cargo** 包管理器
 - **LeftHook** 用于 Git hooks 管理
 
+### Prerequisite
+
+```bash
+sudo apt update
+sudo apt install build-essential libasound2-dev alsa-utils pkg-config libssl-dev -y
+```
+
 ### 安装 LeftHook
 
 macOS（Homebrew）：

@@ -14,6 +14,7 @@ const VAD_HF_REPO: &str = "freddyaboulton/silero-vad";
 const VAD_HF_FILE: &str = "silero_vad.onnx";
 const PARAKEET_HF_REPO: &str = "altunenes/parakeet-rs";
 const PARAKEET_NEMOTRON_DIR: &str = "nemotron-speech-streaming-en-0.6b";
+const PARAKEET_TDT_DIR: &str = "parakeet-tdt-0.6b-v2";
 
 #[derive(Debug, ValueEnum, Clone)]
 pub enum InputMode {
@@ -43,7 +44,7 @@ pub struct VadArgs {
 
 pub async fn run(args: VadArgs) -> Result<(), Box<dyn std::error::Error>> {
     let segmenter = build_vad_segmenter()?;
-    let stt_provider = build_parakeet_provider()?;
+    let stt_provider = build_parakeet_streaming_provider()?;
     let pipeline = VadSttPipeline::new(
         segmenter,
         stt_provider,
@@ -158,11 +159,19 @@ fn print_segment(segment: &SegmentTranscription) {
     );
 }
 
-pub fn build_parakeet_provider() -> Result<Parakeet, Box<dyn std::error::Error>> {
+/// Build a Nemotron streaming provider for VAD/agent use cases.
+pub fn build_parakeet_streaming_provider() -> Result<Parakeet, Box<dyn std::error::Error>> {
     let model_path = ModelSource::from_hf_dir(PARAKEET_HF_REPO, PARAKEET_NEMOTRON_DIR).resolve()?;
     let config = ParakeetConfig::new(
         ModelVariant::Nemotron,
         model_path.to_string_lossy().to_string(),
     );
+    Ok(Parakeet::new(config)?)
+}
+
+/// Build a TDT batch provider for single-file transcription with timestamps.
+pub fn build_parakeet_batch_provider() -> Result<Parakeet, Box<dyn std::error::Error>> {
+    let model_path = ModelSource::from_hf_dir(PARAKEET_HF_REPO, PARAKEET_TDT_DIR).resolve()?;
+    let config = ParakeetConfig::new(ModelVariant::TDT, model_path.to_string_lossy().to_string());
     Ok(Parakeet::new(config)?)
 }

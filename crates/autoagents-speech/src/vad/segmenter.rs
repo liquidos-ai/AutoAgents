@@ -2,7 +2,7 @@ use super::VadEngine;
 use super::config::SegmenterConfig;
 use super::error::{VadError, VadResult};
 use super::result::{VadOutput, VadStatus};
-use crate::AudioData;
+use crate::{AudioData, SharedAudioData};
 use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,7 +14,7 @@ pub enum SegmentEndReason {
 
 #[derive(Debug, Clone)]
 pub struct SpeechSegment {
-    pub audio: AudioData,
+    pub audio: SharedAudioData,
     pub start_ms: u64,
     pub end_ms: u64,
     pub reason: SegmentEndReason,
@@ -41,6 +41,11 @@ pub struct VadSegmenter<E: VadEngine> {
 impl<E: VadEngine> VadSegmenter<E> {
     pub fn new(mut vad: E, config: SegmenterConfig) -> VadResult<Self> {
         let sample_rate = vad.sample_rate();
+        if sample_rate == 0 {
+            return Err(VadError::InvalidInput(
+                "sample rate must be greater than zero".to_string(),
+            ));
+        }
         if config.window_ms == 0 {
             return Err(VadError::InvalidInput(
                 "window_ms must be greater than zero".to_string(),
@@ -52,12 +57,6 @@ impl<E: VadEngine> VadSegmenter<E> {
             ));
         }
         let window_samples = config.window_samples(sample_rate);
-
-        if sample_rate == 0 {
-            return Err(VadError::InvalidInput(
-                "sample rate must be greater than zero".to_string(),
-            ));
-        }
 
         let pre_roll_max_samples =
             ((sample_rate as f32 * config.pre_roll_ms as f32) / 1000.0) as usize;
@@ -89,6 +88,12 @@ impl<E: VadEngine> VadSegmenter<E> {
 
     pub fn window_ms(&self) -> u32 {
         self.config.window_ms
+    }
+
+    /// Returns true while speech is actively being accumulated (between speech onset and silence
+    /// timeout). Use this to gate downstream processing on non-silent audio only.
+    pub fn in_speech(&self) -> bool {
+        self.in_speech
     }
 
     pub fn process_audio(&mut self, audio: &AudioData) -> VadResult<Vec<SpeechSegment>> {
@@ -141,11 +146,11 @@ impl<E: VadEngine> VadSegmenter<E> {
         }
         let start_sample = self.segment_start_sample.unwrap_or(end_sample);
         let segment = SpeechSegment {
-            audio: AudioData {
+            audio: SharedAudioData::new(AudioData {
                 samples: std::mem::take(&mut self.speech_buffer),
                 sample_rate: self.sample_rate,
                 channels: 1,
-            },
+            }),
             start_ms: samples_to_ms(start_sample, self.sample_rate),
             end_ms: samples_to_ms(end_sample, self.sample_rate),
             reason: SegmentEndReason::EndOfStream,
@@ -156,7 +161,9 @@ impl<E: VadEngine> VadSegmenter<E> {
     }
 
     fn process_window(&mut self, window: &[f32]) -> VadResult<Option<SpeechSegment>> {
-        self.push_pre_roll(window);
+        if !self.in_speech {
+            self.push_pre_roll(window);
+        }
 
         let vad_output: VadOutput = self.vad.compute(window)?;
         let status = vad_output.status(self.config.thresholds);
@@ -244,11 +251,11 @@ impl<E: VadEngine> VadSegmenter<E> {
         let end_sample = self.processed_samples + self.window_samples as u64;
         let start_sample = self.segment_start_sample.unwrap_or(end_sample);
         let segment = SpeechSegment {
-            audio: AudioData {
+            audio: SharedAudioData::new(AudioData {
                 samples: std::mem::take(&mut self.speech_buffer),
                 sample_rate: self.sample_rate,
                 channels: 1,
-            },
+            }),
             start_ms: samples_to_ms(start_sample, self.sample_rate),
             end_ms: samples_to_ms(end_sample, self.sample_rate),
             reason,

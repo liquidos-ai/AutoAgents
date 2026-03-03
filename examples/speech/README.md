@@ -11,6 +11,11 @@ Four runnable examples in one binary, selected at runtime with `--usecase`:
 
 ## Prerequisites
 
+```bash
+suod apt update
+sudo apt-get install -y pkg-config libasound2-dev
+```
+
 Set `HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN` if the repository requires authentication.
 
 ## Building

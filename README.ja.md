@@ -96,6 +96,13 @@ AutoAgents は、Rust で知的システムを構築するためのモジュー�
 - **Cargo** パッケージマネージャ
 - **LeftHook**（Git hooks 管理）
 
+### Prerequisite
+
+```bash
+sudo apt update
+sudo apt install build-essential libasound2-dev alsa-utils pkg-config libssl-dev -y
+```
+
 ### LeftHook のインストール
 
 macOS（Homebrew）：
