@@ -73,6 +73,7 @@ This is important for behavior:
 - Place cache outside retry/fallback if you want cache hits to bypass all network logic.
 - Place retry outside fallback if you want one global retry around the whole fallback chain.
 - Place retry inside each fallback provider if you need per-provider retry policy.
+- Place guardrails outermost so input is validated before cache/network work and outputs are checked after inner layers complete.
 
 ## Built-in Optimization Layers
 

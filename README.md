@@ -38,6 +38,7 @@ performance, safety, and composability across server, edge.
 - **Tooling**: Derive macros for tools and outputs, plus a sandboxed WASM runtime for tool execution
 - **Memory**: Sliding window memory with extensible backends
 - **LLM providers**: Cloud and local backends behind a unified interface
+- **LLM Guardrails**: Guardrail implementation for safeguarding LLM inference
 - **LLM Optimization**: Build LLM pipelines with optimization passes like cache and retry for faster, more reliable inference
 - **Multi-agent orchestration**: Typed pub/sub communication and environment management
 - **Speech-Processing**: Local TTS and STT support
@@ -263,6 +264,10 @@ Streaming and Adding Agent Hooks.
 ### [LLM Pipelines](examples/pipeline/)
 
 Demonstrates LLM pipelines with optimization passes such as cache and retry to improve performance and reliability.
+
+### [Guardrails](examples/guardrails/)
+
+Demonstrates configurable input and output guardrails with Block, Sanitize, and Audit policies using an LLMLayer in the pipeline.
 
 ### [MCP Integration](examples/mcp/)
 

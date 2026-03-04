@@ -29,6 +29,7 @@ autoagents-derive = { path = "crates/autoagents-derive", version = "0.3.5" }
 autoagents-core = { path = "crates/autoagents-core", version = "0.3.5" }
 autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.3.5" }
 autoagents-protocol = { path = "crates/autoagents-protocol", version = "0.3.5" }
+autoagents-guardrails = { path = "crates/autoagents-guardrails", version = "0.3.5" }
 
 # LLM and Providers
 autoagents-llm = { path = "crates/autoagents-llm", version = "0.3.5" }

@@ -1,0 +1,12 @@
+[package]
+name = "guardrails-example"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+autoagents = { workspace = true, features = ["openai"] }
+autoagents-guardrails = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }

@@ -75,6 +75,12 @@ cargo publish --dry-run
 cargo publish
 ```
 
+```shell
+cd ../autoagents-guardrails
+cargo publish --dry-run
+cargo publish
+```
+
 ---
 
 4. Create release tag:

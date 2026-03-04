@@ -431,6 +431,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "autoagents-guardrails"
+version = "0.3.5"
+dependencies = [
+ "async-trait",
+ "autoagents-llm",
+ "autoagents-protocol",
+ "futures",
+ "log",
+ "once_cell",
+ "regex",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "autoagents-llamacpp"
 version = "0.3.5"
 dependencies = [
@@ -3607,6 +3622,16 @@ name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
+
+[[package]]
+name = "guardrails-example"
+version = "0.3.5"
+dependencies = [
+ "anyhow",
+ "autoagents",
+ "autoagents-guardrails",
+ "tokio",
+]
 
 [[package]]
 name = "h2"
