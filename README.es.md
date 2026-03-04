@@ -315,6 +315,7 @@ AutoAgents/
 │   ├── autoagents-mistral-rs/     # LLM provider implementations using Mistral-rs
 │   ├── autoagents-llamacpp/       # LLM provider implementation using LlamaCpp
 │   ├── autoagents-speech/         # Speech model support for TTS and STT
+│   ├── autoagents-guardrails/     # LLM Guardrails implementation
 │   ├── autoagents-qdrant/         # Qdrant vector store
 │   └── autoagents-derive/         # Procedural macros
 ├── examples/                      # Example implementations
