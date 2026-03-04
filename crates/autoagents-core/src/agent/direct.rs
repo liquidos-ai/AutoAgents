@@ -110,7 +110,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
             }
             Err(e) => {
                 // Send error event
-                Err(RunnableAgentError::ExecutorError(e.to_string()))
+                Err(RunnableAgentError::from_executor(e))
             }
         }
     }
@@ -143,17 +143,14 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
                 // Convert the stream output
                 let transformed_stream = stream.map(move |result| match result {
                     Ok(output) => Ok(output.into()),
-                    Err(e) => {
-                        let error_msg = e.to_string();
-                        Err(RunnableAgentError::ExecutorError(error_msg).into())
-                    }
+                    Err(e) => Err(RunnableAgentError::from_executor(e).into()),
                 });
 
                 Ok(Box::pin(transformed_stream))
             }
             Err(e) => {
                 // Send error event for stream creation failure
-                Err(RunnableAgentError::ExecutorError(e.to_string()))
+                Err(RunnableAgentError::from_executor(e))
             }
         }
     }

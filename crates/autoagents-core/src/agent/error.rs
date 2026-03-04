@@ -1,3 +1,4 @@
+use autoagents_llm::error::LLMError;
 #[cfg(not(target_arch = "wasm32"))]
 use ractor::SpawnErr;
 use std::fmt::Debug;
@@ -9,6 +10,10 @@ pub enum RunnableAgentError {
     /// Error from the agent executor
     #[error("Agent execution failed: {0}")]
     ExecutorError(String),
+
+    /// LLM-specific error surfaced from the executor chain
+    #[error("LLM error: {0}")]
+    LLMError(#[from] LLMError),
 
     /// Error during task processing
     #[error("Task processing failed: {0}")]
@@ -57,6 +62,17 @@ impl RunnableAgentError {
         Self::ExecutorError(error.to_string())
     }
 
+    /// Convert executor errors while preserving typed LLM errors when present.
+    pub fn from_executor<E>(error: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        if let Some(llm_error) = find_llm_error(&error) {
+            return Self::LLMError(llm_error);
+        }
+        Self::ExecutorError(error.to_string())
+    }
+
     /// Create a task error
     pub fn task_error(msg: impl Into<String>) -> Self {
         Self::TaskError(msg.into())
@@ -66,6 +82,46 @@ impl RunnableAgentError {
     pub fn event_send_error(error: impl std::error::Error) -> Self {
         Self::EventSendError(error.to_string())
     }
+}
+
+fn find_llm_error(error: &(dyn std::error::Error + 'static)) -> Option<LLMError> {
+    if let Some(llm_error) = error.downcast_ref::<LLMError>() {
+        return Some(llm_error.clone());
+    }
+
+    if let Some(basic_error) =
+        error.downcast_ref::<crate::agent::prebuilt::executor::BasicExecutorError>()
+        && let crate::agent::prebuilt::executor::BasicExecutorError::LLMError(llm_error) =
+            basic_error
+    {
+        return Some(llm_error.clone());
+    }
+
+    if let Some(react_error) =
+        error.downcast_ref::<crate::agent::prebuilt::executor::ReActExecutorError>()
+        && let crate::agent::prebuilt::executor::ReActExecutorError::LLMError(llm_error) =
+            react_error
+    {
+        return Some(llm_error.clone());
+    }
+
+    if let Some(turn_error) =
+        error.downcast_ref::<crate::agent::executor::turn_engine::TurnEngineError>()
+        && let crate::agent::executor::turn_engine::TurnEngineError::LLMError(llm_error) =
+            turn_error
+    {
+        return Some(llm_error.clone());
+    }
+
+    let mut current = error.source();
+    while let Some(source) = current {
+        if let Some(llm_error) = source.downcast_ref::<LLMError>() {
+            return Some(llm_error.clone());
+        }
+        current = source.source();
+    }
+
+    None
 }
 
 /// Specific conversion for tokio mpsc send errors
@@ -116,6 +172,8 @@ impl AgentResultError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::prebuilt::executor::{BasicExecutorError, ReActExecutorError};
+    use autoagents_llm::error::GuardrailPhase;
     use tokio::sync::mpsc;
 
     #[test]
@@ -208,5 +266,65 @@ mod tests {
         let debug_str = format!("{error:?}");
         assert!(debug_str.contains("InitializationError"));
         assert!(debug_str.contains("Init failed"));
+    }
+
+    #[test]
+    fn test_from_executor_preserves_typed_llm_error_direct() {
+        let source = LLMError::GuardrailBlocked {
+            phase: GuardrailPhase::Input,
+            guard: "prompt-injection".to_string().into(),
+            rule_id: "prompt_injection_detected".to_string().into(),
+            category: "prompt_injection".to_string().into(),
+            severity: "high".to_string().into(),
+            message: "detected suspicious instruction pattern: jailbreak"
+                .to_string()
+                .into(),
+        };
+
+        let converted = RunnableAgentError::from_executor(source);
+        assert!(matches!(
+            converted,
+            RunnableAgentError::LLMError(LLMError::GuardrailBlocked { .. })
+        ));
+    }
+
+    #[test]
+    fn test_from_executor_preserves_typed_llm_error_from_basic_executor() {
+        let wrapped = BasicExecutorError::from(LLMError::GuardrailBlocked {
+            phase: GuardrailPhase::Input,
+            guard: "prompt-injection".to_string().into(),
+            rule_id: "prompt_injection_detected".to_string().into(),
+            category: "prompt_injection".to_string().into(),
+            severity: "high".to_string().into(),
+            message: "detected suspicious instruction pattern: jailbreak"
+                .to_string()
+                .into(),
+        });
+
+        let converted = RunnableAgentError::from_executor(wrapped);
+        assert!(matches!(
+            converted,
+            RunnableAgentError::LLMError(LLMError::GuardrailBlocked { .. })
+        ));
+    }
+
+    #[test]
+    fn test_from_executor_preserves_typed_llm_error_from_react_executor() {
+        let wrapped = ReActExecutorError::from(LLMError::GuardrailBlocked {
+            phase: GuardrailPhase::Input,
+            guard: "prompt-injection".to_string().into(),
+            rule_id: "prompt_injection_detected".to_string().into(),
+            category: "prompt_injection".to_string().into(),
+            severity: "high".to_string().into(),
+            message: "detected suspicious instruction pattern: jailbreak"
+                .to_string()
+                .into(),
+        });
+
+        let converted = RunnableAgentError::from_executor(wrapped);
+        assert!(matches!(
+            converted,
+            RunnableAgentError::LLMError(LLMError::GuardrailBlocked { .. })
+        ));
     }
 }

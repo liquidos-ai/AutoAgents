@@ -195,8 +195,8 @@ pub struct CalcOutput {
 
 #[agent(
     name = "calc_agent",
-    description = "Solve arithmetic using the Add tool. \
-                   Always call the tool; never compute mentally. \
+    description = "Solve arithmetic by calling the Add tool when needed. \
+                   Call Add at most once per expression, then return final JSON only. \
                    Return JSON with 'result' and 'explanation'.",
     tools = [Add],
     output = CalcOutput,
@@ -206,8 +206,15 @@ pub struct CalcAgent;
 
 impl From<ReActAgentOutput> for CalcOutput {
     fn from(out: ReActAgentOutput) -> Self {
+        let fallback_result = out
+            .tool_calls
+            .iter()
+            .rev()
+            .find_map(|call| call.result.as_i64())
+            .unwrap_or(0);
+
         out.parse_or_map(|s| CalcOutput {
-            result: 0,
+            result: fallback_result,
             explanation: s.to_string(),
         })
     }

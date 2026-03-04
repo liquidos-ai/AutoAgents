@@ -42,8 +42,8 @@ use serde::Serialize;
 use crate::{
     LLMProvider, ToolCall,
     chat::{
-        ChatMessage, ChatProvider, ChatResponse, ChatRole, StreamChunk, StreamResponse,
-        StructuredOutputFormat, Tool,
+        ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StreamChunk,
+        StreamResponse, StructuredOutputFormat, Tool,
     },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
@@ -333,13 +333,26 @@ fn hash_chat_user_prompt(
     tools: Option<&[Tool]>,
     json_schema: Option<&StructuredOutputFormat>,
 ) -> u64 {
+    let tool_result_state: Vec<ToolCall> = messages
+        .iter()
+        .filter_map(|message| match &message.message_type {
+            MessageType::ToolResult(calls) => Some(calls.as_slice()),
+            _ => None,
+        })
+        .flatten()
+        .cloned()
+        .collect();
+
     let prompt = messages
         .iter()
         .rev()
         .find(|message| message.role == ChatRole::User)
         .map(|message| message.content.as_str())
         .unwrap_or_default();
-    hash_val(&(prompt, tools, json_schema))
+
+    // Prompt-only mode still needs tool-result state so multi-turn tool flows
+    // (e.g. ReAct) don't collide with the initial user-only turn.
+    hash_val(&(prompt, tool_result_state, tools, json_schema))
 }
 
 fn hash_chat_with_mode(
@@ -828,8 +841,8 @@ mod tests {
     use crate::{
         HasConfig, LLMProvider, NoConfig,
         chat::{
-            ChatMessage, ChatProvider, ChatResponse, StreamChoice, StreamChunk, StreamDelta,
-            StreamResponse, StructuredOutputFormat, Tool,
+            ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StreamChoice,
+            StreamChunk, StreamDelta, StreamResponse, StructuredOutputFormat, Tool,
         },
         completion::{CompletionProvider, CompletionRequest, CompletionResponse},
         embedding::EmbeddingProvider,
@@ -1061,6 +1074,32 @@ mod tests {
         provider.chat_with_tools(&msg_b, None, None).await.unwrap();
 
         assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_chat_cache_does_not_reuse_user_prompt_key_across_tool_result_state() {
+        let (inner, provider) = make_pipeline(CacheConfig::default());
+        let msg_a = vec![ChatMessage::user().content("repeat prompt").build()];
+        let msg_b = vec![
+            ChatMessage::user().content("repeat prompt").build(),
+            ChatMessage {
+                role: ChatRole::Tool,
+                message_type: MessageType::ToolResult(vec![crate::ToolCall {
+                    id: "call_1".to_string(),
+                    call_type: "function".to_string(),
+                    function: crate::FunctionCall {
+                        name: "add".to_string(),
+                        arguments: "42".to_string(),
+                    },
+                }]),
+                content: String::new(),
+            },
+        ];
+
+        provider.chat_with_tools(&msg_a, None, None).await.unwrap();
+        provider.chat_with_tools(&msg_b, None, None).await.unwrap();
+
+        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]

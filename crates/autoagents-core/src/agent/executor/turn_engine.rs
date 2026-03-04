@@ -84,8 +84,8 @@ pub enum TurnDelta {
 
 #[derive(Error, Debug)]
 pub enum TurnEngineError {
-    #[error("LLM error: {0}")]
-    LLMError(String),
+    #[error(transparent)]
+    LLMError(#[from] LLMError),
 
     #[error("Run aborted by hook")]
     Aborted,
@@ -352,7 +352,7 @@ impl TurnEngine {
         let mut response_text = String::default();
 
         while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| TurnEngineError::LLMError(e.to_string()))?;
+            let chunk = chunk_result.map_err(TurnEngineError::LLMError)?;
             let content = chunk
                 .choices
                 .first()
@@ -410,7 +410,7 @@ impl TurnEngine {
         let mut tool_call_ids: HashSet<String> = HashSet::default();
 
         while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| TurnEngineError::LLMError(e.to_string()))?;
+            let chunk = chunk_result.map_err(TurnEngineError::LLMError)?;
             let chunk_clone = chunk.clone();
 
             match chunk {
@@ -496,11 +496,11 @@ impl TurnEngine {
             };
             llm.chat_with_tools(messages, Some(&tools_serialized), output_schema)
                 .await
-                .map_err(|e| TurnEngineError::LLMError(e.to_string()))
+                .map_err(TurnEngineError::LLMError)
         } else {
             llm.chat(messages, output_schema)
                 .await
-                .map_err(|e| TurnEngineError::LLMError(e.to_string()))
+                .map_err(TurnEngineError::LLMError)
         }
     }
 
@@ -514,7 +514,7 @@ impl TurnEngine {
             .llm()
             .chat_stream_struct(messages, None, context.config().output_schema.clone())
             .await
-            .map_err(|e| TurnEngineError::LLMError(e.to_string()))
+            .map_err(TurnEngineError::LLMError)
     }
 
     async fn get_tool_stream(
@@ -542,7 +542,7 @@ impl TurnEngine {
                 context.config().output_schema.clone(),
             )
             .await
-            .map_err(|e| TurnEngineError::LLMError(e.to_string()))
+            .map_err(TurnEngineError::LLMError)
     }
 
     async fn build_messages(
@@ -687,6 +687,7 @@ mod tests {
     use autoagents_llm::LLMProvider;
     use autoagents_llm::ToolCall;
     use autoagents_llm::chat::{StreamChoice, StreamChunk, StreamDelta, StreamResponse};
+    use autoagents_llm::error::GuardrailPhase;
     use autoagents_protocol::ActorID;
     use futures::StreamExt;
 
@@ -733,9 +734,16 @@ mod tests {
     struct GuardrailRejectLLMProvider;
 
     fn guardrail_block_error() -> LLMError {
-        LLMError::InvalidRequest(
-            "guardrail blocked input: rule=prompt_injection_detected".to_string(),
-        )
+        LLMError::GuardrailBlocked {
+            phase: GuardrailPhase::Input,
+            guard: "prompt-injection".to_string().into(),
+            rule_id: "prompt_injection_detected".to_string().into(),
+            category: "prompt_injection".to_string().into(),
+            severity: "high".to_string().into(),
+            message: "detected suspicious instruction pattern: jailbreak"
+                .to_string()
+                .into(),
+        }
     }
 
     #[async_trait]
@@ -860,7 +868,7 @@ mod tests {
             .await;
         assert!(matches!(
             result,
-            Err(TurnEngineError::LLMError(ref msg)) if msg.contains("guardrail blocked input")
+            Err(TurnEngineError::LLMError(LLMError::GuardrailBlocked { .. }))
         ));
 
         let stored = recalled_messages(&context).await;
@@ -1368,7 +1376,7 @@ mod tests {
             .expect("stream should emit an error event");
         assert!(matches!(
             first,
-            Err(TurnEngineError::LLMError(ref msg)) if msg.contains("guardrail blocked input")
+            Err(TurnEngineError::LLMError(LLMError::GuardrailBlocked { .. }))
         ));
 
         let stored = recalled_messages(&context).await;

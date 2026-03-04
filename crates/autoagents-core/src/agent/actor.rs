@@ -176,7 +176,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
                 #[cfg(not(target_arch = "wasm32"))]
                 EventHelper::send_task_error(&tx_event, submission_id, self.id, e.to_string())
                     .await;
-                Err(RunnableAgentError::ExecutorError(e.to_string()))
+                Err(RunnableAgentError::from_executor(e))
             }
         }
     }
@@ -206,8 +206,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
                         Ok(output) => Ok(output.into()),
                         Err(e) => {
                             // Handle error
-                            let error_msg = e.to_string();
-                            Err(RunnableAgentError::ExecutorError(error_msg))
+                            Err(RunnableAgentError::from_executor(e))
                         }
                     }
                 });
@@ -216,7 +215,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
             }
             Err(e) => {
                 // Send error event for stream creation failure
-                Err(RunnableAgentError::ExecutorError(e.to_string()))
+                Err(RunnableAgentError::from_executor(e))
             }
         }
     }

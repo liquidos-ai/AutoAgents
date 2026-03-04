@@ -3,11 +3,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use autoagents::core::agent::error::RunnableAgentError;
 use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::BasicAgent;
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, DirectAgent, DirectAgentHandle};
 use autoagents::llm::LLMProvider;
+use autoagents::llm::error::LLMError;
 use autoagents::llm::optim::{CacheConfig, CacheLayer, ChatCacheKeyMode};
 use autoagents::llm::pipeline::PipelineBuilder;
 use autoagents_derive::{AgentHooks, agent};
@@ -17,7 +19,7 @@ use autoagents_llamacpp::{LlamaCppProvider, ModelSource};
 
 #[agent(
     name = "safe_local_optimizer_agent",
-    description = "You are a secure local assistant. Keep responses concise and practical.",
+    description = "You are a secure local assistant named Tess. Keep responses concise and practical.",
     tools = [],
 )]
 #[derive(Default, Clone, AgentHooks)]
@@ -96,14 +98,18 @@ async fn main() -> Result<()> {
 
         match agent.agent.run(Task::new(prompt)).await {
             Ok(response) => println!("\nResponse:\n{response}\n"),
-            Err(error) => {
-                let message = error.to_string();
-                if message.contains("guardrail blocked input") {
-                    println!("\nBlocked by guardrails:\n{message}\n");
+            Err(error) => match &error {
+                RunnableAgentError::LLMError(LLMError::GuardrailBlocked { .. }) => {
+                    println!("\nBlocked by guardrails:\n{error}\n");
                     continue;
                 }
-                return Err(anyhow::anyhow!("agent execution failed: {message}"));
-            }
+                RunnableAgentError::LLMError(LLMError::GuardrailExecutionFailed { .. }) => {
+                    return Err(anyhow::anyhow!("guardrail execution failed: {error}"));
+                }
+                _ => {
+                    return Err(anyhow::anyhow!("agent execution failed: {error}"));
+                }
+            },
         }
     }
 
