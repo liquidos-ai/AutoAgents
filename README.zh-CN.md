@@ -36,6 +36,7 @@ AutoAgents 是一个用于在 Rust 中构建智能系统的模块化多智能体
 - **工具化**：工具与输出的派生宏，以及用于工具执行的沙盒化 WASM 运行时
 - **记忆**：滑动窗口记忆与可扩展后端
 - **LLM 提供方**：统一接口下的云端与本地后端
+- **LLM Optimization**: Crate LLM Pipelines with Optimization passes to make inference faster
 - **多智能体编排**：类型化的发布/订阅通信与环境管理
 - **语音处理**：本地 TTS 与 STT 支持
 - **可观测性**：OpenTelemetry 追踪与指标，支持可插拔导出器

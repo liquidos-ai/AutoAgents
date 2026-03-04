@@ -38,6 +38,7 @@ performance, safety, and composability across server, edge.
 - **Tooling**: Derive macros for tools and outputs, plus a sandboxed WASM runtime for tool execution
 - **Memory**: Sliding window memory with extensible backends
 - **LLM providers**: Cloud and local backends behind a unified interface
+- **LLM Optimization**: Crate LLM Pipelines with Optimization passes to make inference faster
 - **Multi-agent orchestration**: Typed pub/sub communication and environment management
 - **Speech-Processing**: Local TTS and STT support
 - **Observability**: OpenTelemetry tracing and metrics with pluggable exporters

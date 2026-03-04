@@ -36,6 +36,7 @@ AutoAgents é um framework modular multiagente para construir sistemas inteligen
 - **Ferramentas**: macros derivadas para ferramentas e saídas, além de um runtime WASM sandboxed para execução de ferramentas
 - **Memória**: memória de janela deslizante com backends extensíveis
 - **Provedores LLM**: backends em nuvem e locais sob uma interface unificada
+- **LLM Optimization**: Crate LLM Pipelines with Optimization passes to make inference faster
 - **Orquestração multiagente**: comunicação pub/sub tipada e gerenciamento de ambiente
 - **Processamento de fala**: suporte local a TTS e STT
 - **Observabilidade**: tracing e métricas OpenTelemetry com exportadores plugáveis

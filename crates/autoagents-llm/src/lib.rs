@@ -48,6 +48,13 @@ pub mod models;
 mod protocol;
 pub mod providers;
 
+/// Composable optimization pipeline for LLM providers.
+pub mod pipeline;
+
+/// Built-in optimization passes (cache, etc.). Not available on WASM.
+#[cfg(all(not(target_arch = "wasm32"), feature = "optim"))]
+pub mod optim;
+
 //Re-export for convenience
 pub use async_trait::async_trait;
 

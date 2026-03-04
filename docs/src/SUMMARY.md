@@ -26,6 +26,7 @@
 # LLM Providers
 
 - [Overview](./llm-providers/overview.md)
+- [Optimization Pipelines](./llm-providers/optimization-pipelines.md)
 
 # Developer 
 

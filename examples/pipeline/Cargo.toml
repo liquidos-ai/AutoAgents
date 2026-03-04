@@ -1,0 +1,14 @@
+[package]
+name = "pipeline-example"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+autoagents = { workspace = true, features = ["openai", "logging", "optim"] }
+autoagents-derive = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
