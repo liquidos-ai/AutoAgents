@@ -798,7 +798,7 @@ mod tests {
             _json_schema: Option<autoagents_llm::chat::StructuredOutputFormat>,
         ) -> Result<autoagents_llm::completion::CompletionResponse, LLMError> {
             Ok(autoagents_llm::completion::CompletionResponse {
-                text: String::new(),
+                text: String::default(),
             })
         }
     }
