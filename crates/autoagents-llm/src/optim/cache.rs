@@ -313,7 +313,7 @@ impl InMemoryCacheLayer {
 
 fn hash_val<T: Serialize>(v: &T) -> u64 {
     let s = serde_json::to_string(v).unwrap_or_default();
-    let mut h = DefaultHasher::new();
+    let mut h = DefaultHasher::default();
     s.hash(&mut h);
     h.finish()
 }
@@ -327,7 +327,7 @@ fn hash_chat(
 }
 
 fn hash_completion(req: &CompletionRequest, json_schema: Option<&StructuredOutputFormat>) -> u64 {
-    let mut h = DefaultHasher::new();
+    let mut h = DefaultHasher::default();
     req.prompt.hash(&mut h);
     req.max_tokens.hash(&mut h);
     req.temperature.map(f32::to_bits).hash(&mut h);
