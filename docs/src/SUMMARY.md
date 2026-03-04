@@ -27,6 +27,7 @@
 
 - [Overview](./llm-providers/overview.md)
 - [Optimization Pipelines](./llm-providers/optimization-pipelines.md)
+- [Guardrails](./llm-providers/guardrails.md)
 
 # Developer 
 

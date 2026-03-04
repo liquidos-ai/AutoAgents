@@ -261,6 +261,10 @@ AutoAgents CLI는 YAML 구성으로 에이전트 워크플로를 실행하고 HT
 
 캐시 및 재시도 같은 최적화 패스를 적용한 LLM 파이프라인을 통해 성능과 안정성 향상을 보여줍니다.
 
+### [가드레일](examples/guardrails/)
+
+파이프라인의 LLMLayer를 사용해 Block, Sanitize, Audit 정책으로 입력/출력 가드레일을 구성하는 방법을 보여줍니다.
+
 ### [MCP 통합](examples/mcp/)
 
 AutoAgents를 Model Context Protocol (MCP)과 통합하는 방법을 보여줍니다.

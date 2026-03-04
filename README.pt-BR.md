@@ -261,6 +261,10 @@ Demonstra diversos exemplos como agente simples com ferramentas, agente muito b�
 
 Demonstra pipelines de LLM com passes de otimização como cache e retentativas para melhorar desempenho e confiabilidade.
 
+### [Guardrails](examples/guardrails/)
+
+Demonstra guardrails configuráveis de entrada e saída com políticas Block, Sanitize e Audit usando uma camada LLMLayer no pipeline.
+
 ### [Integração MCP](examples/mcp/)
 
 Demonstra como integrar AutoAgents com o Model Context Protocol (MCP).

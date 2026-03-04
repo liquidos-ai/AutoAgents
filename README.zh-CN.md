@@ -261,6 +261,10 @@ AutoAgents CLI 用于根据 YAML 配置运行智能体工作流，并通过 HTTP
 
 演示带有缓存与重试等优化层的 LLM 流水线，用于提升性能与可靠性。
 
+### [Guardrails](examples/guardrails/)
+
+演示如何在流水线中通过 LLMLayer 使用 Block、Sanitize、Audit 策略配置输入与输出 Guardrails。
+
 ### [MCP 集成](examples/mcp/)
 
 演示如何将 AutoAgents 与 Model Context Protocol (MCP) 集成。
