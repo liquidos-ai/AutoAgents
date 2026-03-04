@@ -34,7 +34,7 @@ use autoagents::llm::LLMProvider;
 use autoagents::llm::backends::openai::OpenAI;
 use autoagents::llm::builder::LLMBuilder;
 use autoagents::llm::chat::ChatMessage;
-use autoagents::llm::optim::{CacheConfig, CacheLayer, RetryConfig, RetryLayer};
+use autoagents::llm::optim::{CacheConfig, CacheLayer, ChatCacheKeyMode, RetryConfig, RetryLayer};
 use autoagents::llm::pipeline::PipelineBuilder;
 use autoagents_derive::{AgentHooks, AgentOutput, ToolInput, agent, tool};
 use serde::{Deserialize, Serialize};
@@ -195,8 +195,8 @@ pub struct CalcOutput {
 
 #[agent(
     name = "calc_agent",
-    description = "Solve arithmetic using the Add tool. \
-                   Always call the tool; never compute mentally. \
+    description = "Solve arithmetic by calling the Add tool when needed. \
+                   Call Add at most once per expression, then return final JSON only. \
                    Return JSON with 'result' and 'explanation'.",
     tools = [Add],
     output = CalcOutput,
@@ -206,8 +206,15 @@ pub struct CalcAgent;
 
 impl From<ReActAgentOutput> for CalcOutput {
     fn from(out: ReActAgentOutput) -> Self {
+        let fallback_result = out
+            .tool_calls
+            .iter()
+            .rev()
+            .find_map(|call| call.result.as_i64())
+            .unwrap_or(0);
+
         out.parse_or_map(|s| CalcOutput {
-            result: 0,
+            result: fallback_result,
             explanation: s.to_string(),
         })
     }
@@ -290,6 +297,7 @@ async fn main() -> Result<()> {
     // hits never reach the retry logic or the network.
     let llm: Arc<dyn LLMProvider> = PipelineBuilder::new(base.clone() as Arc<dyn LLMProvider>)
         .add_layer(CacheLayer::new(CacheConfig {
+            chat_key_mode: ChatCacheKeyMode::UserPromptOnly,
             ttl: Some(Duration::from_secs(3600)),
             max_size: Some(1000),
             cache_completions: true,

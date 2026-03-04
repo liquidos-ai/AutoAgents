@@ -1,7 +1,14 @@
 use std::fmt;
 
+/// Phase where a guardrail violation occurred.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GuardrailPhase {
+    Input,
+    Output,
+}
+
 /// Error types that can occur when interacting with LLM providers.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum LLMError {
     /// HTTP request/response errors
     HttpError(String),
@@ -24,6 +31,17 @@ pub enum LLMError {
     ToolConfigError(String),
     /// No Tool Support
     NoToolSupport(String),
+    /// Guardrail blocked the request/response
+    GuardrailBlocked {
+        phase: GuardrailPhase,
+        guard: Box<str>,
+        rule_id: Box<str>,
+        category: Box<str>,
+        severity: Box<str>,
+        message: Box<str>,
+    },
+    /// Guardrail execution failed unexpectedly
+    GuardrailExecutionFailed { guard: String, message: String },
 }
 
 impl fmt::Display for LLMError {
@@ -46,6 +64,29 @@ impl fmt::Display for LLMError {
             LLMError::JsonError(e) => write!(f, "JSON Parse Error: {e}"),
             LLMError::ToolConfigError(e) => write!(f, "Tool Configuration Error: {e}"),
             LLMError::NoToolSupport(e) => write!(f, "No Tool Support: {e}"),
+            LLMError::GuardrailBlocked {
+                phase,
+                guard,
+                rule_id,
+                category,
+                severity,
+                message,
+            } => {
+                let phase = match phase {
+                    GuardrailPhase::Input => "input",
+                    GuardrailPhase::Output => "output",
+                };
+                write!(
+                    f,
+                    "guardrail blocked {phase}: guard={guard}, rule={rule_id}, category={category}, severity={severity}, message={message}"
+                )
+            }
+            LLMError::GuardrailExecutionFailed { guard, message } => {
+                write!(
+                    f,
+                    "guardrail execution failed: guard={guard}, error={message}"
+                )
+            }
         }
     }
 }

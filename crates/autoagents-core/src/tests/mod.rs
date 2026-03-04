@@ -10,6 +10,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::agent::AgentHooks;
+use crate::agent::error::RunnableAgentError;
 use crate::agent::task::Task;
 use crate::agent::{AgentDeriveT, AgentExecutor, AgentOutputT, Context, ExecutorConfig};
 use crate::tool::ToolT;
@@ -33,6 +34,12 @@ use autoagents_llm::{
 pub(crate) enum TestError {
     #[error("Test error: {0}")]
     ExecutionFailed(String),
+}
+
+impl From<TestError> for RunnableAgentError {
+    fn from(error: TestError) -> Self {
+        RunnableAgentError::ExecutorError(error.to_string())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

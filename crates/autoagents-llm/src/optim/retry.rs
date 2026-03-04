@@ -103,6 +103,8 @@ pub fn default_is_retryable(err: &LLMError) -> bool {
         LLMError::Generic(_) => true,
         LLMError::AuthError(_)
         | LLMError::InvalidRequest(_)
+        | LLMError::GuardrailBlocked { .. }
+        | LLMError::GuardrailExecutionFailed { .. }
         | LLMError::ResponseFormatError { .. }
         | LLMError::JsonError(_)
         | LLMError::ToolConfigError(_)
@@ -572,6 +574,18 @@ mod tests {
         assert!(!default_is_retryable(&LLMError::InvalidRequest(
             "bad param".into()
         )));
+        assert!(!default_is_retryable(&LLMError::GuardrailBlocked {
+            phase: crate::error::GuardrailPhase::Input,
+            guard: "prompt-injection".into(),
+            rule_id: "prompt_injection_detected".into(),
+            category: "prompt_injection".into(),
+            severity: "high".into(),
+            message: "detected suspicious instruction pattern".into(),
+        }));
+        assert!(!default_is_retryable(&LLMError::GuardrailExecutionFailed {
+            guard: "prompt-injection".into(),
+            message: "guard runtime error".into(),
+        }));
         assert!(!default_is_retryable(&LLMError::JsonError(
             "parse error".into()
         )));

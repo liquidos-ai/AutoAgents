@@ -7551,6 +7551,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "safe_local_agent"
+version = "0.3.5"
+dependencies = [
+ "anyhow",
+ "autoagents",
+ "autoagents-derive",
+ "autoagents-guardrails",
+ "autoagents-llamacpp",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "safetensors"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

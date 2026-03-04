@@ -10,6 +10,7 @@ use crate::tool::{ToolCallResult, ToolT};
 use crate::utils::{receiver_into_stream, spawn_future};
 use async_trait::async_trait;
 use autoagents_llm::ToolCall;
+use autoagents_llm::error::LLMError;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -83,7 +84,11 @@ impl ReActAgentOutput {
 #[derive(Error, Debug)]
 pub enum ReActExecutorError {
     #[error("LLM error: {0}")]
-    LLMError(String),
+    LLMError(
+        #[from]
+        #[source]
+        LLMError,
+    ),
 
     #[error("Maximum turns exceeded: {max_turns}")]
     MaxTurnsExceeded { max_turns: usize },
@@ -106,7 +111,7 @@ pub enum ReActExecutorError {
 impl From<TurnEngineError> for ReActExecutorError {
     fn from(error: TurnEngineError) -> Self {
         match error {
-            TurnEngineError::LLMError(err) => ReActExecutorError::LLMError(err),
+            TurnEngineError::LLMError(err) => err.into(),
             TurnEngineError::Aborted => {
                 ReActExecutorError::Other("Run aborted by hook".to_string())
             }
@@ -581,7 +586,8 @@ mod tests {
 
     #[test]
     fn test_error_from_turn_engine_llm() {
-        let err: ReActExecutorError = TurnEngineError::LLMError("llm err".to_string()).into();
+        let err: ReActExecutorError =
+            TurnEngineError::LLMError(LLMError::Generic("llm err".to_string())).into();
         assert!(matches!(err, ReActExecutorError::LLMError(_)));
     }
 

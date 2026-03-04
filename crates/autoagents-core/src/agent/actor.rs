@@ -84,6 +84,7 @@ where
     T: Send + Sync + 'static,
     serde_json::Value: From<<T as AgentExecutor>::Output>,
     <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
+    <T as AgentExecutor>::Error: Into<RunnableAgentError>,
 {
     /// Build the BaseAgent and return a wrapper that includes the actor reference
     pub async fn build(self) -> Result<ActorAgentHandle<T>, Error> {
@@ -133,6 +134,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
     where
         Value: From<<T as AgentExecutor>::Output>,
         <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
+        <T as AgentExecutor>::Error: Into<RunnableAgentError>,
     {
         let submission_id = task.submission_id;
         let tx = self.tx().map_err(|_| RunnableAgentError::EmptyTx)?;
@@ -176,7 +178,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
                 #[cfg(not(target_arch = "wasm32"))]
                 EventHelper::send_task_error(&tx_event, submission_id, self.id, e.to_string())
                     .await;
-                Err(RunnableAgentError::ExecutorError(e.to_string()))
+                Err(e.into())
             }
         }
     }
@@ -192,6 +194,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
     >
     where
         <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
+        <T as AgentExecutor>::Error: Into<RunnableAgentError>,
     {
         // let submission_id = task.submission_id;
         let context = self.create_context();
@@ -206,8 +209,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
                         Ok(output) => Ok(output.into()),
                         Err(e) => {
                             // Handle error
-                            let error_msg = e.to_string();
-                            Err(RunnableAgentError::ExecutorError(error_msg))
+                            Err(e.into())
                         }
                     }
                 });
@@ -216,7 +218,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
             }
             Err(e) => {
                 // Send error event for stream creation failure
-                Err(RunnableAgentError::ExecutorError(e.to_string()))
+                Err(e.into())
             }
         }
     }
@@ -229,6 +231,7 @@ where
     T: Send + Sync + 'static,
     serde_json::Value: From<<T as AgentExecutor>::Output>,
     <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
+    <T as AgentExecutor>::Error: Into<RunnableAgentError>,
 {
     type Msg = Task;
     type State = AgentState;

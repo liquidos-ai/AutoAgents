@@ -84,6 +84,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
     pub async fn run(&self, task: Task) -> Result<<T as AgentDeriveT>::Output, RunnableAgentError>
     where
         <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
+        <T as AgentExecutor>::Error: Into<RunnableAgentError>,
     {
         let context = self.create_context();
 
@@ -110,7 +111,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
             }
             Err(e) => {
                 // Send error event
-                Err(RunnableAgentError::ExecutorError(e.to_string()))
+                Err(e.into())
             }
         }
     }
@@ -126,6 +127,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
     >
     where
         <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
+        <T as AgentExecutor>::Error: Into<RunnableAgentError>,
     {
         let context = self.create_context();
 
@@ -143,17 +145,14 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
                 // Convert the stream output
                 let transformed_stream = stream.map(move |result| match result {
                     Ok(output) => Ok(output.into()),
-                    Err(e) => {
-                        let error_msg = e.to_string();
-                        Err(RunnableAgentError::ExecutorError(error_msg).into())
-                    }
+                    Err(e) => Err(Into::<RunnableAgentError>::into(e).into()),
                 });
 
                 Ok(Box::pin(transformed_stream))
             }
             Err(e) => {
                 // Send error event for stream creation failure
-                Err(RunnableAgentError::ExecutorError(e.to_string()))
+                Err(e.into())
             }
         }
     }

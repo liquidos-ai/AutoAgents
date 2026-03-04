@@ -10,6 +10,7 @@ use crate::tool::{ToolCallResult, ToolT};
 use crate::utils::{receiver_into_stream, spawn_future};
 use async_trait::async_trait;
 use autoagents_llm::ToolCall;
+use autoagents_llm::error::LLMError;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -58,7 +59,11 @@ impl BasicAgentOutput {
 #[derive(Debug, thiserror::Error)]
 pub enum BasicExecutorError {
     #[error("LLM error: {0}")]
-    LLMError(String),
+    LLMError(
+        #[from]
+        #[source]
+        LLMError,
+    ),
 
     #[error("Other error: {0}")]
     Other(String),
@@ -67,7 +72,7 @@ pub enum BasicExecutorError {
 impl From<TurnEngineError> for BasicExecutorError {
     fn from(error: TurnEngineError) -> Self {
         match error {
-            TurnEngineError::LLMError(err) => BasicExecutorError::LLMError(err),
+            TurnEngineError::LLMError(err) => err.into(),
             TurnEngineError::Aborted => {
                 BasicExecutorError::Other("Run aborted by hook".to_string())
             }
@@ -487,7 +492,8 @@ mod tests {
 
     #[test]
     fn test_error_from_turn_engine_llm() {
-        let err: BasicExecutorError = TurnEngineError::LLMError("bad".to_string()).into();
+        let err: BasicExecutorError =
+            TurnEngineError::LLMError(LLMError::Generic("bad".to_string())).into();
         assert!(matches!(err, BasicExecutorError::LLMError(_)));
         assert!(err.to_string().contains("bad"));
     }

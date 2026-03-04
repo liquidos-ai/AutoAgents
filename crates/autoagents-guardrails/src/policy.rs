@@ -1,6 +1,6 @@
 use std::fmt;
 
-use autoagents_llm::error::LLMError;
+use autoagents_llm::error::{GuardrailPhase as LlmGuardrailPhase, LLMError};
 
 use crate::guard::GuardViolation;
 
@@ -74,19 +74,22 @@ pub(crate) fn violation_to_llm_error(
     guard_name: &str,
     violation: &GuardViolation,
 ) -> LLMError {
-    let msg = format!(
-        "guardrail blocked {phase}: guard={guard_name}, rule={}, category={}, severity={}, message={}",
-        violation.rule_id, violation.category, violation.severity, violation.message
-    );
-
-    match phase {
-        GuardPhase::Input => LLMError::InvalidRequest(msg),
-        GuardPhase::Output => LLMError::ProviderError(msg),
+    LLMError::GuardrailBlocked {
+        phase: match phase {
+            GuardPhase::Input => LlmGuardrailPhase::Input,
+            GuardPhase::Output => LlmGuardrailPhase::Output,
+        },
+        guard: guard_name.to_string().into(),
+        rule_id: violation.rule_id.clone().into(),
+        category: violation.category.to_string().into(),
+        severity: violation.severity.to_string().into(),
+        message: violation.message.clone().into(),
     }
 }
 
 pub(crate) fn guard_failure_to_llm_error(guard_name: &str, message: &str) -> LLMError {
-    LLMError::ProviderError(format!(
-        "guardrail execution failed: guard={guard_name}, error={message}"
-    ))
+    LLMError::GuardrailExecutionFailed {
+        guard: guard_name.to_string(),
+        message: message.to_string(),
+    }
 }
