@@ -67,7 +67,7 @@ let llm: Arc<Ollama> = LLMBuilder::<Ollama>::new()
 Enable providers on the `autoagents` crate:
 
 ```toml
-autoagents = { version = "0.3.4", features = ["openai"] }
+autoagents = { version = "0.3.5", features = ["openai"] }
 ```
 
 Common API key environment variables:
@@ -84,6 +84,8 @@ Common API key environment variables:
 
 All LLM backends implement the unified `LLMProvider` trait; chat/completion/embedding/model listing are composed from
 sub‑traits. This keeps agents provider‑agnostic.
+
+For optimization layers (cache/retry/fallback), see [Optimization Pipelines](./optimization-pipelines.md).
 
 ## Capability Snapshot
 
