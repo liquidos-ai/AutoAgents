@@ -67,7 +67,7 @@ impl TextGuardedStream {
             inner,
             engine,
             context,
-            aggregate_text: String::new(),
+            aggregate_text: String::default(),
             finalize: None,
             done: false,
         }
@@ -141,7 +141,7 @@ impl StructGuardedStream {
             inner,
             engine,
             context,
-            aggregate_text: String::new(),
+            aggregate_text: String::default(),
             finalize: None,
             done: false,
         }
@@ -227,7 +227,7 @@ impl ToolGuardedStream {
             inner,
             engine,
             context,
-            aggregate_text: String::new(),
+            aggregate_text: String::default(),
             finalize: None,
             done: false,
         }
