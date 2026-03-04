@@ -164,15 +164,15 @@ impl TurnEngine {
         let messages = self
             .build_messages(context, task, turn_state.memory(), include_user_prompt)
             .await;
-
-        if should_store_user(turn_state) {
-            turn_state.memory.store_user(task).await;
-            turn_state.mark_user_stored();
-        }
+        let store_user = should_store_user(turn_state);
 
         let tools = context.tools();
         let response = self.get_llm_response(context, &messages, tools).await?;
         let response_text = response.text().unwrap_or_default();
+        if store_user {
+            turn_state.memory.store_user(task).await;
+            turn_state.mark_user_stored();
+        }
 
         let tool_calls = if matches!(self.config.tool_mode, ToolMode::Enabled) {
             response.tool_calls().unwrap_or_default()
@@ -258,9 +258,8 @@ impl TurnEngine {
         let messages = self
             .build_messages(&context, task, turn_state.memory(), include_user_prompt)
             .await;
-
-        if should_store_user(turn_state) {
-            turn_state.memory.store_user(task).await;
+        let store_user = should_store_user(turn_state);
+        if store_user {
             turn_state.mark_user_stored();
         }
 
@@ -287,7 +286,14 @@ impl TurnEngine {
             let result = match engine.config.stream_mode {
                 StreamMode::Structured => {
                     engine
-                        .stream_structured(&context_clone, &task, &memory, &mut tx, &messages)
+                        .stream_structured(
+                            &context_clone,
+                            &task,
+                            &memory,
+                            &mut tx,
+                            &messages,
+                            store_user,
+                        )
                         .await
                 }
                 StreamMode::Tool => {
@@ -300,6 +306,7 @@ impl TurnEngine {
                             &memory,
                             &mut tx,
                             &messages,
+                            store_user,
                         )
                         .await
                 }
@@ -336,8 +343,12 @@ impl TurnEngine {
         memory: &MemoryAdapter,
         tx: &mut Sender<Result<TurnDelta, TurnEngineError>>,
         messages: &[ChatMessage],
+        store_user: bool,
     ) -> Result<crate::agent::executor::TurnResult<TurnEngineOutput>, TurnEngineError> {
         let mut stream = self.get_structured_stream(context, messages).await?;
+        if store_user {
+            memory.store_user(task).await;
+        }
         let mut response_text = String::default();
 
         while let Some(chunk_result) = stream.next().await {
@@ -388,8 +399,12 @@ impl TurnEngine {
         memory: &MemoryAdapter,
         tx: &mut Sender<Result<TurnDelta, TurnEngineError>>,
         messages: &[ChatMessage],
+        store_user: bool,
     ) -> Result<crate::agent::executor::TurnResult<TurnEngineOutput>, TurnEngineError> {
         let mut stream = self.get_tool_stream(context, messages, tools).await?;
+        if store_user {
+            memory.store_user(task).await;
+        }
         let mut response_text = String::default();
         let mut tool_calls = Vec::default();
         let mut tool_call_ids: HashSet<String> = HashSet::default();
@@ -664,10 +679,12 @@ async fn process_tool_calls_with_hooks<H: AgentHooks>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::memory::{MemoryProvider, SlidingWindowMemory};
     use crate::agent::task::Task;
     use crate::agent::{AgentConfig, Context};
     use crate::tests::{ConfigurableLLMProvider, StaticChatResponse};
     use async_trait::async_trait;
+    use autoagents_llm::LLMProvider;
     use autoagents_llm::ToolCall;
     use autoagents_llm::chat::{StreamChoice, StreamChunk, StreamDelta, StreamResponse};
     use autoagents_protocol::ActorID;
@@ -712,6 +729,103 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct GuardrailRejectLLMProvider;
+
+    fn guardrail_block_error() -> LLMError {
+        LLMError::InvalidRequest(
+            "guardrail blocked input: rule=prompt_injection_detected".to_string(),
+        )
+    }
+
+    #[async_trait]
+    impl autoagents_llm::chat::ChatProvider for GuardrailRejectLLMProvider {
+        async fn chat(
+            &self,
+            _messages: &[ChatMessage],
+            _json_schema: Option<autoagents_llm::chat::StructuredOutputFormat>,
+        ) -> Result<Box<dyn autoagents_llm::chat::ChatResponse>, LLMError> {
+            Err(guardrail_block_error())
+        }
+
+        async fn chat_with_tools(
+            &self,
+            _messages: &[ChatMessage],
+            _tools: Option<&[autoagents_llm::chat::Tool]>,
+            _json_schema: Option<autoagents_llm::chat::StructuredOutputFormat>,
+        ) -> Result<Box<dyn autoagents_llm::chat::ChatResponse>, LLMError> {
+            Err(guardrail_block_error())
+        }
+
+        async fn chat_stream_struct(
+            &self,
+            _messages: &[ChatMessage],
+            _tools: Option<&[autoagents_llm::chat::Tool]>,
+            _json_schema: Option<autoagents_llm::chat::StructuredOutputFormat>,
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>, LLMError>
+        {
+            Err(guardrail_block_error())
+        }
+
+        async fn chat_stream_with_tools(
+            &self,
+            _messages: &[ChatMessage],
+            _tools: Option<&[autoagents_llm::chat::Tool]>,
+            _json_schema: Option<autoagents_llm::chat::StructuredOutputFormat>,
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError>
+        {
+            Err(guardrail_block_error())
+        }
+    }
+
+    #[async_trait]
+    impl autoagents_llm::completion::CompletionProvider for GuardrailRejectLLMProvider {
+        async fn complete(
+            &self,
+            _req: &autoagents_llm::completion::CompletionRequest,
+            _json_schema: Option<autoagents_llm::chat::StructuredOutputFormat>,
+        ) -> Result<autoagents_llm::completion::CompletionResponse, LLMError> {
+            Ok(autoagents_llm::completion::CompletionResponse {
+                text: String::new(),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl autoagents_llm::embedding::EmbeddingProvider for GuardrailRejectLLMProvider {
+        async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[async_trait]
+    impl autoagents_llm::models::ModelsProvider for GuardrailRejectLLMProvider {}
+
+    impl LLMProvider for GuardrailRejectLLMProvider {}
+
+    fn context_with_memory(llm: Arc<dyn LLMProvider>) -> Context {
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "memory_agent".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let memory: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(20));
+        Context::new(llm, None)
+            .with_config(config)
+            .with_memory(Some(Arc::new(tokio::sync::Mutex::new(memory))))
+    }
+
+    async fn recalled_messages(context: &Context) -> Vec<ChatMessage> {
+        let memory = context.memory().expect("memory should exist");
+        memory
+            .lock()
+            .await
+            .recall("", None)
+            .await
+            .expect("memory recall should succeed")
+    }
+
     #[test]
     fn test_turn_engine_config_basic() {
         let config = TurnEngineConfig::basic(5);
@@ -728,6 +842,62 @@ mod tests {
         assert!(matches!(config.tool_mode, ToolMode::Enabled));
         assert!(matches!(config.stream_mode, StreamMode::Tool));
         assert!(config.memory_policy.recall);
+    }
+
+    #[tokio::test]
+    async fn test_run_turn_llm_error_does_not_store_user_message() {
+        use crate::tests::MockAgentImpl;
+
+        let llm: Arc<dyn LLMProvider> = Arc::new(GuardrailRejectLLMProvider);
+        let context = context_with_memory(llm);
+        let engine = TurnEngine::new(TurnEngineConfig::basic(1));
+        let mut turn_state = engine.turn_state(&context);
+        let task = Task::new("jailbreak");
+        let hooks = MockAgentImpl::new("test", "test");
+
+        let result = engine
+            .run_turn(&hooks, &task, &context, &mut turn_state, 0, 1)
+            .await;
+        assert!(matches!(
+            result,
+            Err(TurnEngineError::LLMError(ref msg)) if msg.contains("guardrail blocked input")
+        ));
+
+        let stored = recalled_messages(&context).await;
+        assert!(stored.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_run_turn_success_stores_user_once_in_memory() {
+        use crate::tests::MockAgentImpl;
+
+        let llm: Arc<dyn LLMProvider> = Arc::new(ConfigurableLLMProvider::default());
+        let context = context_with_memory(llm);
+        let engine = TurnEngine::new(TurnEngineConfig::basic(1));
+        let mut turn_state = engine.turn_state(&context);
+        let task = Task::new("hello");
+        let hooks = MockAgentImpl::new("test", "test");
+
+        let result = engine
+            .run_turn(&hooks, &task, &context, &mut turn_state, 0, 1)
+            .await;
+        assert!(matches!(
+            result,
+            Ok(crate::agent::executor::TurnResult::Complete(_))
+        ));
+
+        let stored = recalled_messages(&context).await;
+        let user_count = stored
+            .iter()
+            .filter(|m| m.role == ChatRole::User && m.content == "hello")
+            .count();
+        let assistant_count = stored
+            .iter()
+            .filter(|m| m.role == ChatRole::Assistant)
+            .count();
+
+        assert_eq!(user_count, 1);
+        assert_eq!(assistant_count, 1);
     }
 
     #[test]
@@ -1174,5 +1344,81 @@ mod tests {
             }
             _ => panic!("expected Continue(Some)"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_run_turn_stream_llm_error_does_not_store_user_message() {
+        use crate::tests::MockAgentImpl;
+
+        let llm: Arc<dyn LLMProvider> = Arc::new(GuardrailRejectLLMProvider);
+        let context = Arc::new(context_with_memory(llm));
+        let engine = TurnEngine::new(TurnEngineConfig::basic(1));
+        let mut turn_state = engine.turn_state(&context);
+        let task = Task::new("jailbreak");
+        let hooks = MockAgentImpl::new("test", "test");
+
+        let mut stream = engine
+            .run_turn_stream(hooks, &task, context.clone(), &mut turn_state, 0, 1)
+            .await
+            .expect("stream should initialize");
+
+        let first = stream
+            .next()
+            .await
+            .expect("stream should emit an error event");
+        assert!(matches!(
+            first,
+            Err(TurnEngineError::LLMError(ref msg)) if msg.contains("guardrail blocked input")
+        ));
+
+        let stored = recalled_messages(&context).await;
+        assert!(stored.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_run_turn_stream_success_stores_user_once_in_memory() {
+        use crate::tests::MockAgentImpl;
+
+        let llm: Arc<dyn LLMProvider> = Arc::new(ConfigurableLLMProvider {
+            structured_stream: vec![StreamResponse {
+                choices: vec![StreamChoice {
+                    delta: StreamDelta {
+                        content: Some("hello".to_string()),
+                        tool_calls: None,
+                    },
+                }],
+                usage: None,
+            }],
+            ..ConfigurableLLMProvider::default()
+        });
+        let context = Arc::new(context_with_memory(llm));
+        let engine = TurnEngine::new(TurnEngineConfig::basic(1));
+        let mut turn_state = engine.turn_state(&context);
+        let task = Task::new("hello");
+        let hooks = MockAgentImpl::new("test", "test");
+
+        let mut stream = engine
+            .run_turn_stream(hooks, &task, context.clone(), &mut turn_state, 0, 1)
+            .await
+            .expect("stream should initialize");
+
+        while let Some(delta) = stream.next().await {
+            if matches!(delta, Ok(TurnDelta::Done(_))) {
+                break;
+            }
+        }
+
+        let stored = recalled_messages(&context).await;
+        let user_count = stored
+            .iter()
+            .filter(|m| m.role == ChatRole::User && m.content == "hello")
+            .count();
+        let assistant_count = stored
+            .iter()
+            .filter(|m| m.role == ChatRole::Assistant)
+            .count();
+
+        assert_eq!(user_count, 1);
+        assert_eq!(assistant_count, 1);
     }
 }

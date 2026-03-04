@@ -42,7 +42,7 @@ use serde::Serialize;
 use crate::{
     LLMProvider, ToolCall,
     chat::{
-        ChatMessage, ChatProvider, ChatResponse, StreamChunk, StreamResponse,
+        ChatMessage, ChatProvider, ChatResponse, ChatRole, StreamChunk, StreamResponse,
         StructuredOutputFormat, Tool,
     },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
@@ -75,6 +75,8 @@ fn new_inflight() -> InFlight {
 /// Configuration for [`CacheLayer`].
 #[derive(Debug, Clone)]
 pub struct CacheConfig {
+    /// Strategy for deriving chat cache keys.
+    pub chat_key_mode: ChatCacheKeyMode,
     /// How long a cached response is considered fresh. `None` means no expiry.
     pub ttl: Option<Duration>,
     /// Maximum number of entries **per cache bucket** (chat, completion, embedding,
@@ -93,9 +95,17 @@ pub struct CacheConfig {
     pub cache_streaming: bool,
 }
 
+/// Cache key strategy for chat requests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatCacheKeyMode {
+    /// Cache key includes only latest user prompt (plus `tools + schema`).
+    UserPromptOnly,
+}
+
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
+            chat_key_mode: ChatCacheKeyMode::UserPromptOnly,
             ttl: Some(Duration::from_secs(3600)),
             max_size: Some(1000),
             cache_completions: true,
@@ -318,12 +328,29 @@ fn hash_val<T: Serialize>(v: &T) -> u64 {
     h.finish()
 }
 
-fn hash_chat(
+fn hash_chat_user_prompt(
     messages: &[ChatMessage],
     tools: Option<&[Tool]>,
     json_schema: Option<&StructuredOutputFormat>,
 ) -> u64 {
-    hash_val(&(messages, tools, json_schema))
+    let prompt = messages
+        .iter()
+        .rev()
+        .find(|message| message.role == ChatRole::User)
+        .map(|message| message.content.as_str())
+        .unwrap_or_default();
+    hash_val(&(prompt, tools, json_schema))
+}
+
+fn hash_chat_with_mode(
+    mode: ChatCacheKeyMode,
+    messages: &[ChatMessage],
+    tools: Option<&[Tool]>,
+    json_schema: Option<&StructuredOutputFormat>,
+) -> u64 {
+    match mode {
+        ChatCacheKeyMode::UserPromptOnly => hash_chat_user_prompt(messages, tools, json_schema),
+    }
 }
 
 fn hash_completion(req: &CompletionRequest, json_schema: Option<&StructuredOutputFormat>) -> u64 {
@@ -422,7 +449,12 @@ impl ChatProvider for InMemoryCacheLayer {
         tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        let key = hash_chat(messages, tools, json_schema.as_ref());
+        let key = hash_chat_with_mode(
+            self.config.chat_key_mode,
+            messages,
+            tools,
+            json_schema.as_ref(),
+        );
 
         {
             match self.chat_cache.read() {
@@ -503,7 +535,12 @@ impl ChatProvider for InMemoryCacheLayer {
             return self.inner.chat_stream(messages, json_schema).await;
         }
 
-        let key = hash_chat(messages, None, json_schema.as_ref());
+        let key = hash_chat_with_mode(
+            self.config.chat_key_mode,
+            messages,
+            None,
+            json_schema.as_ref(),
+        );
 
         if let Some(stream) = lookup_stream(&self.stream_chat_cache, key, &self.config) {
             return Ok(stream);
@@ -535,7 +572,12 @@ impl ChatProvider for InMemoryCacheLayer {
                 .await;
         }
 
-        let key = hash_chat(messages, tools, json_schema.as_ref());
+        let key = hash_chat_with_mode(
+            self.config.chat_key_mode,
+            messages,
+            tools,
+            json_schema.as_ref(),
+        );
 
         if let Some(stream) = lookup_stream(&self.stream_tools_cache, key, &self.config) {
             return Ok(stream);
@@ -570,7 +612,12 @@ impl ChatProvider for InMemoryCacheLayer {
                 .await;
         }
 
-        let key = hash_chat(messages, tools, json_schema.as_ref());
+        let key = hash_chat_with_mode(
+            self.config.chat_key_mode,
+            messages,
+            tools,
+            json_schema.as_ref(),
+        );
 
         if let Some(stream) = lookup_stream(&self.stream_struct_cache, key, &self.config) {
             return Ok(stream);
@@ -999,6 +1046,21 @@ mod tests {
         provider.chat_with_tools(&msg_a, None, None).await.unwrap();
         provider.chat_with_tools(&msg_b, None, None).await.unwrap();
         assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn test_chat_cache_reuses_same_prompt_across_different_history() {
+        let (inner, provider) = make_pipeline(CacheConfig::default());
+        let msg_a = vec![ChatMessage::user().content("repeat prompt").build()];
+        let msg_b = vec![
+            ChatMessage::assistant().content("older context").build(),
+            ChatMessage::user().content("repeat prompt").build(),
+        ];
+
+        provider.chat_with_tools(&msg_a, None, None).await.unwrap();
+        provider.chat_with_tools(&msg_b, None, None).await.unwrap();
+
+        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

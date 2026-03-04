@@ -34,7 +34,7 @@ use autoagents::llm::LLMProvider;
 use autoagents::llm::backends::openai::OpenAI;
 use autoagents::llm::builder::LLMBuilder;
 use autoagents::llm::chat::ChatMessage;
-use autoagents::llm::optim::{CacheConfig, CacheLayer, RetryConfig, RetryLayer};
+use autoagents::llm::optim::{CacheConfig, CacheLayer, ChatCacheKeyMode, RetryConfig, RetryLayer};
 use autoagents::llm::pipeline::PipelineBuilder;
 use autoagents_derive::{AgentHooks, AgentOutput, ToolInput, agent, tool};
 use serde::{Deserialize, Serialize};
@@ -290,6 +290,7 @@ async fn main() -> Result<()> {
     // hits never reach the retry logic or the network.
     let llm: Arc<dyn LLMProvider> = PipelineBuilder::new(base.clone() as Arc<dyn LLMProvider>)
         .add_layer(CacheLayer::new(CacheConfig {
+            chat_key_mode: ChatCacheKeyMode::UserPromptOnly,
             ttl: Some(Duration::from_secs(3600)),
             max_size: Some(1000),
             cache_completions: true,
