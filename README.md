@@ -38,7 +38,7 @@ performance, safety, and composability across server, edge.
 - **Tooling**: Derive macros for tools and outputs, plus a sandboxed WASM runtime for tool execution
 - **Memory**: Sliding window memory with extensible backends
 - **LLM providers**: Cloud and local backends behind a unified interface
-- **LLM Optimization**: Crate LLM Pipelines with Optimization passes to make inference faster
+- **LLM Optimization**: Build LLM pipelines with optimization passes like cache and retry for faster, more reliable inference
 - **Multi-agent orchestration**: Typed pub/sub communication and environment management
 - **Speech-Processing**: Local TTS and STT support
 - **Observability**: OpenTelemetry tracing and metrics with pluggable exporters
@@ -259,6 +259,10 @@ Explore the examples to get started quickly:
 
 Demonstrates various examples like Simple Agent with Tools, Very Basic Agent, Edge Agent, Chaining, Actor Based Model,
 Streaming and Adding Agent Hooks.
+
+### [LLM Pipelines](examples/pipeline/)
+
+Demonstrates LLM pipelines with optimization passes such as cache and retry to improve performance and reliability.
 
 ### [MCP Integration](examples/mcp/)
 

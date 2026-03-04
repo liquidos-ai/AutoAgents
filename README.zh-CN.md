@@ -36,7 +36,7 @@ AutoAgents 是一个用于在 Rust 中构建智能系统的模块化多智能体
 - **工具化**：工具与输出的派生宏，以及用于工具执行的沙盒化 WASM 运行时
 - **记忆**：滑动窗口记忆与可扩展后端
 - **LLM 提供方**：统一接口下的云端与本地后端
-- **LLM Optimization**: Crate LLM Pipelines with Optimization passes to make inference faster
+- **LLM 优化**：构建带有缓存和重试等优化层的 LLM 流水线，实现更快且更可靠的推理
 - **多智能体编排**：类型化的发布/订阅通信与环境管理
 - **语音处理**：本地 TTS 与 STT 支持
 - **可观测性**：OpenTelemetry 追踪与指标，支持可插拔导出器
@@ -256,6 +256,10 @@ AutoAgents CLI 用于根据 YAML 配置运行智能体工作流，并通过 HTTP
 ### [基础](examples/basic/)
 
 演示多种示例，如带工具的简单智能体、非常基础的智能体、边缘智能体、链式调用、Actor 模型、流式响应以及添加 Agent Hooks。
+
+### [LLM 流水线](examples/pipeline/)
+
+演示带有缓存与重试等优化层的 LLM 流水线，用于提升性能与可靠性。
 
 ### [MCP 集成](examples/mcp/)
 

@@ -36,7 +36,7 @@ AutoAgents est un framework multi-agents modulaire pour construire des systèmes
 - **Outils** : macros dérivées pour outils et sorties, plus un runtime WASM sandboxé pour l'exécution d'outils
 - **Mémoire** : mémoire à fenêtre glissante avec backends extensibles
 - **Fournisseurs LLM** : backends cloud et locaux derrière une interface unifiée
-- **LLM Optimization**: Crate LLM Pipelines with Optimization passes to make inference faster
+- **Optimisation LLM** : Créez des pipelines LLM avec des passes d'optimisation comme le cache et les réessais pour une inférence plus rapide et plus fiable
 - **Orchestration multi-agents** : communication pub/sub typée et gestion d'environnement
 - **Traitement vocal** : support TTS et STT en local
 - **Observabilité** : traces et métriques OpenTelemetry avec exporteurs plug-and-play
@@ -256,6 +256,10 @@ Explorez les exemples pour démarrer rapidement :
 ### [Basique](examples/basic/)
 
 Présente des exemples comme un agent simple avec outils, un agent très basique, un agent edge, le chaînage, un modèle basé sur les acteurs, le streaming et l'ajout d'Agent Hooks.
+
+### [Pipelines LLM](examples/pipeline/)
+
+Montre des pipelines LLM avec des passes d'optimisation comme le cache et les réessais afin d'améliorer les performances et la fiabilité.
 
 ### [Intégration MCP](examples/mcp/)
 
