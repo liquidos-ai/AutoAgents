@@ -84,8 +84,12 @@ pub enum TurnDelta {
 
 #[derive(Error, Debug)]
 pub enum TurnEngineError {
-    #[error(transparent)]
-    LLMError(#[from] LLMError),
+    #[error("LLM error: {0}")]
+    LLMError(
+        #[from]
+        #[source]
+        LLMError,
+    ),
 
     #[error("Run aborted by hook")]
     Aborted,

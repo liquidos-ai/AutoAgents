@@ -58,8 +58,12 @@ impl BasicAgentOutput {
 /// Error type for Basic executor
 #[derive(Debug, thiserror::Error)]
 pub enum BasicExecutorError {
-    #[error(transparent)]
-    LLMError(#[from] LLMError),
+    #[error("LLM error: {0}")]
+    LLMError(
+        #[from]
+        #[source]
+        LLMError,
+    ),
 
     #[error("Other error: {0}")]
     Other(String),

@@ -83,8 +83,12 @@ impl ReActAgentOutput {
 
 #[derive(Error, Debug)]
 pub enum ReActExecutorError {
-    #[error(transparent)]
-    LLMError(#[from] LLMError),
+    #[error("LLM error: {0}")]
+    LLMError(
+        #[from]
+        #[source]
+        LLMError,
+    ),
 
     #[error("Maximum turns exceeded: {max_turns}")]
     MaxTurnsExceeded { max_turns: usize },

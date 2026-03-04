@@ -62,17 +62,6 @@ impl RunnableAgentError {
         Self::ExecutorError(error.to_string())
     }
 
-    /// Convert executor errors while preserving typed LLM errors when present.
-    pub fn from_executor<E>(error: E) -> Self
-    where
-        E: std::error::Error + Send + Sync + 'static,
-    {
-        if let Some(llm_error) = find_llm_error(&error) {
-            return Self::LLMError(llm_error);
-        }
-        Self::ExecutorError(error.to_string())
-    }
-
     /// Create a task error
     pub fn task_error(msg: impl Into<String>) -> Self {
         Self::TaskError(msg.into())
@@ -84,44 +73,44 @@ impl RunnableAgentError {
     }
 }
 
-fn find_llm_error(error: &(dyn std::error::Error + 'static)) -> Option<LLMError> {
-    if let Some(llm_error) = error.downcast_ref::<LLMError>() {
-        return Some(llm_error.clone());
-    }
-
-    if let Some(basic_error) =
-        error.downcast_ref::<crate::agent::prebuilt::executor::BasicExecutorError>()
-        && let crate::agent::prebuilt::executor::BasicExecutorError::LLMError(llm_error) =
-            basic_error
-    {
-        return Some(llm_error.clone());
-    }
-
-    if let Some(react_error) =
-        error.downcast_ref::<crate::agent::prebuilt::executor::ReActExecutorError>()
-        && let crate::agent::prebuilt::executor::ReActExecutorError::LLMError(llm_error) =
-            react_error
-    {
-        return Some(llm_error.clone());
-    }
-
-    if let Some(turn_error) =
-        error.downcast_ref::<crate::agent::executor::turn_engine::TurnEngineError>()
-        && let crate::agent::executor::turn_engine::TurnEngineError::LLMError(llm_error) =
-            turn_error
-    {
-        return Some(llm_error.clone());
-    }
-
-    let mut current = error.source();
-    while let Some(source) = current {
-        if let Some(llm_error) = source.downcast_ref::<LLMError>() {
-            return Some(llm_error.clone());
+impl From<crate::agent::executor::turn_engine::TurnEngineError> for RunnableAgentError {
+    fn from(error: crate::agent::executor::turn_engine::TurnEngineError) -> Self {
+        match error {
+            crate::agent::executor::turn_engine::TurnEngineError::LLMError(err) => {
+                RunnableAgentError::LLMError(err)
+            }
+            crate::agent::executor::turn_engine::TurnEngineError::Aborted => {
+                RunnableAgentError::Abort
+            }
+            crate::agent::executor::turn_engine::TurnEngineError::Other(err) => {
+                RunnableAgentError::ExecutorError(err)
+            }
         }
-        current = source.source();
     }
+}
 
-    None
+impl From<crate::agent::prebuilt::executor::BasicExecutorError> for RunnableAgentError {
+    fn from(error: crate::agent::prebuilt::executor::BasicExecutorError) -> Self {
+        match error {
+            crate::agent::prebuilt::executor::BasicExecutorError::LLMError(err) => {
+                RunnableAgentError::LLMError(err)
+            }
+            crate::agent::prebuilt::executor::BasicExecutorError::Other(err) => {
+                RunnableAgentError::ExecutorError(err)
+            }
+        }
+    }
+}
+
+impl From<crate::agent::prebuilt::executor::ReActExecutorError> for RunnableAgentError {
+    fn from(error: crate::agent::prebuilt::executor::ReActExecutorError) -> Self {
+        match error {
+            crate::agent::prebuilt::executor::ReActExecutorError::LLMError(err) => {
+                RunnableAgentError::LLMError(err)
+            }
+            other => RunnableAgentError::ExecutorError(other.to_string()),
+        }
+    }
 }
 
 /// Specific conversion for tokio mpsc send errors
@@ -269,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_executor_preserves_typed_llm_error_direct() {
+    fn test_from_llm_error_preserves_typed_llm_error_direct() {
         let source = LLMError::GuardrailBlocked {
             phase: GuardrailPhase::Input,
             guard: "prompt-injection".to_string().into(),
@@ -281,7 +270,7 @@ mod tests {
                 .into(),
         };
 
-        let converted = RunnableAgentError::from_executor(source);
+        let converted: RunnableAgentError = source.into();
         assert!(matches!(
             converted,
             RunnableAgentError::LLMError(LLMError::GuardrailBlocked { .. })
@@ -289,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_executor_preserves_typed_llm_error_from_basic_executor() {
+    fn test_from_basic_executor_preserves_typed_llm_error() {
         let wrapped = BasicExecutorError::from(LLMError::GuardrailBlocked {
             phase: GuardrailPhase::Input,
             guard: "prompt-injection".to_string().into(),
@@ -301,7 +290,7 @@ mod tests {
                 .into(),
         });
 
-        let converted = RunnableAgentError::from_executor(wrapped);
+        let converted: RunnableAgentError = wrapped.into();
         assert!(matches!(
             converted,
             RunnableAgentError::LLMError(LLMError::GuardrailBlocked { .. })
@@ -309,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn test_from_executor_preserves_typed_llm_error_from_react_executor() {
+    fn test_from_react_executor_preserves_typed_llm_error() {
         let wrapped = ReActExecutorError::from(LLMError::GuardrailBlocked {
             phase: GuardrailPhase::Input,
             guard: "prompt-injection".to_string().into(),
@@ -321,7 +310,7 @@ mod tests {
                 .into(),
         });
 
-        let converted = RunnableAgentError::from_executor(wrapped);
+        let converted: RunnableAgentError = wrapped.into();
         assert!(matches!(
             converted,
             RunnableAgentError::LLMError(LLMError::GuardrailBlocked { .. })
