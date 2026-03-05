@@ -2,6 +2,7 @@ use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::ReActAgent;
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, DirectAgent, DirectAgentHandle};
+use autoagents::core::agent::error::RunnableAgentError;
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::backends::openai::OpenAI;
 use autoagents::llm::builder::LLMBuilder;
@@ -14,7 +15,8 @@ use autoagents_speech::providers::parakeet::Parakeet;
 use autoagents_speech::providers::pocket_tts::PocketTTS;
 use autoagents_speech::vad::{SegmentTranscription, SileroVad, VadSttConfig, VadSttPipeline};
 use autoagents_speech::{
-    AudioFormat, SpeechRequest, TTSSpeechProvider, TextChunk, VoiceIdentifier,
+    AudioChunk, AudioFormat, SpeechRequest, TTSSpeechProvider, TextChunk, VoiceIdentifier,
+    StreamingTtsPipeline,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -23,6 +25,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use std::pin::Pin;
+
+use futures::StreamExt;
 
 use crate::vad_stt::{InputMode, build_parakeet_streaming_provider, build_vad_segmenter};
 
@@ -31,6 +36,38 @@ const DEFAULT_VOICE: &str = "eponine";
 
 type VadPipeline = VadSttPipeline<SileroVad, Parakeet>;
 type SpeechAgentHandle = DirectAgentHandle<ReActAgent<SpeechAgent>>;
+
+/// Adapter: connect SpeechAgent streaming output to the TTS streaming pipeline.
+///
+/// This takes the agent's `run_stream` output (a stream of partial String
+/// responses), converts it into a token stream, and feeds it into
+/// `StreamingTtsPipeline`, returning a stream of audio chunks.
+pub async fn agent_run_stream_to_tts_stream<T>(
+    agent: &SpeechAgentHandle,
+    task: Task,
+    tts: Arc<T>,
+    base_request: SpeechRequest,
+) -> Result<Pin<Box<dyn futures::Stream<Item = autoagents_speech::TTSResult<AudioChunk>> + Send>>, RunnableAgentError>
+where
+    T: TTSSpeechProvider + Send + Sync + 'static,
+{
+    // Stream of Result<String, _> from the agent
+    let raw_stream = agent.agent.run_stream(task).await?;
+
+    // Map to a stream of plain String tokens, dropping empty chunks and errors.
+    let token_stream = raw_stream.filter_map(|res| async move {
+        match res {
+            Ok(text) if !text.is_empty() => Some(text),
+            _ => None,
+        }
+    });
+
+    // Build TTS pipeline and connect the token stream
+    let pipeline = StreamingTtsPipeline::new(tts);
+    let audio_stream = pipeline.run(token_stream, base_request);
+
+    Ok(Box::pin(audio_stream))
+}
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct ExitConversationArgs {

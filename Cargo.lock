@@ -8145,6 +8145,7 @@ dependencies = [
  "autoagents-speech",
  "clap",
  "env_logger",
+ "futures",
  "hound",
  "serde",
  "serde_json",
