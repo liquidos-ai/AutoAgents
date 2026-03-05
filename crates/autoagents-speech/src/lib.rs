@@ -49,6 +49,9 @@ pub mod types;
 // Provider implementations
 pub mod providers;
 
+// TTS utilities (sentence chunking, streaming pipeline)
+pub mod tts;
+
 // Re-export main TTS types
 pub use error::{TTSError, TTSResult};
 pub use provider::{TTSModelsProvider, TTSProvider, TTSSpeechProvider};
@@ -56,6 +59,7 @@ pub use types::{
     AudioChunk, AudioData, AudioFormat, ModelInfo, SharedAudioData, SpeechRequest, SpeechResponse,
     VoiceIdentifier,
 };
+pub use tts::{ChunkerConfig, SentenceChunker, StreamingTtsPipeline};
 
 // Re-export main STT types
 pub use error::{STTError, STTResult};
