@@ -105,7 +105,7 @@ impl<T: TTSSpeechProvider + Send + Sync + 'static> StreamingTtsPipeline<T> {
     {
         use futures::StreamExt;
 
-        let mut chunker = SentenceChunker::new(config);
+        let mut chunker = SentenceChunker::with_config(config);
         let mut seq_idx: usize = 0;
 
         let mut token_stream = std::pin::pin!(token_stream);
@@ -277,6 +277,16 @@ mod tests {
     use async_trait::async_trait;
     use futures::StreamExt;
 
+    /// Helper: create a base SpeechRequest template for tests.
+    fn test_request() -> SpeechRequest {
+        SpeechRequest {
+            text: String::new(),
+            voice: VoiceIdentifier::new("test"),
+            format: AudioFormat::Wav,
+            sample_rate: Some(24000),
+        }
+    }
+
     /// A mock TTS provider that returns samples derived from the input text length.
     struct MockTtsProvider;
 
@@ -310,14 +320,8 @@ mod tests {
         );
 
         let tokens = futures::stream::iter(vec!["Hello world.".to_string()]);
-        let request = SpeechRequest {
-            text: String::new(),
-            voice: VoiceIdentifier::new("test"),
-            format: AudioFormat::Wav,
-            sample_rate: Some(24000),
-        };
 
-        let mut stream = pipeline.run(tokens, request);
+        let mut stream = pipeline.run(tokens, test_request());
         let mut chunks = Vec::new();
         while let Some(result) = stream.next().await {
             chunks.push(result.unwrap());
@@ -344,14 +348,7 @@ mod tests {
                 .collect::<Vec<_>>(),
         );
 
-        let request = SpeechRequest {
-            text: String::new(),
-            voice: VoiceIdentifier::new("test"),
-            format: AudioFormat::Wav,
-            sample_rate: Some(24000),
-        };
-
-        let mut stream = pipeline.run(tokens, request);
+        let mut stream = pipeline.run(tokens, test_request());
         let mut chunks = Vec::new();
         while let Some(result) = stream.next().await {
             chunks.push(result.unwrap());
@@ -399,14 +396,7 @@ mod tests {
             "This is a much longer second sentence for testing. ".to_string(),
         ]);
 
-        let request = SpeechRequest {
-            text: String::new(),
-            voice: VoiceIdentifier::new("test"),
-            format: AudioFormat::Wav,
-            sample_rate: Some(24000),
-        };
-
-        let mut stream = pipeline.run(tokens, request);
+        let mut stream = pipeline.run(tokens, test_request());
         let mut sample_markers = Vec::new();
         while let Some(result) = stream.next().await {
             let chunk = result.unwrap();
@@ -432,14 +422,8 @@ mod tests {
         let pipeline = StreamingTtsPipeline::new(tts);
 
         let tokens = futures::stream::empty::<String>();
-        let request = SpeechRequest {
-            text: String::new(),
-            voice: VoiceIdentifier::new("test"),
-            format: AudioFormat::Wav,
-            sample_rate: Some(24000),
-        };
 
-        let mut stream = pipeline.run(tokens, request);
+        let mut stream = pipeline.run(tokens, test_request());
         let mut count = 0;
         while let Some(_result) = stream.next().await {
             count += 1;
@@ -471,14 +455,8 @@ mod tests {
         );
 
         let tokens = futures::stream::iter(vec!["Hello world.".to_string()]);
-        let request = SpeechRequest {
-            text: String::new(),
-            voice: VoiceIdentifier::new("test"),
-            format: AudioFormat::Wav,
-            sample_rate: Some(24000),
-        };
 
-        let mut stream = pipeline.run(tokens, request);
+        let mut stream = pipeline.run(tokens, test_request());
         let result = stream.next().await;
         assert!(result.is_some());
         assert!(result.unwrap().is_err());

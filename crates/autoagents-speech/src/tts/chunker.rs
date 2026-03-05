@@ -52,15 +52,17 @@ pub struct SentenceChunker {
     config: ChunkerConfig,
 }
 
-impl Default for SentenceChunker {
-    fn default() -> Self {
-        Self::new(ChunkerConfig::default())
-    }
-}
-
 impl SentenceChunker {
-    /// Create a new chunker with the given configuration.
-    pub fn new(config: ChunkerConfig) -> Self {
+    /// Create a new chunker with the default configuration.
+    pub fn new() -> Self {
+        Self {
+            buffer: String::new(),
+            config: ChunkerConfig::default(),
+        }
+    }
+
+    /// Create a new chunker with a custom configuration.
+    pub fn with_config(config: ChunkerConfig) -> Self {
         Self {
             buffer: String::new(),
             config,
@@ -276,7 +278,7 @@ mod tests {
 
     /// Helper: push all tokens and collect emitted sentences, then force flush.
     fn chunk_text(tokens: &[&str], config: ChunkerConfig) -> Vec<String> {
-        let mut chunker = SentenceChunker::new(config);
+        let mut chunker = SentenceChunker::with_config(config);
         let mut results = Vec::new();
         for token in tokens {
             results.extend(chunker.push_token(token));
@@ -344,7 +346,7 @@ mod tests {
 
     #[test]
     fn test_force_flush_remainder() {
-        let mut chunker = SentenceChunker::default();
+        let mut chunker = SentenceChunker::new();
         chunker.push_token("Hello there");
         let flushed = chunker.force_flush();
         assert_eq!(flushed, Some("Hello there".to_string()));
@@ -352,13 +354,13 @@ mod tests {
 
     #[test]
     fn test_force_flush_empty() {
-        let mut chunker = SentenceChunker::default();
+        let mut chunker = SentenceChunker::new();
         assert_eq!(chunker.force_flush(), None);
     }
 
     #[test]
     fn test_force_flush_whitespace_only() {
-        let mut chunker = SentenceChunker::default();
+        let mut chunker = SentenceChunker::new();
         chunker.push_token("   ");
         assert_eq!(chunker.force_flush(), None);
     }
@@ -393,7 +395,7 @@ mod tests {
             max_chunk_chars: 250,
         };
         // "Hi." is only 3 chars — should be held until more text arrives
-        let mut chunker = SentenceChunker::new(config);
+        let mut chunker = SentenceChunker::with_config(config);
         assert!(chunker.push_token("Hi. ").is_empty());
         // Now push more text to complete a longer chunk
         let result = chunker.push_token("What is the meaning of life? I wonder.");
