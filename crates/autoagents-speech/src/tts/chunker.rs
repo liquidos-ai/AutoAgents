@@ -56,7 +56,7 @@ impl SentenceChunker {
     /// Create a new chunker with the default configuration.
     pub fn new() -> Self {
         Self {
-            buffer: String::new(),
+            buffer: String::default(),
             config: ChunkerConfig::default(),
         }
     }
@@ -64,7 +64,7 @@ impl SentenceChunker {
     /// Create a new chunker with a custom configuration.
     pub fn with_config(config: ChunkerConfig) -> Self {
         Self {
-            buffer: String::new(),
+            buffer: String::default(),
             config,
         }
     }

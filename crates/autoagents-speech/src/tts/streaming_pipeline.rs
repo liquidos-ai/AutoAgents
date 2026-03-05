@@ -280,7 +280,7 @@ mod tests {
     /// Helper: create a base SpeechRequest template for tests.
     fn test_request() -> SpeechRequest {
         SpeechRequest {
-            text: String::new(),
+            text: String::default(),
             voice: VoiceIdentifier::new("test"),
             format: AudioFormat::Wav,
             sample_rate: Some(24000),
