@@ -274,7 +274,6 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for BasicAgent<T> {
                 .await;
 
             let mut final_response = String::default();
-
             match turn_stream {
                 Ok(mut stream) => {
                     use futures::StreamExt;
@@ -288,6 +287,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for BasicAgent<T> {
                                     }))
                                     .await;
                             }
+                            Ok(TurnDelta::ReasoningContent(_)) => {}
                             Ok(TurnDelta::ToolResults(_)) => {}
                             Ok(TurnDelta::Done(result)) => {
                                 let output = extract_turn_output(result);
@@ -343,6 +343,7 @@ fn extract_turn_output(
         crate::agent::executor::TurnResult::Continue(Some(output)) => output,
         crate::agent::executor::TurnResult::Continue(None) => TurnEngineOutput {
             response: String::default(),
+            reasoning_content: String::default(),
             tool_calls: Vec::default(),
         },
     }
@@ -517,6 +518,7 @@ mod tests {
         let result = crate::agent::executor::TurnResult::Complete(
             crate::agent::executor::turn_engine::TurnEngineOutput {
                 response: "done".to_string(),
+                reasoning_content: String::default(),
                 tool_calls: Vec::new(),
             },
         );
@@ -529,6 +531,7 @@ mod tests {
         let result = crate::agent::executor::TurnResult::Continue(Some(
             crate::agent::executor::turn_engine::TurnEngineOutput {
                 response: "partial".to_string(),
+                reasoning_content: String::default(),
                 tool_calls: Vec::new(),
             },
         ));
@@ -556,6 +559,7 @@ mod tests {
                     choices: vec![StreamChoice {
                         delta: StreamDelta {
                             content: Some("Hello ".to_string()),
+                            reasoning_content: None,
                             tool_calls: None,
                         },
                     }],
@@ -565,6 +569,7 @@ mod tests {
                     choices: vec![StreamChoice {
                         delta: StreamDelta {
                             content: Some("world".to_string()),
+                            reasoning_content: None,
                             tool_calls: None,
                         },
                     }],
@@ -598,6 +603,62 @@ mod tests {
         let output = final_output.expect("final output");
         assert_eq!(output.response, "Hello world");
         assert!(output.done);
+    }
+
+    #[tokio::test]
+    async fn test_basic_agent_execute_stream_ignores_reasoning_output() {
+        use crate::agent::{AgentConfig, Context};
+        use autoagents_protocol::ActorID;
+        use futures::StreamExt;
+
+        let llm = Arc::new(ConfigurableLLMProvider {
+            structured_stream: vec![
+                StreamResponse {
+                    choices: vec![StreamChoice {
+                        delta: StreamDelta {
+                            content: None,
+                            reasoning_content: Some("plan".to_string()),
+                            tool_calls: None,
+                        },
+                    }],
+                    usage: None,
+                },
+                StreamResponse {
+                    choices: vec![StreamChoice {
+                        delta: StreamDelta {
+                            content: Some("done".to_string()),
+                            reasoning_content: None,
+                            tool_calls: None,
+                        },
+                    }],
+                    usage: None,
+                },
+            ],
+            ..ConfigurableLLMProvider::default()
+        });
+
+        let mock_agent = MockAgentImpl::new("stream_agent_reasoning", "desc");
+        let basic_agent = BasicAgent::new(mock_agent);
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "stream_agent_reasoning".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let task = Task::new("Test task");
+
+        let mut stream = basic_agent.execute_stream(&task, context).await.unwrap();
+        let mut outputs = Vec::new();
+        while let Some(item) = stream.next().await {
+            outputs.push(item.unwrap());
+        }
+
+        assert_eq!(outputs.len(), 2);
+        assert_eq!(outputs[0].response, "done");
+        assert!(!outputs[0].done);
+        assert_eq!(outputs[1].response, "done");
+        assert!(outputs[1].done);
     }
 
     #[tokio::test]

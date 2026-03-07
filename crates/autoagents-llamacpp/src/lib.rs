@@ -21,7 +21,9 @@ pub mod provider;
 
 // Re-exports for convenience
 pub use builder::LlamaCppProviderBuilder;
-pub use config::{LlamaCppConfig, LlamaCppConfigBuilder, LlamaCppSplitMode};
+pub use config::{
+    LlamaCppConfig, LlamaCppConfigBuilder, LlamaCppReasoningFormat, LlamaCppSplitMode,
+};
 pub use error::LlamaCppProviderError;
 pub use models::ModelSource;
 pub use provider::LlamaCppProvider;

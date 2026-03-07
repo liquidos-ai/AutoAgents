@@ -23,7 +23,7 @@ impl OpenAIProviderConfig for OpenRouterConfig {
     const PROVIDER_NAME: &'static str = "OpenRouter";
     const DEFAULT_BASE_URL: &'static str = "https://openrouter.ai/api/v1/";
     const DEFAULT_MODEL: &'static str = "moonshotai/kimi-k2:free";
-    const SUPPORTS_REASONING_EFFORT: bool = false;
+    const SUPPORTS_REASONING_EFFORT: bool = true;
     const SUPPORTS_STRUCTURED_OUTPUT: bool = true;
     const SUPPORTS_PARALLEL_TOOL_CALLS: bool = false;
 }

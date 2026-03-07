@@ -44,6 +44,18 @@ impl LlamaCppProviderBuilder {
         self
     }
 
+    /// Set reasoning extraction format.
+    pub fn reasoning_format(mut self, format: crate::config::LlamaCppReasoningFormat) -> Self {
+        self.config_builder = self.config_builder.reasoning_format(format);
+        self
+    }
+
+    /// Set optional `chat_template_kwargs` payload for llama.cpp OpenAI template rendering.
+    pub fn extra_body(mut self, extra_body: impl serde::Serialize) -> Self {
+        self.config_builder = self.config_builder.extra_body(extra_body);
+        self
+    }
+
     /// Set the model cache directory.
     pub fn model_dir(mut self, dir: impl Into<String>) -> Self {
         self.config_builder = self.config_builder.model_dir(dir);
@@ -204,7 +216,7 @@ impl LlamaCppProviderBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::LlamaCppSplitMode;
+    use crate::config::{LlamaCppReasoningFormat, LlamaCppSplitMode};
     use crate::models::ModelSource;
 
     #[test]
@@ -214,6 +226,12 @@ mod tests {
             .chat_template("chat")
             .system_prompt("system")
             .force_json_grammar(true)
+            .reasoning_format(LlamaCppReasoningFormat::Auto)
+            .extra_body(serde_json::json!({
+                "chat_template_kwargs": {
+                    "enable_thinking": true
+                }
+            }))
             .model_dir("/models")
             .hf_filename("model-file.gguf")
             .hf_revision("rev1")
@@ -244,6 +262,16 @@ mod tests {
         assert_eq!(config.chat_template.as_deref(), Some("chat"));
         assert_eq!(config.system_prompt.as_deref(), Some("system"));
         assert!(config.force_json_grammar);
+        assert_eq!(config.reasoning_format, Some(LlamaCppReasoningFormat::Auto));
+        assert_eq!(
+            config
+                .extra_body
+                .as_ref()
+                .and_then(|v| v.get("chat_template_kwargs"))
+                .and_then(|v| v.get("enable_thinking"))
+                .and_then(|v| v.as_bool()),
+            Some(true)
+        );
         assert_eq!(config.model_dir.as_deref(), Some("/models"));
         assert_eq!(config.hf_filename.as_deref(), Some("model-file.gguf"));
         assert_eq!(config.hf_revision.as_deref(), Some("rev1"));

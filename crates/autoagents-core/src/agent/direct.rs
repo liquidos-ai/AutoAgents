@@ -141,12 +141,12 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
         // Execute the agent's streaming logic using the executor
         match self.inner().execute_stream(&task, context.clone()).await {
             Ok(stream) => {
-                use futures::StreamExt;
-                // Convert the stream output
-                let transformed_stream = stream.map(move |result| match result {
-                    Ok(output) => Ok(output.into()),
-                    Err(e) => Err(Into::<RunnableAgentError>::into(e).into()),
-                });
+                use futures::TryStreamExt;
+                // Convert stream output/error without returning large Result err types from closures.
+                let transformed_stream = stream
+                    .map_ok(Into::into)
+                    .map_err(Into::<RunnableAgentError>::into)
+                    .map_err(Error::from);
 
                 Ok(Box::pin(transformed_stream))
             }

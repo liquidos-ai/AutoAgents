@@ -133,6 +133,7 @@ impl From<protocol::StreamChunk> for StreamChunk {
     fn from(value: protocol::StreamChunk) -> Self {
         match value {
             protocol::StreamChunk::Text(text) => StreamChunk::Text(text),
+            protocol::StreamChunk::ReasoningContent(text) => StreamChunk::ReasoningContent(text),
             protocol::StreamChunk::ToolUseStart { index, id, name } => {
                 StreamChunk::ToolUseStart { index, id, name }
             }
@@ -159,6 +160,7 @@ impl From<StreamChunk> for protocol::StreamChunk {
     fn from(value: StreamChunk) -> Self {
         match value {
             StreamChunk::Text(text) => protocol::StreamChunk::Text(text),
+            StreamChunk::ReasoningContent(text) => protocol::StreamChunk::ReasoningContent(text),
             StreamChunk::ToolUseStart { index, id, name } => {
                 protocol::StreamChunk::ToolUseStart { index, id, name }
             }

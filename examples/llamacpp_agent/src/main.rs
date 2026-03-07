@@ -6,13 +6,15 @@ use autoagents::core::error::Error;
 use autoagents::core::tool::ToolCallError;
 use autoagents::prelude::{ReActAgent, ReActAgentOutput};
 use autoagents::prelude::{ToolInputT, ToolRuntime, ToolT};
+use autoagents::protocol::{Event, StreamChunk};
 use autoagents::{async_trait, init_logging};
 use autoagents_derive::{AgentHooks, AgentOutput, ToolInput, agent, tool};
-use autoagents_llamacpp::{LlamaCppProvider, ModelSource};
+use autoagents_llamacpp::{LlamaCppProvider, LlamaCppReasoningFormat, ModelSource};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use tokio::select;
 use tokio_stream::StreamExt;
 
 #[derive(Parser, Debug)]
@@ -35,6 +37,13 @@ struct Args {
 
     #[arg(long, default_value_t = 0.2, help = "Sampling temperature")]
     temperature: f32,
+
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Enable thinking/reasoning event output (use with /think prompts)"
+    )]
+    thinking: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, AgentOutput)]
@@ -105,14 +114,30 @@ async fn main() -> Result<(), Error> {
     init_logging();
     let args = Args::parse();
 
+    let effective_max_tokens = if args.thinking {
+        args.max_tokens.max(1024)
+    } else {
+        args.max_tokens
+    };
+
     let mut builder = LlamaCppProvider::builder()
         .model_source(ModelSource::HuggingFace {
-            repo_id: "unsloth/Llama-3.2-3B-Instruct-GGUF".to_string(),
-            filename: Some("Llama-3.2-3B-Instruct-Q8_0.gguf".to_string()),
+            repo_id: "unsloth/Qwen3.5-9B-GGUF".to_string(),
+            filename: Some("Qwen3.5-9B-Q4_0.gguf".to_string()),
             mmproj_filename: None,
         })
-        .max_tokens(args.max_tokens)
+        .max_tokens(effective_max_tokens)
         .temperature(args.temperature);
+
+    if args.thinking {
+        builder = builder
+            .reasoning_format(LlamaCppReasoningFormat::Auto)
+            .extra_body(serde_json::json!({
+                "chat_template_kwargs": {
+                    "enable_thinking": true
+                }
+            }));
+    }
 
     if let Some(template) = args.chat_template {
         builder = builder.chat_template(template);
@@ -133,11 +158,87 @@ async fn main() -> Result<(), Error> {
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 
     let agent = ReActAgent::new(MathAgent {});
-    let agent_handle = AgentBuilder::<_, DirectAgent>::new(agent)
+    let mut agent_handle = AgentBuilder::<_, DirectAgent>::new(agent)
         .llm(llm)
         .memory(sliding_window_memory)
+        .stream(args.thinking)
         .build()
         .await?;
+
+    if args.thinking {
+        let mut event_stream = agent_handle.subscribe_events();
+        let mut stream = agent_handle
+            .agent
+            .run_stream(Task::new(args.prompt.clone()))
+            .await?;
+        let mut stream_done = false;
+        let mut events_done = false;
+        let mut saw_reasoning_event = false;
+        let mut saw_text_event = false;
+
+        println!("Running run_stream() and reading reasoning from events");
+        if effective_max_tokens > args.max_tokens {
+            println!(
+                "thinking mode enabled: increasing max_tokens from {} to {}",
+                args.max_tokens, effective_max_tokens
+            );
+        }
+        while !(stream_done && events_done) {
+            select! {
+                item = stream.next(), if !stream_done => {
+                    match item {
+                        Some(Ok(output)) => {
+                            print!("{output}");
+                        }
+                        Some(Err(err)) => {
+                            println!("stream error: {err}");
+                            stream_done = true;
+                        }
+                        None => {
+                            stream_done = true;
+                        }
+                    }
+                }
+                event = event_stream.next(), if !events_done => {
+                    match event {
+                        Some(Event::StreamChunk { chunk, .. }) => match chunk {
+                            StreamChunk::ReasoningContent(content) => {
+                                if !content.is_empty() {
+                                    saw_reasoning_event = true;
+                                    println!("\nreasoning event: {content}");
+                                }
+                            }
+                            StreamChunk::Text(content) => {
+                                if !content.is_empty() {
+                                    saw_text_event = true;
+                                    println!("\ntext event: {content}");
+                                }
+                            }
+                            _ => {}
+                        },
+                        Some(Event::StreamComplete { .. }) => {
+                            events_done = true;
+                        }
+                        Some(_) => {}
+                        None => {
+                            events_done = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if !saw_reasoning_event {
+            println!("\nnote: no reasoning_content events were emitted by this model/provider.");
+        }
+        if saw_reasoning_event && !saw_text_event {
+            println!(
+                "\nnote: reasoning streamed, but no text chunks were emitted. \
+this usually means the model used all generation tokens in thinking mode."
+            );
+        }
+        return Ok(());
+    }
 
     let result = agent_handle
         .agent

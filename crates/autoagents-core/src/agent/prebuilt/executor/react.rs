@@ -256,7 +256,6 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
         let max_turns = self.config().max_turns;
         let mut accumulated_tool_calls = Vec::new();
         let mut final_response = String::new();
-
         for turn_index in 0..max_turns {
             let result = engine
                 .run_turn(self, task, &context, &mut turn_state, turn_index, max_turns)
@@ -359,6 +358,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                                         }))
                                         .await;
                                 }
+                                Ok(TurnDelta::ReasoningContent(_)) => {}
                                 Ok(TurnDelta::ToolResults(tool_results)) => {
                                     accumulated_tool_calls.extend(tool_results);
                                     let _ = tx
@@ -742,6 +742,47 @@ mod tests {
         let output = final_output.expect("final output");
         assert_eq!(output.response, "Hello world");
         assert!(output.done);
+    }
+
+    #[tokio::test]
+    async fn test_react_agent_execute_stream_ignores_reasoning_output() {
+        use crate::agent::{AgentConfig, Context};
+        use autoagents_protocol::ActorID;
+        use futures::StreamExt;
+
+        let llm = Arc::new(ConfigurableLLMProvider {
+            stream_chunks: vec![
+                StreamChunk::ReasoningContent("plan".to_string()),
+                StreamChunk::Text("done".to_string()),
+                StreamChunk::Done {
+                    stop_reason: "end_turn".to_string(),
+                },
+            ],
+            ..ConfigurableLLMProvider::default()
+        });
+
+        let mock = MockAgentImpl::new("stream_reasoning_test", "desc");
+        let agent = ReActAgent::new(mock);
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "stream_reasoning_test".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let task = crate::agent::task::Task::new("test");
+
+        let mut stream = agent.execute_stream(&task, context).await.unwrap();
+        let mut outputs = Vec::new();
+        while let Some(item) = stream.next().await {
+            outputs.push(item.unwrap());
+        }
+
+        assert_eq!(outputs.len(), 2);
+        assert_eq!(outputs[0].response, "done");
+        assert!(!outputs[0].done);
+        assert_eq!(outputs[1].response, "done");
+        assert!(outputs[1].done);
     }
 
     #[tokio::test]

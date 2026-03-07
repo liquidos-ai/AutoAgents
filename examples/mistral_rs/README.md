@@ -4,12 +4,13 @@ This example demonstrates how to use the `autoagents-mistral-rs` crate to run lo
 
 ## Features
 
-The example showcases four different use cases:
+The example showcases five different use cases:
 
 1. **Text Models** - Standard text generation with HuggingFace models
 2. **Vision Models** - Image understanding with vision-capable models
 3. **GGUF Models** - Quantized models loaded from local files
 4. **Tool Calling** - Agent with tools for mathematical operations
+5. **Thinking** - Stream reasoning and text chunks when model supports reasoning output
 
 ## Running the Examples
 
@@ -49,9 +50,18 @@ Uses Mistral-7B-Instruct with ReAct executor and math tools (addition, multiplic
 - Multiplication (15 × 8)
 - Multi-step calculations ((10 + 5) × 3)
 
+### Thinking Model
+
+```bash
+cargo run --package mistral_rs --release -- --model-type thinking
+```
+
+Runs a streaming reasoning example and prints `reasoning_content` events when the
+selected model emits them.
+
 ## Command-Line Options
 
-- `-t, --model-type <TYPE>` - Model type: text, vision, gguf, or tools (default: text)
+- `-t, --model-type <TYPE>` - Model type: text, vision, gguf, tools, or thinking (default: text)
 - `-d, --model-dir <PATH>` - Directory for GGUF models (default: examples/mistral_rs/models/phi-3.5)
 - `-r, --repo-id <REPO>` - Override the default HuggingFace repository
 - `-q, --quant <LEVEL>` - GGUF quantization level (default: q4-k-m)

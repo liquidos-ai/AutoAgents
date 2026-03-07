@@ -71,6 +71,7 @@ impl TurnEngineConfig {
 #[derive(Debug, Clone)]
 pub struct TurnEngineOutput {
     pub response: String,
+    pub reasoning_content: String,
     pub tool_calls: Vec<ToolCallResult>,
 }
 
@@ -78,6 +79,7 @@ pub struct TurnEngineOutput {
 #[derive(Debug)]
 pub enum TurnDelta {
     Text(String),
+    ReasoningContent(String),
     ToolResults(Vec<ToolCallResult>),
     Done(crate::agent::executor::TurnResult<TurnEngineOutput>),
 }
@@ -173,6 +175,7 @@ impl TurnEngine {
         let tools = context.tools();
         let response = self.get_llm_response(context, &messages, tools).await?;
         let response_text = response.text().unwrap_or_default();
+        let reasoning_content = response.thinking().unwrap_or_default();
         if store_user {
             turn_state.memory.store_user(task).await;
             turn_state.mark_user_stored();
@@ -214,6 +217,7 @@ impl TurnEngine {
             return Ok(crate::agent::executor::TurnResult::Continue(Some(
                 TurnEngineOutput {
                     response: response_text,
+                    reasoning_content,
                     tool_calls: tool_results,
                 },
             )));
@@ -236,6 +240,7 @@ impl TurnEngine {
         Ok(crate::agent::executor::TurnResult::Complete(
             TurnEngineOutput {
                 response: response_text,
+                reasoning_content,
                 tool_calls: Vec::new(),
             },
         ))
@@ -354,31 +359,45 @@ impl TurnEngine {
             memory.store_user(task).await;
         }
         let mut response_text = String::default();
+        let mut reasoning_content = String::default();
 
         while let Some(chunk_result) = stream.next().await {
             let chunk = chunk_result.map_err(TurnEngineError::LLMError)?;
-            let content = chunk
-                .choices
-                .first()
-                .and_then(|choice| choice.delta.content.as_ref())
-                .map_or("", |value| value)
+            let delta = chunk.choices.first().map(|choice| &choice.delta);
+            let content = delta
+                .and_then(|d| d.content.as_ref())
+                .map(String::as_str)
+                .unwrap_or("")
+                .to_string();
+            let reasoning = delta
+                .and_then(|d| d.reasoning_content.as_ref())
+                .map(String::as_str)
+                .unwrap_or("")
                 .to_string();
 
-            if content.is_empty() {
-                continue;
-            }
-
-            response_text.push_str(&content);
-
-            let _ = tx.send(Ok(TurnDelta::Text(content.clone()))).await;
-
             let tx_event = context.tx().ok();
-            EventHelper::send_stream_chunk(
-                &tx_event,
-                task.submission_id,
-                StreamChunk::Text(content),
-            )
-            .await;
+            if !content.is_empty() {
+                response_text.push_str(&content);
+                let _ = tx.send(Ok(TurnDelta::Text(content.clone()))).await;
+                EventHelper::send_stream_chunk(
+                    &tx_event,
+                    task.submission_id,
+                    StreamChunk::Text(content),
+                )
+                .await;
+            }
+            if !reasoning.is_empty() {
+                reasoning_content.push_str(&reasoning);
+                let _ = tx
+                    .send(Ok(TurnDelta::ReasoningContent(reasoning.clone())))
+                    .await;
+                EventHelper::send_stream_chunk(
+                    &tx_event,
+                    task.submission_id,
+                    StreamChunk::ReasoningContent(reasoning),
+                )
+                .await;
+            }
         }
 
         if !response_text.is_empty() {
@@ -388,6 +407,7 @@ impl TurnEngine {
         Ok(crate::agent::executor::TurnResult::Complete(
             TurnEngineOutput {
                 response: response_text,
+                reasoning_content,
                 tool_calls: Vec::default(),
             },
         ))
@@ -410,6 +430,7 @@ impl TurnEngine {
             memory.store_user(task).await;
         }
         let mut response_text = String::default();
+        let mut reasoning_content = String::default();
         let mut tool_calls = Vec::default();
         let mut tool_call_ids: HashSet<String> = HashSet::default();
 
@@ -421,6 +442,10 @@ impl TurnEngine {
                 StreamChunk::Text(content) => {
                     response_text.push_str(&content);
                     let _ = tx.send(Ok(TurnDelta::Text(content.clone()))).await;
+                }
+                StreamChunk::ReasoningContent(content) => {
+                    reasoning_content.push_str(&content);
+                    let _ = tx.send(Ok(TurnDelta::ReasoningContent(content))).await;
                 }
                 StreamChunk::ToolUseComplete { tool_call, .. } => {
                     if tool_call_ids.insert(tool_call.id.clone()) {
@@ -449,6 +474,7 @@ impl TurnEngine {
             return Ok(crate::agent::executor::TurnResult::Complete(
                 TurnEngineOutput {
                     response: response_text,
+                    reasoning_content,
                     tool_calls: Vec::new(),
                 },
             ));
@@ -477,6 +503,7 @@ impl TurnEngine {
         Ok(crate::agent::executor::TurnResult::Continue(Some(
             TurnEngineOutput {
                 response: response_text,
+                reasoning_content,
                 tool_calls: tool_results,
             },
         )))
@@ -1225,6 +1252,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_run_turn_propagates_reasoning_content() {
+        use crate::tests::MockAgentImpl;
+
+        let llm = Arc::new(ConfigurableLLMProvider {
+            chat_response: StaticChatResponse {
+                text: Some("answer".to_string()),
+                tool_calls: None,
+                usage: None,
+                thinking: Some("reasoning".to_string()),
+            },
+            ..ConfigurableLLMProvider::default()
+        });
+
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "reasoning_agent".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let context = Context::new(llm, None).with_config(config);
+        let engine = TurnEngine::new(TurnEngineConfig::basic(1));
+        let mut turn_state = engine.turn_state(&context);
+        let task = Task::new("prompt");
+        let hooks = MockAgentImpl::new("test", "test");
+
+        let result = engine
+            .run_turn(&hooks, &task, &context, &mut turn_state, 0, 1)
+            .await
+            .unwrap();
+
+        match result {
+            crate::agent::executor::TurnResult::Complete(output) => {
+                assert_eq!(output.response, "answer");
+                assert_eq!(output.reasoning_content, "reasoning");
+            }
+            _ => panic!("expected Complete"),
+        }
+    }
+
+    #[tokio::test]
     async fn test_run_turn_stream_structured_aggregates_text() {
         use crate::tests::MockAgentImpl;
         let llm = Arc::new(ConfigurableLLMProvider {
@@ -1233,6 +1300,7 @@ mod tests {
                     choices: vec![StreamChoice {
                         delta: StreamDelta {
                             content: Some("Hello ".to_string()),
+                            reasoning_content: None,
                             tool_calls: None,
                         },
                     }],
@@ -1242,6 +1310,7 @@ mod tests {
                     choices: vec![StreamChoice {
                         delta: StreamDelta {
                             content: Some("world".to_string()),
+                            reasoning_content: None,
                             tool_calls: None,
                         },
                     }],
@@ -1286,6 +1355,68 @@ mod tests {
         }
 
         assert_eq!(final_text, "Hello world");
+    }
+
+    #[tokio::test]
+    async fn test_run_turn_stream_structured_emits_reasoning_content() {
+        use crate::tests::MockAgentImpl;
+        let llm = Arc::new(ConfigurableLLMProvider {
+            structured_stream: vec![StreamResponse {
+                choices: vec![StreamChoice {
+                    delta: StreamDelta {
+                        content: None,
+                        reasoning_content: Some("think".to_string()),
+                        tool_calls: None,
+                    },
+                }],
+                usage: None,
+            }],
+            ..ConfigurableLLMProvider::default()
+        });
+
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "stream_reasoning_agent".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let engine = TurnEngine::new(TurnEngineConfig::basic(1));
+        let mut turn_state = engine.turn_state(&context);
+        let task = Task::new("prompt");
+        let hooks = MockAgentImpl::new("test", "test");
+
+        let mut stream = engine
+            .run_turn_stream(hooks, &task, context, &mut turn_state, 0, 1)
+            .await
+            .unwrap();
+
+        let mut saw_delta = false;
+        let mut final_reasoning = String::default();
+        while let Some(delta) = stream.next().await {
+            match delta {
+                Ok(TurnDelta::ReasoningContent(text)) => {
+                    saw_delta = true;
+                    assert_eq!(text, "think");
+                }
+                Ok(TurnDelta::Done(result)) => {
+                    final_reasoning = match result {
+                        crate::agent::executor::TurnResult::Complete(output) => {
+                            output.reasoning_content
+                        }
+                        crate::agent::executor::TurnResult::Continue(Some(output)) => {
+                            output.reasoning_content
+                        }
+                        crate::agent::executor::TurnResult::Continue(None) => String::default(),
+                    };
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        assert!(saw_delta);
+        assert_eq!(final_reasoning, "think");
     }
 
     #[tokio::test]
@@ -1396,6 +1527,7 @@ mod tests {
                 choices: vec![StreamChoice {
                     delta: StreamDelta {
                         content: Some("hello".to_string()),
+                        reasoning_content: None,
                         tool_calls: None,
                     },
                 }],
