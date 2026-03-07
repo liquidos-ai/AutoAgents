@@ -943,44 +943,7 @@ impl ChatProvider for LlamaCppProvider {
                 }
                 let (prompt, images, marker) = self.build_mtmd_prompt(messages)?;
                 let response_stream = self.spawn_mtmd_stream(prompt, images, marker, None, None);
-                let struct_stream = response_stream.filter_map(|event| async move {
-                    match event {
-                        Ok(StreamEvent::Token(token)) => Some(Ok(StreamResponse {
-                            choices: vec![StreamChoice {
-                                delta: StreamDelta {
-                                    content: Some(token),
-                                    reasoning_content: None,
-                                    tool_calls: None,
-                                },
-                            }],
-                            usage: None,
-                        })),
-                        Ok(StreamEvent::Usage(_)) | Ok(StreamEvent::Done { .. }) => None,
-                        Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
-                            Ok(parsed) => {
-                                let content = parsed.content.filter(|c| !c.is_empty());
-                                let reasoning_content =
-                                    parsed.reasoning_content.filter(|c| !c.is_empty());
-                                if content.is_none() && reasoning_content.is_none() {
-                                    None
-                                } else {
-                                    Some(Ok(StreamResponse {
-                                        choices: vec![StreamChoice {
-                                            delta: StreamDelta {
-                                                content,
-                                                reasoning_content,
-                                                tool_calls: None,
-                                            },
-                                        }],
-                                        usage: None,
-                                    }))
-                                }
-                            }
-                            Err(err) => Some(Err(err)),
-                        },
-                        Err(err) => Some(Err(err)),
-                    }
-                });
+                let struct_stream = mtmd_structured_stream(response_stream);
                 return Ok(Box::pin(struct_stream));
             }
             #[cfg(not(feature = "mtmd"))]
@@ -1005,121 +968,7 @@ impl ChatProvider for LlamaCppProvider {
             .scan(
                 HashMap::<usize, ToolCallState>::new(),
                 |tool_states, event| {
-                    let mut outputs = Vec::new();
-                    match event {
-                        Ok(StreamEvent::Token(token)) => {
-                            if !token.is_empty() {
-                                outputs.push(Ok(StreamResponse {
-                                    choices: vec![StreamChoice {
-                                        delta: StreamDelta {
-                                            content: Some(token),
-                                            reasoning_content: None,
-                                            tool_calls: None,
-                                        },
-                                    }],
-                                    usage: None,
-                                }));
-                            }
-                        }
-                        Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
-                            Ok(parsed) => {
-                                if let Some(content) = parsed.content
-                                    && !content.is_empty()
-                                {
-                                    outputs.push(Ok(StreamResponse {
-                                        choices: vec![StreamChoice {
-                                            delta: StreamDelta {
-                                                content: Some(content),
-                                                reasoning_content: None,
-                                                tool_calls: None,
-                                            },
-                                        }],
-                                        usage: None,
-                                    }));
-                                }
-                                if let Some(reasoning_content) = parsed.reasoning_content
-                                    && !reasoning_content.is_empty()
-                                {
-                                    outputs.push(Ok(StreamResponse {
-                                        choices: vec![StreamChoice {
-                                            delta: StreamDelta {
-                                                content: None,
-                                                reasoning_content: Some(reasoning_content),
-                                                tool_calls: None,
-                                            },
-                                        }],
-                                        usage: None,
-                                    }));
-                                }
-
-                                if let Some(tool_calls) = parsed.tool_calls {
-                                    let mut updated_calls = Vec::new();
-                                    for call in tool_calls {
-                                        let index = call.index.unwrap_or(0);
-                                        let call_type = call
-                                            .call_type
-                                            .unwrap_or_else(|| "function".to_string());
-                                        let state = tool_states.entry(index).or_default();
-                                        if let Some(id) = call.id {
-                                            state.id = id;
-                                        }
-                                        if let Some(function) = call.function {
-                                            if let Some(name) = function.name {
-                                                state.name = name;
-                                            }
-                                            if !function.arguments.is_empty() {
-                                                state.arguments.push_str(&function.arguments);
-                                            }
-                                        }
-                                        if !state.id.is_empty()
-                                            || !state.name.is_empty()
-                                            || !state.arguments.is_empty()
-                                        {
-                                            updated_calls.push(ToolCall {
-                                                id: state.id.clone(),
-                                                call_type,
-                                                function: FunctionCall {
-                                                    name: state.name.clone(),
-                                                    arguments: state.arguments.clone(),
-                                                },
-                                            });
-                                        }
-                                    }
-
-                                    if !updated_calls.is_empty() {
-                                        outputs.push(Ok(StreamResponse {
-                                            choices: vec![StreamChoice {
-                                                delta: StreamDelta {
-                                                    content: None,
-                                                    reasoning_content: None,
-                                                    tool_calls: Some(updated_calls),
-                                                },
-                                            }],
-                                            usage: None,
-                                        }));
-                                    }
-                                }
-                            }
-                            Err(err) => {
-                                outputs.push(Err(err));
-                            }
-                        },
-                        Ok(StreamEvent::Usage(usage)) => {
-                            outputs.push(Ok(StreamResponse {
-                                choices: vec![StreamChoice {
-                                    delta: StreamDelta {
-                                        content: None,
-                                        reasoning_content: None,
-                                        tool_calls: None,
-                                    },
-                                }],
-                                usage: Some(usage),
-                            }));
-                        }
-                        Ok(StreamEvent::Done { .. }) => {}
-                        Err(err) => outputs.push(Err(err)),
-                    }
-                    futures::future::ready(Some(outputs))
+                    futures::future::ready(Some(map_struct_stream_event(event, tool_states)))
                 },
             )
             .flat_map(futures::stream::iter);
@@ -1143,36 +992,7 @@ impl ChatProvider for LlamaCppProvider {
             {
                 let (prompt, images, marker) = self.build_mtmd_prompt(messages)?;
                 let response_stream = self.spawn_mtmd_stream(prompt, images, marker, None, None);
-                let stream = response_stream
-                    .map(|event| {
-                        let mut outputs = Vec::new();
-                        match event {
-                            Ok(StreamEvent::Token(token)) => {
-                                if !token.is_empty() {
-                                    outputs.push(Ok(StreamChunk::Text(token)));
-                                }
-                            }
-                            Ok(StreamEvent::Usage(usage)) => {
-                                outputs.push(Ok(StreamChunk::Usage(usage)));
-                            }
-                            Ok(StreamEvent::Done { stop_reason }) => {
-                                outputs.push(Ok(StreamChunk::Done { stop_reason }));
-                            }
-                            Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
-                                Ok(parsed) => {
-                                    push_text_and_reasoning_chunks(
-                                        parsed.content,
-                                        parsed.reasoning_content,
-                                        &mut outputs,
-                                    );
-                                }
-                                Err(err) => outputs.push(Err(err)),
-                            },
-                            Err(err) => outputs.push(Err(err)),
-                        }
-                        outputs
-                    })
-                    .flat_map(futures::stream::iter);
+                let stream = mtmd_tool_stream(response_stream);
                 return Ok(Box::pin(stream));
             }
             #[cfg(not(feature = "mtmd"))]
@@ -1205,77 +1025,7 @@ impl ChatProvider for LlamaCppProvider {
             .scan(
                 HashMap::<usize, ToolCallState>::new(),
                 |tool_states, event| {
-                    let mut outputs = Vec::new();
-                    match event {
-                        Ok(StreamEvent::Token(token)) => {
-                            if !token.is_empty() {
-                                outputs.push(Ok(StreamChunk::Text(token)));
-                            }
-                        }
-                        Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
-                            Ok(parsed) => {
-                                push_text_and_reasoning_chunks(
-                                    parsed.content,
-                                    parsed.reasoning_content,
-                                    &mut outputs,
-                                );
-
-                                if let Some(tool_calls) = parsed.tool_calls {
-                                    for call in tool_calls {
-                                        let index = call.index.unwrap_or(0);
-                                        let state = tool_states.entry(index).or_default();
-                                        if let Some(id) = call.id {
-                                            state.id = id;
-                                        }
-                                        if let Some(function) = call.function {
-                                            if let Some(name) = function.name {
-                                                state.name = name;
-                                                if !state.started {
-                                                    state.started = true;
-                                                    outputs.push(Ok(StreamChunk::ToolUseStart {
-                                                        index,
-                                                        id: state.id.clone(),
-                                                        name: state.name.clone(),
-                                                    }));
-                                                }
-                                            }
-                                            if !function.arguments.is_empty() {
-                                                state.arguments.push_str(&function.arguments);
-                                                outputs.push(Ok(StreamChunk::ToolUseInputDelta {
-                                                    index,
-                                                    partial_json: function.arguments,
-                                                }));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Err(err) => outputs.push(Err(err)),
-                        },
-                        Ok(StreamEvent::Usage(usage)) => {
-                            outputs.push(Ok(StreamChunk::Usage(usage)));
-                        }
-                        Ok(StreamEvent::Done { stop_reason }) => {
-                            for (index, state) in tool_states.drain() {
-                                if state.started {
-                                    outputs.push(Ok(StreamChunk::ToolUseComplete {
-                                        index,
-                                        tool_call: ToolCall {
-                                            id: state.id,
-                                            call_type: "function".to_string(),
-                                            function: FunctionCall {
-                                                name: state.name,
-                                                arguments: state.arguments,
-                                            },
-                                        },
-                                    }));
-                                }
-                            }
-                            outputs.push(Ok(StreamChunk::Done { stop_reason }));
-                        }
-                        Err(err) => outputs.push(Err(err)),
-                    }
-                    futures::future::ready(Some(outputs))
+                    futures::future::ready(Some(map_tool_stream_event(event, tool_states)))
                 },
             )
             .flat_map(futures::stream::iter);
@@ -1364,6 +1114,277 @@ fn ensure_supported_messages_for_config(
 
 fn parse_openai_delta(delta: &str) -> Result<OpenAICompatDelta, LLMError> {
     serde_json::from_str(delta).map_err(|err| LLMError::JsonError(err.to_string()))
+}
+
+#[cfg(feature = "mtmd")]
+fn mtmd_structured_stream(
+    response_stream: Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>,
+) -> impl Stream<Item = Result<StreamResponse, LLMError>> {
+    response_stream.filter_map(|event| async move {
+        match event {
+            Ok(StreamEvent::Token(token)) => {
+                Some(Ok(single_stream_response(Some(token), None, None, None)))
+            }
+            Ok(StreamEvent::Usage(_)) | Ok(StreamEvent::Done { .. }) => None,
+            Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
+                Ok(parsed) => {
+                    let content = parsed.content.filter(|c| !c.is_empty());
+                    let reasoning_content = parsed.reasoning_content.filter(|c| !c.is_empty());
+                    if content.is_none() && reasoning_content.is_none() {
+                        None
+                    } else {
+                        Some(Ok(single_stream_response(
+                            content,
+                            reasoning_content,
+                            None,
+                            None,
+                        )))
+                    }
+                }
+                Err(err) => Some(Err(err)),
+            },
+            Err(err) => Some(Err(err)),
+        }
+    })
+}
+
+#[cfg(feature = "mtmd")]
+fn mtmd_tool_stream(
+    response_stream: Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>,
+) -> impl Stream<Item = Result<StreamChunk, LLMError>> {
+    response_stream
+        .map(|event| {
+            let mut outputs = Vec::new();
+            match event {
+                Ok(StreamEvent::Token(token)) => {
+                    if !token.is_empty() {
+                        outputs.push(Ok(StreamChunk::Text(token)));
+                    }
+                }
+                Ok(StreamEvent::Usage(usage)) => outputs.push(Ok(StreamChunk::Usage(usage))),
+                Ok(StreamEvent::Done { stop_reason }) => {
+                    outputs.push(Ok(StreamChunk::Done { stop_reason }))
+                }
+                Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
+                    Ok(parsed) => {
+                        push_text_and_reasoning_chunks(
+                            parsed.content,
+                            parsed.reasoning_content,
+                            &mut outputs,
+                        );
+                    }
+                    Err(err) => outputs.push(Err(err)),
+                },
+                Err(err) => outputs.push(Err(err)),
+            }
+            outputs
+        })
+        .flat_map(futures::stream::iter)
+}
+
+fn single_stream_response(
+    content: Option<String>,
+    reasoning_content: Option<String>,
+    tool_calls: Option<Vec<ToolCall>>,
+    usage: Option<ChatUsage>,
+) -> StreamResponse {
+    StreamResponse {
+        choices: vec![StreamChoice {
+            delta: StreamDelta {
+                content,
+                reasoning_content,
+                tool_calls,
+            },
+        }],
+        usage,
+    }
+}
+
+fn map_struct_stream_event(
+    event: Result<StreamEvent, LLMError>,
+    tool_states: &mut HashMap<usize, ToolCallState>,
+) -> Vec<Result<StreamResponse, LLMError>> {
+    let mut outputs = Vec::new();
+    match event {
+        Ok(StreamEvent::Token(token)) => {
+            if !token.is_empty() {
+                outputs.push(Ok(single_stream_response(Some(token), None, None, None)));
+            }
+        }
+        Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
+            Ok(parsed) => {
+                push_struct_content_and_reasoning(
+                    parsed.content,
+                    parsed.reasoning_content,
+                    &mut outputs,
+                );
+                if let Some(tool_calls) = parsed.tool_calls {
+                    push_struct_tool_call_updates(tool_calls, tool_states, &mut outputs);
+                }
+            }
+            Err(err) => outputs.push(Err(err)),
+        },
+        Ok(StreamEvent::Usage(usage)) => {
+            outputs.push(Ok(single_stream_response(None, None, None, Some(usage))));
+        }
+        Ok(StreamEvent::Done { .. }) => {}
+        Err(err) => outputs.push(Err(err)),
+    }
+    outputs
+}
+
+fn map_tool_stream_event(
+    event: Result<StreamEvent, LLMError>,
+    tool_states: &mut HashMap<usize, ToolCallState>,
+) -> Vec<Result<StreamChunk, LLMError>> {
+    let mut outputs = Vec::new();
+    match event {
+        Ok(StreamEvent::Token(token)) => {
+            if !token.is_empty() {
+                outputs.push(Ok(StreamChunk::Text(token)));
+            }
+        }
+        Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
+            Ok(parsed) => {
+                push_text_and_reasoning_chunks(
+                    parsed.content,
+                    parsed.reasoning_content,
+                    &mut outputs,
+                );
+                if let Some(tool_calls) = parsed.tool_calls {
+                    push_tool_chunk_updates(tool_calls, tool_states, &mut outputs);
+                }
+            }
+            Err(err) => outputs.push(Err(err)),
+        },
+        Ok(StreamEvent::Usage(usage)) => outputs.push(Ok(StreamChunk::Usage(usage))),
+        Ok(StreamEvent::Done { stop_reason }) => {
+            push_tool_completions(tool_states, &mut outputs);
+            outputs.push(Ok(StreamChunk::Done { stop_reason }));
+        }
+        Err(err) => outputs.push(Err(err)),
+    }
+    outputs
+}
+
+fn push_struct_content_and_reasoning(
+    content: Option<String>,
+    reasoning_content: Option<String>,
+    outputs: &mut Vec<Result<StreamResponse, LLMError>>,
+) {
+    if let Some(content) = content
+        && !content.is_empty()
+    {
+        outputs.push(Ok(single_stream_response(Some(content), None, None, None)));
+    }
+    if let Some(reasoning_content) = reasoning_content
+        && !reasoning_content.is_empty()
+    {
+        outputs.push(Ok(single_stream_response(
+            None,
+            Some(reasoning_content),
+            None,
+            None,
+        )));
+    }
+}
+
+fn push_struct_tool_call_updates(
+    tool_calls: Vec<OpenAIToolCallDelta>,
+    tool_states: &mut HashMap<usize, ToolCallState>,
+    outputs: &mut Vec<Result<StreamResponse, LLMError>>,
+) {
+    let mut updated_calls = Vec::new();
+    for call in tool_calls {
+        let index = call.index.unwrap_or(0);
+        let call_type = call.call_type.unwrap_or_else(|| "function".to_string());
+        let state = tool_states.entry(index).or_default();
+        if let Some(id) = call.id {
+            state.id = id;
+        }
+        if let Some(function) = call.function {
+            if let Some(name) = function.name {
+                state.name = name;
+            }
+            if !function.arguments.is_empty() {
+                state.arguments.push_str(&function.arguments);
+            }
+        }
+        if !state.id.is_empty() || !state.name.is_empty() || !state.arguments.is_empty() {
+            updated_calls.push(ToolCall {
+                id: state.id.clone(),
+                call_type: call_type.clone(),
+                function: FunctionCall {
+                    name: state.name.clone(),
+                    arguments: state.arguments.clone(),
+                },
+            });
+        }
+    }
+
+    if !updated_calls.is_empty() {
+        outputs.push(Ok(single_stream_response(
+            None,
+            None,
+            Some(updated_calls),
+            None,
+        )));
+    }
+}
+
+fn push_tool_chunk_updates(
+    tool_calls: Vec<OpenAIToolCallDelta>,
+    tool_states: &mut HashMap<usize, ToolCallState>,
+    outputs: &mut Vec<Result<StreamChunk, LLMError>>,
+) {
+    for call in tool_calls {
+        let index = call.index.unwrap_or(0);
+        let state = tool_states.entry(index).or_default();
+        if let Some(id) = call.id {
+            state.id = id;
+        }
+        if let Some(function) = call.function {
+            if let Some(name) = function.name {
+                state.name = name;
+                if !state.started {
+                    state.started = true;
+                    outputs.push(Ok(StreamChunk::ToolUseStart {
+                        index,
+                        id: state.id.clone(),
+                        name: state.name.clone(),
+                    }));
+                }
+            }
+            if !function.arguments.is_empty() {
+                state.arguments.push_str(&function.arguments);
+                outputs.push(Ok(StreamChunk::ToolUseInputDelta {
+                    index,
+                    partial_json: function.arguments,
+                }));
+            }
+        }
+    }
+}
+
+fn push_tool_completions(
+    tool_states: &mut HashMap<usize, ToolCallState>,
+    outputs: &mut Vec<Result<StreamChunk, LLMError>>,
+) {
+    for (index, state) in tool_states.drain() {
+        if state.started {
+            outputs.push(Ok(StreamChunk::ToolUseComplete {
+                index,
+                tool_call: ToolCall {
+                    id: state.id,
+                    call_type: "function".to_string(),
+                    function: FunctionCall {
+                        name: state.name,
+                        arguments: state.arguments,
+                    },
+                },
+            }));
+        }
+    }
 }
 
 fn push_text_and_reasoning_chunks(

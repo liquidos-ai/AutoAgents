@@ -426,6 +426,198 @@ enum MistralStreamEvent {
     Done(ChatCompletionResponse),
 }
 
+struct ToolUseState {
+    id: String,
+    name: String,
+    arguments: String,
+    call_type: String,
+    started: bool,
+}
+
+impl Default for ToolUseState {
+    fn default() -> Self {
+        Self {
+            id: String::default(),
+            name: String::default(),
+            arguments: String::default(),
+            call_type: "function".to_string(),
+            started: false,
+        }
+    }
+}
+
+struct ToolStreamState {
+    inner: Pin<Box<dyn Stream<Item = Result<MistralStreamEvent, LLMError>> + Send>>,
+    pending: VecDeque<Result<StreamChunk, LLMError>>,
+    tool_states: HashMap<usize, ToolUseState>,
+    stop_reason: Option<String>,
+    saw_tool_use: bool,
+    usage_emitted: bool,
+    done_sent: bool,
+}
+
+impl ToolStreamState {
+    fn new(
+        inner: Pin<Box<dyn Stream<Item = Result<MistralStreamEvent, LLMError>> + Send>>,
+    ) -> Self {
+        Self {
+            inner,
+            pending: VecDeque::new(),
+            tool_states: HashMap::new(),
+            stop_reason: None,
+            saw_tool_use: false,
+            usage_emitted: false,
+            done_sent: false,
+        }
+    }
+}
+
+fn normalize_stop_reason(reason: Option<String>, saw_tool_use: bool) -> String {
+    let fallback = if saw_tool_use { "tool_use" } else { "end_turn" };
+    let raw = reason.as_deref().unwrap_or(fallback);
+    match raw {
+        "tool_calls" => "tool_use".to_string(),
+        "stop" => "end_turn".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn push_tool_call_updates(
+    tool_calls: Vec<ToolCallResponse>,
+    tool_states: &mut HashMap<usize, ToolUseState>,
+    pending: &mut VecDeque<Result<StreamChunk, LLMError>>,
+    saw_tool_use: &mut bool,
+) {
+    for tool_call in tool_calls {
+        let index = tool_call.index;
+        let state = tool_states.entry(index).or_default();
+
+        if !tool_call.id.is_empty() {
+            state.id = tool_call.id.clone();
+        }
+        if !tool_call.function.name.is_empty() {
+            state.name = tool_call.function.name.clone();
+            if !state.started {
+                state.started = true;
+                *saw_tool_use = true;
+                pending.push_back(Ok(StreamChunk::ToolUseStart {
+                    index,
+                    id: state.id.clone(),
+                    name: state.name.clone(),
+                }));
+            }
+        }
+        if !tool_call.function.arguments.is_empty() {
+            state.arguments.push_str(&tool_call.function.arguments);
+            *saw_tool_use = true;
+            pending.push_back(Ok(StreamChunk::ToolUseInputDelta {
+                index,
+                partial_json: tool_call.function.arguments.clone(),
+            }));
+        }
+        state.call_type = tool_call.tp.to_string();
+    }
+}
+
+fn push_tool_completions(state: &mut ToolStreamState) {
+    for (index, tool_state) in state.tool_states.drain() {
+        if tool_state.started {
+            state.pending.push_back(Ok(StreamChunk::ToolUseComplete {
+                index,
+                tool_call: ToolCall {
+                    id: tool_state.id,
+                    call_type: tool_state.call_type,
+                    function: FunctionCall {
+                        name: tool_state.name,
+                        arguments: tool_state.arguments,
+                    },
+                },
+            }));
+        }
+    }
+}
+
+fn handle_chunk_for_tool_stream(state: &mut ToolStreamState, chunk: ChatCompletionChunkResponse) {
+    for choice in chunk.choices {
+        if let Some(content) = choice.delta.content
+            && !content.is_empty()
+        {
+            state.pending.push_back(Ok(StreamChunk::Text(content)));
+        }
+        if let Some(reasoning_content) = choice.delta.reasoning_content
+            && !reasoning_content.is_empty()
+        {
+            state
+                .pending
+                .push_back(Ok(StreamChunk::ReasoningContent(reasoning_content)));
+        }
+        if let Some(tool_calls) = choice.delta.tool_calls
+            && !tool_calls.is_empty()
+        {
+            push_tool_call_updates(
+                tool_calls,
+                &mut state.tool_states,
+                &mut state.pending,
+                &mut state.saw_tool_use,
+            );
+        }
+        if let Some(finish_reason) = choice.finish_reason {
+            state.stop_reason = Some(finish_reason);
+        }
+    }
+
+    if let Some(usage) = chunk.usage
+        && !state.usage_emitted
+    {
+        state
+            .pending
+            .push_back(Ok(StreamChunk::Usage(MistralRsProvider::convert_usage(
+                usage,
+            ))));
+        state.usage_emitted = true;
+    }
+}
+
+fn finalize_tool_stream(state: &mut ToolStreamState) {
+    push_tool_completions(state);
+    let stop_reason = normalize_stop_reason(state.stop_reason.take(), state.saw_tool_use);
+    state
+        .pending
+        .push_back(Ok(StreamChunk::Done { stop_reason }));
+    state.done_sent = true;
+}
+
+fn handle_done_for_tool_stream(state: &mut ToolStreamState, done: ChatCompletionResponse) {
+    let ChatCompletionResponse { choices, usage, .. } = done;
+    if let Some(choice) = choices.first() {
+        state.stop_reason = Some(choice.finish_reason.clone());
+    }
+
+    for choice in choices {
+        if let Some(tool_calls) = choice.message.tool_calls
+            && !tool_calls.is_empty()
+        {
+            push_tool_call_updates(
+                tool_calls,
+                &mut state.tool_states,
+                &mut state.pending,
+                &mut state.saw_tool_use,
+            );
+        }
+    }
+
+    push_tool_completions(state);
+    if !state.usage_emitted {
+        state
+            .pending
+            .push_back(Ok(StreamChunk::Usage(MistralRsProvider::convert_usage(
+                usage,
+            ))));
+        state.usage_emitted = true;
+    }
+    finalize_tool_stream(state);
+}
+
 /// Builder for MistralRsProvider
 #[derive(Default)]
 pub struct MistralRsProviderBuilder {
@@ -745,221 +937,29 @@ impl ChatProvider for MistralRsProvider {
         let request_builder = self.build_stream_request(messages, tools, json_schema)?;
         let response_stream = Self::spawn_response_stream(self.model.clone(), request_builder);
 
-        struct ToolUseState {
-            id: String,
-            name: String,
-            arguments: String,
-            call_type: String,
-            started: bool,
-        }
-
-        impl ToolUseState {
-            fn new() -> Self {
-                Self {
-                    id: String::default(),
-                    name: String::default(),
-                    arguments: String::default(),
-                    call_type: "function".to_string(),
-                    started: false,
-                }
-            }
-        }
-
-        struct StreamState {
-            inner: Pin<Box<dyn Stream<Item = Result<MistralStreamEvent, LLMError>> + Send>>,
-            pending: VecDeque<Result<StreamChunk, LLMError>>,
-            tool_states: HashMap<usize, ToolUseState>,
-            stop_reason: Option<String>,
-            saw_tool_use: bool,
-            usage_emitted: bool,
-            done_sent: bool,
-        }
-
         let stream = futures::stream::unfold(
-            StreamState {
-                inner: response_stream,
-                pending: VecDeque::new(),
-                tool_states: HashMap::new(),
-                stop_reason: None,
-                saw_tool_use: false,
-                usage_emitted: false,
-                done_sent: false,
-            },
+            ToolStreamState::new(response_stream),
             |mut state| async move {
-                fn normalize_stop_reason(reason: Option<String>, saw_tool_use: bool) -> String {
-                    let fallback = if saw_tool_use { "tool_use" } else { "end_turn" };
-                    let raw = reason.as_deref().unwrap_or(fallback);
-                    match raw {
-                        "tool_calls" => "tool_use".to_string(),
-                        "stop" => "end_turn".to_string(),
-                        other => other.to_string(),
-                    }
-                }
-
-                fn handle_tool_calls(
-                    tool_calls: Vec<ToolCallResponse>,
-                    tool_states: &mut HashMap<usize, ToolUseState>,
-                    pending: &mut VecDeque<Result<StreamChunk, LLMError>>,
-                    saw_tool_use: &mut bool,
-                ) {
-                    for tool_call in tool_calls {
-                        let index = tool_call.index;
-                        let state = tool_states.entry(index).or_insert_with(ToolUseState::new);
-
-                        if !tool_call.id.is_empty() {
-                            state.id = tool_call.id.clone();
-                        }
-                        if !tool_call.function.name.is_empty() {
-                            state.name = tool_call.function.name.clone();
-                            if !state.started {
-                                state.started = true;
-                                *saw_tool_use = true;
-                                pending.push_back(Ok(StreamChunk::ToolUseStart {
-                                    index,
-                                    id: state.id.clone(),
-                                    name: state.name.clone(),
-                                }));
-                            }
-                        }
-                        if !tool_call.function.arguments.is_empty() {
-                            state.arguments.push_str(&tool_call.function.arguments);
-                            *saw_tool_use = true;
-                            pending.push_back(Ok(StreamChunk::ToolUseInputDelta {
-                                index,
-                                partial_json: tool_call.function.arguments.clone(),
-                            }));
-                        }
-                        state.call_type = tool_call.tp.to_string();
-                    }
-                }
-
                 loop {
                     if let Some(item) = state.pending.pop_front() {
                         return Some((item, state));
                     }
-
                     if state.done_sent {
                         return None;
                     }
 
                     match state.inner.as_mut().next().await {
                         Some(Ok(MistralStreamEvent::Chunk(chunk))) => {
-                            for choice in chunk.choices {
-                                if let Some(content) = choice.delta.content
-                                    && !content.is_empty()
-                                {
-                                    state.pending.push_back(Ok(StreamChunk::Text(content)));
-                                }
-                                if let Some(reasoning_content) = choice.delta.reasoning_content
-                                    && !reasoning_content.is_empty()
-                                {
-                                    state.pending.push_back(Ok(StreamChunk::ReasoningContent(
-                                        reasoning_content,
-                                    )));
-                                }
-
-                                if let Some(tool_calls) = choice.delta.tool_calls
-                                    && !tool_calls.is_empty()
-                                {
-                                    handle_tool_calls(
-                                        tool_calls,
-                                        &mut state.tool_states,
-                                        &mut state.pending,
-                                        &mut state.saw_tool_use,
-                                    );
-                                }
-
-                                if let Some(finish_reason) = choice.finish_reason {
-                                    state.stop_reason = Some(finish_reason);
-                                }
-                            }
-
-                            if let Some(usage) = chunk.usage
-                                && !state.usage_emitted
-                            {
-                                state
-                                    .pending
-                                    .push_back(Ok(StreamChunk::Usage(Self::convert_usage(usage))));
-                                state.usage_emitted = true;
-                            }
+                            handle_chunk_for_tool_stream(&mut state, chunk)
                         }
                         Some(Ok(MistralStreamEvent::Done(done))) => {
-                            let ChatCompletionResponse { choices, usage, .. } = done;
-                            if let Some(choice) = choices.first() {
-                                state.stop_reason = Some(choice.finish_reason.clone());
-                            }
-
-                            for choice in choices {
-                                if let Some(tool_calls) = choice.message.tool_calls
-                                    && !tool_calls.is_empty()
-                                {
-                                    handle_tool_calls(
-                                        tool_calls,
-                                        &mut state.tool_states,
-                                        &mut state.pending,
-                                        &mut state.saw_tool_use,
-                                    );
-                                }
-                            }
-
-                            for (index, tool_state) in state.tool_states.drain() {
-                                if tool_state.started {
-                                    state.pending.push_back(Ok(StreamChunk::ToolUseComplete {
-                                        index,
-                                        tool_call: ToolCall {
-                                            id: tool_state.id,
-                                            call_type: tool_state.call_type,
-                                            function: FunctionCall {
-                                                name: tool_state.name,
-                                                arguments: tool_state.arguments,
-                                            },
-                                        },
-                                    }));
-                                }
-                            }
-
-                            if !state.usage_emitted {
-                                state
-                                    .pending
-                                    .push_back(Ok(StreamChunk::Usage(Self::convert_usage(usage))));
-                                state.usage_emitted = true;
-                            }
-
-                            let stop_reason =
-                                normalize_stop_reason(state.stop_reason.take(), state.saw_tool_use);
-                            state
-                                .pending
-                                .push_back(Ok(StreamChunk::Done { stop_reason }));
-                            state.done_sent = true;
+                            handle_done_for_tool_stream(&mut state, done)
                         }
                         Some(Err(err)) => {
                             state.done_sent = true;
                             return Some((Err(err), state));
                         }
-                        None => {
-                            for (index, tool_state) in state.tool_states.drain() {
-                                if tool_state.started {
-                                    state.pending.push_back(Ok(StreamChunk::ToolUseComplete {
-                                        index,
-                                        tool_call: ToolCall {
-                                            id: tool_state.id,
-                                            call_type: tool_state.call_type,
-                                            function: FunctionCall {
-                                                name: tool_state.name,
-                                                arguments: tool_state.arguments,
-                                            },
-                                        },
-                                    }));
-                                }
-                            }
-
-                            let stop_reason =
-                                normalize_stop_reason(state.stop_reason.take(), state.saw_tool_use);
-                            state
-                                .pending
-                                .push_back(Ok(StreamChunk::Done { stop_reason }));
-                            state.done_sent = true;
-                        }
+                        None => finalize_tool_stream(&mut state),
                     }
                 }
             },
