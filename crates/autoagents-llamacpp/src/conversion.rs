@@ -11,6 +11,7 @@ use std::fmt;
 #[derive(Debug, Clone)]
 pub struct LlamaCppResponse {
     pub content: Option<String>,
+    pub thinking: Option<String>,
     pub tool_calls: Option<Vec<ToolCall>>,
     pub usage: Option<Usage>,
 }
@@ -43,6 +44,10 @@ impl ChatResponse for LlamaCppResponse {
 
     fn tool_calls(&self) -> Option<Vec<ToolCall>> {
         self.tool_calls.clone()
+    }
+
+    fn thinking(&self) -> Option<String> {
+        self.thinking.clone()
     }
 
     fn usage(&self) -> Option<Usage> {

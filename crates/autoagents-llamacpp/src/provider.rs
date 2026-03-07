@@ -110,12 +110,16 @@ enum ChatPrompt {
 #[derive(Debug, Deserialize)]
 struct OpenAICompatMessage {
     content: Option<String>,
+    #[serde(default)]
+    reasoning_content: Option<String>,
     tool_calls: Option<Vec<ToolCall>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct OpenAICompatDelta {
     content: Option<String>,
+    #[serde(default)]
+    reasoning_content: Option<String>,
     tool_calls: Option<Vec<OpenAIToolCallDelta>>,
 }
 
@@ -237,6 +241,13 @@ impl LlamaCppProvider {
             } else {
                 None
             };
+            let chat_template_kwargs = self
+                .config
+                .extra_body
+                .as_ref()
+                .and_then(|body| body.get("chat_template_kwargs"))
+                .filter(|value| value.is_object())
+                .map(Value::to_string);
 
             let parse_tool_calls =
                 tools_json.is_some() && json_schema_value.is_none() && grammar_value.is_none();
@@ -246,8 +257,11 @@ impl LlamaCppProvider {
                 tool_choice: None,
                 json_schema: json_schema_value.as_deref(),
                 grammar: grammar_value.as_deref(),
-                reasoning_format: None,
-                chat_template_kwargs: None,
+                reasoning_format: self
+                    .config
+                    .reasoning_format
+                    .and_then(|format| format.as_str()),
+                chat_template_kwargs: chat_template_kwargs.as_deref(),
                 add_generation_prompt: true,
                 use_jinja: true,
                 parallel_tool_calls: false,
@@ -783,6 +797,7 @@ impl ChatProvider for LlamaCppProvider {
 
                 return Ok(Box::new(LlamaCppResponse {
                     content: Some(result.text),
+                    thinking: None,
                     tool_calls: None,
                     usage,
                 }));
@@ -816,6 +831,7 @@ impl ChatProvider for LlamaCppProvider {
 
                 Ok(Box::new(LlamaCppResponse {
                     content: Some(result.text),
+                    thinking: None,
                     tool_calls: None,
                     usage,
                 }))
@@ -841,6 +857,7 @@ impl ChatProvider for LlamaCppProvider {
 
                 Ok(Box::new(LlamaCppResponse {
                     content: message.content,
+                    thinking: message.reasoning_content,
                     tool_calls: message.tool_calls,
                     usage,
                 }))
@@ -932,6 +949,7 @@ impl ChatProvider for LlamaCppProvider {
                             choices: vec![StreamChoice {
                                 delta: StreamDelta {
                                     content: Some(token),
+                                    reasoning_content: None,
                                     tool_calls: None,
                                 },
                             }],
@@ -939,19 +957,25 @@ impl ChatProvider for LlamaCppProvider {
                         })),
                         Ok(StreamEvent::Usage(_)) | Ok(StreamEvent::Done { .. }) => None,
                         Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
-                            Ok(parsed) => parsed.content.filter(|content| !content.is_empty()).map(
-                                |content| {
-                                    Ok(StreamResponse {
+                            Ok(parsed) => {
+                                let content = parsed.content.filter(|c| !c.is_empty());
+                                let reasoning_content =
+                                    parsed.reasoning_content.filter(|c| !c.is_empty());
+                                if content.is_none() && reasoning_content.is_none() {
+                                    None
+                                } else {
+                                    Some(Ok(StreamResponse {
                                         choices: vec![StreamChoice {
                                             delta: StreamDelta {
-                                                content: Some(content),
+                                                content,
+                                                reasoning_content,
                                                 tool_calls: None,
                                             },
                                         }],
                                         usage: None,
-                                    })
-                                },
-                            ),
+                                    }))
+                                }
+                            }
                             Err(err) => Some(Err(err)),
                         },
                         Err(err) => Some(Err(err)),
@@ -984,15 +1008,18 @@ impl ChatProvider for LlamaCppProvider {
                     let mut outputs = Vec::new();
                     match event {
                         Ok(StreamEvent::Token(token)) => {
-                            outputs.push(Ok(StreamResponse {
-                                choices: vec![StreamChoice {
-                                    delta: StreamDelta {
-                                        content: Some(token),
-                                        tool_calls: None,
-                                    },
-                                }],
-                                usage: None,
-                            }));
+                            if !token.is_empty() {
+                                outputs.push(Ok(StreamResponse {
+                                    choices: vec![StreamChoice {
+                                        delta: StreamDelta {
+                                            content: Some(token),
+                                            reasoning_content: None,
+                                            tool_calls: None,
+                                        },
+                                    }],
+                                    usage: None,
+                                }));
+                            }
                         }
                         Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
                             Ok(parsed) => {
@@ -1003,6 +1030,21 @@ impl ChatProvider for LlamaCppProvider {
                                         choices: vec![StreamChoice {
                                             delta: StreamDelta {
                                                 content: Some(content),
+                                                reasoning_content: None,
+                                                tool_calls: None,
+                                            },
+                                        }],
+                                        usage: None,
+                                    }));
+                                }
+                                if let Some(reasoning_content) = parsed.reasoning_content
+                                    && !reasoning_content.is_empty()
+                                {
+                                    outputs.push(Ok(StreamResponse {
+                                        choices: vec![StreamChoice {
+                                            delta: StreamDelta {
+                                                content: None,
+                                                reasoning_content: Some(reasoning_content),
                                                 tool_calls: None,
                                             },
                                         }],
@@ -1049,6 +1091,7 @@ impl ChatProvider for LlamaCppProvider {
                                             choices: vec![StreamChoice {
                                                 delta: StreamDelta {
                                                     content: None,
+                                                    reasoning_content: None,
                                                     tool_calls: Some(updated_calls),
                                                 },
                                             }],
@@ -1066,6 +1109,7 @@ impl ChatProvider for LlamaCppProvider {
                                 choices: vec![StreamChoice {
                                     delta: StreamDelta {
                                         content: None,
+                                        reasoning_content: None,
                                         tool_calls: None,
                                     },
                                 }],
@@ -1099,23 +1143,36 @@ impl ChatProvider for LlamaCppProvider {
             {
                 let (prompt, images, marker) = self.build_mtmd_prompt(messages)?;
                 let response_stream = self.spawn_mtmd_stream(prompt, images, marker, None, None);
-                let stream = response_stream.filter_map(|event| async move {
-                    match event {
-                        Ok(StreamEvent::Token(token)) => Some(Ok(StreamChunk::Text(token))),
-                        Ok(StreamEvent::Usage(usage)) => Some(Ok(StreamChunk::Usage(usage))),
-                        Ok(StreamEvent::Done { stop_reason }) => {
-                            Some(Ok(StreamChunk::Done { stop_reason }))
+                let stream = response_stream
+                    .map(|event| {
+                        let mut outputs = Vec::new();
+                        match event {
+                            Ok(StreamEvent::Token(token)) => {
+                                if !token.is_empty() {
+                                    outputs.push(Ok(StreamChunk::Text(token)));
+                                }
+                            }
+                            Ok(StreamEvent::Usage(usage)) => {
+                                outputs.push(Ok(StreamChunk::Usage(usage)));
+                            }
+                            Ok(StreamEvent::Done { stop_reason }) => {
+                                outputs.push(Ok(StreamChunk::Done { stop_reason }));
+                            }
+                            Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
+                                Ok(parsed) => {
+                                    push_text_and_reasoning_chunks(
+                                        parsed.content,
+                                        parsed.reasoning_content,
+                                        &mut outputs,
+                                    );
+                                }
+                                Err(err) => outputs.push(Err(err)),
+                            },
+                            Err(err) => outputs.push(Err(err)),
                         }
-                        Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
-                            Ok(parsed) => parsed
-                                .content
-                                .filter(|content| !content.is_empty())
-                                .map(|content| Ok(StreamChunk::Text(content))),
-                            Err(err) => Some(Err(err)),
-                        },
-                        Err(err) => Some(Err(err)),
-                    }
-                });
+                        outputs
+                    })
+                    .flat_map(futures::stream::iter);
                 return Ok(Box::pin(stream));
             }
             #[cfg(not(feature = "mtmd"))]
@@ -1151,15 +1208,17 @@ impl ChatProvider for LlamaCppProvider {
                     let mut outputs = Vec::new();
                     match event {
                         Ok(StreamEvent::Token(token)) => {
-                            outputs.push(Ok(StreamChunk::Text(token)));
+                            if !token.is_empty() {
+                                outputs.push(Ok(StreamChunk::Text(token)));
+                            }
                         }
                         Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
                             Ok(parsed) => {
-                                if let Some(content) = parsed.content
-                                    && !content.is_empty()
-                                {
-                                    outputs.push(Ok(StreamChunk::Text(content)));
-                                }
+                                push_text_and_reasoning_chunks(
+                                    parsed.content,
+                                    parsed.reasoning_content,
+                                    &mut outputs,
+                                );
 
                                 if let Some(tool_calls) = parsed.tool_calls {
                                     for call in tool_calls {
@@ -1305,6 +1364,23 @@ fn ensure_supported_messages_for_config(
 
 fn parse_openai_delta(delta: &str) -> Result<OpenAICompatDelta, LLMError> {
     serde_json::from_str(delta).map_err(|err| LLMError::JsonError(err.to_string()))
+}
+
+fn push_text_and_reasoning_chunks(
+    content: Option<String>,
+    reasoning_content: Option<String>,
+    outputs: &mut Vec<Result<StreamChunk, LLMError>>,
+) {
+    if let Some(content) = content
+        && !content.is_empty()
+    {
+        outputs.push(Ok(StreamChunk::Text(content)));
+    }
+    if let Some(reasoning_content) = reasoning_content
+        && !reasoning_content.is_empty()
+    {
+        outputs.push(Ok(StreamChunk::ReasoningContent(reasoning_content)));
+    }
 }
 
 #[async_trait]
@@ -2301,12 +2377,30 @@ mod tests {
 
     #[test]
     fn test_parse_openai_delta_valid_and_invalid() {
-        let valid = r#"{"content":"hi"}"#;
+        let valid = r#"{"content":"hi","reasoning_content":"think"}"#;
         let parsed = parse_openai_delta(valid).expect("valid json should parse");
         assert_eq!(parsed.content, Some("hi".to_string()));
+        assert_eq!(parsed.reasoning_content, Some("think".to_string()));
 
         let err = parse_openai_delta("{bad").expect_err("invalid json should error");
         assert!(matches!(err, LLMError::JsonError(_)));
+    }
+
+    #[test]
+    fn test_push_text_and_reasoning_chunks_emits_both() {
+        let mut outputs = Vec::new();
+        push_text_and_reasoning_chunks(
+            Some("answer".to_string()),
+            Some("plan".to_string()),
+            &mut outputs,
+        );
+
+        assert_eq!(outputs.len(), 2);
+        assert!(matches!(&outputs[0], Ok(StreamChunk::Text(text)) if text == "answer"));
+        assert!(matches!(
+            &outputs[1],
+            Ok(StreamChunk::ReasoningContent(text)) if text == "plan"
+        ));
     }
 
     #[test]

@@ -296,19 +296,25 @@ impl MistralRsProvider {
                 });
 
                 let content = choice.delta.content;
+                let reasoning_content = choice.delta.reasoning_content;
                 let has_tool_calls = tool_calls
                     .as_ref()
                     .map(|calls| !calls.is_empty())
                     .unwrap_or(false);
                 let has_content = content.as_ref().map(|c| !c.is_empty()).unwrap_or(false);
+                let has_reasoning = reasoning_content
+                    .as_ref()
+                    .map(|c| !c.is_empty())
+                    .unwrap_or(false);
 
-                if !has_content && !has_tool_calls {
+                if !has_content && !has_reasoning && !has_tool_calls {
                     return None;
                 }
 
                 Some(StreamChoice {
                     delta: StreamDelta {
                         content,
+                        reasoning_content,
                         tool_calls,
                     },
                 })
@@ -330,6 +336,7 @@ impl MistralRsProvider {
             choices: vec![StreamChoice {
                 delta: StreamDelta {
                     content: None,
+                    reasoning_content: None,
                     tool_calls: None,
                 },
             }],
@@ -843,6 +850,13 @@ impl ChatProvider for MistralRsProvider {
                                 {
                                     state.pending.push_back(Ok(StreamChunk::Text(content)));
                                 }
+                                if let Some(reasoning_content) = choice.delta.reasoning_content
+                                    && !reasoning_content.is_empty()
+                                {
+                                    state.pending.push_back(Ok(StreamChunk::ReasoningContent(
+                                        reasoning_content,
+                                    )));
+                                }
 
                                 if let Some(tool_calls) = choice.delta.tool_calls
                                     && !tool_calls.is_empty()
@@ -1143,7 +1157,7 @@ mod tests {
                     content: Some("hi".to_string()),
                     role: "assistant".to_string(),
                     tool_calls: Some(vec![tool_call]),
-                    reasoning_content: None,
+                    reasoning_content: Some("think".to_string()),
                 },
                 logprobs: None,
             }],
@@ -1157,6 +1171,10 @@ mod tests {
         let response = MistralRsProvider::chunk_to_stream_response(chunk).unwrap();
         assert_eq!(response.choices.len(), 1);
         assert_eq!(response.choices[0].delta.content.as_deref(), Some("hi"));
+        assert_eq!(
+            response.choices[0].delta.reasoning_content.as_deref(),
+            Some("think")
+        );
         let tool_calls = response.choices[0].delta.tool_calls.as_ref().unwrap();
         assert_eq!(tool_calls[0].function.name, "lookup");
         assert_eq!(tool_calls[0].function.arguments, "{}");

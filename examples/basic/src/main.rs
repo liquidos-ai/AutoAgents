@@ -8,6 +8,7 @@ mod hooks;
 mod llm;
 mod manual_tool_agent;
 mod streaming;
+mod thinking;
 mod toolkit;
 mod utils;
 
@@ -21,6 +22,7 @@ enum UseCase {
     ManualToolAgent,
     Toolkit,
     Llm,
+    Thinking,
 }
 
 /// Simple program to demonstrate AutoAgents functionality
@@ -65,6 +67,7 @@ async fn main() -> Result<(), Error> {
         UseCase::ManualToolAgent => manual_tool_agent::run_agent(llm, &args.mode).await?,
         UseCase::Toolkit => toolkit::run_agent(llm).await?,
         UseCase::Llm => llm::run_llm(llm).await?,
+        UseCase::Thinking => thinking::agent_with_thinking().await?,
     }
 
     Ok(())

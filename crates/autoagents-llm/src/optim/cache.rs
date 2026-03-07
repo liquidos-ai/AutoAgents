@@ -958,6 +958,7 @@ mod tests {
                 choices: vec![StreamChoice {
                     delta: StreamDelta {
                         content: Some("hi".into()),
+                        reasoning_content: None,
                         tool_calls: None,
                     },
                 }],

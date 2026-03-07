@@ -25,6 +25,32 @@ impl From<LlamaCppSplitMode> for LlamaSplitMode {
     }
 }
 
+/// Reasoning extraction format for llama.cpp OpenAI-compatible parsing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LlamaCppReasoningFormat {
+    /// Disable reasoning extraction into `reasoning_content`.
+    None,
+    /// Let llama.cpp auto-detect the model/template strategy.
+    Auto,
+    /// Parse DeepSeek/Qwen-style thinking into `reasoning_content`.
+    Deepseek,
+    /// Legacy DeepSeek behavior.
+    DeepseekLegacy,
+}
+
+impl LlamaCppReasoningFormat {
+    /// Convert to llama.cpp reasoning format string.
+    pub fn as_str(self) -> Option<&'static str> {
+        match self {
+            Self::None => None,
+            Self::Auto => Some("auto"),
+            Self::Deepseek => Some("deepseek"),
+            Self::DeepseekLegacy => Some("deepseek_legacy"),
+        }
+    }
+}
+
 /// Complete configuration for LlamaCppProvider.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlamaCppConfig {
@@ -39,6 +65,15 @@ pub struct LlamaCppConfig {
 
     /// Force JSON grammar enforcement even without a structured output schema.
     pub force_json_grammar: bool,
+
+    /// Reasoning extraction mode for structured `reasoning_content`.
+    pub reasoning_format: Option<LlamaCppReasoningFormat>,
+
+    /// Optional `chat_template_kwargs` object passed to llama.cpp's OpenAI template API.
+    ///
+    /// Expected shape:
+    /// `{ "chat_template_kwargs": { ... } }`
+    pub extra_body: Option<serde_json::Value>,
 
     /// Optional HuggingFace cache directory (defaults to HF_HOME or ~/.cache/huggingface/hub).
     pub model_dir: Option<String>,
@@ -125,6 +160,8 @@ impl Default for LlamaCppConfig {
             chat_template: None,
             system_prompt: None,
             force_json_grammar: false,
+            reasoning_format: None,
+            extra_body: None,
             model_dir: None,
             hf_filename: None,
             hf_revision: None,
@@ -193,6 +230,18 @@ impl LlamaCppConfigBuilder {
     /// Force JSON grammar enforcement even without a structured output schema.
     pub fn force_json_grammar(mut self, force: bool) -> Self {
         self.config.force_json_grammar = force;
+        self
+    }
+
+    /// Set reasoning extraction format.
+    pub fn reasoning_format(mut self, format: LlamaCppReasoningFormat) -> Self {
+        self.config.reasoning_format = Some(format);
+        self
+    }
+
+    /// Set optional `chat_template_kwargs` payload for llama.cpp OpenAI template rendering.
+    pub fn extra_body(mut self, extra_body: impl Serialize) -> Self {
+        self.config.extra_body = serde_json::to_value(extra_body).ok();
         self
     }
 
@@ -379,6 +428,12 @@ mod tests {
         let config = LlamaCppConfigBuilder::default()
             .model_path("model.gguf")
             .force_json_grammar(true)
+            .reasoning_format(LlamaCppReasoningFormat::Deepseek)
+            .extra_body(serde_json::json!({
+                "chat_template_kwargs": {
+                    "enable_thinking": true
+                }
+            }))
             .mmproj_use_gpu(true)
             .split_mode(LlamaCppSplitMode::Layer)
             .use_mlock(true)
@@ -386,10 +441,29 @@ mod tests {
             .build();
 
         assert!(config.force_json_grammar);
+        assert_eq!(
+            config.reasoning_format,
+            Some(LlamaCppReasoningFormat::Deepseek)
+        );
+        assert_eq!(
+            config
+                .extra_body
+                .as_ref()
+                .and_then(|v| v.get("chat_template_kwargs"))
+                .and_then(|v| v.get("enable_thinking"))
+                .and_then(|v| v.as_bool()),
+            Some(true)
+        );
         assert_eq!(config.mmproj_use_gpu, Some(true));
         assert_eq!(config.split_mode, Some(LlamaCppSplitMode::Layer));
         assert_eq!(config.use_mlock, Some(true));
         assert_eq!(config.devices, Some(vec![0, 1]));
+    }
+
+    #[test]
+    fn test_config_default_reasoning_format_is_opt_in() {
+        let config = LlamaCppConfig::default();
+        assert_eq!(config.reasoning_format, None);
     }
 
     #[test]
