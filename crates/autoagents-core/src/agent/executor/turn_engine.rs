@@ -366,11 +366,13 @@ impl TurnEngine {
             let delta = chunk.choices.first().map(|choice| &choice.delta);
             let content = delta
                 .and_then(|d| d.content.as_ref())
-                .map_or("", |value| value)
+                .map(String::as_str)
+                .unwrap_or("")
                 .to_string();
             let reasoning = delta
                 .and_then(|d| d.reasoning_content.as_ref())
-                .map_or("", |value| value)
+                .map(String::as_str)
+                .unwrap_or("")
                 .to_string();
 
             let tx_event = context.tx().ok();
