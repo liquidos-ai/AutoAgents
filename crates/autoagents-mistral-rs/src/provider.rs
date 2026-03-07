@@ -493,10 +493,10 @@ fn push_tool_call_updates(
         let state = tool_states.entry(index).or_default();
 
         if !tool_call.id.is_empty() {
-            state.id = tool_call.id.clone();
+            state.id.clone_from(&tool_call.id);
         }
         if !tool_call.function.name.is_empty() {
-            state.name = tool_call.function.name.clone();
+            state.name.clone_from(&tool_call.function.name);
             if !state.started {
                 state.started = true;
                 *saw_tool_use = true;
