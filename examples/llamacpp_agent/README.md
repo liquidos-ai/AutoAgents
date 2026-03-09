@@ -22,7 +22,7 @@ To show reasoning/thinking events from llama.cpp:
 ```bash
 cargo run -p llamacpp_agent -- \
   --thinking \
-  --prompt "/think What is (20 + 30) * 10?"
+  --prompt "What is (20 + 30) * 10?"
 ```
 
 Note: in thinking mode, many models can consume most generation budget in reasoning.

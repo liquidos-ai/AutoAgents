@@ -99,6 +99,9 @@ More info at [GitHub](https://github.com/liquidos-ai/autoagents-bench)
 - **Rust** (latest stable recommended)
 - **Cargo** package manager
 - **LeftHook** for Git hooks management
+- **Python 3.9+** (required for Python bindings)
+- **uv** for Python environment and package management
+- **maturin** (required to build/install local Python bindings from source)
 
 ### Prerequisite
 
@@ -129,6 +132,39 @@ cd AutoAgents
 lefthook install
 cargo build --workspace --all-features
 ```
+
+### Python Bindings
+
+AutoAgents ships Python bindings as separate packages:
+
+- `autoagents-py` (core Python API + cloud backends)
+- `autoagents-guardrails-py` (optional guardrails for Python `LLMProvider`)
+- `autoagents-llamacpp-py` (optional local llama.cpp backend)
+- `autoagents-mistral-rs-py` (optional local mistral-rs backend)
+
+Development install from this repo:
+
+```bash
+uv venv --python=3.12
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+
+# Clean, build, and install all CPU bindings into the active venv
+make python-bindings-build
+
+# Clean, build, and install CPU + CUDA bindings
+make python-bindings-build-cuda
+```
+
+The Make targets remove stale editable-install extension artifacts before
+rebuilding, which avoids loading out-of-date `.abi3.so` files from the source
+tree.
+
+Example scripts:
+
+- Core cloud example: `bindings/python/autoagents/examples/openai_agent.py`
+- llama.cpp example: `bindings/python/autoagents-llamacpp/examples/llamacpp_agent.py`
+- mistral-rs example: `bindings/python/autoagents-mistralrs/examples/mistral_rs_agent.py`
 
 ### Run Tests
 

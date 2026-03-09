@@ -64,6 +64,38 @@ jobs:
       - name: Run cargo check
         run: cargo check --all-targets --no-default-features
 
+  python_bindings_py:
+    name: Python Bindings (Python Coverage)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libasound2-dev pkg-config
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Install Python test dependencies
+        run: python -m pip install --upgrade pip maturin pytest pytest-asyncio pytest-cov
+
+      - name: Run Python binding tests
+        run: make python-bindings-test-clean
+
   multi_os:
     name: Multi-OS build
     runs-on: ${{ matrix.os }}

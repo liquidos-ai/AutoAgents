@@ -1,5 +1,7 @@
 # Quick Start
 
+Looking for Python setup instead of Rust? See [Python Bindings](./python-bindings.md).
+
 ## Installation
 
 Before using AutoAgents, ensure you have:

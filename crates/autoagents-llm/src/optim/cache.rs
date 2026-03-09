@@ -456,6 +456,84 @@ fn lookup_stream<T: Clone + Send + 'static>(
 
 #[async_trait]
 impl ChatProvider for InMemoryCacheLayer {
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        let key = hash_chat_with_mode(
+            self.config.chat_key_mode,
+            messages,
+            None,
+            json_schema.as_ref(),
+        );
+
+        {
+            match self.chat_cache.read() {
+                Ok(cache) => {
+                    if let Some(entry) = cache.get(&key)
+                        && !is_expired(&self.config, entry.created_at)
+                    {
+                        return Ok(Box::new(entry.value.clone()));
+                    }
+                }
+                Err(e) => {
+                    log::warn!("chat cache read lock poisoned: {e}");
+                }
+            }
+        }
+
+        let key_lock = acquire_inflight_lock(&self.chat_inflight, key).await;
+        let _guard = key_lock.lock().await;
+
+        {
+            match self.chat_cache.read() {
+                Ok(cache) => {
+                    if let Some(entry) = cache.get(&key)
+                        && !is_expired(&self.config, entry.created_at)
+                    {
+                        return Ok(Box::new(entry.value.clone()));
+                    }
+                }
+                Err(e) => {
+                    log::warn!("chat cache read lock poisoned after single-flight wait: {e}");
+                }
+            }
+        }
+
+        let response = self.inner.chat(messages, json_schema).await?;
+
+        let cached = CachedChatResponse {
+            text: response.text(),
+            tool_calls: response.tool_calls(),
+            thinking: response.thinking(),
+            usage: response.usage(),
+        };
+
+        {
+            match self.chat_cache.write() {
+                Ok(mut cache) => {
+                    evict_expired(&mut cache, self.config.ttl);
+                    if let Some(max) = self.config.max_size {
+                        evict_oldest(&mut cache, max);
+                    }
+                    cache.insert(
+                        key,
+                        CacheEntry {
+                            value: cached.clone(),
+                            created_at: Instant::now(),
+                        },
+                    );
+                }
+                Err(e) => {
+                    log::warn!("chat cache write lock poisoned: {e}");
+                }
+            }
+        }
+
+        Ok(Box::new(cached))
+    }
+
     async fn chat_with_tools(
         &self,
         messages: &[ChatMessage],
@@ -881,6 +959,7 @@ mod tests {
 
     struct MockInner {
         chat_calls: Arc<AtomicU32>,
+        chat_with_tools_calls: Arc<AtomicU32>,
         completion_calls: Arc<AtomicU32>,
         embedding_calls: Arc<AtomicU32>,
         stream_chat_calls: Arc<AtomicU32>,
@@ -892,6 +971,7 @@ mod tests {
         fn new() -> Arc<Self> {
             Arc::new(Self {
                 chat_calls: Arc::new(AtomicU32::new(0)),
+                chat_with_tools_calls: Arc::new(AtomicU32::new(0)),
                 completion_calls: Arc::new(AtomicU32::new(0)),
                 embedding_calls: Arc::new(AtomicU32::new(0)),
                 stream_chat_calls: Arc::new(AtomicU32::new(0)),
@@ -903,13 +983,22 @@ mod tests {
 
     #[async_trait]
     impl ChatProvider for MockInner {
+        async fn chat(
+            &self,
+            _messages: &[ChatMessage],
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            self.chat_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(Box::new(MockChatResp("chat-response".to_string())))
+        }
+
         async fn chat_with_tools(
             &self,
             _messages: &[ChatMessage],
             _tools: Option<&[Tool]>,
             _json_schema: Option<StructuredOutputFormat>,
         ) -> Result<Box<dyn ChatResponse>, LLMError> {
-            self.chat_calls.fetch_add(1, Ordering::SeqCst);
+            self.chat_with_tools_calls.fetch_add(1, Ordering::SeqCst);
             Ok(Box::new(MockChatResp("chat-response".to_string())))
         }
 
@@ -1036,15 +1125,26 @@ mod tests {
             .chat_with_tools(&messages, None, None)
             .await
             .unwrap();
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 1);
         assert_eq!(r1.text(), Some("chat-response".to_string()));
 
         let r2 = provider
             .chat_with_tools(&messages, None, None)
             .await
             .unwrap();
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 1);
         assert_eq!(r2.text(), Some("chat-response".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_chat_preserves_chat_method_shape() {
+        let (inner, provider) = make_pipeline(CacheConfig::default());
+        let messages = vec![ChatMessage::user().content("hello").build()];
+
+        let response = provider.chat(&messages, None).await.unwrap();
+        assert_eq!(response.text(), Some("chat-response".to_string()));
+        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -1055,11 +1155,11 @@ mod tests {
 
         provider.chat_with_tools(&msg_a, None, None).await.unwrap();
         provider.chat_with_tools(&msg_b, None, None).await.unwrap();
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 2);
 
         provider.chat_with_tools(&msg_a, None, None).await.unwrap();
         provider.chat_with_tools(&msg_b, None, None).await.unwrap();
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
@@ -1074,7 +1174,7 @@ mod tests {
         provider.chat_with_tools(&msg_a, None, None).await.unwrap();
         provider.chat_with_tools(&msg_b, None, None).await.unwrap();
 
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -1100,7 +1200,7 @@ mod tests {
         provider.chat_with_tools(&msg_a, None, None).await.unwrap();
         provider.chat_with_tools(&msg_b, None, None).await.unwrap();
 
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
@@ -1115,13 +1215,13 @@ mod tests {
             .chat_with_tools(&messages, None, None)
             .await
             .unwrap();
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 1);
 
         provider
             .chat_with_tools(&messages, None, None)
             .await
             .unwrap();
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 1);
 
         tokio::time::sleep(Duration::from_millis(15)).await;
 
@@ -1129,7 +1229,7 @@ mod tests {
             .chat_with_tools(&messages, None, None)
             .await
             .unwrap();
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
@@ -1144,19 +1244,19 @@ mod tests {
 
         provider.chat_with_tools(&msg_a, None, None).await.unwrap();
         provider.chat_with_tools(&msg_b, None, None).await.unwrap();
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 2);
 
         provider.chat_with_tools(&msg_c, None, None).await.unwrap();
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 3);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 3);
 
         // B and C still cached
         provider.chat_with_tools(&msg_b, None, None).await.unwrap();
         provider.chat_with_tools(&msg_c, None, None).await.unwrap();
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 3);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 3);
 
         // A was evicted — miss
         provider.chat_with_tools(&msg_a, None, None).await.unwrap();
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 4);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 4);
     }
 
     // ------------------------------------------------------------------
@@ -1632,7 +1732,7 @@ mod tests {
         provider.complete(&req, None).await.unwrap();
         provider.embed(emb_input.clone()).await.unwrap();
 
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 1);
         assert_eq!(inner.stream_chat_calls.load(Ordering::SeqCst), 1);
         assert_eq!(inner.stream_tools_calls.load(Ordering::SeqCst), 1);
         assert_eq!(inner.stream_struct_calls.load(Ordering::SeqCst), 1);
@@ -1662,7 +1762,7 @@ mod tests {
         provider.complete(&req, None).await.unwrap();
         provider.embed(emb_input).await.unwrap();
 
-        assert_eq!(inner.chat_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(inner.chat_with_tools_calls.load(Ordering::SeqCst), 1);
         assert_eq!(inner.stream_chat_calls.load(Ordering::SeqCst), 1);
         assert_eq!(inner.stream_tools_calls.load(Ordering::SeqCst), 1);
         assert_eq!(inner.stream_struct_calls.load(Ordering::SeqCst), 1);

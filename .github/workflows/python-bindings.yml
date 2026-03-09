@@ -1,0 +1,426 @@
+name: Python Bindings
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ── Build strategy ────────────────────────────────────────────────────────────
+# pyproject.toml in each binding directory IS the CPU build — pip install -e .
+# and maturin develop work out of the box for contributors.
+#
+# Non-CPU variants (cuda, metal, vulkan) pass --config pointing at
+# variants/pyproject.<backend>.toml so the tracked pyproject.toml is never
+# modified during CI.
+# ─────────────────────────────────────────────────────────────────────────────
+
+jobs:
+  # ── Linux x86_64 (CPU + Vulkan) ──────────────────────────────────────────
+  build-linux-x86_64:
+    name: Linux x86_64
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      # ── base package ────────────────────────────────────────────────────
+      - name: Build autoagents-py
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64
+          manylinux: '2_28'
+          sccache: true
+          args: >-
+            --release
+            --out dist/autoagents
+            --manifest-path bindings/python/autoagents/Cargo.toml
+
+      - name: Build autoagents-guardrails-py
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64
+          manylinux: '2_28'
+          sccache: true
+          args: >-
+            --release
+            --out dist/autoagents-guardrails
+            --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
+
+      # ── llamacpp CPU (pyproject.toml in the dir is the CPU build) ───────
+      - name: Build autoagents-llamacpp-py (CPU)
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64
+          manylinux: '2_28'
+          sccache: true
+          args: >-
+            --release
+            --out dist/llamacpp-cpu
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
+
+      # ── llamacpp Vulkan ─────────────────────────────────────────────────
+      - name: Build autoagents-llamacpp-vulkan
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64
+          manylinux: '2_28'
+          sccache: true
+          before-script-linux: dnf install -y vulkan-headers || true
+          args: >-
+            --release
+            --features vulkan
+            --out dist/llamacpp-vulkan
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
+            --config bindings/python/autoagents-llamacpp/variants/pyproject.vulkan.toml
+
+      # ── mistralrs CPU ───────────────────────────────────────────────────
+      - name: Build autoagents-mistral-rs-py (CPU)
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64
+          manylinux: '2_28'
+          sccache: true
+          args: >-
+            --release
+            --out dist/mistralrs-cpu
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-x86_64
+          path: dist/**/*.whl
+
+  # ── Linux aarch64 (CPU only — Vulkan/CUDA not cross-compiled) ────────────
+  build-linux-aarch64:
+    name: Linux aarch64
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      # maturin-action sets up QEMU + binfmt automatically for aarch64
+      - name: Build autoagents-py
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64
+          manylinux: '2_28'
+          sccache: true
+          args: >-
+            --release
+            --out dist/autoagents
+            --manifest-path bindings/python/autoagents/Cargo.toml
+
+      - name: Build autoagents-guardrails-py
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64
+          manylinux: '2_28'
+          sccache: true
+          args: >-
+            --release
+            --out dist/autoagents-guardrails
+            --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
+
+      - name: Build autoagents-llamacpp-py (CPU)
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64
+          manylinux: '2_28'
+          sccache: true
+          args: >-
+            --release
+            --out dist/llamacpp-cpu
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
+
+      - name: Build autoagents-mistral-rs-py (CPU)
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64
+          manylinux: '2_28'
+          sccache: true
+          args: >-
+            --release
+            --out dist/mistralrs-cpu
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-aarch64
+          path: dist/**/*.whl
+
+  # ── Linux CUDA (x86_64, non-manylinux — CUDA users have controlled envs) ─
+  build-linux-cuda:
+    name: Linux CUDA
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Install CUDA toolkit
+        uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          cuda: '12.6.0'
+          method: network
+
+      # manylinux: off → wheel tagged linux_x86_64 (honest for CUDA users)
+      - name: Build autoagents-llamacpp-cuda
+        uses: PyO3/maturin-action@v1
+        env:
+          CARGO_TARGET_DIR: target/python-cuda/llamacpp
+          LLAMA_BUILD_SHARED_LIBS: '1'
+        with:
+          target: x86_64
+          manylinux: 'off'
+          sccache: true
+          args: >-
+            --release
+            --features cuda
+            --out dist/llamacpp-cuda
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
+            --config bindings/python/autoagents-llamacpp/variants/pyproject.cuda.toml
+
+      - name: Build autoagents-mistral-rs-cuda
+        uses: PyO3/maturin-action@v1
+        env:
+          CARGO_TARGET_DIR: target/python-cuda/mistralrs
+        with:
+          target: x86_64
+          manylinux: 'off'
+          sccache: true
+          args: >-
+            --release
+            --features cuda
+            --out dist/mistralrs-cuda
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
+            --config bindings/python/autoagents-mistralrs/variants/pyproject.cuda.toml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-cuda
+          path: dist/**/*.whl
+
+  # ── macOS (CPU + Metal, Intel x86_64 and Apple Silicon arm64) ────────────
+  build-macos:
+    name: macOS ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13    # Intel x86_64
+            artifact: macos-x86_64
+          - runner: macos-14    # Apple Silicon arm64 (M1/M2/M3)
+            artifact: macos-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Install maturin
+        run: pip3 install maturin
+
+      # ── base package ────────────────────────────────────────────────────
+      - name: Build autoagents-py
+        run: |
+          maturin build --release \
+            --out dist/autoagents \
+            --manifest-path bindings/python/autoagents/Cargo.toml
+
+      - name: Build autoagents-guardrails-py
+        run: |
+          maturin build --release \
+            --out dist/autoagents-guardrails \
+            --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
+
+      # ── llamacpp CPU ────────────────────────────────────────────────────
+      - name: Build autoagents-llamacpp-py (CPU)
+        run: |
+          maturin build --release \
+            --out dist/llamacpp-cpu \
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
+
+      # ── llamacpp Metal (Xcode ships Metal SDK — no extra setup) ─────────
+      - name: Build autoagents-llamacpp-metal
+        run: |
+          maturin build --release \
+            --features metal \
+            --out dist/llamacpp-metal \
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml \
+            --config bindings/python/autoagents-llamacpp/variants/pyproject.metal.toml
+
+      # ── mistralrs CPU ───────────────────────────────────────────────────
+      - name: Build autoagents-mistral-rs-py (CPU)
+        run: |
+          maturin build --release \
+            --out dist/mistralrs-cpu \
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
+
+      # ── mistralrs Metal ─────────────────────────────────────────────────
+      - name: Build autoagents-mistral-rs-metal
+        run: |
+          maturin build --release \
+            --features metal \
+            --out dist/mistralrs-metal \
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml \
+            --config bindings/python/autoagents-mistralrs/variants/pyproject.metal.toml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.artifact }}
+          path: dist/**/*.whl
+
+  # ── Windows x86_64 (CPU + CUDA + Vulkan) ─────────────────────────────────
+  build-windows:
+    name: Windows x86_64
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Install CUDA toolkit
+        uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          cuda: '12.6.0'
+          method: network
+
+      - name: Install Vulkan SDK
+        shell: pwsh
+        run: |
+          $url = "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-sdk.exe"
+          Invoke-WebRequest -Uri $url -OutFile vulkan-sdk.exe
+          Start-Process -FilePath vulkan-sdk.exe `
+            -ArgumentList "--accept-licenses --default-answer --confirm-command install" `
+            -Wait -NoNewWindow
+
+      - name: Install maturin
+        run: pip install maturin
+
+      # ── base package ────────────────────────────────────────────────────
+      - name: Build autoagents-py
+        shell: pwsh
+        run: |
+          maturin build --release `
+            --out dist/autoagents `
+            --manifest-path bindings/python/autoagents/Cargo.toml
+
+      - name: Build autoagents-guardrails-py
+        shell: pwsh
+        run: |
+          maturin build --release `
+            --out dist/autoagents-guardrails `
+            --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
+
+      # ── llamacpp CPU ────────────────────────────────────────────────────
+      - name: Build autoagents-llamacpp-py (CPU)
+        shell: pwsh
+        run: |
+          maturin build --release `
+            --out dist/llamacpp-cpu `
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
+
+      # ── llamacpp CUDA ───────────────────────────────────────────────────
+      - name: Build autoagents-llamacpp-cuda
+        shell: pwsh
+        run: |
+          maturin build --release `
+            --features cuda `
+            --out dist/llamacpp-cuda `
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml `
+            --config bindings/python/autoagents-llamacpp/variants/pyproject.cuda.toml
+
+      # ── llamacpp Vulkan ─────────────────────────────────────────────────
+      - name: Build autoagents-llamacpp-vulkan
+        shell: pwsh
+        run: |
+          maturin build --release `
+            --features vulkan `
+            --out dist/llamacpp-vulkan `
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml `
+            --config bindings/python/autoagents-llamacpp/variants/pyproject.vulkan.toml
+
+      # ── mistralrs CPU ───────────────────────────────────────────────────
+      - name: Build autoagents-mistral-rs-py (CPU)
+        shell: pwsh
+        run: |
+          maturin build --release `
+            --out dist/mistralrs-cpu `
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
+
+      # ── mistralrs CUDA ──────────────────────────────────────────────────
+      - name: Build autoagents-mistral-rs-cuda
+        shell: pwsh
+        run: |
+          maturin build --release `
+            --features cuda `
+            --out dist/mistralrs-cuda `
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml `
+            --config bindings/python/autoagents-mistralrs/variants/pyproject.cuda.toml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows
+          path: dist/**/*.whl
+
+  # ── Publish to PyPI (tag-triggered only, OIDC trusted publisher) ──────────
+  publish:
+    name: Publish to PyPI
+    needs:
+      - build-linux-x86_64
+      - build-linux-aarch64
+      - build-linux-cuda
+      - build-macos
+      - build-windows
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write    # required for OIDC trusted publisher — no token needed
+
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist/
+
+      - name: List wheels
+        run: ls -lh dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

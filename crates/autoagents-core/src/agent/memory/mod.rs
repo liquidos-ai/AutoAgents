@@ -17,6 +17,7 @@ mod tests {
     use std::sync::Arc;
 
     // Mock memory provider for testing
+    #[derive(Clone)]
     struct MockMemoryProvider {
         messages: Vec<ChatMessage>,
         should_fail: bool,
@@ -84,7 +85,7 @@ mod tests {
         }
 
         fn clone_box(&self) -> Box<dyn MemoryProvider> {
-            unimplemented!()
+            Box::new(self.clone())
         }
     }
 
@@ -99,6 +100,16 @@ mod tests {
     fn test_memory_type_deserialization() {
         let deserialized: MemoryType = serde_json::from_str("\"SlidingWindow\"").unwrap();
         assert_eq!(deserialized, MemoryType::SlidingWindow);
+    }
+
+    #[test]
+    fn test_custom_memory_type_serialization() {
+        let custom = MemoryType::Custom;
+        let serialized = serde_json::to_string(&custom).unwrap();
+        assert_eq!(serialized, "\"Custom\"");
+
+        let deserialized: MemoryType = serde_json::from_str("\"Custom\"").unwrap();
+        assert_eq!(deserialized, MemoryType::Custom);
     }
 
     #[test]
@@ -770,6 +781,8 @@ impl MessageCondition {
 pub enum MemoryType {
     /// Simple sliding window that keeps the N most recent messages
     SlidingWindow,
+    /// Custom memory provider supplied by a host integration
+    Custom,
 }
 
 /// Trait for memory providers that can store and retrieve conversation history.

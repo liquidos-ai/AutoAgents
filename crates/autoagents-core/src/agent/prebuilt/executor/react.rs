@@ -14,6 +14,7 @@ use autoagents_llm::error::LLMError;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -65,6 +66,23 @@ impl ReActAgentOutput {
         self.try_parse::<T>()
             .unwrap_or_else(|_| fallback(&self.response))
     }
+}
+
+fn dedupe_tool_calls(tool_calls: Vec<ToolCallResult>) -> Vec<ToolCallResult> {
+    let mut seen = HashSet::new();
+    let mut unique = Vec::with_capacity(tool_calls.len());
+
+    for call in tool_calls {
+        let key = format!(
+            "{}|{}|{}|{}",
+            call.tool_name, call.success, call.arguments, call.result
+        );
+        if seen.insert(key) {
+            unique.push(call);
+        }
+    }
+
+    unique
 }
 
 impl ReActAgentOutput {
@@ -127,12 +145,14 @@ impl From<TurnEngineError> for ReActExecutorError {
 #[derive(Debug)]
 pub struct ReActAgent<T: AgentDeriveT> {
     inner: Arc<T>,
+    max_turns: usize,
 }
 
 impl<T: AgentDeriveT> Clone for ReActAgent<T> {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
+            max_turns: self.max_turns,
         }
     }
 }
@@ -141,6 +161,14 @@ impl<T: AgentDeriveT> ReActAgent<T> {
     pub fn new(inner: T) -> Self {
         Self {
             inner: Arc::new(inner),
+            max_turns: 10,
+        }
+    }
+
+    pub fn with_max_turns(inner: T, max_turns: usize) -> Self {
+        Self {
+            inner: Arc::new(inner),
+            max_turns: max_turns.max(1),
         }
     }
 }
@@ -227,7 +255,9 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
     type Error = ReActExecutorError;
 
     fn config(&self) -> ExecutorConfig {
-        ExecutorConfig { max_turns: 10 }
+        ExecutorConfig {
+            max_turns: self.max_turns,
+        }
     }
 
     async fn execute(
@@ -265,6 +295,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                 crate::agent::executor::TurnResult::Complete(output) => {
                     final_response = output.response.clone();
                     accumulated_tool_calls.extend(output.tool_calls);
+                    accumulated_tool_calls = dedupe_tool_calls(accumulated_tool_calls);
 
                     return Ok(ReActAgentOutput {
                         response: final_response,
@@ -277,6 +308,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                         final_response = output.response;
                     }
                     accumulated_tool_calls.extend(output.tool_calls);
+                    accumulated_tool_calls = dedupe_tool_calls(accumulated_tool_calls);
                 }
                 crate::agent::executor::TurnResult::Continue(None) => {}
             }
@@ -361,6 +393,8 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                                 Ok(TurnDelta::ReasoningContent(_)) => {}
                                 Ok(TurnDelta::ToolResults(tool_results)) => {
                                     accumulated_tool_calls.extend(tool_results);
+                                    accumulated_tool_calls =
+                                        dedupe_tool_calls(accumulated_tool_calls);
                                     let _ = tx
                                         .send(Ok(ReActAgentOutput {
                                             response: String::new(),
@@ -399,6 +433,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                     crate::agent::executor::TurnResult::Complete(output) => {
                         final_response = output.response.clone();
                         accumulated_tool_calls.extend(output.tool_calls);
+                        accumulated_tool_calls = dedupe_tool_calls(accumulated_tool_calls);
                         break;
                     }
                     crate::agent::executor::TurnResult::Continue(Some(output)) => {
@@ -406,6 +441,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                             final_response = output.response;
                         }
                         accumulated_tool_calls.extend(output.tool_calls);
+                        accumulated_tool_calls = dedupe_tool_calls(accumulated_tool_calls);
                     }
                     crate::agent::executor::TurnResult::Continue(None) => {}
                 }

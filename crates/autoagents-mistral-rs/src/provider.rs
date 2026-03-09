@@ -26,12 +26,30 @@ use mistralrs::{
     TextMessageRole, TextModelBuilder, ToolCallResponse, ToolCallType,
     ToolChoice as MistralToolChoice, ToolType, Usage as MistralUsage, VisionModelBuilder,
 };
+use std::sync::OnceLock;
 use std::{
     collections::{HashMap, VecDeque},
     pin::Pin,
     sync::Arc,
 };
 use tokio::sync::mpsc;
+
+/// Dedicated tokio runtime for the mistral-rs provider.
+///
+/// Each compiled `.so` has its own copy of tokio's thread-local runtime state.
+/// When this crate is used from a Python extension the calling async context
+/// runs on a different `.so`'s runtime, so `tokio::spawn` here would panic
+/// with "no reactor running". Using a crate-local runtime avoids that.
+fn get_rt() -> &'static tokio::runtime::Runtime {
+    static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("mistralrs")
+            .build()
+            .expect("mistralrs runtime init failed")
+    })
+}
 
 /// MistralRs provider for local LLM inference
 pub struct MistralRsProvider {
@@ -350,7 +368,7 @@ impl MistralRsProvider {
     ) -> std::pin::Pin<Box<dyn Stream<Item = Result<MistralStreamEvent, LLMError>> + Send>> {
         let (tx, rx) = mpsc::unbounded_channel::<Result<MistralStreamEvent, LLMError>>();
 
-        tokio::spawn(async move {
+        get_rt().spawn(async move {
             match model.stream_chat_request(request_builder).await {
                 Ok(mut response_stream) => {
                     while let Some(response) = response_stream.next().await {

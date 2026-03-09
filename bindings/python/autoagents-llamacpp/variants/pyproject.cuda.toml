@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "autoagents-llamacpp-cuda"
+version = "0.3.5"
+requires-python = ">=3.9"
+description = "Llama.cpp Python bindings for AutoAgents (CUDA)"
+license = { text = "MIT OR Apache-2.0" }
+dependencies = ["autoagents-py==0.3.5"]
+
+[tool.maturin]
+module-name = "autoagents_llamacpp_cuda._autoagents_llamacpp"
+python-source = "."
