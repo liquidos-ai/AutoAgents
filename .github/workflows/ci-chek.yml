@@ -82,6 +82,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Create virtualenv
+        run: python -m venv .venv
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -91,7 +94,7 @@ jobs:
           workspaces: . -> target
 
       - name: Install Python test dependencies
-        run: python -m pip install --upgrade pip maturin pytest pytest-asyncio pytest-cov
+        run: .venv/bin/python -m pip install --upgrade pip maturin pytest pytest-asyncio pytest-cov
 
       - name: Run Python binding tests
         run: make python-bindings-test-clean
