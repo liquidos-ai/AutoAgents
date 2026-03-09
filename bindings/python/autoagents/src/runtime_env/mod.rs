@@ -7,6 +7,10 @@ use autoagents_core::runtime::SingleThreadedRuntime;
 use autoagents_core::runtime::{Runtime, TypedRuntime};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+
+fn to_py_runtime_error(err: impl std::fmt::Display) -> PyErr {
+    PyRuntimeError::new_err(err.to_string())
+}
 use std::sync::Arc;
 
 pub use topic::PyTopic;
@@ -87,22 +91,34 @@ impl PyEnvironment {
     ) -> PyResult<()> {
         let rt = Arc::clone(&runtime.inner) as Arc<dyn Runtime>;
         let runtime = crate::runtime::get_runtime().map_err(PyRuntimeError::new_err)?;
-        py.detach(|| runtime.block_on(async { self.inner.register_runtime(rt).await }))
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        py.detach(|| -> PyResult<_> {
+            runtime
+                .block_on(async { self.inner.register_runtime(rt).await })
+                .map_err(to_py_runtime_error)
+        })
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Start registered runtimes in the background using the shared Tokio runtime.
     pub fn run(&mut self, py: Python<'_>) -> PyResult<()> {
         let runtime = crate::runtime::get_runtime().map_err(PyRuntimeError::new_err)?;
-        py.detach(|| runtime.block_on(async { self.inner.run_background().await }))
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        py.detach(|| -> PyResult<_> {
+            runtime
+                .block_on(async { self.inner.run_background().await })
+                .map_err(to_py_runtime_error)
+        })
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Return an `EventStream` over all environment events.
     pub fn event_stream(&mut self, py: Python<'_>) -> PyResult<PyEventStream> {
         let runtime = crate::runtime::get_runtime().map_err(PyRuntimeError::new_err)?;
         let stream = py
-            .detach(|| runtime.block_on(async { self.inner.subscribe_events(None).await }))
+            .detach(|| -> PyResult<_> {
+                runtime
+                    .block_on(async { self.inner.subscribe_events(None).await })
+                    .map_err(to_py_runtime_error)
+            })
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
         Ok(PyEventStream {
