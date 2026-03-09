@@ -1,4 +1,4 @@
-# Repository Guidelines
+# AutoAgents Repository Guidelines
 
 ## Project Structure & Module Organization
 - Workspace layout: `crates/*` (core libraries), `examples/*` (runnable crates), `docs/` (documentation), `assets/` (images), `demo_models/` (sample models).
@@ -52,3 +52,18 @@
 ## Agent-Specific Notes
 - Reusable tools belong in `autoagents-toolkit`; project-specific tools can live within examples or crate-local modules.
 - Derive macros: `#[agent]`, `#[tool]`, `#[derive(AgentOutput, ToolInput)]` are preferred for consistency and type safety.
+
+## Python Bindings
+Python bindings are availble as a thin wrapper around the rust crates to give ability for users to quickly prototype agents. The python bindings must be simple and clean. It must not complicate and add additional stuff which is not required.
+
+```sh
+uv venv --python=3.12
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+
+# Clean, build, and install all CPU bindings into the active venv
+make python-bindings-build
+
+# Clean, build, and install CPU + CUDA bindings
+make python-bindings-build-cuda
+```

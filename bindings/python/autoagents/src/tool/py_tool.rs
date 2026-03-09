@@ -71,138 +71,191 @@ fn validate_type(path: &str, expected: &str, value: &Value) -> Result<(), ToolCa
 
 fn validate_against_schema(path: &str, schema: &Value, value: &Value) -> Result<(), ToolCallError> {
     let object = schema_object(schema)?;
+    validate_enum_constraint(path, object, value)?;
+    validate_any_of_constraint(path, object, value)?;
+    validate_type_constraint(path, object, value)?;
+    validate_array_items(path, object, value)?;
+    validate_object_properties(path, object, value)?;
+    Ok(())
+}
 
-    if let Some(enum_values) = object.get("enum").and_then(Value::as_array)
-        && !enum_values.iter().any(|candidate| candidate == value)
-    {
+fn validate_enum_constraint(
+    path: &str,
+    object: &serde_json::Map<String, Value>,
+    value: &Value,
+) -> Result<(), ToolCallError> {
+    if let Some(enum_values) = object.get("enum").and_then(Value::as_array) {
+        if enum_values.iter().any(|candidate| candidate == value) {
+            return Ok(());
+        }
+
         return Err(validation_err(format!(
             "value at {} is not one of the allowed enum variants",
             path_label(path)
         )));
     }
 
-    if let Some(any_of) = object.get("anyOf").and_then(Value::as_array) {
-        let mut last_error = None;
-        for variant in any_of {
-            match validate_against_schema(path, variant, value) {
-                Ok(()) => return Ok(()),
-                Err(error) => last_error = Some(error),
-            }
-        }
-        return Err(last_error.unwrap_or_else(|| {
-            validation_err(format!(
-                "value at {} did not satisfy anyOf",
-                path_label(path)
-            ))
-        }));
-    }
+    Ok(())
+}
 
-    if let Some(raw_type) = object.get("type") {
-        match raw_type {
-            Value::String(expected) => validate_type(path, expected, value)?,
-            Value::Array(types) => {
-                let mut matched = false;
-                for candidate in types {
-                    if let Some(expected) = candidate.as_str()
-                        && validate_type(path, expected, value).is_ok()
-                    {
-                        matched = true;
-                        break;
-                    }
-                }
-                if !matched {
-                    return Err(validation_err(format!(
-                        "value at {} did not match any allowed schema types",
-                        path_label(path)
-                    )));
-                }
-            }
-            _ => {
-                return Err(validation_err(format!(
-                    "schema type for {} must be a string or string list",
-                    path_label(path)
-                )));
-            }
+fn validate_any_of_constraint(
+    path: &str,
+    object: &serde_json::Map<String, Value>,
+    value: &Value,
+) -> Result<(), ToolCallError> {
+    let Some(any_of) = object.get("anyOf").and_then(Value::as_array) else {
+        return Ok(());
+    };
+
+    let mut last_error = None;
+    for variant in any_of {
+        match validate_against_schema(path, variant, value) {
+            Ok(()) => return Ok(()),
+            Err(error) => last_error = Some(error),
         }
     }
 
-    if let Some(items_schema) = object.get("items") {
-        let items = value
-            .as_array()
-            .ok_or_else(|| validation_err(format!("expected array at {}", path_label(path))))?;
-        for (index, item) in items.iter().enumerate() {
-            let item_path = format!("{}[{index}]", path_label(path));
-            validate_against_schema(&item_path, items_schema, item)?;
+    Err(last_error.unwrap_or_else(|| {
+        validation_err(format!(
+            "value at {} did not satisfy anyOf",
+            path_label(path)
+        ))
+    }))
+}
+
+fn validate_type_constraint(
+    path: &str,
+    object: &serde_json::Map<String, Value>,
+    value: &Value,
+) -> Result<(), ToolCallError> {
+    let Some(raw_type) = object.get("type") else {
+        return Ok(());
+    };
+
+    match raw_type {
+        Value::String(expected) => validate_type(path, expected, value),
+        Value::Array(types) => validate_one_of_types(path, types, value),
+        _ => Err(validation_err(format!(
+            "schema type for {} must be a string or string list",
+            path_label(path)
+        ))),
+    }
+}
+
+fn validate_one_of_types(path: &str, types: &[Value], value: &Value) -> Result<(), ToolCallError> {
+    for candidate in types {
+        if let Some(expected) = candidate.as_str()
+            && validate_type(path, expected, value).is_ok()
+        {
+            return Ok(());
         }
     }
 
-    if let Some(properties) = object.get("properties").and_then(Value::as_object) {
-        let object_value = value
-            .as_object()
-            .ok_or_else(|| validation_err(format!("expected object at {}", path_label(path))))?;
+    Err(validation_err(format!(
+        "value at {} did not match any allowed schema types",
+        path_label(path)
+    )))
+}
 
-        let required = object
-            .get("required")
-            .and_then(Value::as_array)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .collect::<std::collections::HashSet<_>>()
-            })
-            .unwrap_or_default();
+fn validate_array_items(
+    path: &str,
+    object: &serde_json::Map<String, Value>,
+    value: &Value,
+) -> Result<(), ToolCallError> {
+    let Some(items_schema) = object.get("items") else {
+        return Ok(());
+    };
 
-        for key in required {
-            if !object_value.contains_key(key) {
-                let field_path = if path.is_empty() {
-                    key.to_string()
-                } else {
-                    format!("{path}.{key}")
-                };
-                return Err(validation_err(format!(
-                    "missing required field {}",
-                    path_label(&field_path)
-                )));
-            }
+    let items = value
+        .as_array()
+        .ok_or_else(|| validation_err(format!("expected array at {}", path_label(path))))?;
+    for (index, item) in items.iter().enumerate() {
+        let item_path = format!("{}[{index}]", path_label(path));
+        validate_against_schema(&item_path, items_schema, item)?;
+    }
+    Ok(())
+}
+
+fn validate_object_properties(
+    path: &str,
+    object: &serde_json::Map<String, Value>,
+    value: &Value,
+) -> Result<(), ToolCallError> {
+    let Some(properties) = object.get("properties").and_then(Value::as_object) else {
+        return Ok(());
+    };
+
+    let object_value = value
+        .as_object()
+        .ok_or_else(|| validation_err(format!("expected object at {}", path_label(path))))?;
+
+    validate_required_fields(path, object, object_value)?;
+
+    for (key, item) in object_value {
+        if let Some(field_schema) = properties.get(key) {
+            let field_path = field_path(path, key);
+            validate_against_schema(&field_path, field_schema, item)?;
+            continue;
         }
 
-        for (key, item) in object_value {
-            if let Some(field_schema) = properties.get(key) {
-                let field_path = if path.is_empty() {
-                    key.clone()
-                } else {
-                    format!("{path}.{key}")
-                };
-                validate_against_schema(&field_path, field_schema, item)?;
-                continue;
-            }
+        validate_additional_property(path, object.get("additionalProperties"), key, item)?;
+    }
 
-            match object.get("additionalProperties") {
-                Some(Value::Bool(false)) | None => {
-                    let field_path = if path.is_empty() {
-                        key.clone()
-                    } else {
-                        format!("{path}.{key}")
-                    };
-                    return Err(validation_err(format!(
-                        "unexpected field {}",
-                        path_label(&field_path)
-                    )));
-                }
-                Some(Value::Bool(true)) => {}
-                Some(extra_schema) => {
-                    let field_path = if path.is_empty() {
-                        key.clone()
-                    } else {
-                        format!("{path}.{key}")
-                    };
-                    validate_against_schema(&field_path, extra_schema, item)?;
-                }
-            }
+    Ok(())
+}
+
+fn validate_required_fields(
+    path: &str,
+    object: &serde_json::Map<String, Value>,
+    object_value: &serde_json::Map<String, Value>,
+) -> Result<(), ToolCallError> {
+    let required = object
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<std::collections::HashSet<_>>()
+        })
+        .unwrap_or_default();
+
+    for key in required {
+        if !object_value.contains_key(key) {
+            let field_path = field_path(path, key);
+            return Err(validation_err(format!(
+                "missing required field {}",
+                path_label(&field_path)
+            )));
         }
     }
 
     Ok(())
+}
+
+fn validate_additional_property(
+    path: &str,
+    additional_properties: Option<&Value>,
+    key: &str,
+    item: &Value,
+) -> Result<(), ToolCallError> {
+    let field_path = field_path(path, key);
+    match additional_properties {
+        Some(Value::Bool(true)) => Ok(()),
+        Some(Value::Bool(false)) | None => Err(validation_err(format!(
+            "unexpected field {}",
+            path_label(&field_path)
+        ))),
+        Some(extra_schema) => validate_against_schema(&field_path, extra_schema, item),
+    }
+}
+
+fn field_path(path: &str, key: &str) -> String {
+    if path.is_empty() {
+        key.to_string()
+    } else {
+        format!("{path}.{key}")
+    }
 }
 
 fn validate_tool_args(schema: &Value, args: &Value) -> Result<(), ToolCallError> {

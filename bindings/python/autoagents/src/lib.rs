@@ -25,13 +25,25 @@ use tool::PyTool;
 fn autoagents_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyo3_log::init();
 
-    // Use one shared Tokio runtime for both our internal async work and PyO3 asyncio bridges.
+    init_runtime_bridge()?;
+    register_llm_api(m)?;
+    register_memory_api(m)?;
+    register_tool_api(m)?;
+    register_agent_api(m)?;
+    register_event_api(m)?;
+    register_runtime_api(m)?;
+    Ok(())
+}
+
+fn init_runtime_bridge() -> PyResult<()> {
     let runtime = runtime::get_runtime().map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
     pyo3_async_runtimes::tokio::init_with_runtime(runtime).map_err(|_| {
         pyo3::exceptions::PyRuntimeError::new_err("tokio runtime bridge already initialized")
     })?;
+    Ok(())
+}
 
-    // LLM
+fn register_llm_api(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyLLMBuilder>()?;
     m.add_class::<PyLLMProvider>()?;
     m.add_function(wrap_pyfunction!(_llm_provider_from_capsule, m)?)?;
@@ -42,28 +54,37 @@ fn autoagents_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyExecutionMemory>()?;
     m.add_class::<PyExecutionStringStream>()?;
     m.add_class::<PyExecutionJsonStream>()?;
+    Ok(())
+}
 
-    // Memory
+fn register_memory_api(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMemoryProvider>()?;
     m.add_function(wrap_pyfunction!(sliding_window_memory, m)?)?;
     m.add_function(wrap_pyfunction!(memory_provider_from_impl, m)?)?;
+    Ok(())
+}
 
-    // Tool
+fn register_tool_api(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTool>()?;
+    Ok(())
+}
 
-    // Agent builder + handles
+fn register_agent_api(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyAgentBuilder>()?;
     m.add_class::<PyAgentHandle>()?;
     m.add_class::<PyActorAgentHandle>()?;
     m.add_class::<PyRunStream>()?;
+    Ok(())
+}
 
-    // Events — stream iterator
+fn register_event_api(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEventStream>()?;
+    Ok(())
+}
 
-    // Runtime / Environment
+fn register_runtime_api(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySingleThreadedRuntime>()?;
     m.add_class::<PyEnvironment>()?;
     m.add_class::<PyTopic>()?;
-
     Ok(())
 }

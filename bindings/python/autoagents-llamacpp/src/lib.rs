@@ -6,8 +6,8 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::sync::Arc;
 
-#[pyclass(name = "LlamaCppBuilder")]
-#[derive(Default)]
+#[pyclass(name = "LlamaCppBuilder", skip_from_py_object)]
+#[derive(Clone, Default)]
 pub struct PyLlamaCppBuilder {
     model_path: Option<String>,
     repo_id: Option<String>,
@@ -217,139 +217,239 @@ impl PyLlamaCppBuilder {
     }
 
     pub fn build<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let model_path = self.model_path.clone();
-        let repo_id = self.repo_id.clone();
-        let hf_filename = self.hf_filename.clone();
-        let mmproj_filename = self.mmproj_filename.clone();
-        let hf_revision = self.hf_revision.clone();
-        let model_dir = self.model_dir.clone();
-        let chat_template = self.chat_template.clone();
-        let force_json_grammar = self.force_json_grammar;
-        let reasoning_format = self.reasoning_format.clone();
-        let extra_body = self.extra_body.clone();
-        let mmproj_use_gpu = self.mmproj_use_gpu;
-        let media_marker = self.media_marker.clone();
-        let max_tokens = self.max_tokens;
-        let temperature = self.temperature;
-        let top_p = self.top_p;
-        let top_k = self.top_k;
-        let repeat_penalty = self.repeat_penalty;
-        let frequency_penalty = self.frequency_penalty;
-        let presence_penalty = self.presence_penalty;
-        let repeat_last_n = self.repeat_last_n;
-        let seed = self.seed;
-        let n_ctx = self.n_ctx;
-        let n_batch = self.n_batch;
-        let n_ubatch = self.n_ubatch;
-        let n_threads = self.n_threads;
-        let n_threads_batch = self.n_threads_batch;
-        let n_gpu_layers = self.n_gpu_layers;
-        let main_gpu = self.main_gpu;
-        let split_mode = self.split_mode.clone();
-        let use_mlock = self.use_mlock;
-        let devices = self.devices.clone();
-        let system_prompt = self.system_prompt.clone();
-
+        let config = self.clone();
         autoagents_py::async_bridge::future_into_py(py, async move {
-            let model_source =
-                parse_model_source(model_path, repo_id, hf_filename, mmproj_filename)?;
-
-            let mut builder = LlamaCppProvider::builder().model_source(model_source);
-
-            if let Some(v) = chat_template {
-                builder = builder.chat_template(v);
-            }
-            if let Some(v) = force_json_grammar {
-                builder = builder.force_json_grammar(v);
-            }
-            if let Some(v) = reasoning_format {
-                builder = builder.reasoning_format(parse_reasoning_format(&v)?);
-            }
-            if let Some(v) = extra_body {
-                builder = builder.extra_body(v);
-            }
-            if let Some(v) = model_dir {
-                builder = builder.model_dir(v);
-            }
-            if let Some(v) = hf_revision {
-                builder = builder.hf_revision(v);
-            }
-            if let Some(v) = mmproj_use_gpu {
-                builder = builder.mmproj_use_gpu(v);
-            }
-            if let Some(v) = media_marker {
-                builder = builder.media_marker(v);
-            }
-            if let Some(v) = max_tokens {
-                builder = builder.max_tokens(v);
-            }
-            if let Some(v) = temperature {
-                builder = builder.temperature(v);
-            }
-            if let Some(v) = top_p {
-                builder = builder.top_p(v);
-            }
-            if let Some(v) = top_k {
-                builder = builder.top_k(v);
-            }
-            if let Some(v) = repeat_penalty {
-                builder = builder.repeat_penalty(v);
-            }
-            if let Some(v) = frequency_penalty {
-                builder = builder.frequency_penalty(v);
-            }
-            if let Some(v) = presence_penalty {
-                builder = builder.presence_penalty(v);
-            }
-            if let Some(v) = repeat_last_n {
-                builder = builder.repeat_last_n(v);
-            }
-            if let Some(v) = seed {
-                builder = builder.seed(v);
-            }
-            if let Some(v) = n_ctx {
-                builder = builder.n_ctx(v);
-            }
-            if let Some(v) = n_batch {
-                builder = builder.n_batch(v);
-            }
-            if let Some(v) = n_ubatch {
-                builder = builder.n_ubatch(v);
-            }
-            if let Some(v) = n_threads {
-                builder = builder.n_threads(v);
-            }
-            if let Some(v) = n_threads_batch {
-                builder = builder.n_threads_batch(v);
-            }
-            if let Some(v) = n_gpu_layers {
-                builder = builder.n_gpu_layers(v);
-            }
-            if let Some(v) = main_gpu {
-                builder = builder.main_gpu(v);
-            }
-            if let Some(v) = split_mode {
-                builder = builder.split_mode(parse_split_mode(&v)?);
-            }
-            if let Some(v) = use_mlock {
-                builder = builder.use_mlock(v);
-            }
-            if let Some(v) = devices {
-                builder = builder.devices(v);
-            }
-            if let Some(v) = system_prompt {
-                builder = builder.system_prompt(v);
-            }
-
-            let provider = builder
-                .build()
-                .await
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            let provider = build_provider(config).await?;
             Python::attach(|py| {
                 canonicalize_llm_provider(py, Arc::new(provider) as Arc<dyn LLMProvider>)
             })
         })
     }
+}
+
+async fn build_provider(config: PyLlamaCppBuilder) -> PyResult<LlamaCppProvider> {
+    let PyLlamaCppBuilder {
+        model_path,
+        repo_id,
+        hf_filename,
+        mmproj_filename,
+        hf_revision,
+        model_dir,
+        chat_template,
+        force_json_grammar,
+        reasoning_format,
+        extra_body,
+        mmproj_use_gpu,
+        media_marker,
+        max_tokens,
+        temperature,
+        top_p,
+        top_k,
+        repeat_penalty,
+        frequency_penalty,
+        presence_penalty,
+        repeat_last_n,
+        seed,
+        n_ctx,
+        n_batch,
+        n_ubatch,
+        n_threads,
+        n_threads_batch,
+        n_gpu_layers,
+        main_gpu,
+        split_mode,
+        use_mlock,
+        devices,
+        system_prompt,
+    } = config;
+
+    let behavior_options = BehaviorOptions {
+        chat_template,
+        force_json_grammar,
+        reasoning_format,
+        extra_body,
+        model_dir,
+        hf_revision,
+        mmproj_use_gpu,
+        media_marker,
+        system_prompt,
+    };
+    let sampling_options = SamplingOptions {
+        max_tokens,
+        temperature,
+        top_p,
+        top_k,
+        repeat_penalty,
+        frequency_penalty,
+        presence_penalty,
+        repeat_last_n,
+        seed,
+    };
+    let runtime_options = RuntimeOptions {
+        n_ctx,
+        n_batch,
+        n_ubatch,
+        n_threads,
+        n_threads_batch,
+        n_gpu_layers,
+        main_gpu,
+        split_mode,
+        use_mlock,
+        devices,
+    };
+
+    let model_source = parse_model_source(model_path, repo_id, hf_filename, mmproj_filename)?;
+    let builder = LlamaCppProvider::builder().model_source(model_source);
+    let builder = apply_behavior_options(builder, behavior_options)?;
+    let builder = apply_sampling_options(builder, sampling_options);
+    let builder = apply_runtime_options(builder, runtime_options)?;
+
+    builder
+        .build()
+        .await
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+}
+
+fn apply_behavior_options(
+    mut builder: autoagents_llamacpp::LlamaCppProviderBuilder,
+    options: BehaviorOptions,
+) -> PyResult<autoagents_llamacpp::LlamaCppProviderBuilder> {
+    if let Some(v) = options.chat_template {
+        builder = builder.chat_template(v);
+    }
+    if let Some(v) = options.force_json_grammar {
+        builder = builder.force_json_grammar(v);
+    }
+    if let Some(v) = options.reasoning_format {
+        builder = builder.reasoning_format(parse_reasoning_format(&v)?);
+    }
+    if let Some(v) = options.extra_body {
+        builder = builder.extra_body(v);
+    }
+    if let Some(v) = options.model_dir {
+        builder = builder.model_dir(v);
+    }
+    if let Some(v) = options.hf_revision {
+        builder = builder.hf_revision(v);
+    }
+    if let Some(v) = options.mmproj_use_gpu {
+        builder = builder.mmproj_use_gpu(v);
+    }
+    if let Some(v) = options.media_marker {
+        builder = builder.media_marker(v);
+    }
+    if let Some(v) = options.system_prompt {
+        builder = builder.system_prompt(v);
+    }
+    Ok(builder)
+}
+
+fn apply_sampling_options(
+    mut builder: autoagents_llamacpp::LlamaCppProviderBuilder,
+    options: SamplingOptions,
+) -> autoagents_llamacpp::LlamaCppProviderBuilder {
+    if let Some(v) = options.max_tokens {
+        builder = builder.max_tokens(v);
+    }
+    if let Some(v) = options.temperature {
+        builder = builder.temperature(v);
+    }
+    if let Some(v) = options.top_p {
+        builder = builder.top_p(v);
+    }
+    if let Some(v) = options.top_k {
+        builder = builder.top_k(v);
+    }
+    if let Some(v) = options.repeat_penalty {
+        builder = builder.repeat_penalty(v);
+    }
+    if let Some(v) = options.frequency_penalty {
+        builder = builder.frequency_penalty(v);
+    }
+    if let Some(v) = options.presence_penalty {
+        builder = builder.presence_penalty(v);
+    }
+    if let Some(v) = options.repeat_last_n {
+        builder = builder.repeat_last_n(v);
+    }
+    if let Some(v) = options.seed {
+        builder = builder.seed(v);
+    }
+    builder
+}
+
+fn apply_runtime_options(
+    mut builder: autoagents_llamacpp::LlamaCppProviderBuilder,
+    options: RuntimeOptions,
+) -> PyResult<autoagents_llamacpp::LlamaCppProviderBuilder> {
+    if let Some(v) = options.n_ctx {
+        builder = builder.n_ctx(v);
+    }
+    if let Some(v) = options.n_batch {
+        builder = builder.n_batch(v);
+    }
+    if let Some(v) = options.n_ubatch {
+        builder = builder.n_ubatch(v);
+    }
+    if let Some(v) = options.n_threads {
+        builder = builder.n_threads(v);
+    }
+    if let Some(v) = options.n_threads_batch {
+        builder = builder.n_threads_batch(v);
+    }
+    if let Some(v) = options.n_gpu_layers {
+        builder = builder.n_gpu_layers(v);
+    }
+    if let Some(v) = options.main_gpu {
+        builder = builder.main_gpu(v);
+    }
+    if let Some(v) = options.split_mode {
+        builder = builder.split_mode(parse_split_mode(&v)?);
+    }
+    if let Some(v) = options.use_mlock {
+        builder = builder.use_mlock(v);
+    }
+    if let Some(v) = options.devices {
+        builder = builder.devices(v);
+    }
+    Ok(builder)
+}
+
+struct BehaviorOptions {
+    chat_template: Option<String>,
+    force_json_grammar: Option<bool>,
+    reasoning_format: Option<String>,
+    extra_body: Option<serde_json::Value>,
+    model_dir: Option<String>,
+    hf_revision: Option<String>,
+    mmproj_use_gpu: Option<bool>,
+    media_marker: Option<String>,
+    system_prompt: Option<String>,
+}
+
+struct SamplingOptions {
+    max_tokens: Option<u32>,
+    temperature: Option<f32>,
+    top_p: Option<f32>,
+    top_k: Option<u32>,
+    repeat_penalty: Option<f32>,
+    frequency_penalty: Option<f32>,
+    presence_penalty: Option<f32>,
+    repeat_last_n: Option<i32>,
+    seed: Option<u32>,
+}
+
+struct RuntimeOptions {
+    n_ctx: Option<u32>,
+    n_batch: Option<u32>,
+    n_ubatch: Option<u32>,
+    n_threads: Option<i32>,
+    n_threads_batch: Option<i32>,
+    n_gpu_layers: Option<u32>,
+    main_gpu: Option<i32>,
+    split_mode: Option<String>,
+    use_mlock: Option<bool>,
+    devices: Option<Vec<usize>>,
 }
 
 fn parse_model_source(

@@ -380,11 +380,7 @@ impl AgentExecutor for PyInjectedExecutor {
                         )))
                     }
                     Ok(None) => {
-                        let final_output = last_output.unwrap_or(PyAgentOutput {
-                            response: String::new(),
-                            tool_calls: Vec::new(),
-                            done: true,
-                        });
+                        let final_output = last_output.unwrap_or_else(default_stream_output);
                         let final_output = PyAgentOutput {
                             done: true,
                             ..final_output
@@ -408,6 +404,14 @@ impl AgentExecutor for PyInjectedExecutor {
         );
 
         Ok(Box::pin(stream))
+    }
+}
+
+fn default_stream_output() -> PyAgentOutput {
+    PyAgentOutput {
+        response: String::default(),
+        tool_calls: Vec::default(),
+        done: true,
     }
 }
 

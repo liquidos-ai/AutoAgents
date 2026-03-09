@@ -242,6 +242,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -249,7 +253,7 @@ jobs:
           workspaces: . -> target
 
       - name: Install maturin
-        run: pip3 install maturin
+        run: python -m pip install --upgrade pip maturin
 
       # ── base package ────────────────────────────────────────────────────
       - name: Build autoagents-py
@@ -309,6 +313,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -331,7 +339,7 @@ jobs:
             -Wait -NoNewWindow
 
       - name: Install maturin
-        run: pip install maturin
+        run: python -m pip install --upgrade pip maturin
 
       # ── base package ────────────────────────────────────────────────────
       - name: Build autoagents-py

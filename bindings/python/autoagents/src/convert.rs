@@ -41,74 +41,112 @@ pub fn py_any_to_json_value(value: &Bound<'_, PyAny>) -> PyResult<Value> {
         return Ok(Value::Null);
     }
 
+    if let Some(json) = extract_json_scalar(value)? {
+        return Ok(json);
+    }
+
+    if let Some(json) = extract_json_sequence(value)? {
+        return Ok(json);
+    }
+
+    if let Some(json) = extract_json_mapping(value)? {
+        return Ok(json);
+    }
+
+    if let Some(dumped) = dump_custom_object(value)? {
+        return py_any_to_json_value(&dumped);
+    }
+
+    Err(non_serializable_type_error(value))
+}
+
+fn extract_json_scalar(value: &Bound<'_, PyAny>) -> PyResult<Option<Value>> {
     if let Ok(v) = value.extract::<bool>() {
-        return Ok(Value::Bool(v));
+        return Ok(Some(Value::Bool(v)));
     }
 
     if let Ok(v) = value.extract::<i64>() {
-        return Ok(Value::Number(Number::from(v)));
+        return Ok(Some(Value::Number(Number::from(v))));
     }
 
     if let Ok(v) = value.extract::<u64>() {
-        return Ok(Value::Number(Number::from(v)));
+        return Ok(Some(Value::Number(Number::from(v))));
     }
 
     if let Ok(v) = value.extract::<f64>() {
-        return Number::from_f64(v)
-            .map(Value::Number)
-            .ok_or_else(|| PyTypeError::new_err("cannot convert NaN or infinity to JSON"));
+        let number = Number::from_f64(v)
+            .ok_or_else(|| PyTypeError::new_err("cannot convert NaN or infinity to JSON"))?;
+        return Ok(Some(Value::Number(number)));
     }
 
     if let Ok(v) = value.extract::<String>() {
-        return Ok(Value::String(v));
+        return Ok(Some(Value::String(v)));
     }
 
+    Ok(None)
+}
+
+fn extract_json_sequence(value: &Bound<'_, PyAny>) -> PyResult<Option<Value>> {
     if let Ok(list) = value.cast::<PyList>() {
-        let mut items = Vec::with_capacity(list.len());
-        for item in list.iter() {
-            items.push(py_any_to_json_value(&item)?);
-        }
-        return Ok(Value::Array(items));
+        return Ok(Some(Value::Array(iterable_to_json_array(list.iter())?)));
     }
 
     if let Ok(tuple) = value.cast::<PyTuple>() {
-        let mut items = Vec::with_capacity(tuple.len());
-        for item in tuple.iter() {
-            items.push(py_any_to_json_value(&item)?);
-        }
-        return Ok(Value::Array(items));
+        return Ok(Some(Value::Array(iterable_to_json_array(tuple.iter())?)));
     }
 
-    if let Ok(dict) = value.cast::<PyDict>() {
-        let mut items = Map::with_capacity(dict.len());
-        for (key, item) in dict.iter() {
-            let key = key
-                .extract::<String>()
-                .map_err(|_| PyTypeError::new_err("JSON object keys must be strings"))?;
-            items.insert(key, py_any_to_json_value(&item)?);
-        }
-        return Ok(Value::Object(items));
-    }
+    Ok(None)
+}
 
+fn extract_json_mapping(value: &Bound<'_, PyAny>) -> PyResult<Option<Value>> {
+    let Ok(dict) = value.cast::<PyDict>() else {
+        return Ok(None);
+    };
+
+    let mut items = Map::with_capacity(dict.len());
+    for (key, item) in dict.iter() {
+        let key = key
+            .extract::<String>()
+            .map_err(|_| PyTypeError::new_err("JSON object keys must be strings"))?;
+        items.insert(key, py_any_to_json_value(&item)?);
+    }
+    Ok(Some(Value::Object(items)))
+}
+
+fn iterable_to_json_array<'py, I>(items: I) -> PyResult<Vec<Value>>
+where
+    I: IntoIterator<Item = Bound<'py, PyAny>>,
+{
+    items
+        .into_iter()
+        .map(|item| py_any_to_json_value(&item))
+        .collect()
+}
+
+fn dump_custom_object<'py>(value: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyAny>>> {
     if value.hasattr("model_dump")? {
-        let dumped = value.call_method0("model_dump")?;
-        return py_any_to_json_value(&dumped);
+        return value.call_method0("model_dump").map(Some);
     }
 
     if value.hasattr("dict")? {
-        let dumped = value.call_method0("dict")?;
-        return py_any_to_json_value(&dumped);
+        return value.call_method0("dict").map(Some);
     }
 
     if value.hasattr("__dataclass_fields__")? {
-        let py = value.py();
-        let dataclasses = py.import("dataclasses")?;
-        let dumped = dataclasses.call_method1("asdict", (value,))?;
-        return py_any_to_json_value(&dumped);
+        let dataclasses = value.py().import("dataclasses")?;
+        return dataclasses.call_method1("asdict", (value,)).map(Some);
     }
 
-    Err(PyTypeError::new_err(format!(
-        "value of type '{}' is not JSON serializable by the AutoAgents binding",
-        value.get_type().name()?
-    )))
+    Ok(None)
+}
+
+fn non_serializable_type_error(value: &Bound<'_, PyAny>) -> PyErr {
+    let type_name = value
+        .get_type()
+        .name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "<unknown>".to_string());
+    PyTypeError::new_err(format!(
+        "value of type '{type_name}' is not JSON serializable by the AutoAgents binding"
+    ))
 }

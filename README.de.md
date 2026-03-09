@@ -163,7 +163,7 @@ Beispielskripte:
 ### Tests ausführen
 
 ```bash
-cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
+cargo test --features "full" --workspace
 ```
 
 ---

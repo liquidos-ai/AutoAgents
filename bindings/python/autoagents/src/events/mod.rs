@@ -13,142 +13,189 @@ use tokio::task::JoinHandle;
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 
 fn event_to_payload(event: Event) -> PyResult<Value> {
-    let payload = match event {
+    match event {
         Event::PublishMessage { .. } => {
             unreachable!("PublishMessage must be filtered before event_to_payload")
         }
-        Event::NewTask { actor_id, task } => json!({
+        Event::NewTask { actor_id, task } => Ok(json!({
             "kind": "new_task",
             "actor_id": actor_id.to_string(),
             "prompt": task.prompt,
             "system_prompt": task.system_prompt,
-        }),
+        })),
         Event::TaskStarted {
             sub_id,
             actor_id,
             actor_name,
             task_description,
-        } => json!({
-            "kind": "task_started",
-            "sub_id": sub_id.to_string(),
-            "actor_id": actor_id.to_string(),
-            "actor_name": actor_name,
-            "task_description": task_description,
-        }),
+        } => Ok(task_payload(
+            "task_started",
+            sub_id,
+            actor_id,
+            json!({
+                "actor_name": actor_name,
+                "task_description": task_description,
+            }),
+        )),
         Event::TaskComplete {
             sub_id,
             actor_id,
             actor_name,
             result,
-        } => json!({
-            "kind": "task_complete",
-            "sub_id": sub_id.to_string(),
-            "actor_id": actor_id.to_string(),
-            "actor_name": actor_name,
-            "result": result,
-        }),
+        } => Ok(task_payload(
+            "task_complete",
+            sub_id,
+            actor_id,
+            json!({
+                "actor_name": actor_name,
+                "result": result,
+            }),
+        )),
         Event::TaskError {
             sub_id,
             actor_id,
             error,
-        } => json!({
-            "kind": "task_error",
-            "sub_id": sub_id.to_string(),
-            "actor_id": actor_id.to_string(),
-            "error": error,
-        }),
-        Event::SendMessage { message, actor_id } => json!({
+        } => Ok(task_payload(
+            "task_error",
+            sub_id,
+            actor_id,
+            json!({
+                "error": error,
+            }),
+        )),
+        Event::SendMessage { message, actor_id } => Ok(json!({
             "kind": "send_message",
             "actor_id": actor_id.to_string(),
             "message": message,
-        }),
+        })),
         Event::ToolCallRequested {
             sub_id,
             actor_id,
             id,
             tool_name,
             arguments,
-        } => json!({
-            "kind": "tool_call_requested",
-            "sub_id": sub_id.to_string(),
-            "actor_id": actor_id.to_string(),
-            "id": id,
-            "tool_name": tool_name,
-            "arguments": arguments,
-        }),
+        } => Ok(tool_payload(
+            "tool_call_requested",
+            sub_id,
+            actor_id,
+            id,
+            tool_name,
+            json!({ "arguments": arguments }),
+        )),
         Event::ToolCallCompleted {
             sub_id,
             actor_id,
             id,
             tool_name,
             result,
-        } => json!({
-            "kind": "tool_call_completed",
-            "sub_id": sub_id.to_string(),
-            "actor_id": actor_id.to_string(),
-            "id": id,
-            "tool_name": tool_name,
-            "result": result,
-        }),
+        } => Ok(tool_payload(
+            "tool_call_completed",
+            sub_id,
+            actor_id,
+            id,
+            tool_name,
+            json!({ "result": result }),
+        )),
         Event::ToolCallFailed {
             sub_id,
             actor_id,
             id,
             tool_name,
             error,
-        } => json!({
-            "kind": "tool_call_failed",
-            "sub_id": sub_id.to_string(),
-            "actor_id": actor_id.to_string(),
-            "id": id,
-            "tool_name": tool_name,
-            "error": error,
-        }),
+        } => Ok(tool_payload(
+            "tool_call_failed",
+            sub_id,
+            actor_id,
+            id,
+            tool_name,
+            json!({ "error": error }),
+        )),
         Event::TurnStarted {
             sub_id,
             actor_id,
             turn_number,
             max_turns,
-        } => json!({
-            "kind": "turn_started",
-            "sub_id": sub_id.to_string(),
-            "actor_id": actor_id.to_string(),
-            "turn_number": turn_number,
-            "max_turns": max_turns,
-        }),
+        } => Ok(task_payload(
+            "turn_started",
+            sub_id,
+            actor_id,
+            json!({
+                "turn_number": turn_number,
+                "max_turns": max_turns,
+            }),
+        )),
         Event::TurnCompleted {
             sub_id,
             actor_id,
             turn_number,
             final_turn,
-        } => json!({
-            "kind": "turn_completed",
-            "sub_id": sub_id.to_string(),
-            "actor_id": actor_id.to_string(),
-            "turn_number": turn_number,
-            "final_turn": final_turn,
-        }),
-        Event::StreamChunk { sub_id, chunk } => {
-            let chunk = serde_json::to_value(&chunk)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        } => Ok(task_payload(
+            "turn_completed",
+            sub_id,
+            actor_id,
             json!({
-                "kind": "stream_chunk",
-                "sub_id": sub_id.to_string(),
-                "chunk": chunk,
-            })
-        }
-        Event::StreamToolCall { sub_id, tool_call } => json!({
+                "turn_number": turn_number,
+                "final_turn": final_turn,
+            }),
+        )),
+        Event::StreamChunk { sub_id, chunk } => stream_chunk_payload(sub_id, chunk),
+        Event::StreamToolCall { sub_id, tool_call } => Ok(json!({
             "kind": "stream_tool_call",
             "sub_id": sub_id.to_string(),
             "tool_call": tool_call,
-        }),
-        Event::StreamComplete { sub_id } => json!({
+        })),
+        Event::StreamComplete { sub_id } => Ok(json!({
             "kind": "stream_complete",
             "sub_id": sub_id.to_string(),
-        }),
-    };
+        })),
+    }
+}
 
-    Ok(payload)
+fn task_payload(kind: &str, sub_id: impl ToString, actor_id: impl ToString, extra: Value) -> Value {
+    let mut payload = json!({
+        "kind": kind,
+        "sub_id": sub_id.to_string(),
+        "actor_id": actor_id.to_string(),
+    });
+    merge_payload(&mut payload, extra);
+    payload
+}
+
+fn tool_payload(
+    kind: &str,
+    sub_id: impl ToString,
+    actor_id: impl ToString,
+    id: String,
+    tool_name: String,
+    extra: Value,
+) -> Value {
+    let mut payload = task_payload(
+        kind,
+        sub_id,
+        actor_id,
+        json!({
+            "id": id,
+            "tool_name": tool_name,
+        }),
+    );
+    merge_payload(&mut payload, extra);
+    payload
+}
+
+fn stream_chunk_payload(sub_id: impl ToString, chunk: impl serde::Serialize) -> PyResult<Value> {
+    let chunk = serde_json::to_value(chunk)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    Ok(json!({
+        "kind": "stream_chunk",
+        "sub_id": sub_id.to_string(),
+        "chunk": chunk,
+    }))
+}
+
+fn merge_payload(payload: &mut Value, extra: Value) {
+    if let (Some(base), Some(extra)) = (payload.as_object_mut(), extra.as_object()) {
+        base.extend(extra.clone());
+    }
 }
 
 pub(crate) fn event_to_py(py: Python<'_>, event: Event) -> PyResult<Py<PyAny>> {
