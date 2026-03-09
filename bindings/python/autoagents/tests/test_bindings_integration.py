@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -110,6 +111,11 @@ class _ValidationExecutor:
         yield {"response": task["prompt"], "done": True, "tool_calls": []}
 
 
+class _FailingHooks:
+    async def on_run_start(self, task: aa.ExecutorTask, ctx: aa.ExecutorContext) -> aa.HookOutcome:
+        raise RuntimeError("hook exploded")
+
+
 @pytest.mark.asyncio
 async def test_custom_executor_runs_against_real_binding(built_llm):
     hooks = _RecordingHooks()
@@ -185,6 +191,28 @@ async def test_execution_llm_validation_errors_do_not_require_network(built_llm)
     assert "message must be a string or dict" in result["response"]
     assert "invalid schema:" in result["response"]
     assert "tools must contain Tool instances created by autoagents.tool" in result["response"]
+
+
+@pytest.mark.asyncio
+async def test_runtime_event_stream_builds_without_hanging():
+    runtime = aa.Runtime()
+
+    stream = await asyncio.wait_for(runtime.event_stream(), timeout=1.0)
+
+    assert isinstance(stream, aa.EventStream)
+
+
+@pytest.mark.asyncio
+async def test_hook_failures_surface_as_agent_run_errors(built_llm):
+    handle = await (
+        aa.AgentBuilder(aa.BasicAgent("basic", "desc").hooks(_FailingHooks()))
+        .llm(built_llm)
+        .memory(aa.SlidingWindowMemory(4))
+        .build()
+    )
+
+    with pytest.raises(aa.AgentRunError, match="hook on_run_start failed: hook exploded"):
+        await handle.run("hello")
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,5 @@
 use crate::agent::py_agent::{
-    ActorSendFn, BuildActorResult, BuildDirectResult, PyAgentDef, PyAgentOutput,
+    ActorSendFn, BuildActorResult, BuildDirectResult, HookErrorState, PyAgentDef, PyAgentOutput,
     PyExecutorBuildable, PyRunnable, call_hook_method_async, call_hook_method_sync, context_to_py,
     task_to_py,
 };
@@ -655,6 +655,7 @@ pub(crate) fn parse_executor_spec(
         output_schema: output_schema.clone(),
         hooks: Python::attach(|py| hooks.as_ref().map(|obj| obj.clone_ref(py))),
         task_locals: None,
+        hook_errors: HookErrorState::default(),
     };
 
     let executor: Box<dyn PyExecutorBuildable> = match kind.as_str() {

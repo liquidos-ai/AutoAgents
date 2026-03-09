@@ -1,53 +1,10 @@
 use pyo3::prelude::*;
-use pyo3::sync::PyOnceLock;
 use pyo3::types::PyAny;
-use pyo3::types::PyModule;
 use pyo3_async_runtimes::TaskLocals;
 use std::future::Future;
 use std::pin::Pin;
 
 pub(crate) type PyAwaitableFuture = Pin<Box<dyn Future<Output = PyResult<Py<PyAny>>> + Send>>;
-static NATIVE_FUTURE_WRAPPER: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
-
-fn native_future_wrapper(py: Python<'_>) -> PyResult<&Bound<'_, PyAny>> {
-    NATIVE_FUTURE_WRAPPER
-        .get_or_try_init(py, || {
-            let module = PyModule::from_code(
-                py,
-                pyo3::ffi::c_str!(concat!(
-                    "import asyncio\n",
-                    "\n",
-                    "async def _await_native_future(future):\n",
-                    "    loop = asyncio.get_running_loop()\n",
-                    "    waiter = loop.create_future()\n",
-                    "\n",
-                    "    def _complete(_):\n",
-                    "        if not waiter.done():\n",
-                    "            waiter.set_result(None)\n",
-                    "\n",
-                    "    future.add_done_callback(_complete)\n",
-                    "    try:\n",
-                    "        if not future.done():\n",
-                    "            await waiter\n",
-                    "        return await future\n",
-                    "    except BaseException:\n",
-                    "        if not future.done():\n",
-                    "            future.cancel()\n",
-                    "            try:\n",
-                    "                await future\n",
-                    "            except BaseException:\n",
-                    "                pass\n",
-                    "        raise\n",
-                )),
-                pyo3::ffi::c_str!("_autoagents_async_bridge.py"),
-                pyo3::ffi::c_str!("_autoagents_async_bridge"),
-            )?;
-            module
-                .getattr("_await_native_future")
-                .map(|func| func.unbind())
-        })
-        .map(|func| func.bind(py))
-}
 
 fn resolve_task_locals(py: Python<'_>, task_locals: Option<&TaskLocals>) -> PyResult<TaskLocals> {
     match task_locals {
@@ -61,8 +18,7 @@ where
     F: Future<Output = PyResult<T>> + Send + 'static,
     T: for<'py> IntoPyObject<'py> + Send + 'static,
 {
-    let native_future = pyo3_async_runtimes::tokio::future_into_py(py, fut)?;
-    native_future_wrapper(py)?.call1((native_future,))
+    pyo3_async_runtimes::tokio::future_into_py(py, fut)
 }
 
 pub(crate) fn is_awaitable(value: &Bound<'_, PyAny>) -> PyResult<bool> {

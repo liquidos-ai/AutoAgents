@@ -117,6 +117,11 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
@@ -126,5 +131,53 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libasound2-dev
 
+      - name: Install Python build deps
+        run: python -m pip install --upgrade pip maturin
+
       - name: Build Workspace
-        run: cargo build --workspace --release
+        run: |
+          cargo build --workspace --release \
+            --exclude autoagents-py \
+            --exclude autoagents-guardrails-py \
+            --exclude autoagents-llamacpp-py \
+            --exclude autoagents-mistral-rs-py
+
+      - name: Build Python bindings
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          maturin build --release \
+            --out dist/autoagents \
+            --manifest-path bindings/python/autoagents/Cargo.toml
+
+          maturin build --release \
+            --out dist/autoagents-guardrails \
+            --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
+
+          maturin build --release \
+            --out dist/autoagents-llamacpp \
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
+
+          maturin build --release \
+            --out dist/autoagents-mistralrs \
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
+
+      - name: Build Python bindings (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          maturin build --release `
+            --out dist/autoagents `
+            --manifest-path bindings/python/autoagents/Cargo.toml
+
+          maturin build --release `
+            --out dist/autoagents-guardrails `
+            --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
+
+          maturin build --release `
+            --out dist/autoagents-llamacpp `
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
+
+          maturin build --release `
+            --out dist/autoagents-mistralrs `
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml

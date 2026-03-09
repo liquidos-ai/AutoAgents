@@ -80,27 +80,29 @@ impl PyEnvironment {
     }
 
     /// Register a runtime. Blocks briefly on the tokio runtime (no GIL held).
-    pub fn register_runtime(&mut self, runtime: &PySingleThreadedRuntime) -> PyResult<()> {
+    pub fn register_runtime(
+        &mut self,
+        py: Python<'_>,
+        runtime: &PySingleThreadedRuntime,
+    ) -> PyResult<()> {
         let rt = Arc::clone(&runtime.inner) as Arc<dyn Runtime>;
-        crate::runtime::get_runtime()
-            .map_err(PyRuntimeError::new_err)?
-            .block_on(async { self.inner.register_runtime(rt).await })
+        let runtime = crate::runtime::get_runtime().map_err(PyRuntimeError::new_err)?;
+        py.detach(|| runtime.block_on(async { self.inner.register_runtime(rt).await }))
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Start registered runtimes in the background using the shared Tokio runtime.
-    pub fn run(&mut self) -> PyResult<()> {
-        crate::runtime::get_runtime()
-            .map_err(PyRuntimeError::new_err)?
-            .block_on(async { self.inner.run_background().await })
+    pub fn run(&mut self, py: Python<'_>) -> PyResult<()> {
+        let runtime = crate::runtime::get_runtime().map_err(PyRuntimeError::new_err)?;
+        py.detach(|| runtime.block_on(async { self.inner.run_background().await }))
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Return an `EventStream` over all environment events.
-    pub fn event_stream(&mut self) -> PyResult<PyEventStream> {
-        let stream = crate::runtime::get_runtime()
-            .map_err(PyRuntimeError::new_err)?
-            .block_on(async { self.inner.subscribe_events(None).await })
+    pub fn event_stream(&mut self, py: Python<'_>) -> PyResult<PyEventStream> {
+        let runtime = crate::runtime::get_runtime().map_err(PyRuntimeError::new_err)?;
+        let stream = py
+            .detach(|| runtime.block_on(async { self.inner.subscribe_events(None).await }))
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
         Ok(PyEventStream {

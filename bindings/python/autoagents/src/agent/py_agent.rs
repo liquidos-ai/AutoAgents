@@ -31,7 +31,7 @@ use serde_json::{Value, json};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Output type for `PyAgentDef`.
 ///
@@ -42,6 +42,49 @@ pub struct PyAgentOutput {
     pub response: String,
     pub tool_calls: Vec<ToolCallResult>,
     pub done: bool,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct HookErrorState(Arc<Mutex<Option<String>>>);
+
+impl HookErrorState {
+    pub(crate) fn clear(&self) {
+        let mut guard = self
+            .0
+            .lock()
+            .expect("hook error state mutex poisoned while clearing");
+        *guard = None;
+    }
+
+    pub(crate) fn record(&self, message: impl Into<String>) {
+        let mut guard = self
+            .0
+            .lock()
+            .expect("hook error state mutex poisoned while recording");
+        if guard.is_none() {
+            *guard = Some(message.into());
+        }
+    }
+
+    pub(crate) fn take(&self) -> Option<String> {
+        self.0
+            .lock()
+            .expect("hook error state mutex poisoned while taking")
+            .take()
+    }
+}
+
+fn normalize_hook_error(err: &str) -> String {
+    let trimmed = err.trim();
+    if let Some((prefix, rest)) = trimmed.split_once(": ")
+        && prefix
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '.')
+        && (prefix.ends_with("Error") || prefix.ends_with("Exception"))
+    {
+        return rest.to_string();
+    }
+    trimmed.to_string()
 }
 
 impl AgentOutputT for PyAgentOutput {
@@ -88,6 +131,7 @@ pub struct PyAgentDef {
     pub output_schema: Option<Value>,
     pub hooks: Option<Py<PyAny>>,
     pub task_locals: Option<TaskLocals>,
+    pub hook_errors: HookErrorState,
 }
 
 impl Clone for PyAgentDef {
@@ -99,6 +143,7 @@ impl Clone for PyAgentDef {
             output_schema: self.output_schema.clone(),
             hooks: self.hooks.as_ref().map(|h| h.clone_ref(py)),
             task_locals: self.task_locals.clone(),
+            hook_errors: self.hook_errors.clone(),
         })
     }
 }
@@ -762,7 +807,12 @@ impl PyAgentDef {
     where
         F: for<'py> FnOnce(Python<'py>, &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>>,
     {
-        let _ = self.call_optional_hook(method, call).await;
+        if let Err(err) = self.call_optional_hook(method, call).await {
+            self.hook_errors.record(format!(
+                "hook {method} failed: {}",
+                normalize_hook_error(&err)
+            ));
+        }
     }
 
     async fn outcome_hook<F>(&self, method: &str, call: F) -> HookOutcome
@@ -771,7 +821,13 @@ impl PyAgentDef {
     {
         match self.call_optional_hook(method, call).await {
             Ok(value) => parse_hook_outcome(value),
-            Err(_) => HookOutcome::Continue,
+            Err(err) => {
+                self.hook_errors.record(format!(
+                    "hook {method} failed: {}",
+                    normalize_hook_error(&err)
+                ));
+                HookOutcome::Abort
+            }
         }
     }
 }

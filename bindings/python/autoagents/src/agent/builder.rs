@@ -1,6 +1,7 @@
 use crate::agent::executor::parse_executor_spec;
 use crate::agent::py_agent::{
-    ActorSendFn, AgentOutputStream, PyAgentDef, PyAgentOutput, PyExecutorBuildable, PyRunnable,
+    ActorSendFn, AgentOutputStream, HookErrorState, PyAgentDef, PyAgentOutput, PyExecutorBuildable,
+    PyRunnable,
 };
 use crate::convert::json_value_to_py;
 use crate::events::{PyEventStream, PySharedEventStream};
@@ -20,6 +21,13 @@ use pyo3::types::PyDict;
 use std::sync::Arc;
 
 type BuiltAgentInputs = (Arc<dyn LLMProvider>, Box<dyn MemoryProvider>, PyAgentDef);
+
+fn hook_error_to_pyerr(hook_errors: &HookErrorState) -> PyResult<()> {
+    if let Some(error) = hook_errors.take() {
+        return Err(PyRuntimeError::new_err(error));
+    }
+    Ok(())
+}
 
 /// Builder that mirrors `AgentBuilder::<Executor, DirectAgent>::new(executor)` in Rust.
 ///
@@ -95,16 +103,23 @@ impl PyAgentBuilder {
     /// Build a `DirectAgent`-backed handle. Returns a coroutine → `AgentHandle`.
     pub fn build<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let (llm, memory, mut agent_def) = self.build_inputs()?;
+        let hook_errors = agent_def.hook_errors.clone();
+        hook_errors.clear();
         agent_def.task_locals = Some(pyo3_async_runtimes::tokio::get_current_locals(py)?);
         let fut = self.executor.build_direct(agent_def, llm, memory);
 
         crate::async_bridge::future_into_py(py, async move {
             let (agent, event_stream) = fut.await?;
+            hook_error_to_pyerr(&hook_errors)?;
             let events = Arc::new(PySharedEventStream::new(event_stream));
             Python::attach(|py: Python<'_>| -> PyResult<Py<PyAny>> {
-                let result = PyAgentHandle { agent, events }
-                    .into_pyobject(py)
-                    .map(|b| b.into_any().unbind())?;
+                let result = PyAgentHandle {
+                    agent,
+                    events,
+                    hook_errors,
+                }
+                .into_pyobject(py)
+                .map(|b| b.into_any().unbind())?;
                 Ok(result)
             })
         })
@@ -114,6 +129,8 @@ impl PyAgentBuilder {
     /// Returns a coroutine → `ActorAgentHandle`.
     pub fn build_actor<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let (llm, memory, mut agent_def) = self.build_inputs()?;
+        let hook_errors = agent_def.hook_errors.clone();
+        hook_errors.clear();
         agent_def.task_locals = Some(pyo3_async_runtimes::tokio::get_current_locals(py)?);
         let runtime = self
             .runtime
@@ -125,6 +142,7 @@ impl PyAgentBuilder {
 
         crate::async_bridge::future_into_py(py, async move {
             let send_fn: ActorSendFn = fut.await?;
+            hook_error_to_pyerr(&hook_errors)?;
             Python::attach(|py: Python<'_>| -> PyResult<Py<PyAny>> {
                 PyActorAgentHandle { send_fn }
                     .into_pyobject(py)
@@ -158,6 +176,7 @@ impl PyAgentBuilder {
             output_schema: self.agent_def.output_schema.clone(),
             hooks,
             task_locals: self.agent_def.task_locals.clone(),
+            hook_errors: self.agent_def.hook_errors.clone(),
         }
     }
 }
@@ -167,6 +186,7 @@ impl PyAgentBuilder {
 pub struct PyAgentHandle {
     agent: Arc<dyn PyRunnable>,
     events: Arc<PySharedEventStream>,
+    hook_errors: HookErrorState,
 }
 
 #[pymethods]
@@ -186,10 +206,19 @@ impl PyAgentHandle {
         let submission_id = task.submission_id;
         let agent = Arc::clone(&self.agent);
         let events = Arc::clone(&self.events);
+        let hook_errors = self.hook_errors.clone();
         let mut event_rx = events.subscribe_receiver();
 
         crate::async_bridge::future_into_py(py, async move {
-            let output: PyAgentOutput = agent.run(task).await.map_err(PyRuntimeError::new_err)?;
+            hook_errors.clear();
+            let output: PyAgentOutput = match agent.run(task).await {
+                Ok(output) => output,
+                Err(error) => {
+                    hook_error_to_pyerr(&hook_errors)?;
+                    return Err(PyRuntimeError::new_err(error));
+                }
+            };
+            hook_error_to_pyerr(&hook_errors)?;
             events.flush().await;
             let collected_events = collect_run_events(&mut event_rx, submission_id);
 
@@ -207,6 +236,7 @@ impl PyAgentHandle {
                 let events_py = crate::events::events_to_py_list(py, collected_events)?;
                 dict.set_item("events", events_py)?;
 
+                hook_error_to_pyerr(&hook_errors)?;
                 Ok(dict.into_any().unbind())
             })
         })
@@ -225,16 +255,23 @@ impl PyAgentHandle {
     ) -> PyResult<Bound<'py, PyAny>> {
         let task = py_task_to_rust_task(task)?;
         let agent = Arc::clone(&self.agent);
+        let hook_errors = self.hook_errors.clone();
 
         crate::async_bridge::future_into_py(py, async move {
-            let stream: AgentOutputStream = agent
-                .run_stream(task)
-                .await
-                .map_err(PyRuntimeError::new_err)?;
+            hook_errors.clear();
+            let stream: AgentOutputStream = match agent.run_stream(task).await {
+                Ok(stream) => stream,
+                Err(error) => {
+                    hook_error_to_pyerr(&hook_errors)?;
+                    return Err(PyRuntimeError::new_err(error));
+                }
+            };
+            hook_error_to_pyerr(&hook_errors)?;
 
             Python::attach(|py: Python<'_>| -> PyResult<Py<PyAny>> {
                 PyRunStream {
                     stream: Arc::new(tokio::sync::Mutex::new(stream)),
+                    hook_errors,
                 }
                 .into_pyobject(py)
                 .map(|b| b.into_any().unbind())
@@ -378,6 +415,7 @@ fn py_task_to_rust_task(task_obj: &Bound<'_, PyAny>) -> PyResult<Task> {
 #[pyclass(name = "RunStream")]
 pub struct PyRunStream {
     stream: Arc<tokio::sync::Mutex<AgentOutputStream>>,
+    hook_errors: HookErrorState,
 }
 
 #[pymethods]
@@ -388,6 +426,7 @@ impl PyRunStream {
 
     fn __anext__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let stream = Arc::clone(&self.stream);
+        let hook_errors = self.hook_errors.clone();
 
         crate::async_bridge::future_into_py(py, async move {
             let next = {
@@ -397,14 +436,23 @@ impl PyRunStream {
 
             match next {
                 Some(Ok(output)) => Python::attach(|py| {
+                    if output.done {
+                        hook_error_to_pyerr(&hook_errors)?;
+                    }
                     let val = serde_json::to_value(&output)
                         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
                     json_value_to_py(py, &val)
                 }),
-                Some(Err(err)) => Err(PyRuntimeError::new_err(err.to_string())),
-                None => Err(pyo3::exceptions::PyStopAsyncIteration::new_err(
-                    "stream ended",
-                )),
+                Some(Err(err)) => {
+                    hook_error_to_pyerr(&hook_errors)?;
+                    Err(PyRuntimeError::new_err(err.to_string()))
+                }
+                None => {
+                    hook_error_to_pyerr(&hook_errors)?;
+                    Err(pyo3::exceptions::PyStopAsyncIteration::new_err(
+                        "stream ended",
+                    ))
+                }
             }
         })
     }

@@ -196,10 +196,6 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for BasicAgent<T> {
         task: &Task,
         context: Arc<Context>,
     ) -> Result<Self::Output, Self::Error> {
-        if self.on_run_start(task, &context).await == HookOutcome::Abort {
-            return Err(BasicExecutorError::Other("Run aborted by hook".to_string()));
-        }
-
         record_task_state(&context, task);
         let tx_event = context.tx().ok();
         EventHelper::send_task_started(
@@ -238,10 +234,6 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for BasicAgent<T> {
         context: Arc<Context>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>, Self::Error>
     {
-        if self.on_run_start(task, &context).await == HookOutcome::Abort {
-            return Err(BasicExecutorError::Other("Run aborted by hook".to_string()));
-        }
-
         record_task_state(&context, task);
         let tx_event = context.tx().ok();
         EventHelper::send_task_started(
@@ -353,7 +345,7 @@ fn extract_turn_output(
 mod tests {
     use super::*;
     use crate::agent::AgentDeriveT;
-    use crate::tests::{ConfigurableLLMProvider, MockAgentImpl, MockLLMProvider, TestAgentOutput};
+    use crate::tests::{ConfigurableLLMProvider, MockAgentImpl, MockLLMProvider};
     use async_trait::async_trait;
     use autoagents_llm::chat::{StreamChoice, StreamDelta, StreamResponse};
     use std::sync::Arc;
@@ -363,7 +355,7 @@ mod tests {
 
     #[async_trait]
     impl AgentDeriveT for AbortAgent {
-        type Output = TestAgentOutput;
+        type Output = String;
 
         fn description(&self) -> &str {
             "abort"
@@ -662,42 +654,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_basic_agent_execute_aborts_on_hook() {
-        use crate::agent::{AgentConfig, Context};
-        use autoagents_protocol::ActorID;
+    async fn test_basic_agent_run_aborts_on_hook() {
+        use crate::agent::AgentBuilder;
+        use crate::agent::direct::DirectAgent;
+        use crate::agent::error::RunnableAgentError;
 
         let agent = BasicAgent::new(AbortAgent);
         let llm = Arc::new(MockLLMProvider {});
-        let config = AgentConfig {
-            id: ActorID::new_v4(),
-            name: "abort_agent".to_string(),
-            description: "abort".to_string(),
-            output_schema: None,
-        };
-        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let handle = AgentBuilder::<_, DirectAgent>::new(agent)
+            .llm(llm)
+            .build()
+            .await
+            .expect("build should succeed");
         let task = Task::new("abort");
 
-        let err = agent.execute(&task, context).await.unwrap_err();
-        assert!(err.to_string().contains("aborted"));
+        let err = handle.agent.run(task).await.expect_err("expected abort");
+        assert!(matches!(err, RunnableAgentError::Abort));
     }
 
     #[tokio::test]
-    async fn test_basic_agent_execute_stream_aborts_on_hook() {
-        use crate::agent::{AgentConfig, Context};
-        use autoagents_protocol::ActorID;
+    async fn test_basic_agent_run_stream_aborts_on_hook() {
+        use crate::agent::AgentBuilder;
+        use crate::agent::direct::DirectAgent;
+        use crate::agent::error::RunnableAgentError;
 
         let agent = BasicAgent::new(AbortAgent);
         let llm = Arc::new(MockLLMProvider {});
-        let config = AgentConfig {
-            id: ActorID::new_v4(),
-            name: "abort_agent".to_string(),
-            description: "abort".to_string(),
-            output_schema: None,
-        };
-        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let handle = AgentBuilder::<_, DirectAgent>::new(agent)
+            .llm(llm)
+            .build()
+            .await
+            .expect("build should succeed");
         let task = Task::new("abort");
 
-        let err = agent.execute_stream(&task, context).await.err().unwrap();
-        assert!(err.to_string().contains("aborted"));
+        let err = match handle.agent.run_stream(task).await {
+            Ok(_) => panic!("expected abort"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, RunnableAgentError::Abort));
     }
 }
