@@ -4,7 +4,7 @@ SHELL := bash
 .DEFAULT_GOAL := help
 
 PYTHON ?= $(if $(wildcard $(CURDIR)/.venv/bin/python),$(CURDIR)/.venv/bin/python,python3)
-MATURIN ?= maturin
+MATURIN ?= $(if $(wildcard $(CURDIR)/.venv/bin/maturin),$(CURDIR)/.venv/bin/maturin,maturin)
 PIP ?= $(PYTHON) -m pip
 UV_CACHE_DIR ?= $(CURDIR)/.uv-cache
 
