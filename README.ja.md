@@ -127,10 +127,42 @@ lefthook install
 cargo build --workspace --all-features
 ```
 
+### Python バインディング
+
+AutoAgents は Python バインディングを個別パッケージとして提供します：
+
+- `autoagents-py`（コア Python API + クラウドバックエンド）
+- `autoagents-guardrails-py`（Python `LLMProvider` 向けのオプション Guardrails）
+- `autoagents-llamacpp-py`（任意のローカル llama.cpp バックエンド）
+- `autoagents-mistral-rs-py`（任意のローカル mistral-rs バックエンド）
+
+このリポジトリからの開発用インストール：
+
+```bash
+uv venv --python=3.12
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+
+# CPU バインディングをクリーン、ビルド、インストール
+make python-bindings-build
+
+# CPU + CUDA バインディングをクリーン、ビルド、インストール
+make python-bindings-build-cuda
+```
+
+Make ターゲットは再ビルド前に古い editable-install アーティファクトを削除するため、
+ソースツリー内の古い `.abi3.so` が読み込まれるのを防げます。
+
+サンプルスクリプト：
+
+- コアクラウド例：`bindings/python/autoagents/examples/openai_agent.py`
+- llama.cpp 例：`bindings/python/autoagents-llamacpp/examples/llamacpp_agent.py`
+- mistral-rs 例：`bindings/python/autoagents-mistralrs/examples/mistral_rs_agent.py`
+
 ### テストの実行
 
 ```bash
-cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
+cargo test --features "full" --workspace
 ```
 
 ---

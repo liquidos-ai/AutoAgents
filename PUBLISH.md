@@ -83,7 +83,26 @@ cargo publish
 
 ---
 
-4. Create release tag:
+4. Build Python packages (PyPI)
+
+```shell
+# Build manylinux wheels (CPU variants)
+make python-bindings-build
+```
+This builds:
+- `autoagents` base wheel
+- `autoagents-guardrails` wheel
+- `autoagents-llamacpp` CPU wheel
+- `autoagents-mistral-rs` CPU wheel
+
+To Test the cuda version run
+```shell
+make python-bindings-build-cuda
+```
+
+#### Note: The Python packages are published via Github actions
+
+5. Create release tag:
 
 ```shell
 cd ../.. # Back to project root

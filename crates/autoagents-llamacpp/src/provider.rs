@@ -47,6 +47,24 @@ use std::{
 };
 use tokio::sync::mpsc;
 
+/// Dedicated tokio runtime for the llamacpp provider.
+///
+/// Each compiled `.so` has its own copy of tokio's thread-local runtime state.
+/// When this crate is used from a Python extension, the calling async context
+/// runs on a different `.so`'s runtime whose thread-local is invisible to this
+/// crate's tokio. Using a crate-local runtime ensures `spawn_blocking` and
+/// `spawn` always have a valid `Handle::current()`.
+fn get_rt() -> &'static tokio::runtime::Runtime {
+    static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("llamacpp")
+            .build()
+            .expect("llamacpp runtime init failed")
+    })
+}
+
 const JSON_GRAMMAR: &str = include_str!("grammars/json.gbnf");
 const DEFAULT_N_BATCH: u32 = 64;
 
@@ -393,6 +411,18 @@ impl LlamaCppProvider {
         temperature_override.or(self.config.temperature)
     }
 
+    async fn run_blocking_task<T, F>(task_name: &str, f: F) -> Result<T, LLMError>
+    where
+        T: Send + 'static,
+        F: FnOnce() -> Result<T, LlamaCppProviderError> + Send + 'static,
+    {
+        get_rt()
+            .spawn_blocking(f)
+            .await
+            .map_err(|err| LLMError::ProviderError(format!("{task_name} task failed: {err}")))?
+            .map_err(LLMError::from)
+    }
+
     async fn generate_completion_response(
         &self,
         prompt: PromptData,
@@ -406,25 +436,21 @@ impl LlamaCppProvider {
         let max_tokens = self.resolve_max_tokens(max_tokens_override);
         let temperature = self.resolve_temperature(temperature_override);
 
-        let mut result = tokio::task::spawn_blocking(
-            move || -> Result<GenerationResult, LlamaCppProviderError> {
-                generate_text(
-                    &model,
-                    &backend,
-                    &config,
-                    GenerationParams {
-                        prompt: &prompt,
-                        use_json_grammar,
-                        max_tokens,
-                        temperature,
-                        on_token: None,
-                    },
-                )
-            },
-        )
-        .await
-        .map_err(|err| LLMError::ProviderError(format!("Generation task failed: {err}")))?
-        .map_err(LLMError::from)?;
+        let mut result = Self::run_blocking_task("Generation", move || {
+            generate_text(
+                &model,
+                &backend,
+                &config,
+                GenerationParams {
+                    prompt: &prompt,
+                    use_json_grammar,
+                    max_tokens,
+                    temperature,
+                    on_token: None,
+                },
+            )
+        })
+        .await?;
 
         if use_json_grammar && let Some(extracted) = extract_json_payload(&result.text) {
             result.text = extracted;
@@ -445,7 +471,7 @@ impl LlamaCppProvider {
         let max_tokens = self.resolve_max_tokens(max_tokens_override);
         let temperature = self.resolve_temperature(temperature_override);
 
-        tokio::task::spawn_blocking(move || -> Result<GenerationResult, LlamaCppProviderError> {
+        Self::run_blocking_task("Generation", move || {
             generate_chat_text(
                 &model,
                 &backend,
@@ -459,8 +485,6 @@ impl LlamaCppProvider {
             )
         })
         .await
-        .map_err(|err| LLMError::ProviderError(format!("Generation task failed: {err}")))?
-        .map_err(LLMError::from)
     }
 
     fn spawn_fallback_stream(
@@ -479,7 +503,7 @@ impl LlamaCppProvider {
         let emitted_any = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let tx_tokens = tx.clone();
 
-        tokio::spawn(async move {
+        get_rt().spawn(async move {
             let emitted_any = Arc::clone(&emitted_any);
             let emitted_any_for_blocking = Arc::clone(&emitted_any);
             let result = tokio::task::spawn_blocking(
@@ -588,7 +612,7 @@ impl LlamaCppProvider {
         let temperature = self.resolve_temperature(temperature_override);
         let tx_tokens = tx.clone();
 
-        tokio::spawn(async move {
+        get_rt().spawn(async move {
             let result = tokio::task::spawn_blocking(
                 move || -> Result<GenerationResult, LlamaCppProviderError> {
                     let on_token: Option<TokenCallback> = Some(Box::new(move |token: &str| {
@@ -663,7 +687,7 @@ impl LlamaCppProvider {
         let temperature = self.resolve_temperature(temperature_override);
         let tx_deltas = tx.clone();
 
-        tokio::spawn(async move {
+        get_rt().spawn(async move {
             let result = tokio::task::spawn_blocking(
                 move || -> Result<(GenerationResult, String), LlamaCppProviderError> {
                     let on_delta: Option<DeltaCallback> = Some(Box::new(move |delta: &str| {
@@ -771,24 +795,27 @@ impl ChatProvider for LlamaCppProvider {
                 let backend = self.backend.clone();
                 let max_tokens = self.resolve_max_tokens(None);
                 let temperature = self.resolve_temperature(None);
-                let result = tokio::task::spawn_blocking(move || {
-                    generate_mtmd_text(
-                        &model,
-                        &backend,
-                        &config,
-                        MtmdGenerationParams {
-                            prompt: &prompt,
-                            marker: &marker,
-                            images: &images,
-                            max_tokens,
-                            temperature,
-                            on_token: None,
-                        },
-                    )
-                })
-                .await
-                .map_err(|err| LLMError::ProviderError(format!("Generation task failed: {err}")))?
-                .map_err(LLMError::from)?;
+                let result = get_rt()
+                    .spawn_blocking(move || {
+                        generate_mtmd_text(
+                            &model,
+                            &backend,
+                            &config,
+                            MtmdGenerationParams {
+                                prompt: &prompt,
+                                marker: &marker,
+                                images: &images,
+                                max_tokens,
+                                temperature,
+                                on_token: None,
+                            },
+                        )
+                    })
+                    .await
+                    .map_err(|err| {
+                        LLMError::ProviderError(format!("Generation task failed: {err}"))
+                    })?
+                    .map_err(LLMError::from)?;
 
                 let usage = Some(Self::build_usage(
                     result.prompt_tokens,
@@ -1431,7 +1458,7 @@ impl EmbeddingProvider for LlamaCppProvider {
         let model = self.model.clone();
         let backend = self.backend.clone();
 
-        tokio::task::spawn_blocking(move || -> Result<Vec<Vec<f32>>, LlamaCppProviderError> {
+        Self::run_blocking_task("Embedding", move || {
             let mut embeddings = Vec::with_capacity(input.len());
             for text in input {
                 let embedding = generate_embedding(&model, &backend, &config, &text)?;
@@ -1440,8 +1467,6 @@ impl EmbeddingProvider for LlamaCppProvider {
             Ok(embeddings)
         })
         .await
-        .map_err(|err| LLMError::ProviderError(format!("Embedding task failed: {err}")))?
-        .map_err(LLMError::from)
     }
 }
 
@@ -1477,17 +1502,18 @@ async fn load_model(
 ) -> Result<Arc<LlamaModel>, LLMError> {
     let model_source = config.model_source.clone();
     let config = config.clone();
-    tokio::task::spawn_blocking(move || -> Result<LlamaModel, LlamaCppProviderError> {
-        let params = build_model_params(&config)?;
-        let model_path = resolve_model_path(&model_source, &config)?;
-        let path = Path::new(&model_path);
-        LlamaModel::load_from_file(&backend, path, &params)
-            .map_err(|err| LlamaCppProviderError::ModelLoad(err.to_string()))
-    })
-    .await
-    .map_err(|err| LLMError::ProviderError(format!("Model load task failed: {err}")))?
-    .map(Arc::new)
-    .map_err(LLMError::from)
+    get_rt()
+        .spawn_blocking(move || -> Result<LlamaModel, LlamaCppProviderError> {
+            let params = build_model_params(&config)?;
+            let model_path = resolve_model_path(&model_source, &config)?;
+            let path = Path::new(&model_path);
+            LlamaModel::load_from_file(&backend, path, &params)
+                .map_err(|err| LlamaCppProviderError::ModelLoad(err.to_string()))
+        })
+        .await
+        .map_err(|err| LLMError::ProviderError(format!("Model load task failed: {err}")))?
+        .map(Arc::new)
+        .map_err(LLMError::from)
 }
 
 fn build_model_params(config: &LlamaCppConfig) -> Result<LlamaModelParams, LlamaCppProviderError> {
@@ -1970,7 +1996,7 @@ fn generate_mtmd_text(
 
     let batch_size = n_batch as i32;
     let n_past = chunks
-        .eval_chunks(&mtmd_ctx, &mut ctx, 0, 0, batch_size, true)
+        .eval_chunks(&mtmd_ctx, &ctx, 0, 0, batch_size, true)
         .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
 
     let mut sampler = build_sampler(model, config, false, temperature, None)?;

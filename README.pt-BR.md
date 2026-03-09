@@ -127,10 +127,43 @@ lefthook install
 cargo build --workspace --all-features
 ```
 
+### Bindings Python
+
+AutoAgents oferece bindings Python como pacotes separados:
+
+- `autoagents-py` (API Python principal + backends em nuvem)
+- `autoagents-guardrails-py` (guardrails opcionais para `LLMProvider` em Python)
+- `autoagents-llamacpp-py` (backend local opcional de llama.cpp)
+- `autoagents-mistral-rs-py` (backend local opcional de mistral-rs)
+
+Instalação de desenvolvimento a partir deste repositório:
+
+```bash
+uv venv --python=3.12
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+
+# Limpa, compila e instala todos os bindings CPU na venv ativa
+make python-bindings-build
+
+# Limpa, compila e instala os bindings CPU + CUDA
+make python-bindings-build-cuda
+```
+
+Os targets do Make removem artefatos antigos de instalações editáveis antes de
+recompilar, evitando carregar arquivos `.abi3.so` desatualizados da árvore de
+fonte.
+
+Scripts de exemplo:
+
+- Exemplo cloud principal: `bindings/python/autoagents/examples/openai_agent.py`
+- Exemplo llama.cpp: `bindings/python/autoagents-llamacpp/examples/llamacpp_agent.py`
+- Exemplo mistral-rs: `bindings/python/autoagents-mistralrs/examples/mistral_rs_agent.py`
+
 ### Executar testes
 
 ```bash
-cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
+cargo test --features "full" --workspace
 ```
 
 ---

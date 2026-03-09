@@ -14,6 +14,10 @@ pre-commit:
     check:
       run: cargo check --all-features --all-targets
 
+    python-bindings:
+      glob: "{bindings/python/**,Makefile,scripts/python-bindings/**,.github/workflows/ci-chek.yml,lefthook.yml}"
+      run: make python-bindings-test
+
 #pre-push:
 #  commands:
 #    doc:

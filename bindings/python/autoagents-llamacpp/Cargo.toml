@@ -1,0 +1,25 @@
+[package]
+name = "autoagents-llamacpp-py"
+version.workspace = true
+edition.workspace = true
+description = "Python bindings for AutoAgents llama.cpp backend"
+license.workspace = true
+
+[lib]
+name = "_autoagents_llamacpp"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+cuda = ["autoagents-llamacpp/cuda"]
+cuda-no-vmm = ["autoagents-llamacpp/cuda-no-vmm"]
+metal = ["autoagents-llamacpp/metal"]
+vulkan = ["autoagents-llamacpp/vulkan"]
+
+[dependencies]
+autoagents-py = { path = "../autoagents" }
+autoagents-llm = { workspace = true }
+autoagents-llamacpp = { workspace = true, features = ["mtmd"] }
+pyo3 = { version = "0.28.2", features = ["extension-module", "abi3-py39"] }
+pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
+serde_json = { workspace = true }

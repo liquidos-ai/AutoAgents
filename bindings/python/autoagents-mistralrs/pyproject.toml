@@ -1,0 +1,16 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "autoagents-mistral-rs-py"
+version = "0.3.5"
+requires-python = ">=3.9"
+description = "mistral-rs Python bindings for AutoAgents (CPU)"
+license = { text = "MIT OR Apache-2.0" }
+dependencies = ["autoagents-py==0.3.5"]
+
+[tool.maturin]
+module-name = "autoagents_mistral_rs._autoagents_mistral_rs"
+python-source = "."
+compatibility = "manylinux_2_28"
