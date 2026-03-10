@@ -37,6 +37,14 @@ jobs:
         with:
           workspaces: . -> target
 
+      - name: Prepare wheel output directories
+        run: |
+          mkdir -p dist/autoagents
+          mkdir -p dist/autoagents-guardrails
+          mkdir -p dist/llamacpp-cpu
+          mkdir -p dist/llamacpp-vulkan
+          mkdir -p dist/mistralrs-cpu
+
       - name: Install llama.cpp Linux build dependencies
         run: |
           sudo apt-get update
@@ -127,6 +135,13 @@ jobs:
         with:
           workspaces: . -> target
 
+      - name: Prepare wheel output directories
+        run: |
+          mkdir -p dist/autoagents
+          mkdir -p dist/autoagents-guardrails
+          mkdir -p dist/llamacpp-cpu
+          mkdir -p dist/mistralrs-cpu
+
       - name: Install llama.cpp Linux build dependencies
         run: |
           sudo apt-get update
@@ -198,6 +213,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
+
+      - name: Prepare wheel output directories
+        run: |
+          mkdir -p dist/llamacpp-cuda
+          mkdir -p dist/mistralrs-cuda
 
       - name: Install CUDA toolkit
         uses: Jimver/cuda-toolkit@v0.2.19
