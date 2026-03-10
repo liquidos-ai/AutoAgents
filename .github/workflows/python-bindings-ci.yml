@@ -3,10 +3,10 @@ name: Python Bindings CI
 on:
   push:
     branches:
-      - 'feature/v**'
+      - main
   pull_request:
     branches:
-      - 'feature/v**'
+      - main
   workflow_dispatch:
 
 permissions:
