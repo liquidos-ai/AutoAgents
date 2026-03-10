@@ -26,7 +26,7 @@ jobs:
   # ── Linux x86_64 (CPU + Vulkan) ──────────────────────────────────────────
   build-linux-x86_64:
     name: Linux x86_64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +48,7 @@ jobs:
       - name: Install llama.cpp Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev llvm-dev libvulkan-dev
+          sudo apt-get install -y clang libclang-dev llvm-dev libvulkan-dev glslc
 
       # ── base package ────────────────────────────────────────────────────
       - name: Build autoagents-py
