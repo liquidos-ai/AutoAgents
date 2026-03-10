@@ -77,7 +77,7 @@ jobs:
       - name: Build autoagents-llamacpp-py (CPU)
         uses: PyO3/maturin-action@v1
         env:
-          CARGO_TARGET_DIR: target/python/llamacpp-cpu-linux-x86_64
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cpu-linux-x86_64
         with:
           target: x86_64
           manylinux: 'off'
@@ -91,7 +91,7 @@ jobs:
       - name: Build autoagents-llamacpp-vulkan
         uses: PyO3/maturin-action@v1
         env:
-          CARGO_TARGET_DIR: target/python/llamacpp-vulkan-linux-x86_64
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-vulkan-linux-x86_64
         with:
           target: x86_64
           manylinux: 'off'
@@ -106,7 +106,7 @@ jobs:
       - name: Build autoagents-mistral-rs-py (CPU)
         uses: PyO3/maturin-action@v1
         env:
-          CARGO_TARGET_DIR: target/python/mistralrs-cpu-linux-x86_64
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/mistralrs-cpu-linux-x86_64
         with:
           target: x86_64
           manylinux: '2_28'
@@ -172,7 +172,7 @@ jobs:
       - name: Build autoagents-llamacpp-py (CPU)
         uses: PyO3/maturin-action@v1
         env:
-          CARGO_TARGET_DIR: target/python/llamacpp-cpu-linux-aarch64
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cpu-linux-aarch64
         with:
           target: aarch64
           manylinux: 'off'
@@ -185,7 +185,7 @@ jobs:
       - name: Build autoagents-mistral-rs-py (CPU)
         uses: PyO3/maturin-action@v1
         env:
-          CARGO_TARGET_DIR: target/python/mistralrs-cpu-linux-aarch64
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/mistralrs-cpu-linux-aarch64
         with:
           target: aarch64
           manylinux: '2_28'
@@ -229,7 +229,7 @@ jobs:
       - name: Build autoagents-llamacpp-cuda
         uses: PyO3/maturin-action@v1
         env:
-          CARGO_TARGET_DIR: target/python-cuda/llamacpp
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cuda-linux-x86_64
           LLAMA_BUILD_SHARED_LIBS: '1'
         with:
           target: x86_64
@@ -244,7 +244,7 @@ jobs:
       - name: Build autoagents-mistral-rs-cuda
         uses: PyO3/maturin-action@v1
         env:
-          CARGO_TARGET_DIR: target/python-cuda/mistralrs
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/mistralrs-cuda-linux-x86_64
           CUDA_COMPUTE_CAP: '80'
         with:
           target: x86_64
