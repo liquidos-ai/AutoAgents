@@ -21,7 +21,7 @@ nccl = ["autoagents-mistral-rs/nccl"]
 ring = ["autoagents-mistral-rs/ring"]
 
 [dependencies]
-autoagents-py = { path = "../autoagents" }
+autoagents-py = { path = "../autoagents", default-features = false }
 autoagents-llm = { workspace = true }
 autoagents-mistral-rs = { workspace = true }
 pyo3 = { version = "0.28.2", features = ["extension-module", "abi3-py39"] }

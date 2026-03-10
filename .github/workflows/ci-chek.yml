@@ -157,19 +157,28 @@ jobs:
         if: matrix.os != 'windows-latest'
         shell: bash
         run: |
+          COMPATIBILITY_ARGS=()
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            COMPATIBILITY_ARGS+=(--compatibility off)
+          fi
+
           maturin build --release \
+            "${COMPATIBILITY_ARGS[@]}" \
             --out dist/autoagents \
             --manifest-path bindings/python/autoagents/Cargo.toml
 
           maturin build --release \
+            "${COMPATIBILITY_ARGS[@]}" \
             --out dist/autoagents-guardrails \
             --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
 
           maturin build --release \
+            "${COMPATIBILITY_ARGS[@]}" \
             --out dist/autoagents-llamacpp \
             --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
 
           maturin build --release \
+            "${COMPATIBILITY_ARGS[@]}" \
             --out dist/autoagents-mistralrs \
             --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
 
