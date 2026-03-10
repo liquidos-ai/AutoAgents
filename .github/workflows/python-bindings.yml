@@ -457,7 +457,7 @@ jobs:
 
   # ── Publish to PyPI (tag-triggered only, OIDC trusted publisher) ──────────
   publish:
-    name: Publish to PyPI
+    name: Publish ${{ matrix.package }} to PyPI
     needs:
       - build-linux-x86_64
       - build-linux-aarch64
@@ -466,7 +466,38 @@ jobs:
       - build-windows
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    environment: pypi
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: autoagents-py
+            environment: pypi
+            wheel_prefix: autoagents_py
+          - package: autoagents-guardrails-py
+            environment: pypi-guardrails
+            wheel_prefix: autoagents_guardrails_py
+          - package: autoagents-llamacpp-py
+            environment: pypi-llamacpp
+            wheel_prefix: autoagents_llamacpp_py
+          - package: autoagents-llamacpp-cuda
+            environment: pypi-llamacpp-cuda
+            wheel_prefix: autoagents_llamacpp_cuda
+          - package: autoagents-llamacpp-metal
+            environment: pypi-llamacpp-metal
+            wheel_prefix: autoagents_llamacpp_metal
+          - package: autoagents-llamacpp-vulkan
+            environment: pypi-llamacpp-vulkan
+            wheel_prefix: autoagents_llamacpp_vulkan
+          - package: autoagents-mistral-rs-py
+            environment: pypi-mistralrs
+            wheel_prefix: autoagents_mistral_rs_py
+          - package: autoagents-mistral-rs-cuda
+            environment: pypi-mistralrs-cuda
+            wheel_prefix: autoagents_mistral_rs_cuda
+          - package: autoagents-mistral-rs-metal
+            environment: pypi-mistralrs-metal
+            wheel_prefix: autoagents_mistral_rs_metal
+    environment: ${{ matrix.environment }}
     permissions:
       id-token: write # required for OIDC trusted publisher — no token needed
 
@@ -481,7 +512,22 @@ jobs:
       - name: List wheels
         run: ls -lh dist/
 
+      - name: Collect wheels for ${{ matrix.package }}
+        run: |
+          mkdir -p publish/
+          shopt -s nullglob
+          wheels=(dist/${{ matrix.wheel_prefix }}-*.whl)
+
+          if [ ${#wheels[@]} -eq 0 ]; then
+            echo "No wheels found for ${{ matrix.package }} using prefix ${{ matrix.wheel_prefix }}"
+            exit 1
+          fi
+
+          cp "${wheels[@]}" publish/
+          ls -lh publish/
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
+          packages-dir: publish/
           skip-existing: true
