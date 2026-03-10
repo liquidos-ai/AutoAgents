@@ -9,11 +9,15 @@ license.workspace = true
 name = "autoagents_py"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["extension-module"]
+extension-module = ["pyo3/extension-module"]
+
 [dependencies]
 autoagents-core     = { workspace = true }
 autoagents-llm      = { workspace = true, features = ["full"] }
 autoagents-protocol = { workspace = true }
-pyo3                = { version = "0.28.2", features = ["extension-module", "abi3-py39"] }
+pyo3                = { version = "0.28.2", features = ["abi3-py39"] }
 pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
 pyo3-log            = "0.13"
 tokio               = { workspace = true }

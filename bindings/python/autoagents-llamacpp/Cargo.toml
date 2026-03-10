@@ -17,7 +17,7 @@ metal = ["autoagents-llamacpp/metal"]
 vulkan = ["autoagents-llamacpp/vulkan"]
 
 [dependencies]
-autoagents-py = { path = "../autoagents" }
+autoagents-py = { path = "../autoagents", default-features = false }
 autoagents-llm = { workspace = true }
 autoagents-llamacpp = { workspace = true, features = ["mtmd"] }
 pyo3 = { version = "0.28.2", features = ["extension-module", "abi3-py39"] }
