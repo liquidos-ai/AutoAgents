@@ -272,7 +272,7 @@ jobs:
         include:
           - runner: macos-15-intel    # Intel x86_64
             artifact: macos-x86_64
-          - runner: macos-14    # Apple Silicon arm64 (M1/M2/M3)
+          - runner: macos-latest    # Apple Silicon arm64
             artifact: macos-arm64
 
     steps:

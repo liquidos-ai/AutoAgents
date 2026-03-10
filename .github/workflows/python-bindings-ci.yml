@@ -250,7 +250,7 @@ jobs:
       matrix:
         include:
           - runner: macos-15-intel
-          - runner: macos-14
+          - runner: macos-latest
 
     steps:
       - uses: actions/checkout@v4
