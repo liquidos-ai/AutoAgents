@@ -1,6 +1,7 @@
 """Example: run mistral.rs with CUDA variant bindings."""
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -47,8 +48,6 @@ async def main() -> None:
 if __name__ == "__main__":
     asyncio.run(main())
     # Skip Python/Rust teardown: a C++ exception escapes the CUDA driver during
-    # mistral-rs model cleanup and aborts the process.  The CUDA driver reclaims
+    # mistral-rs model cleanup and aborts the process. The CUDA driver reclaims
     # GPU memory at the OS level when the process exits.
-    import os
-
     os._exit(0)

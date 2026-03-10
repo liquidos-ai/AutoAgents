@@ -236,8 +236,8 @@ python bindings/python/autoagents-llamacpp/examples/llamacpp_agent.py
 python bindings/python/autoagents-mistralrs/examples/mistral_rs_agent.py
 
 # CUDA variants (requires `make python-bindings-build-cuda`)
-python bindings/python/autoagents-llamacpp/examples/llamacpp_cuda_agent.py
-python bindings/python/autoagents-mistralrs/examples/mistral_rs_cuda_agent.py
+python bindings/python/autoagents-llamacpp-cuda/examples/llamacpp_cuda_agent.py
+python bindings/python/autoagents-mistralrs-cuda/examples/mistral_rs_cuda_agent.py
 ```
 
 Experimental extension examples:

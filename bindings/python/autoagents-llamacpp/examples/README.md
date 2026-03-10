@@ -33,25 +33,9 @@ The example uses modular composition:
 python examples/llamacpp_agent.py
 ```
 
-CUDA variant example:
-
-```bash
-make python-bindings-build-cuda
-python examples/llamacpp_cuda_agent.py
-```
-
 ## Check Build Acceleration
 
 ```python
 from autoagents_llamacpp import backend_build_info
 print(backend_build_info())
-```
-
-## Variant Package Imports
-
-If users install a variant-specific package, they can import it explicitly:
-
-```python
-from autoagents_llamacpp_cuda import LlamaCppBuilder
-# or: autoagents_llamacpp_metal / autoagents_llamacpp_vulkan
 ```

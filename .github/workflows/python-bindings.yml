@@ -17,9 +17,9 @@ concurrency:
 # pyproject.toml in each binding directory IS the CPU build — pip install -e .
 # and maturin develop work out of the box for contributors.
 #
-# Non-CPU variants (cuda, metal, vulkan) pass --config pointing at
-# variants/pyproject.<backend>.toml so the tracked pyproject.toml is never
-# modified during CI.
+# Non-CPU variants (cuda, metal, vulkan) are separate package directories with
+# their own checked-in metadata so local builds and release builds use the same
+# package identity.
 # ─────────────────────────────────────────────────────────────────────────────
 
 jobs:
@@ -85,8 +85,7 @@ jobs:
             --release
             --features vulkan
             --out dist/llamacpp-vulkan
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.vulkan.toml
+            --manifest-path bindings/python/autoagents-llamacpp-vulkan/Cargo.toml
 
       # ── mistralrs CPU ───────────────────────────────────────────────────
       - name: Build autoagents-mistral-rs-py (CPU)
@@ -203,13 +202,13 @@ jobs:
             --release
             --features cuda
             --out dist/llamacpp-cuda
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.cuda.toml
+            --manifest-path bindings/python/autoagents-llamacpp-cuda/Cargo.toml
 
       - name: Build autoagents-mistral-rs-cuda
         uses: PyO3/maturin-action@v1
         env:
           CARGO_TARGET_DIR: target/python-cuda/mistralrs
+          CUDA_COMPUTE_CAP: '80'
         with:
           target: x86_64
           manylinux: 'off'
@@ -218,8 +217,7 @@ jobs:
             --release
             --features cuda
             --out dist/mistralrs-cuda
-            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
-            --config bindings/python/autoagents-mistralrs/variants/pyproject.cuda.toml
+            --manifest-path bindings/python/autoagents-mistralrs-cuda/Cargo.toml
 
       - uses: actions/upload-artifact@v4
         with:
@@ -282,8 +280,7 @@ jobs:
           maturin build --release \
             --features metal \
             --out dist/llamacpp-metal \
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml \
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.metal.toml
+            --manifest-path bindings/python/autoagents-llamacpp-metal/Cargo.toml
 
       # ── mistralrs CPU ───────────────────────────────────────────────────
       - name: Build autoagents-mistral-rs-py (CPU)
@@ -298,8 +295,7 @@ jobs:
           maturin build --release \
             --features metal \
             --out dist/mistralrs-metal \
-            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml \
-            --config bindings/python/autoagents-mistralrs/variants/pyproject.metal.toml
+            --manifest-path bindings/python/autoagents-mistralrs-metal/Cargo.toml
 
       - uses: actions/upload-artifact@v4
         with:
@@ -372,8 +368,7 @@ jobs:
           maturin build --release `
             --features cuda `
             --out dist/llamacpp-cuda `
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml `
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.cuda.toml
+            --manifest-path bindings/python/autoagents-llamacpp-cuda/Cargo.toml
 
       # ── llamacpp Vulkan ─────────────────────────────────────────────────
       - name: Build autoagents-llamacpp-vulkan
@@ -382,8 +377,7 @@ jobs:
           maturin build --release `
             --features vulkan `
             --out dist/llamacpp-vulkan `
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml `
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.vulkan.toml
+            --manifest-path bindings/python/autoagents-llamacpp-vulkan/Cargo.toml
 
       # ── mistralrs CPU ───────────────────────────────────────────────────
       - name: Build autoagents-mistral-rs-py (CPU)
@@ -396,12 +390,13 @@ jobs:
       # ── mistralrs CUDA ──────────────────────────────────────────────────
       - name: Build autoagents-mistral-rs-cuda
         shell: pwsh
+        env:
+          CUDA_COMPUTE_CAP: '80'
         run: |
           maturin build --release `
             --features cuda `
             --out dist/mistralrs-cuda `
-            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml `
-            --config bindings/python/autoagents-mistralrs/variants/pyproject.cuda.toml
+            --manifest-path bindings/python/autoagents-mistralrs-cuda/Cargo.toml
 
       - uses: actions/upload-artifact@v4
         with:

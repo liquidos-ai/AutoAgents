@@ -1,6 +1,7 @@
 """Example: run llama.cpp with CUDA variant bindings."""
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -46,7 +47,6 @@ async def main() -> None:
 if __name__ == "__main__":
     asyncio.run(main())
     # Skip Python/Rust teardown: CUDA driver cleanup can throw C++ exceptions
-    # that abort the process.  The CUDA driver reclaims GPU memory at the OS
+    # that abort the process. The CUDA driver reclaims GPU memory at the OS
     # level when the process exits.
-    import os
     os._exit(0)

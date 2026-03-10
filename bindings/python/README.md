@@ -71,6 +71,11 @@ make python-bindings-build-llamacpp-only
 make python-bindings-build-mistralrs-only
 ```
 
+Backend-specific distributables now live in dedicated package directories under
+`bindings/python/` such as `autoagents-llamacpp-cuda` and
+`autoagents-mistralrs-metal`, so local builds and release builds use the same
+checked-in package metadata.
+
 For full setup and usage details, see:
 
 - `README.md`

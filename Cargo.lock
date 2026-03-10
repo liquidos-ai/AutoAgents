@@ -483,7 +483,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "autoagents-llamacpp-cuda-py"
+version = "0.3.6"
+dependencies = [
+ "autoagents-llamacpp",
+ "autoagents-llm",
+ "autoagents-py",
+ "pyo3",
+ "pyo3-async-runtimes",
+ "serde_json",
+]
+
+[[package]]
+name = "autoagents-llamacpp-metal-py"
+version = "0.3.6"
+dependencies = [
+ "autoagents-llamacpp",
+ "autoagents-llm",
+ "autoagents-py",
+ "pyo3",
+ "pyo3-async-runtimes",
+ "serde_json",
+]
+
+[[package]]
 name = "autoagents-llamacpp-py"
+version = "0.3.6"
+dependencies = [
+ "autoagents-llamacpp",
+ "autoagents-llm",
+ "autoagents-py",
+ "pyo3",
+ "pyo3-async-runtimes",
+ "serde_json",
+]
+
+[[package]]
+name = "autoagents-llamacpp-vulkan-py"
 version = "0.3.6"
 dependencies = [
  "autoagents-llamacpp",
@@ -540,6 +576,30 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "autoagents-mistral-rs-cuda-py"
+version = "0.3.6"
+dependencies = [
+ "autoagents-llm",
+ "autoagents-mistral-rs",
+ "autoagents-py",
+ "pyo3",
+ "pyo3-async-runtimes",
+ "serde_json",
+]
+
+[[package]]
+name = "autoagents-mistral-rs-metal-py"
+version = "0.3.6"
+dependencies = [
+ "autoagents-llm",
+ "autoagents-mistral-rs",
+ "autoagents-py",
+ "pyo3",
+ "pyo3-async-runtimes",
+ "serde_json",
 ]
 
 [[package]]

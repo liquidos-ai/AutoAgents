@@ -81,8 +81,7 @@ jobs:
             --release
             --features vulkan
             --out dist/llamacpp-vulkan
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.vulkan.toml
+            --manifest-path bindings/python/autoagents-llamacpp-vulkan/Cargo.toml
 
       - name: Build autoagents-mistral-rs-py (CPU)
         uses: PyO3/maturin-action@v1
@@ -187,13 +186,13 @@ jobs:
             --release
             --features cuda
             --out dist/llamacpp-cuda
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.cuda.toml
+            --manifest-path bindings/python/autoagents-llamacpp-cuda/Cargo.toml
 
       - name: Build autoagents-mistral-rs-cuda
         uses: PyO3/maturin-action@v1
         env:
           CARGO_TARGET_DIR: target/python-cuda/mistralrs
+          CUDA_COMPUTE_CAP: "80"
         with:
           target: x86_64
           manylinux: "off"
@@ -202,8 +201,7 @@ jobs:
             --release
             --features cuda
             --out dist/mistralrs-cuda
-            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
-            --config bindings/python/autoagents-mistralrs/variants/pyproject.cuda.toml
+            --manifest-path bindings/python/autoagents-mistralrs-cuda/Cargo.toml
 
   # ── macOS (CPU + Metal, Intel x86_64 and Apple Silicon arm64) ────────────
   build-macos:
@@ -255,8 +253,7 @@ jobs:
           maturin build --release \
             --features metal \
             --out dist/llamacpp-metal \
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml \
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.metal.toml
+            --manifest-path bindings/python/autoagents-llamacpp-metal/Cargo.toml
 
       - name: Build autoagents-mistral-rs-py (CPU)
         run: |
@@ -269,8 +266,7 @@ jobs:
           maturin build --release \
             --features metal \
             --out dist/mistralrs-metal \
-            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml \
-            --config bindings/python/autoagents-mistralrs/variants/pyproject.metal.toml
+            --manifest-path bindings/python/autoagents-mistralrs-metal/Cargo.toml
 
   # ── Windows x86_64 (CPU + CUDA + Vulkan) ─────────────────────────────────
   build-windows:
@@ -335,8 +331,7 @@ jobs:
           maturin build --release `
             --features cuda `
             --out dist/llamacpp-cuda `
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml `
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.cuda.toml
+            --manifest-path bindings/python/autoagents-llamacpp-cuda/Cargo.toml
 
       - name: Build autoagents-llamacpp-vulkan
         shell: pwsh
@@ -344,8 +339,7 @@ jobs:
           maturin build --release `
             --features vulkan `
             --out dist/llamacpp-vulkan `
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml `
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.vulkan.toml
+            --manifest-path bindings/python/autoagents-llamacpp-vulkan/Cargo.toml
 
       - name: Build autoagents-mistral-rs-py (CPU)
         shell: pwsh
@@ -356,9 +350,10 @@ jobs:
 
       - name: Build autoagents-mistral-rs-cuda
         shell: pwsh
+        env:
+          CUDA_COMPUTE_CAP: "80"
         run: |
           maturin build --release `
             --features cuda `
             --out dist/mistralrs-cuda `
-            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml `
-            --config bindings/python/autoagents-mistralrs/variants/pyproject.cuda.toml
+            --manifest-path bindings/python/autoagents-mistralrs-cuda/Cargo.toml

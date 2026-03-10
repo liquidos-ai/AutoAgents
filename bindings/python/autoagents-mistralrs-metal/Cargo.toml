@@ -1,0 +1,30 @@
+[package]
+name = "autoagents-mistral-rs-metal-py"
+version.workspace = true
+edition.workspace = true
+description = "Python bindings for AutoAgents mistral-rs Metal backend"
+license.workspace = true
+
+[lib]
+name = "_autoagents_mistral_rs"
+path = "../autoagents-mistralrs/src/lib.rs"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+cuda = ["autoagents-mistral-rs/cuda"]
+cudnn = ["autoagents-mistral-rs/cudnn"]
+metal = ["autoagents-mistral-rs/metal"]
+flash-attn = ["autoagents-mistral-rs/flash-attn"]
+accelerate = ["autoagents-mistral-rs/accelerate"]
+mkl = ["autoagents-mistral-rs/mkl"]
+nccl = ["autoagents-mistral-rs/nccl"]
+ring = ["autoagents-mistral-rs/ring"]
+
+[dependencies]
+autoagents-py = { path = "../autoagents", default-features = false }
+autoagents-llm = { workspace = true }
+autoagents-mistral-rs = { workspace = true }
+pyo3 = { version = "0.28.2", features = ["extension-module", "abi3-py39"] }
+pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
+serde_json = { workspace = true }
