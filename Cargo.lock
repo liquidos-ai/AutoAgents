@@ -384,7 +384,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "autoagents"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "async-trait",
  "autoagents-core",
@@ -398,7 +398,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-core"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "async-trait",
  "autoagents-llamacpp",
@@ -429,7 +429,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-derive"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -441,7 +441,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-guardrails"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "async-trait",
  "autoagents-llm",
@@ -456,7 +456,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-guardrails-py"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "autoagents-guardrails",
  "autoagents-llm",
@@ -466,7 +466,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-llamacpp"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "async-trait",
  "autoagents-llm",
@@ -484,7 +484,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-llamacpp-py"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "autoagents-llamacpp",
  "autoagents-llm",
@@ -496,7 +496,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-llm"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "async-trait",
  "autoagents-protocol",
@@ -529,7 +529,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-mistral-rs"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -544,7 +544,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-mistral-rs-py"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "autoagents-llm",
  "autoagents-mistral-rs",
@@ -556,7 +556,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-protocol"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "serde",
  "serde_json",
@@ -565,7 +565,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-py"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "async-trait",
  "autoagents-core",
@@ -588,7 +588,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-qdrant"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-speech"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -634,7 +634,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-telemetry"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "async-trait",
  "autoagents-core",
@@ -658,7 +658,7 @@ dependencies = [
 
 [[package]]
 name = "autoagents-toolkit"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "autoagents",
  "autoagents-derive",
@@ -2573,7 +2573,7 @@ dependencies = [
 
 [[package]]
 name = "design_patterns"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "autoagents",
@@ -3691,7 +3691,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "guardrails-example"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "autoagents",
@@ -4712,7 +4712,7 @@ dependencies = [
 
 [[package]]
 name = "llamacpp_agent"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "autoagents",
  "autoagents-derive",
@@ -4726,7 +4726,7 @@ dependencies = [
 
 [[package]]
 name = "llamacpp_agent_mtmd"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "autoagents",
  "autoagents-derive",
@@ -4935,7 +4935,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-example"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "autoagents",
  "autoagents-derive",
@@ -5084,7 +5084,7 @@ dependencies = [
 
 [[package]]
 name = "mistral_rs"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "autoagents",
  "autoagents-derive",
@@ -6295,7 +6295,7 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "pipeline-example"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "autoagents",
@@ -6622,7 +6622,7 @@ dependencies = [
 
 [[package]]
 name = "providers"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "autoagents",
@@ -7707,7 +7707,7 @@ dependencies = [
 
 [[package]]
 name = "safe_local_agent"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "autoagents",
@@ -7771,9 +7771,9 @@ dependencies = [
 
 [[package]]
 name = "schannel"
-version = "0.1.28"
+version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891d81b926048e76efe18581bf793546b4c0eaf8448d72be8de2bbee5fd166e1"
+checksum = "91c1b7e4904c873ef0710c1f407dde2e6287de2bebc1bbbf7d430bb7cbffd939"
 dependencies = [
  "windows-sys 0.61.2",
 ]
@@ -8293,7 +8293,7 @@ dependencies = [
 
 [[package]]
 name = "speech-examples"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "autoagents",
  "autoagents-derive",
@@ -8767,7 +8767,7 @@ checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 
 [[package]]
 name = "telemetry-example"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "autoagents",
  "autoagents-derive",
