@@ -212,7 +212,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13
           - runner: macos-14
 
     steps:
