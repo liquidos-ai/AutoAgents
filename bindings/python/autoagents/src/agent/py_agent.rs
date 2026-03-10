@@ -638,7 +638,7 @@ fn parse_tools_from_any(tools: Option<&Bound<'_, PyAny>>) -> PyResult<Option<Vec
         .map(|item| {
             let tool = item.extract::<PyRef<'_, PyTool>>().map_err(|_| {
                 PyRuntimeError::new_err(
-                    "tools must contain Tool instances created by autoagents.tool",
+                    "tools must contain Tool instances created by autoagents_py.tool",
                 )
             })?;
             let tool_box: Box<dyn ToolT> = Box::new((*tool).clone());
@@ -754,7 +754,7 @@ pub(crate) fn context_to_py(ctx: &Context, py: Python<'_>) -> PyResult<Py<PyAny>
 
     let llm_inner = Py::new(py, PyExecutionLLM::new(Arc::clone(ctx.llm())))?;
     let memory_inner = Py::new(py, PyExecutionMemory::new(ctx.memory()))?;
-    let execution_module = py.import("autoagents.execution")?;
+    let execution_module = py.import("autoagents_py.execution")?;
     let llm = execution_module
         .getattr("ExecutionLLM")?
         .call1((llm_inner,))?;

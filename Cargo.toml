@@ -125,7 +125,6 @@ ractor = { version = "0.15.7" }
 
 
 [profile.release]
-debug = true      # Include debug symbols
 lto = "thin"      # Enable link-time optimization
 codegen-units = 1 # Better optimization (slower compile)
 

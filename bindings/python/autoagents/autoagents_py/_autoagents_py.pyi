@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import AsyncIterator, Awaitable, Callable, Optional, Sequence, Union
 
-from autoagents.types import (
+from autoagents_py.types import (
     AgentRunResult,
     ChatMessagePayload,
     ExecutorOutput,

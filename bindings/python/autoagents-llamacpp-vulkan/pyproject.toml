@@ -11,6 +11,5 @@ license = { text = "MIT OR Apache-2.0" }
 dependencies = ["autoagents-py==0.3.6"]
 
 [tool.maturin]
-module-name = "autoagents_llamacpp_vulkan._autoagents_llamacpp"
+module-name = "autoagents_llamacpp_vulkan._autoagents_llamacpp_vulkan"
 python-source = "."
-compatibility = "manylinux_2_28"

@@ -4,9 +4,10 @@ version.workspace = true
 edition.workspace = true
 description = "Python bindings for the AutoAgents Rust framework"
 license.workspace = true
+publish = false
 
 [lib]
-name = "autoagents_py"
+name = "_autoagents_py"
 crate-type = ["cdylib", "rlib"]
 
 [features]

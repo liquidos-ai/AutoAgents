@@ -5,10 +5,10 @@ from typing import Any
 
 import pytest
 
-import autoagents as aa
-from autoagents import experimental as experimental_api
-from autoagents.exceptions import AgentRunError
-from autoagents._core import AgentBuilder as CoreAgentBuilder
+import autoagents_py as aa
+from autoagents_py import experimental as experimental_api
+from autoagents_py.exceptions import AgentRunError
+from autoagents_py._core import AgentBuilder as CoreAgentBuilder
 
 
 class _RecordingMemory:
@@ -190,7 +190,7 @@ async def test_execution_llm_validation_errors_do_not_require_network(built_llm)
     result = await handle.run("validate")
     assert "message must be a string or dict" in result["response"]
     assert "invalid schema:" in result["response"]
-    assert "tools must contain Tool instances created by autoagents.tool" in result["response"]
+    assert "tools must contain Tool instances created by autoagents_py.tool" in result["response"]
 
 
 @pytest.mark.asyncio

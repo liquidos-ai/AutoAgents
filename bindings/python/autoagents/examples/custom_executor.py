@@ -14,13 +14,13 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from autoagents import (
+from autoagents_py import (
     HookOutcome,
     LLMBuilder,
 )
-from autoagents.experimental import CustomExecutor, ExperimentalAgentBuilder
-from autoagents.prebuilt import SlidingWindowMemory
-from autoagents.types import ExecutorConfig, ExecutorContext, ExecutorOutput, ExecutorTask
+from autoagents_py.experimental import CustomExecutor, ExperimentalAgentBuilder
+from autoagents_py.prebuilt import SlidingWindowMemory
+from autoagents_py.types import ExecutorConfig, ExecutorContext, ExecutorOutput, ExecutorTask
 
 
 class CustomHooks:

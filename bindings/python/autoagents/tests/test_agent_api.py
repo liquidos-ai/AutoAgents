@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-import autoagents as aa
-from autoagents import experimental as experimental_api
-from autoagents.agent import (
+import autoagents_py as aa
+from autoagents_py import experimental as experimental_api
+from autoagents_py.agent import (
     ActorAgentHandle,
     Agent,
     AgentBuilder,
@@ -17,14 +17,14 @@ from autoagents.agent import (
     _resolve_custom_executor_max_turns,
     _topic_name,
 )
-from autoagents.events import SendMessage
-from autoagents.exceptions import (
+from autoagents_py.events import SendMessage
+from autoagents_py.exceptions import (
     AgentBuildError,
     AgentRunError,
     AgentTimeoutError,
     ExperimentalFeatureError,
 )
-from autoagents.task import Task
+from autoagents_py.task import Task
 
 
 class _AsyncSequence(AsyncIterator[dict[str, Any]]):

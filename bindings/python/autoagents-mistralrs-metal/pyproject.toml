@@ -11,5 +11,5 @@ license = { text = "MIT OR Apache-2.0" }
 dependencies = ["autoagents-py==0.3.6"]
 
 [tool.maturin]
-module-name = "autoagents_mistral_rs_metal._autoagents_mistral_rs"
+module-name = "autoagents_mistral_rs_metal._autoagents_mistral_rs_metal"
 python-source = "."

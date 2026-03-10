@@ -11,15 +11,15 @@ if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
 
-from autoagents import (
+from autoagents_py import (
     AgentBuilder,
     HookOutcome,
     LLMBuilder,
     Task,
     tool,
 )
-from autoagents.prebuilt import BasicAgent, SlidingWindowMemory
-from autoagents.types import ExecutorContext, ExecutorTask
+from autoagents_py.prebuilt import BasicAgent, SlidingWindowMemory
+from autoagents_py.types import ExecutorContext, ExecutorTask
 
 
 @tool(description="Add two numbers")

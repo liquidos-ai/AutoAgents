@@ -135,12 +135,21 @@ cargo build --workspace --all-features
 
 ### Python Bindings
 
-AutoAgents ships Python bindings as separate packages:
+AutoAgents ships Python bindings to PyPI. Install the base package and add
+backends via extras:
 
-- `autoagents-py` (core Python API + cloud backends)
-- `autoagents-guardrails-py` (optional guardrails for Python `LLMProvider`)
-- `autoagents-llamacpp-py` (optional local llama.cpp backend)
-- `autoagents-mistral-rs-py` (optional local mistral-rs backend)
+```bash
+pip install autoagents-py                            # core + cloud LLM providers
+pip install "autoagents-py[llamacpp]"               # + llama.cpp CPU
+pip install "autoagents-py[llamacpp-cuda]"          # + llama.cpp CUDA
+pip install "autoagents-py[llamacpp-metal]"         # + llama.cpp Metal (macOS)
+pip install "autoagents-py[llamacpp-vulkan]"        # + llama.cpp Vulkan
+pip install "autoagents-py[mistralrs]"              # + mistral-rs CPU
+pip install "autoagents-py[mistralrs-cuda]"         # + mistral-rs CUDA
+pip install "autoagents-py[mistralrs-metal]"        # + mistral-rs Metal (macOS)
+pip install "autoagents-py[guardrails]"             # + Guardrails
+pip install "autoagents-py[llamacpp-cuda,guardrails]"  # combine extras
+```
 
 Development install from this repo:
 

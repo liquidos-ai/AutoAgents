@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator, Awaitable
 from typing import TypeVar
 
-from autoagents_py import (
+from ._autoagents_py import (
     ActorAgentHandle,
     AgentBuilder,
     AgentHandle,

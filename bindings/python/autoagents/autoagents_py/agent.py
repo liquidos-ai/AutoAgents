@@ -146,7 +146,7 @@ def _binding_kind(agent: object) -> str | None:
 def _validate_stable_agent(agent: object) -> None:
     if _binding_kind(agent) == "custom":
         raise ExperimentalFeatureError(
-            "CustomExecutor is experimental; import it from autoagents.experimental"
+            "CustomExecutor is experimental; import it from autoagents_py.experimental"
         )
 
 
