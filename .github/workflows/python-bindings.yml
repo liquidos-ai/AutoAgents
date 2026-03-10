@@ -348,6 +348,7 @@ jobs:
   # ── Windows x86_64 (CPU + CUDA + Vulkan) ─────────────────────────────────
   build-windows:
     name: Windows x86_64
+    if: false # Temporarily disabled: Windows bindings build is too slow.
     runs-on: windows-latest
 
     steps:
