@@ -4,21 +4,56 @@ AutoAgents provides Python bindings built with [PyO3](https://pyo3.rs) and
 [maturin](https://www.maturin.rs). The bindings are split into multiple
 packages so users install only what they need:
 
-| Package | What it provides |
-|---------|-----------------|
-| `autoagents-py` | Core API — cloud LLM providers (OpenAI, Anthropic, …) |
-| `autoagents-guardrails-py` | Guardrails for wrapping Python `LLMProvider` instances |
-| `autoagents-llamacpp-py` | Local llama.cpp CPU backend |
-| `autoagents-llamacpp-cuda` | llama.cpp with CUDA acceleration |
-| `autoagents-llamacpp-metal` | llama.cpp with Metal acceleration (macOS) |
-| `autoagents-llamacpp-vulkan` | llama.cpp with Vulkan acceleration |
-| `autoagents-mistral-rs-py` | Local mistral-rs CPU backend |
-| `autoagents-mistral-rs-cuda` | mistral-rs with CUDA acceleration |
-| `autoagents-mistral-rs-metal` | mistral-rs with Metal acceleration (macOS) |
+| Package | Extra key | What it provides |
+|---------|-----------|-----------------|
+| `autoagents-py` | *(base)* | Core API — cloud LLM providers (OpenAI, Anthropic, …) |
+| `autoagents-guardrails-py` | `guardrails` | Guardrails for wrapping Python `LLMProvider` instances |
+| `autoagents-llamacpp-py` | `llamacpp` | Local llama.cpp CPU backend |
+| `autoagents-llamacpp-cuda` | `llamacpp-cuda` | llama.cpp with CUDA acceleration |
+| `autoagents-llamacpp-metal` | `llamacpp-metal` | llama.cpp with Metal acceleration (macOS) |
+| `autoagents-llamacpp-vulkan` | `llamacpp-vulkan` | llama.cpp with Vulkan acceleration |
+| `autoagents-mistral-rs-py` | `mistralrs` | Local mistral-rs CPU backend |
+| `autoagents-mistral-rs-cuda` | `mistralrs-cuda` | mistral-rs with CUDA acceleration |
+| `autoagents-mistral-rs-metal` | `mistralrs-metal` | mistral-rs with Metal acceleration (macOS) |
 
 Release wheels for all platforms are published to PyPI by CI on every version
 tag. **For local development and testing, use the repository `Makefile`
 targets below.**
+
+---
+
+## Installation from PyPI
+
+Install the base package for cloud LLM providers (OpenAI, Anthropic, etc.):
+
+```bash
+pip install autoagents-py
+```
+
+Install with a local backend using extras:
+
+```bash
+# llama.cpp
+pip install "autoagents-py[llamacpp]"           # CPU
+pip install "autoagents-py[llamacpp-cuda]"      # CUDA (Linux/Windows, requires CUDA Toolkit 12.x)
+pip install "autoagents-py[llamacpp-metal]"     # Metal (macOS only)
+pip install "autoagents-py[llamacpp-vulkan]"    # Vulkan
+
+# mistral-rs
+pip install "autoagents-py[mistralrs]"          # CPU
+pip install "autoagents-py[mistralrs-cuda]"     # CUDA (Linux/Windows, requires CUDA Toolkit 12.x)
+pip install "autoagents-py[mistralrs-metal]"    # Metal (macOS only)
+
+# Guardrails
+pip install "autoagents-py[guardrails]"
+
+# Combine extras
+pip install "autoagents-py[llamacpp-cuda,guardrails]"
+```
+
+> **Note:** CUDA wheels are tagged `linux_x86_64` (not manylinux) because they
+> link against CUDA system libraries. They are intended for controlled
+> environments where the CUDA Toolkit is already installed.
 
 ---
 
@@ -130,7 +165,7 @@ maturin develop --release
 ### Verify the install
 
 ```bash
-python -c "import autoagents; print('OK')"
+python -c "import autoagents_py; print('OK')"
 ```
 
 ---
@@ -163,7 +198,7 @@ or from the `run()` result:
 
 ```python
 import asyncio
-from autoagents import (
+from autoagents_py import (
     Agent,
     LLMBuilder,
     ToolCallCompleted,
@@ -171,7 +206,7 @@ from autoagents import (
     TurnStarted,
     tool,
 )
-from autoagents.prebuilt import BasicAgent, SlidingWindowMemory
+from autoagents_py.prebuilt import BasicAgent, SlidingWindowMemory
 
 @tool(description="Add two numbers")
 def add(a: float, b: float) -> float:
@@ -236,8 +271,8 @@ python bindings/python/autoagents-llamacpp/examples/llamacpp_agent.py
 python bindings/python/autoagents-mistralrs/examples/mistral_rs_agent.py
 
 # CUDA variants (requires `make python-bindings-build-cuda`)
-python bindings/python/autoagents-llamacpp/examples/llamacpp_cuda_agent.py
-python bindings/python/autoagents-mistralrs/examples/mistral_rs_cuda_agent.py
+python bindings/python/autoagents-llamacpp-cuda/examples/llamacpp_cuda_agent.py
+python bindings/python/autoagents-mistralrs-cuda/examples/mistral_rs_cuda_agent.py
 ```
 
 Experimental extension examples:

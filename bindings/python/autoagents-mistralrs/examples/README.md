@@ -20,13 +20,6 @@ make python-bindings-build
 python examples/mistral_rs_agent.py
 ```
 
-CUDA variant example:
-
-```bash
-make python-bindings-build-cuda
-python examples/mistral_rs_cuda_agent.py
-```
-
 ## Source Selection
 
 - HuggingFace source (default): `.repo_id("microsoft/Phi-3.5-mini-instruct")`
@@ -44,13 +37,4 @@ The examples use modular composition:
 ```python
 from autoagents_mistral_rs import backend_build_info
 print(backend_build_info())
-```
-
-## Variant Package Imports
-
-If users install a variant-specific package, they can import it explicitly:
-
-```python
-from autoagents_mistral_rs_cuda import MistralRsBuilder
-# or: autoagents_mistral_rs_metal
 ```

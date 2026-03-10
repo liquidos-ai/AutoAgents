@@ -13,8 +13,8 @@ for package_root in (GUARDRAILS_ROOT, AUTOAGENTS_ROOT):
     if str(package_root) not in sys.path:
         sys.path.insert(0, str(package_root))
 
-from autoagents import Agent, CacheLayer, LLMBuilder, PipelineBuilder
-from autoagents.prebuilt import BasicAgent, SlidingWindowMemory
+from autoagents_py import Agent, CacheLayer, LLMBuilder, PipelineBuilder
+from autoagents_py.prebuilt import BasicAgent, SlidingWindowMemory
 
 from autoagents_guardrails import (
     EnforcementPolicy,

@@ -1,6 +1,6 @@
 from enum import Enum
 
-from autoagents import LLMProvider
+from autoagents_py import LLMProvider
 
 
 class EnforcementPolicy(str, Enum):

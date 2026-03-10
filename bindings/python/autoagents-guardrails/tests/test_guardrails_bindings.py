@@ -4,7 +4,7 @@ from enum import Enum
 
 import pytest
 
-import autoagents as aa
+import autoagents_py as aa
 import autoagents_guardrails as aag
 
 

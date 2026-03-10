@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "autoagents-llamacpp-vulkan"
+dynamic = ["version"]
+requires-python = ">=3.9"
+description = "Llama.cpp Python bindings for AutoAgents (Vulkan)"
+license = { text = "MIT OR Apache-2.0" }
+dependencies = ["autoagents-py==0.3.6"]
+
+[tool.maturin]
+module-name = "autoagents_llamacpp_vulkan._autoagents_llamacpp_vulkan"
+python-source = "."

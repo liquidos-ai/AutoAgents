@@ -8,20 +8,20 @@ from enum import Enum
 from typing import Dict, List, Literal, Optional, Union
 
 import pytest
-import autoagents as aa
-import autoagents.memory as memory_module
-from autoagents import experimental as experimental_api
-from autoagents.prebuilt import BasicAgent, SlidingWindowMemory
-from autoagents.agent import AgentBuilder, _infer_output_schema
-from autoagents.exceptions import (
+import autoagents_py as aa
+import autoagents_py.memory as memory_module
+from autoagents_py import experimental as experimental_api
+from autoagents_py.prebuilt import BasicAgent, SlidingWindowMemory
+from autoagents_py.agent import AgentBuilder, _infer_output_schema
+from autoagents_py.exceptions import (
     AgentBuildError,
     ExperimentalFeatureError,
     AgentRunError,
     AgentTimeoutError,
     AutoAgentsError,
 )
-from autoagents.tool import _infer_schema, _json_schema_for_type, _wrap_callable, tool
-from autoagents.types import AgentRunResult
+from autoagents_py.tool import _infer_schema, _json_schema_for_type, _wrap_callable, tool
+from autoagents_py.types import AgentRunResult
 
 
 class _Status(Enum):
@@ -340,9 +340,9 @@ class TestLLMProviderCoercion:
                 self.memory_provider = provider
                 return self
 
-        monkeypatch.setattr("autoagents.agent._CoreAgentBuilder", FakeCoreBuilder)
+        monkeypatch.setattr("autoagents_py.agent._CoreAgentBuilder", FakeCoreBuilder)
         monkeypatch.setattr(
-            "autoagents.agent._coerce_llm_provider",
+            "autoagents_py.agent._coerce_llm_provider",
             lambda provider: sentinel_provider,
         )
 
@@ -437,7 +437,7 @@ class TestMemoryProvider:
 
         sentinel = object()
         monkeypatch.setattr(
-            "autoagents.experimental.memory.memory_provider_from_impl",
+            "autoagents_py.experimental.memory.memory_provider_from_impl",
             lambda mem: sentinel,
         )
 
@@ -472,10 +472,10 @@ class TestMemoryProvider:
                 return self
 
         sentinel = object()
-        monkeypatch.setattr("autoagents.agent._CoreAgentBuilder", FakeCoreBuilder)
-        monkeypatch.setattr("autoagents.agent._coerce_llm_provider", lambda provider: provider)
+        monkeypatch.setattr("autoagents_py.agent._CoreAgentBuilder", FakeCoreBuilder)
+        monkeypatch.setattr("autoagents_py.agent._coerce_llm_provider", lambda provider: provider)
         monkeypatch.setattr(
-            "autoagents.experimental.memory.memory_provider_from_impl",
+            "autoagents_py.experimental.memory.memory_provider_from_impl",
             lambda mem: sentinel,
         )
 
@@ -512,10 +512,10 @@ class TestMemoryProvider:
                 return self
 
         sentinel = object()
-        monkeypatch.setattr("autoagents.agent._CoreAgentBuilder", FakeCoreBuilder)
-        monkeypatch.setattr("autoagents.agent._coerce_llm_provider", lambda provider: provider)
+        monkeypatch.setattr("autoagents_py.agent._CoreAgentBuilder", FakeCoreBuilder)
+        monkeypatch.setattr("autoagents_py.agent._coerce_llm_provider", lambda provider: provider)
         monkeypatch.setattr(
-            "autoagents.experimental.memory.memory_provider_from_impl",
+            "autoagents_py.experimental.memory.memory_provider_from_impl",
             lambda mem: sentinel,
         )
 
@@ -542,7 +542,7 @@ class TestPipelineBuilder:
                 return f"{self.name}({next_provider})"
 
         provider = "base"
-        monkeypatch.setattr("autoagents.pipeline._coerce_llm_provider", lambda provider: provider)
+        monkeypatch.setattr("autoagents_py.pipeline._coerce_llm_provider", lambda provider: provider)
         built = (
             aa.PipelineBuilder(provider)
             .add_layer(TagLayer("outer"))
@@ -561,11 +561,11 @@ class TestPipelineBuilder:
             pass
 
         monkeypatch.setattr(
-            "autoagents.pipeline.pipeline_python_layer",
+            "autoagents_py.pipeline.pipeline_python_layer",
             lambda provider, layer: calls.append((provider, layer)) or sentinel,
         )
         monkeypatch.setattr(
-            "autoagents.pipeline._coerce_llm_provider",
+            "autoagents_py.pipeline._coerce_llm_provider",
             lambda provider: provider,
         )
 

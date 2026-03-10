@@ -56,13 +56,16 @@ jobs:
       - name: Run tests
         run: |
           if [ -z "${{ matrix.features }}" ]; then
-            cargo test --features default --workspace --exclude autoagents-mistral-rs
+            cargo test --features default --workspace \
+              --exclude autoagents-mistral-rs
           else
-            cargo test --workspace --features "${{ matrix.features }}" --exclude autoagents-mistral-rs
+            cargo test --workspace --features "${{ matrix.features }}" \
+              --exclude autoagents-mistral-rs
           fi
 
       - name: Run cargo check
-        run: cargo check --all-targets --no-default-features
+        run: |
+          cargo check --workspace --all-targets --no-default-features
 
   python_bindings_py:
     name: Python Bindings (Python Coverage)
@@ -128,19 +131,9 @@ jobs:
 
       - name: Build Workspace
         if: matrix.os != 'windows-latest'
-        run: |
-          cargo build --workspace --release \
-            --exclude autoagents-py \
-            --exclude autoagents-guardrails-py \
-            --exclude autoagents-llamacpp-py \
-            --exclude autoagents-mistral-rs-py
+        run: cargo build --workspace --release
 
       - name: Build Workspace (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
-        run: |
-          cargo build --workspace --release `
-            --exclude autoagents-py `
-            --exclude autoagents-guardrails-py `
-            --exclude autoagents-llamacpp-py `
-            --exclude autoagents-mistral-rs-py
+        run: cargo build --workspace --release

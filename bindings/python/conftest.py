@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-import autoagents as aa
+import autoagents_py as aa
 
 
 @pytest.fixture

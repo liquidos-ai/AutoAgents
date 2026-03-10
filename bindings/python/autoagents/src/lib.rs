@@ -22,7 +22,7 @@ use runtime_env::{PyEnvironment, PySingleThreadedRuntime};
 use tool::PyTool;
 
 #[pymodule]
-fn autoagents_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _autoagents_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyo3_log::init();
 
     init_runtime_bridge()?;

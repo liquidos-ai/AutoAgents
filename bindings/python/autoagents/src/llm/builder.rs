@@ -7,7 +7,11 @@ use std::ffi::CString;
 use std::sync::Arc;
 
 /// Opaque wrapper around a built LLM provider. Passed to `PyAgentBuilder.llm()`.
-#[pyclass(module = "autoagents_py", name = "LLMProvider", skip_from_py_object)]
+#[pyclass(
+    module = "autoagents_py._autoagents_py",
+    name = "LLMProvider",
+    skip_from_py_object
+)]
 #[derive(Clone)]
 pub struct PyLLMProvider {
     pub inner: Arc<dyn LLMProvider>,
@@ -19,7 +23,7 @@ impl PyLLMProvider {
     }
 }
 
-const LLM_PROVIDER_CAPSULE_NAME: &str = "autoagents_py.LLMProvider";
+const LLM_PROVIDER_CAPSULE_NAME: &str = "autoagents_py._autoagents_py.LLMProvider";
 
 fn llm_provider_capsule_name() -> PyResult<CString> {
     CString::new(LLM_PROVIDER_CAPSULE_NAME)
@@ -73,7 +77,7 @@ pub fn canonicalize_llm_provider(
     inner: Arc<dyn LLMProvider>,
 ) -> PyResult<Py<PyAny>> {
     let capsule = llm_provider_to_capsule(py, inner)?;
-    let module = py.import("autoagents_py")?;
+    let module = py.import("autoagents_py._autoagents_py")?;
     let provider = module
         .getattr("_llm_provider_from_capsule")?
         .call1((capsule,))?;

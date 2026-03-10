@@ -5,15 +5,15 @@ from typing import Any
 
 import pytest
 
-import autoagents as aa
-import autoagents.prebuilt as prebuilt_module
-import autoagents.prebuilt.memory as prebuilt_memory_module
-from autoagents import _core as core_module
-from autoagents import experimental as experimental_api
-from autoagents import runtime as runtime_module
-from autoagents.prebuilt import BasicAgent, ReActAgent, SlidingWindowMemory
-from autoagents.task import ImageMime, Task, TaskImage
-from autoagents.traits import AgentHooks, HookOutcome
+import autoagents_py as aa
+import autoagents_py.prebuilt as prebuilt_module
+import autoagents_py.prebuilt.memory as prebuilt_memory_module
+from autoagents_py import _core as core_module
+from autoagents_py import experimental as experimental_api
+from autoagents_py import runtime as runtime_module
+from autoagents_py.prebuilt import BasicAgent, ReActAgent, SlidingWindowMemory
+from autoagents_py.task import ImageMime, Task, TaskImage
+from autoagents_py.traits import AgentHooks, HookOutcome
 
 
 class _FakeCoreTopic:

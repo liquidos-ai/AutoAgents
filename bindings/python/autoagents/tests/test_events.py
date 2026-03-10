@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from autoagents.events import (
+from autoagents_py.events import (
     EventStream,
     NewTask,
     SendMessage,

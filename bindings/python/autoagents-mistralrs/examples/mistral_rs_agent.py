@@ -8,8 +8,8 @@ CORE_PY_BINDINGS = Path(__file__).resolve().parents[2] / "autoagents"
 if str(CORE_PY_BINDINGS) not in sys.path:
     sys.path.insert(0, str(CORE_PY_BINDINGS))
 
-from autoagents import AgentBuilder, Task
-from autoagents.prebuilt import ReActAgent, SlidingWindowMemory
+from autoagents_py import AgentBuilder, Task
+from autoagents_py.prebuilt import ReActAgent, SlidingWindowMemory
 
 from autoagents_mistral_rs import MistralRsBuilder
 

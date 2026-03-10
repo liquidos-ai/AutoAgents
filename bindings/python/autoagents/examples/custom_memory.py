@@ -10,10 +10,10 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from autoagents import LLMBuilder
-from autoagents.experimental import Agent
-from autoagents.prebuilt import BasicAgent
-from autoagents.types import ChatMessagePayload
+from autoagents_py import LLMBuilder
+from autoagents_py.experimental import Agent
+from autoagents_py.prebuilt import BasicAgent
+from autoagents_py.types import ChatMessagePayload
 
 
 class ListMemory:

@@ -3,7 +3,7 @@ name: Python Bindings
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -17,16 +17,16 @@ concurrency:
 # pyproject.toml in each binding directory IS the CPU build — pip install -e .
 # and maturin develop work out of the box for contributors.
 #
-# Non-CPU variants (cuda, metal, vulkan) pass --config pointing at
-# variants/pyproject.<backend>.toml so the tracked pyproject.toml is never
-# modified during CI.
+# Non-CPU variants (cuda, metal, vulkan) are separate package directories with
+# their own checked-in metadata so local builds and release builds use the same
+# package identity.
 # ─────────────────────────────────────────────────────────────────────────────
 
 jobs:
   # ── Linux x86_64 (CPU + Vulkan) ──────────────────────────────────────────
   build-linux-x86_64:
     name: Linux x86_64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4
@@ -37,12 +37,25 @@ jobs:
         with:
           workspaces: . -> target
 
+      - name: Prepare wheel output directories
+        run: |
+          mkdir -p dist/autoagents
+          mkdir -p dist/autoagents-guardrails
+          mkdir -p dist/llamacpp-cpu
+          mkdir -p dist/llamacpp-vulkan
+          mkdir -p dist/mistralrs-cpu
+
+      - name: Install llama.cpp Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev libvulkan-dev glslc
+
       # ── base package ────────────────────────────────────────────────────
       - name: Build autoagents-py
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -53,7 +66,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -63,9 +76,11 @@ jobs:
       # ── llamacpp CPU (pyproject.toml in the dir is the CPU build) ───────
       - name: Build autoagents-llamacpp-py (CPU)
         uses: PyO3/maturin-action@v1
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cpu-linux-x86_64
         with:
           target: x86_64
-          manylinux: '2_28'
+          manylinux: "off"
           sccache: true
           args: >-
             --release
@@ -75,24 +90,26 @@ jobs:
       # ── llamacpp Vulkan ─────────────────────────────────────────────────
       - name: Build autoagents-llamacpp-vulkan
         uses: PyO3/maturin-action@v1
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-vulkan-linux-x86_64
         with:
           target: x86_64
-          manylinux: '2_28'
+          manylinux: "off"
           sccache: true
-          before-script-linux: dnf install -y vulkan-headers || true
           args: >-
             --release
             --features vulkan
             --out dist/llamacpp-vulkan
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.vulkan.toml
+            --manifest-path bindings/python/autoagents-llamacpp-vulkan/Cargo.toml
 
       # ── mistralrs CPU ───────────────────────────────────────────────────
       - name: Build autoagents-mistral-rs-py (CPU)
         uses: PyO3/maturin-action@v1
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/mistralrs-cpu-linux-x86_64
         with:
           target: x86_64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -107,7 +124,7 @@ jobs:
   # ── Linux aarch64 (CPU only — Vulkan/CUDA not cross-compiled) ────────────
   build-linux-aarch64:
     name: Linux aarch64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
 
     steps:
       - uses: actions/checkout@v4
@@ -118,12 +135,23 @@ jobs:
         with:
           workspaces: . -> target
 
-      # maturin-action sets up QEMU + binfmt automatically for aarch64
+      - name: Prepare wheel output directories
+        run: |
+          mkdir -p dist/autoagents
+          mkdir -p dist/autoagents-guardrails
+          mkdir -p dist/llamacpp-cpu
+          mkdir -p dist/mistralrs-cpu
+
+      - name: Install llama.cpp Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev
+
       - name: Build autoagents-py
         uses: PyO3/maturin-action@v1
         with:
           target: aarch64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -134,7 +162,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: aarch64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -143,9 +171,11 @@ jobs:
 
       - name: Build autoagents-llamacpp-py (CPU)
         uses: PyO3/maturin-action@v1
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cpu-linux-aarch64
         with:
           target: aarch64
-          manylinux: '2_28'
+          manylinux: "off"
           sccache: true
           args: >-
             --release
@@ -154,9 +184,11 @@ jobs:
 
       - name: Build autoagents-mistral-rs-py (CPU)
         uses: PyO3/maturin-action@v1
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/mistralrs-cpu-linux-aarch64
         with:
           target: aarch64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -182,43 +214,47 @@ jobs:
         with:
           workspaces: . -> target
 
+      - name: Prepare wheel output directories
+        run: |
+          mkdir -p dist/llamacpp-cuda
+          mkdir -p dist/mistralrs-cuda
+
       - name: Install CUDA toolkit
         uses: Jimver/cuda-toolkit@v0.2.19
         with:
-          cuda: '12.6.0'
+          cuda: "12.6.0"
           method: network
 
       # manylinux: off → wheel tagged linux_x86_64 (honest for CUDA users)
       - name: Build autoagents-llamacpp-cuda
         uses: PyO3/maturin-action@v1
         env:
-          CARGO_TARGET_DIR: target/python-cuda/llamacpp
-          LLAMA_BUILD_SHARED_LIBS: '1'
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cuda-linux-x86_64
+          LLAMA_BUILD_SHARED_LIBS: "1"
         with:
           target: x86_64
-          manylinux: 'off'
+          manylinux: "off"
           sccache: true
           args: >-
             --release
             --features cuda
             --out dist/llamacpp-cuda
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.cuda.toml
+            --manifest-path bindings/python/autoagents-llamacpp-cuda/Cargo.toml
 
       - name: Build autoagents-mistral-rs-cuda
         uses: PyO3/maturin-action@v1
         env:
-          CARGO_TARGET_DIR: target/python-cuda/mistralrs
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/mistralrs-cuda-linux-x86_64
+          CUDA_COMPUTE_CAP: "80"
         with:
           target: x86_64
-          manylinux: 'off'
+          manylinux: "off"
           sccache: true
           args: >-
             --release
             --features cuda
             --out dist/mistralrs-cuda
-            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
-            --config bindings/python/autoagents-mistralrs/variants/pyproject.cuda.toml
+            --manifest-path bindings/python/autoagents-mistralrs-cuda/Cargo.toml
 
       - uses: actions/upload-artifact@v4
         with:
@@ -234,9 +270,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13    # Intel x86_64
-            artifact: macos-x86_64
-          - runner: macos-14    # Apple Silicon arm64 (M1/M2/M3)
+          - runner: macos-latest # Apple Silicon arm64
             artifact: macos-arm64
 
     steps:
@@ -270,6 +304,8 @@ jobs:
 
       # ── llamacpp CPU ────────────────────────────────────────────────────
       - name: Build autoagents-llamacpp-py (CPU)
+        env:
+          CARGO_TARGET_DIR: target/python/llamacpp-cpu-macos
         run: |
           maturin build --release \
             --out dist/llamacpp-cpu \
@@ -277,15 +313,18 @@ jobs:
 
       # ── llamacpp Metal (Xcode ships Metal SDK — no extra setup) ─────────
       - name: Build autoagents-llamacpp-metal
+        env:
+          CARGO_TARGET_DIR: target/python/llamacpp-metal-macos
         run: |
           maturin build --release \
             --features metal \
             --out dist/llamacpp-metal \
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml \
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.metal.toml
+            --manifest-path bindings/python/autoagents-llamacpp-metal/Cargo.toml
 
       # ── mistralrs CPU ───────────────────────────────────────────────────
       - name: Build autoagents-mistral-rs-py (CPU)
+        env:
+          CARGO_TARGET_DIR: target/python/mistralrs-cpu-macos
         run: |
           maturin build --release \
             --out dist/mistralrs-cpu \
@@ -293,12 +332,13 @@ jobs:
 
       # ── mistralrs Metal ─────────────────────────────────────────────────
       - name: Build autoagents-mistral-rs-metal
+        env:
+          CARGO_TARGET_DIR: target/python/mistralrs-metal-macos
         run: |
           maturin build --release \
             --features metal \
             --out dist/mistralrs-metal \
-            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml \
-            --config bindings/python/autoagents-mistralrs/variants/pyproject.metal.toml
+            --manifest-path bindings/python/autoagents-mistralrs-metal/Cargo.toml
 
       - uses: actions/upload-artifact@v4
         with:
@@ -326,7 +366,7 @@ jobs:
       - name: Install CUDA toolkit
         uses: Jimver/cuda-toolkit@v0.2.19
         with:
-          cuda: '12.6.0'
+          cuda: "12.6.0"
           method: network
 
       - name: Install Vulkan SDK
@@ -359,6 +399,8 @@ jobs:
       # ── llamacpp CPU ────────────────────────────────────────────────────
       - name: Build autoagents-llamacpp-py (CPU)
         shell: pwsh
+        env:
+          CARGO_TARGET_DIR: target/python/llamacpp-cpu-windows
         run: |
           maturin build --release `
             --out dist/llamacpp-cpu `
@@ -367,26 +409,30 @@ jobs:
       # ── llamacpp CUDA ───────────────────────────────────────────────────
       - name: Build autoagents-llamacpp-cuda
         shell: pwsh
+        env:
+          CARGO_TARGET_DIR: target/python/llamacpp-cuda-windows
         run: |
           maturin build --release `
             --features cuda `
             --out dist/llamacpp-cuda `
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml `
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.cuda.toml
+            --manifest-path bindings/python/autoagents-llamacpp-cuda/Cargo.toml
 
       # ── llamacpp Vulkan ─────────────────────────────────────────────────
       - name: Build autoagents-llamacpp-vulkan
         shell: pwsh
+        env:
+          CARGO_TARGET_DIR: target/python/llamacpp-vulkan-windows
         run: |
           maturin build --release `
             --features vulkan `
             --out dist/llamacpp-vulkan `
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml `
-            --config bindings/python/autoagents-llamacpp/variants/pyproject.vulkan.toml
+            --manifest-path bindings/python/autoagents-llamacpp-vulkan/Cargo.toml
 
       # ── mistralrs CPU ───────────────────────────────────────────────────
       - name: Build autoagents-mistral-rs-py (CPU)
         shell: pwsh
+        env:
+          CARGO_TARGET_DIR: target/python/mistralrs-cpu-windows
         run: |
           maturin build --release `
             --out dist/mistralrs-cpu `
@@ -395,12 +441,14 @@ jobs:
       # ── mistralrs CUDA ──────────────────────────────────────────────────
       - name: Build autoagents-mistral-rs-cuda
         shell: pwsh
+        env:
+          CARGO_TARGET_DIR: target/python/mistralrs-cuda-windows
+          CUDA_COMPUTE_CAP: "80"
         run: |
           maturin build --release `
             --features cuda `
             --out dist/mistralrs-cuda `
-            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml `
-            --config bindings/python/autoagents-mistralrs/variants/pyproject.cuda.toml
+            --manifest-path bindings/python/autoagents-mistralrs-cuda/Cargo.toml
 
       - uses: actions/upload-artifact@v4
         with:
@@ -409,7 +457,7 @@ jobs:
 
   # ── Publish to PyPI (tag-triggered only, OIDC trusted publisher) ──────────
   publish:
-    name: Publish to PyPI
+    name: Publish ${{ matrix.package }} to PyPI
     needs:
       - build-linux-x86_64
       - build-linux-aarch64
@@ -418,9 +466,40 @@ jobs:
       - build-windows
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    environment: pypi
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: autoagents-py
+            environment: pypi
+            wheel_prefix: autoagents_py
+          - package: autoagents-guardrails-py
+            environment: pypi-guardrails
+            wheel_prefix: autoagents_guardrails_py
+          - package: autoagents-llamacpp-py
+            environment: pypi-llamacpp
+            wheel_prefix: autoagents_llamacpp_py
+          - package: autoagents-llamacpp-cuda
+            environment: pypi-llamacpp-cuda
+            wheel_prefix: autoagents_llamacpp_cuda
+          - package: autoagents-llamacpp-metal
+            environment: pypi-llamacpp-metal
+            wheel_prefix: autoagents_llamacpp_metal
+          - package: autoagents-llamacpp-vulkan
+            environment: pypi-llamacpp-vulkan
+            wheel_prefix: autoagents_llamacpp_vulkan
+          - package: autoagents-mistral-rs-py
+            environment: pypi-mistralrs
+            wheel_prefix: autoagents_mistral_rs_py
+          - package: autoagents-mistral-rs-cuda
+            environment: pypi-mistralrs-cuda
+            wheel_prefix: autoagents_mistral_rs_cuda
+          - package: autoagents-mistral-rs-metal
+            environment: pypi-mistralrs-metal
+            wheel_prefix: autoagents_mistral_rs_metal
+    environment: ${{ matrix.environment }}
     permissions:
-      id-token: write    # required for OIDC trusted publisher — no token needed
+      id-token: write # required for OIDC trusted publisher — no token needed
 
     steps:
       - name: Download all wheels
@@ -433,5 +512,22 @@ jobs:
       - name: List wheels
         run: ls -lh dist/
 
+      - name: Collect wheels for ${{ matrix.package }}
+        run: |
+          mkdir -p publish/
+          shopt -s nullglob
+          wheels=(dist/${{ matrix.wheel_prefix }}-*.whl)
+
+          if [ ${#wheels[@]} -eq 0 ]; then
+            echo "No wheels found for ${{ matrix.package }} using prefix ${{ matrix.wheel_prefix }}"
+            exit 1
+          fi
+
+          cp "${wheels[@]}" publish/
+          ls -lh publish/
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: publish/
+          skip-existing: true

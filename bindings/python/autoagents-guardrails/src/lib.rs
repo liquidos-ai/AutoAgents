@@ -1,9 +1,9 @@
+use _autoagents_py::llm::builder::{canonicalize_llm_provider, extract_llm_provider};
 use autoagents_guardrails::guards::{
     PromptInjectionGuard as CorePromptInjectionGuard,
     RegexPiiRedactionGuard as CoreRegexPiiRedactionGuard, ToxicityGuard as CoreToxicityGuard,
 };
 use autoagents_guardrails::{EnforcementPolicy, Guardrails as CoreGuardrails};
-use autoagents_py::llm::builder::{canonicalize_llm_provider, extract_llm_provider};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use std::sync::Arc;

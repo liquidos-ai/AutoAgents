@@ -21,6 +21,11 @@ AUTOAGENTS_DIR := $(PYTHON_BINDINGS_DIR)/autoagents
 GUARDRAILS_DIR := $(PYTHON_BINDINGS_DIR)/autoagents-guardrails
 LLAMACPP_DIR := $(PYTHON_BINDINGS_DIR)/autoagents-llamacpp
 MISTRALRS_DIR := $(PYTHON_BINDINGS_DIR)/autoagents-mistralrs
+LLAMACPP_CUDA_DIR := $(PYTHON_BINDINGS_DIR)/autoagents-llamacpp-cuda
+LLAMACPP_METAL_DIR := $(PYTHON_BINDINGS_DIR)/autoagents-llamacpp-metal
+LLAMACPP_VULKAN_DIR := $(PYTHON_BINDINGS_DIR)/autoagents-llamacpp-vulkan
+MISTRALRS_CUDA_DIR := $(PYTHON_BINDINGS_DIR)/autoagents-mistralrs-cuda
+MISTRALRS_METAL_DIR := $(PYTHON_BINDINGS_DIR)/autoagents-mistralrs-metal
 PYTHON_BINDINGS_PYTEST_CONFIG := $(PYTHON_BINDINGS_DIR)/pytest.ini
 
 BASE_TARGET_DIR := $(CURDIR)/target/python-bindings/base
@@ -172,15 +177,13 @@ python-bindings-build-cuda: python-bindings-build
 	CARGO_TARGET_DIR="$(LLAMACPP_CUDA_TARGET_DIR)" \
 	LLAMA_BUILD_SHARED_LIBS=1 \
 	"$(MATURIN)" develop --release --features cuda \
-		--manifest-path "$(LLAMACPP_DIR)/Cargo.toml" \
-		--config "$(LLAMACPP_DIR)/variants/pyproject.cuda.toml"
-	$(call install_shared_lib,$(LLAMACPP_CUDA_TARGET_DIR)/maturin/lib_autoagents_llamacpp.so,$(LLAMACPP_DIR)/autoagents_llamacpp_cuda/_autoagents_llamacpp.abi3.so)
+		--manifest-path "$(LLAMACPP_CUDA_DIR)/Cargo.toml"
+	$(call install_shared_lib,$(LLAMACPP_CUDA_TARGET_DIR)/maturin/lib_autoagents_llamacpp_cuda.so,$(LLAMACPP_CUDA_DIR)/autoagents_llamacpp_cuda/_autoagents_llamacpp_cuda.abi3.so)
 	@echo "==> autoagents-mistral-rs-cuda"
 	CARGO_TARGET_DIR="$(MISTRALRS_CUDA_TARGET_DIR)" \
 	"$(MATURIN)" develop --release --features cuda \
-		--manifest-path "$(MISTRALRS_DIR)/Cargo.toml" \
-		--config "$(MISTRALRS_DIR)/variants/pyproject.cuda.toml"
-	$(call install_shared_lib,$(MISTRALRS_CUDA_TARGET_DIR)/maturin/lib_autoagents_mistral_rs.so,$(MISTRALRS_DIR)/autoagents_mistral_rs_cuda/_autoagents_mistral_rs.abi3.so)
+		--manifest-path "$(MISTRALRS_CUDA_DIR)/Cargo.toml"
+	$(call install_shared_lib,$(MISTRALRS_CUDA_TARGET_DIR)/maturin/lib_autoagents_mistral_rs_cuda.so,$(MISTRALRS_CUDA_DIR)/autoagents_mistral_rs_cuda/_autoagents_mistral_rs_cuda.abi3.so)
 	@echo "ok: CPU + CUDA Python bindings installed"
 
 python-bindings-build-metal: python-bindings-build
@@ -188,15 +191,13 @@ python-bindings-build-metal: python-bindings-build
 	CARGO_TARGET_DIR="$(LLAMACPP_METAL_TARGET_DIR)" \
 	LLAMA_BUILD_SHARED_LIBS=1 \
 	"$(MATURIN)" develop --release --features metal \
-		--manifest-path "$(LLAMACPP_DIR)/Cargo.toml" \
-		--config "$(LLAMACPP_DIR)/variants/pyproject.metal.toml"
-	$(call install_shared_lib,$(LLAMACPP_METAL_TARGET_DIR)/maturin/lib_autoagents_llamacpp.so,$(LLAMACPP_DIR)/autoagents_llamacpp_metal/_autoagents_llamacpp.abi3.so)
+		--manifest-path "$(LLAMACPP_METAL_DIR)/Cargo.toml"
+	$(call install_shared_lib,$(LLAMACPP_METAL_TARGET_DIR)/maturin/lib_autoagents_llamacpp_metal.so,$(LLAMACPP_METAL_DIR)/autoagents_llamacpp_metal/_autoagents_llamacpp_metal.abi3.so)
 	@echo "==> autoagents-mistral-rs-metal"
 	CARGO_TARGET_DIR="$(MISTRALRS_METAL_TARGET_DIR)" \
 	"$(MATURIN)" develop --release --features metal \
-		--manifest-path "$(MISTRALRS_DIR)/Cargo.toml" \
-		--config "$(MISTRALRS_DIR)/variants/pyproject.metal.toml"
-	$(call install_shared_lib,$(MISTRALRS_METAL_TARGET_DIR)/maturin/lib_autoagents_mistral_rs.so,$(MISTRALRS_DIR)/autoagents_mistral_rs_metal/_autoagents_mistral_rs.abi3.so)
+		--manifest-path "$(MISTRALRS_METAL_DIR)/Cargo.toml"
+	$(call install_shared_lib,$(MISTRALRS_METAL_TARGET_DIR)/maturin/lib_autoagents_mistral_rs_metal.so,$(MISTRALRS_METAL_DIR)/autoagents_mistral_rs_metal/_autoagents_mistral_rs_metal.abi3.so)
 	@echo "ok: CPU + Metal Python bindings installed"
 
 python-bindings-build-vulkan: python-bindings-build
@@ -204,9 +205,8 @@ python-bindings-build-vulkan: python-bindings-build
 	CARGO_TARGET_DIR="$(LLAMACPP_VULKAN_TARGET_DIR)" \
 	LLAMA_BUILD_SHARED_LIBS=1 \
 	"$(MATURIN)" develop --release --features vulkan \
-		--manifest-path "$(LLAMACPP_DIR)/Cargo.toml" \
-		--config "$(LLAMACPP_DIR)/variants/pyproject.vulkan.toml"
-	$(call install_shared_lib,$(LLAMACPP_VULKAN_TARGET_DIR)/maturin/lib_autoagents_llamacpp.so,$(LLAMACPP_DIR)/autoagents_llamacpp_vulkan/_autoagents_llamacpp.abi3.so)
+		--manifest-path "$(LLAMACPP_VULKAN_DIR)/Cargo.toml"
+	$(call install_shared_lib,$(LLAMACPP_VULKAN_TARGET_DIR)/maturin/lib_autoagents_llamacpp_vulkan.so,$(LLAMACPP_VULKAN_DIR)/autoagents_llamacpp_vulkan/_autoagents_llamacpp_vulkan.abi3.so)
 	@echo "ok: CPU + Vulkan Python bindings installed"
 
 python-bindings-test: python-bindings-build-fast python-bindings-check-test-deps
