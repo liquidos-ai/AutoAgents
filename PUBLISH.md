@@ -2,10 +2,36 @@
 
 **Follow the below instructions in sequence**
 
-1. Update the Cargo.toml `[workspace.package]` version and `[workspace.dependencies]` version. We use SemVer versions.
-2. `git add . && git commit -m "[MAINT]: bump version to x.x.x"`
+1. Create a release branch from `main`:
 
-3. Publish to Crates.io (MAINTAIN the order)
+```shell
+git checkout main
+git pull origin main
+git checkout -b feature/vx.x.x
+```
+
+2. Update the Cargo.toml `[workspace.package]` version and `[workspace.dependencies]` version. We use SemVer versions.
+
+3. Commit the release changes on the release branch:
+
+```shell
+git add .
+git commit -m "[MAINT]: bump version to x.x.x"
+git push origin feature/vx.x.x
+```
+
+4. Open a PR from `feature/vx.x.x` to `main`, wait for CI to pass, and get it reviewed.
+
+5. Merge the PR to `main`.
+
+6. After the PR is merged, switch back to `main` and pull the merged commit that will be released:
+
+```shell
+git checkout main
+git pull origin main
+```
+
+7. Publish to Crates.io from `main` (MAINTAIN the order)
 
 ```shell
 cd crates/autoagents-derive
@@ -83,7 +109,7 @@ cargo publish
 
 ---
 
-4. Build Python packages (PyPI)
+8. Build Python packages locally before tagging
 
 ```shell
 # Build manylinux wheels (CPU variants)
@@ -100,9 +126,13 @@ To Test the cuda version run
 make python-bindings-build-cuda
 ```
 
-#### Note: The Python packages are published via Github actions
+#### Note
 
-5. Create release tag:
+- The `Python Bindings CI` GitHub Actions workflow runs on PRs to validate the Python packaging matrix before merge.
+- The Python bindings are published via GitHub Actions only when a `v*` tag is pushed.
+- Use the local build commands above to validate the Python bindings before creating the release tag.
+
+9. Create the release tag on the merged `main` commit:
 
 ```shell
 cd ../.. # Back to project root
@@ -117,8 +147,8 @@ Improvements:
 ```
 
 ```shell
-# For All Tags
-git push origin main --tags
-# For specific Tag
+# Push the release tag
 git push origin vx.x.x
 ```
+
+10. Pushing the `vx.x.x` tag triggers the Python bindings workflow and publishes the Python packages from GitHub Actions.
