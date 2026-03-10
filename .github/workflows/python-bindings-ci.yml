@@ -1,6 +1,9 @@
 name: Python Bindings CI
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -37,7 +40,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -48,7 +51,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -59,7 +62,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -70,7 +73,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           before-script-linux: dnf install -y vulkan-headers || true
           args: >-
@@ -84,7 +87,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -109,7 +112,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: aarch64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -120,7 +123,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: aarch64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -131,7 +134,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: aarch64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -142,7 +145,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: aarch64
-          manylinux: '2_28'
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -166,17 +169,17 @@ jobs:
       - name: Install CUDA toolkit
         uses: Jimver/cuda-toolkit@v0.2.19
         with:
-          cuda: '12.6.0'
+          cuda: "12.6.0"
           method: network
 
       - name: Build autoagents-llamacpp-cuda
         uses: PyO3/maturin-action@v1
         env:
           CARGO_TARGET_DIR: target/python-cuda/llamacpp
-          LLAMA_BUILD_SHARED_LIBS: '1'
+          LLAMA_BUILD_SHARED_LIBS: "1"
         with:
           target: x86_64
-          manylinux: 'off'
+          manylinux: "off"
           sccache: true
           args: >-
             --release
@@ -191,7 +194,7 @@ jobs:
           CARGO_TARGET_DIR: target/python-cuda/mistralrs
         with:
           target: x86_64
-          manylinux: 'off'
+          manylinux: "off"
           sccache: true
           args: >-
             --release
@@ -289,7 +292,7 @@ jobs:
       - name: Install CUDA toolkit
         uses: Jimver/cuda-toolkit@v0.2.19
         with:
-          cuda: '12.6.0'
+          cuda: "12.6.0"
           method: network
 
       - name: Install Vulkan SDK
