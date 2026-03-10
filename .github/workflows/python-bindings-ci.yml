@@ -321,7 +321,7 @@ jobs:
   # ── Windows x86_64 (CPU + CUDA + Vulkan) ─────────────────────────────────
   build-windows:
     name: Windows x86_64
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
+    if: false # Temporarily disabled: Windows bindings build is too slow for CI.
     runs-on: windows-latest
 
     steps:
@@ -351,6 +351,14 @@ jobs:
           Start-Process -FilePath vulkan-sdk.exe `
             -ArgumentList "--accept-licenses --default-answer --confirm-command install" `
             -Wait -NoNewWindow
+          $vulkanRoot = Get-ChildItem -Path "C:\VulkanSDK" -Directory |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+          if (-not $vulkanRoot) {
+            throw "Vulkan SDK installation succeeded but no SDK folder was found under C:\VulkanSDK"
+          }
+          "VULKAN_SDK=$($vulkanRoot.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "$($vulkanRoot.FullName)\Bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install maturin
         run: python -m pip install --upgrade pip maturin
