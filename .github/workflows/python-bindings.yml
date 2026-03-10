@@ -37,6 +37,11 @@ jobs:
         with:
           workspaces: . -> target
 
+      - name: Install llama.cpp Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev libvulkan-dev
+
       # ── base package ────────────────────────────────────────────────────
       - name: Build autoagents-py
         uses: PyO3/maturin-action@v1
@@ -65,12 +70,10 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           CARGO_TARGET_DIR: target/python/llamacpp-cpu-linux-x86_64
-          LIBCLANG_PATH: /usr/lib64
         with:
           target: x86_64
           manylinux: 'off'
           sccache: true
-          before-script-linux: dnf install -y clang clang-devel llvm-devel llvm-compat-libs
           args: >-
             --release
             --out dist/llamacpp-cpu
@@ -81,12 +84,10 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           CARGO_TARGET_DIR: target/python/llamacpp-vulkan-linux-x86_64
-          LIBCLANG_PATH: /usr/lib64
         with:
           target: x86_64
           manylinux: 'off'
           sccache: true
-          before-script-linux: dnf install -y clang clang-devel llvm-devel llvm-compat-libs vulkan-headers
           args: >-
             --release
             --features vulkan
@@ -126,6 +127,11 @@ jobs:
         with:
           workspaces: . -> target
 
+      - name: Install llama.cpp Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev
+
       - name: Build autoagents-py
         uses: PyO3/maturin-action@v1
         with:
@@ -152,12 +158,10 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           CARGO_TARGET_DIR: target/python/llamacpp-cpu-linux-aarch64
-          LIBCLANG_PATH: /usr/lib64
         with:
           target: aarch64
           manylinux: 'off'
           sccache: true
-          before-script-linux: dnf install -y clang clang-devel llvm-devel llvm-compat-libs
           args: >-
             --release
             --out dist/llamacpp-cpu
