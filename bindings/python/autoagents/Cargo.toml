@@ -26,3 +26,6 @@ serde_json          = { workspace = true }
 serde               = { workspace = true }
 log                 = { workspace = true }
 ractor              = { workspace = true }
+
+[build-dependencies]
+pyo3-build-config   = "0.28.2"
