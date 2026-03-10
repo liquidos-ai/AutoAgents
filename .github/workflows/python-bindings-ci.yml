@@ -1,12 +1,13 @@
 name: Python Bindings CI
 
 on:
-  push:
-    branches:
-      - 'feature/v*'
   pull_request:
     branches:
-      - 'feature/v*'
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
   workflow_dispatch:
 
 permissions:
@@ -25,6 +26,7 @@ jobs:
   # ── Linux x86_64 (CPU + Vulkan) ──────────────────────────────────────────
   build-linux-x86_64:
     name: Linux x86_64
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
     runs-on: ubuntu-24.04
 
     steps:
@@ -114,6 +116,7 @@ jobs:
   # ── Linux aarch64 (CPU only — Vulkan/CUDA not cross-compiled) ────────────
   build-linux-aarch64:
     name: Linux aarch64
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
     runs-on: ubuntu-24.04-arm
 
     steps:
@@ -188,6 +191,7 @@ jobs:
   # ── Linux CUDA (x86_64, non-manylinux — CUDA users have controlled envs) ─
   build-linux-cuda:
     name: Linux CUDA
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
     runs-on: ubuntu-22.04
 
     steps:
@@ -243,6 +247,7 @@ jobs:
   # ── macOS (CPU + Metal, Intel x86_64 and Apple Silicon arm64) ────────────
   build-macos:
     name: macOS ${{ matrix.runner }}
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
     runs-on: ${{ matrix.runner }}
 
     strategy:
@@ -317,6 +322,7 @@ jobs:
   # ── Windows x86_64 (CPU + CUDA + Vulkan) ─────────────────────────────────
   build-windows:
     name: Windows x86_64
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
     runs-on: windows-latest
 
     steps:
