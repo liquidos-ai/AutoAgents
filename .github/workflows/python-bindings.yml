@@ -64,10 +64,11 @@ jobs:
       - name: Build autoagents-llamacpp-py (CPU)
         uses: PyO3/maturin-action@v1
         env:
+          CARGO_TARGET_DIR: target/python/llamacpp-cpu-linux-x86_64
           LIBCLANG_PATH: /usr/lib64
         with:
           target: x86_64
-          manylinux: '2_28'
+          manylinux: 'off'
           sccache: true
           before-script-linux: dnf install -y clang clang-devel llvm-devel llvm-compat-libs
           args: >-
@@ -79,10 +80,11 @@ jobs:
       - name: Build autoagents-llamacpp-vulkan
         uses: PyO3/maturin-action@v1
         env:
+          CARGO_TARGET_DIR: target/python/llamacpp-vulkan-linux-x86_64
           LIBCLANG_PATH: /usr/lib64
         with:
           target: x86_64
-          manylinux: '2_28'
+          manylinux: 'off'
           sccache: true
           before-script-linux: dnf install -y clang clang-devel llvm-devel llvm-compat-libs vulkan-headers
           args: >-
@@ -94,6 +96,8 @@ jobs:
       # ── mistralrs CPU ───────────────────────────────────────────────────
       - name: Build autoagents-mistral-rs-py (CPU)
         uses: PyO3/maturin-action@v1
+        env:
+          CARGO_TARGET_DIR: target/python/mistralrs-cpu-linux-x86_64
         with:
           target: x86_64
           manylinux: '2_28'
@@ -147,10 +151,11 @@ jobs:
       - name: Build autoagents-llamacpp-py (CPU)
         uses: PyO3/maturin-action@v1
         env:
+          CARGO_TARGET_DIR: target/python/llamacpp-cpu-linux-aarch64
           LIBCLANG_PATH: /usr/lib64
         with:
           target: aarch64
-          manylinux: '2_28'
+          manylinux: 'off'
           sccache: true
           before-script-linux: dnf install -y clang clang-devel llvm-devel llvm-compat-libs
           args: >-
@@ -160,6 +165,8 @@ jobs:
 
       - name: Build autoagents-mistral-rs-py (CPU)
         uses: PyO3/maturin-action@v1
+        env:
+          CARGO_TARGET_DIR: target/python/mistralrs-cpu-linux-aarch64
         with:
           target: aarch64
           manylinux: '2_28'
@@ -275,6 +282,8 @@ jobs:
 
       # ── llamacpp CPU ────────────────────────────────────────────────────
       - name: Build autoagents-llamacpp-py (CPU)
+        env:
+          CARGO_TARGET_DIR: target/python/llamacpp-cpu-macos
         run: |
           maturin build --release \
             --out dist/llamacpp-cpu \
@@ -282,6 +291,8 @@ jobs:
 
       # ── llamacpp Metal (Xcode ships Metal SDK — no extra setup) ─────────
       - name: Build autoagents-llamacpp-metal
+        env:
+          CARGO_TARGET_DIR: target/python/llamacpp-metal-macos
         run: |
           maturin build --release \
             --features metal \
@@ -290,6 +301,8 @@ jobs:
 
       # ── mistralrs CPU ───────────────────────────────────────────────────
       - name: Build autoagents-mistral-rs-py (CPU)
+        env:
+          CARGO_TARGET_DIR: target/python/mistralrs-cpu-macos
         run: |
           maturin build --release \
             --out dist/mistralrs-cpu \
@@ -297,6 +310,8 @@ jobs:
 
       # ── mistralrs Metal ─────────────────────────────────────────────────
       - name: Build autoagents-mistral-rs-metal
+        env:
+          CARGO_TARGET_DIR: target/python/mistralrs-metal-macos
         run: |
           maturin build --release \
             --features metal \
@@ -362,6 +377,8 @@ jobs:
       # ── llamacpp CPU ────────────────────────────────────────────────────
       - name: Build autoagents-llamacpp-py (CPU)
         shell: pwsh
+        env:
+          CARGO_TARGET_DIR: target/python/llamacpp-cpu-windows
         run: |
           maturin build --release `
             --out dist/llamacpp-cpu `
@@ -370,6 +387,8 @@ jobs:
       # ── llamacpp CUDA ───────────────────────────────────────────────────
       - name: Build autoagents-llamacpp-cuda
         shell: pwsh
+        env:
+          CARGO_TARGET_DIR: target/python/llamacpp-cuda-windows
         run: |
           maturin build --release `
             --features cuda `
@@ -379,6 +398,8 @@ jobs:
       # ── llamacpp Vulkan ─────────────────────────────────────────────────
       - name: Build autoagents-llamacpp-vulkan
         shell: pwsh
+        env:
+          CARGO_TARGET_DIR: target/python/llamacpp-vulkan-windows
         run: |
           maturin build --release `
             --features vulkan `
@@ -388,6 +409,8 @@ jobs:
       # ── mistralrs CPU ───────────────────────────────────────────────────
       - name: Build autoagents-mistral-rs-py (CPU)
         shell: pwsh
+        env:
+          CARGO_TARGET_DIR: target/python/mistralrs-cpu-windows
         run: |
           maturin build --release `
             --out dist/mistralrs-cpu `
@@ -397,6 +420,7 @@ jobs:
       - name: Build autoagents-mistral-rs-cuda
         shell: pwsh
         env:
+          CARGO_TARGET_DIR: target/python/mistralrs-cuda-windows
           CUDA_COMPUTE_CAP: '80'
         run: |
           maturin build --release `
@@ -437,3 +461,5 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
