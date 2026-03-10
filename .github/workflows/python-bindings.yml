@@ -67,6 +67,7 @@ jobs:
           target: x86_64
           manylinux: '2_28'
           sccache: true
+          before-script-linux: dnf install -y clang clang-devel llvm-devel libclang libclang-devel
           args: >-
             --release
             --out dist/llamacpp-cpu
@@ -79,7 +80,7 @@ jobs:
           target: x86_64
           manylinux: '2_28'
           sccache: true
-          before-script-linux: dnf install -y vulkan-headers || true
+          before-script-linux: dnf install -y clang clang-devel llvm-devel libclang libclang-devel vulkan-headers
           args: >-
             --release
             --features vulkan
@@ -107,7 +108,7 @@ jobs:
   # ── Linux aarch64 (CPU only — Vulkan/CUDA not cross-compiled) ────────────
   build-linux-aarch64:
     name: Linux aarch64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
 
     steps:
       - uses: actions/checkout@v4
@@ -118,7 +119,6 @@ jobs:
         with:
           workspaces: . -> target
 
-      # maturin-action sets up QEMU + binfmt automatically for aarch64
       - name: Build autoagents-py
         uses: PyO3/maturin-action@v1
         with:
@@ -147,6 +147,7 @@ jobs:
           target: aarch64
           manylinux: '2_28'
           sccache: true
+          before-script-linux: dnf install -y clang clang-devel llvm-devel libclang libclang-devel
           args: >-
             --release
             --out dist/llamacpp-cpu
