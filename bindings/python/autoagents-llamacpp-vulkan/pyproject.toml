@@ -12,4 +12,5 @@ dependencies = ["autoagents-py==0.3.6"]
 
 [tool.maturin]
 module-name = "autoagents_llamacpp_vulkan._autoagents_llamacpp_vulkan"
+features = ["vulkan"]
 python-source = "."

@@ -14,8 +14,11 @@ dependencies = []
 guardrails     = ["autoagents-guardrails-py==0.3.6"]
 llamacpp       = ["autoagents-llamacpp-py==0.3.6"]
 llamacpp-metal = ["autoagents-llamacpp-metal==0.3.6"]
+llamacpp-cuda = ["autoagents-llamacpp-cuda==0.3.6"]
+llamacpp-vulkan = ["autoagents-llamacpp-vulkan==0.3.6"]
 mistralrs      = ["autoagents-mistral-rs-py==0.3.6"]
 mistralrs-metal = ["autoagents-mistral-rs-metal==0.3.6"]
+mistralrs-cuda = ["autoagents-mistral-rs-cuda==0.3.6"]
 
 [tool.maturin]
 module-name = "autoagents_py._autoagents_py"

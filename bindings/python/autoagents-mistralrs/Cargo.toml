@@ -12,14 +12,6 @@ crate-type = ["cdylib"]
 
 [features]
 default = []
-cuda = ["autoagents-mistral-rs-py-core/cuda"]
-cudnn = ["autoagents-mistral-rs-py-core/cudnn"]
-metal = ["autoagents-mistral-rs-py-core/metal"]
-flash-attn = ["autoagents-mistral-rs-py-core/flash-attn"]
-accelerate = ["autoagents-mistral-rs-py-core/accelerate"]
-mkl = ["autoagents-mistral-rs-py-core/mkl"]
-nccl = ["autoagents-mistral-rs-py-core/nccl"]
-ring = ["autoagents-mistral-rs-py-core/ring"]
 
 [dependencies]
 autoagents-mistral-rs-py-core = { path = "../autoagents-mistralrs-core" }

@@ -14,8 +14,6 @@ crate-type = ["cdylib"]
 default = []
 cuda = ["autoagents-llamacpp-py-core/cuda"]
 cuda-no-vmm = ["autoagents-llamacpp-py-core/cuda-no-vmm"]
-metal = ["autoagents-llamacpp-py-core/metal"]
-vulkan = ["autoagents-llamacpp-py-core/vulkan"]
 
 [dependencies]
 autoagents-llamacpp-py-core = { path = "../autoagents-llamacpp-core" }

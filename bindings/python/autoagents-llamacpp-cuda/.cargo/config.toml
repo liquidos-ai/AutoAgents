@@ -1,0 +1,6 @@
+[env]
+# Ensure CUDA host objects are compiled as PIC for shared-module linking.
+CMAKE_POSITION_INDEPENDENT_CODE = "ON"
+CMAKE_C_FLAGS = "-fPIC"
+CMAKE_CXX_FLAGS = "-fPIC"
+CMAKE_CUDA_FLAGS = "-Xcompiler=-fPIC"

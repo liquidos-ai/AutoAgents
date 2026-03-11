@@ -175,12 +175,19 @@ python-bindings-build-cuda: python-bindings-build
 	}
 	@echo "==> autoagents-llamacpp-cuda"
 	CARGO_TARGET_DIR="$(LLAMACPP_CUDA_TARGET_DIR)" \
-	LLAMA_BUILD_SHARED_LIBS=1 \
+	CMAKE_POSITION_INDEPENDENT_CODE="ON" \
+	CMAKE_C_FLAGS="-fPIC" \
+	CMAKE_CXX_FLAGS="-fPIC" \
+	CMAKE_CUDA_FLAGS="-Xcompiler=-fPIC" \
 	"$(MATURIN)" develop --release --features cuda \
 		--manifest-path "$(LLAMACPP_CUDA_DIR)/Cargo.toml"
 	$(call install_shared_lib,$(LLAMACPP_CUDA_TARGET_DIR)/maturin/lib_autoagents_llamacpp_cuda.so,$(LLAMACPP_CUDA_DIR)/autoagents_llamacpp_cuda/_autoagents_llamacpp_cuda.abi3.so)
 	@echo "==> autoagents-mistral-rs-cuda"
 	CARGO_TARGET_DIR="$(MISTRALRS_CUDA_TARGET_DIR)" \
+	CMAKE_POSITION_INDEPENDENT_CODE="ON" \
+	CMAKE_C_FLAGS="-fPIC" \
+	CMAKE_CXX_FLAGS="-fPIC" \
+	CMAKE_CUDA_FLAGS="-Xcompiler=-fPIC" \
 	"$(MATURIN)" develop --release --features cuda \
 		--manifest-path "$(MISTRALRS_CUDA_DIR)/Cargo.toml"
 	$(call install_shared_lib,$(MISTRALRS_CUDA_TARGET_DIR)/maturin/lib_autoagents_mistral_rs_cuda.so,$(MISTRALRS_CUDA_DIR)/autoagents_mistral_rs_cuda/_autoagents_mistral_rs_cuda.abi3.so)
@@ -189,7 +196,6 @@ python-bindings-build-cuda: python-bindings-build
 python-bindings-build-metal: python-bindings-build
 	@echo "==> autoagents-llamacpp-metal"
 	CARGO_TARGET_DIR="$(LLAMACPP_METAL_TARGET_DIR)" \
-	LLAMA_BUILD_SHARED_LIBS=1 \
 	"$(MATURIN)" develop --release --features metal \
 		--manifest-path "$(LLAMACPP_METAL_DIR)/Cargo.toml"
 	$(call install_shared_lib,$(LLAMACPP_METAL_TARGET_DIR)/maturin/lib_autoagents_llamacpp_metal.so,$(LLAMACPP_METAL_DIR)/autoagents_llamacpp_metal/_autoagents_llamacpp_metal.abi3.so)
@@ -203,7 +209,6 @@ python-bindings-build-metal: python-bindings-build
 python-bindings-build-vulkan: python-bindings-build
 	@echo "==> autoagents-llamacpp-vulkan"
 	CARGO_TARGET_DIR="$(LLAMACPP_VULKAN_TARGET_DIR)" \
-	LLAMA_BUILD_SHARED_LIBS=1 \
 	"$(MATURIN)" develop --release --features vulkan \
 		--manifest-path "$(LLAMACPP_VULKAN_DIR)/Cargo.toml"
 	$(call install_shared_lib,$(LLAMACPP_VULKAN_TARGET_DIR)/maturin/lib_autoagents_llamacpp_vulkan.so,$(LLAMACPP_VULKAN_DIR)/autoagents_llamacpp_vulkan/_autoagents_llamacpp_vulkan.abi3.so)
