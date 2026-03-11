@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -29,13 +32,9 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
 
       - name: Prepare wheel output directories
         run: |
@@ -116,7 +115,7 @@ jobs:
             --out dist/mistralrs-cpu
             --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: wheels-linux-x86_64
           path: dist/**/*.whl
@@ -127,13 +126,9 @@ jobs:
     runs-on: ubuntu-24.04-arm
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
 
       - name: Prepare wheel output directories
         run: |
@@ -195,7 +190,7 @@ jobs:
             --out dist/mistralrs-cpu
             --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: wheels-linux-aarch64
           path: dist/**/*.whl
@@ -206,13 +201,9 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
 
       - name: Prepare wheel output directories
         run: |
@@ -220,7 +211,7 @@ jobs:
           mkdir -p dist/mistralrs-cuda
 
       - name: Install CUDA toolkit
-        uses: Jimver/cuda-toolkit@v0.2.19
+        uses: Jimver/cuda-toolkit@v0.2.29
         with:
           cuda: "12.6.0"
           method: network
@@ -256,7 +247,7 @@ jobs:
             --out dist/mistralrs-cuda
             --manifest-path bindings/python/autoagents-mistralrs-cuda/Cargo.toml
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: wheels-linux-cuda
           path: dist/**/*.whl
@@ -274,17 +265,13 @@ jobs:
             artifact: macos-arm64
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
 
       - name: Install maturin
         run: python -m pip install --upgrade pip maturin
@@ -340,7 +327,7 @@ jobs:
             --out dist/mistralrs-metal \
             --manifest-path bindings/python/autoagents-mistralrs-metal/Cargo.toml
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: wheels-${{ matrix.artifact }}
           path: dist/**/*.whl
@@ -352,20 +339,16 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-
       - name: Install CUDA toolkit
-        uses: Jimver/cuda-toolkit@v0.2.19
+        uses: Jimver/cuda-toolkit@v0.2.29
         with:
           cuda: "12.6.0"
           method: network
@@ -459,7 +442,7 @@ jobs:
             --out dist/mistralrs-cuda `
             --manifest-path bindings/python/autoagents-mistralrs-cuda/Cargo.toml
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: wheels-windows
           path: dist/**/*.whl
@@ -474,7 +457,7 @@ jobs:
       - build-macos
       # build-windows is intentionally disabled above; keeping it in `needs`
       # causes this publish job to be skipped.
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -513,7 +496,7 @@ jobs:
 
     steps:
       - name: Download all wheels
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: wheels-*
           merge-multiple: true
