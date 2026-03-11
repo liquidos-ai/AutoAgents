@@ -32,7 +32,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -49,7 +52,7 @@ jobs:
       - name: Install llama.cpp Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev llvm-dev libvulkan-dev glslc
+          sudo apt-get install -y libclang-dev llvm-dev libvulkan-dev glslc
 
       - name: Build autoagents-py
         uses: PyO3/maturin-action@v1
@@ -82,12 +85,12 @@ jobs:
           manylinux: "2_28"
           before-script-linux: |
             if command -v dnf >/dev/null 2>&1; then
-              dnf install -y clang llvm-devel libclang libclang-devel || dnf install -y clang llvm-devel clang-libs
+              dnf install -y libclang libclang-devel llvm-devel || dnf install -y llvm-devel clang-libs
             elif command -v yum >/dev/null 2>&1; then
-              yum install -y clang llvm-devel libclang libclang-devel || yum install -y clang llvm-devel clang-libs
+              yum install -y libclang libclang-devel llvm-devel || yum install -y llvm-devel clang-libs
             elif command -v apt-get >/dev/null 2>&1; then
               apt-get update
-              apt-get install -y clang libclang-dev llvm-dev
+              apt-get install -y libclang-dev llvm-dev
             else
               echo "No supported package manager found to install clang/libclang"
               exit 1
@@ -134,7 +137,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -150,7 +156,7 @@ jobs:
       - name: Install llama.cpp Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev llvm-dev
+          sudo apt-get install -y libclang-dev llvm-dev
 
       - name: Build autoagents-py
         uses: PyO3/maturin-action@v1
@@ -183,12 +189,12 @@ jobs:
           manylinux: "2_28"
           before-script-linux: |
             if command -v dnf >/dev/null 2>&1; then
-              dnf install -y clang llvm-devel libclang libclang-devel || dnf install -y clang llvm-devel clang-libs
+              dnf install -y libclang libclang-devel llvm-devel || dnf install -y llvm-devel clang-libs
             elif command -v yum >/dev/null 2>&1; then
-              yum install -y clang llvm-devel libclang libclang-devel || yum install -y clang llvm-devel clang-libs
+              yum install -y libclang libclang-devel llvm-devel || yum install -y llvm-devel clang-libs
             elif command -v apt-get >/dev/null 2>&1; then
               apt-get update
-              apt-get install -y clang libclang-dev llvm-dev
+              apt-get install -y libclang-dev llvm-dev
             else
               echo "No supported package manager found to install clang/libclang"
               exit 1
@@ -221,7 +227,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -287,7 +296,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -355,7 +367,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - uses: Swatinem/rust-cache@v2
         with:
