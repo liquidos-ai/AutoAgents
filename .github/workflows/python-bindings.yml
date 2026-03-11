@@ -29,7 +29,7 @@ concurrency:
 # ─────────────────────────────────────────────────────────────────────────────
 
 jobs:
-  # ── Linux x86_64 (CPU + Vulkan) ──────────────────────────────────────────
+  # ── Linux x86_64 (wheel packages only) ───────────────────────────────────
   build-linux-x86_64:
     name: Linux x86_64
     runs-on: ubuntu-24.04
@@ -37,20 +37,21 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - name: Prepare wheel output directories
         run: |
           mkdir -p dist/autoagents
           mkdir -p dist/autoagents-guardrails
-          mkdir -p dist/llamacpp-cpu
-          mkdir -p dist/llamacpp-vulkan
           mkdir -p dist/mistralrs-cpu
 
       - name: Install llama.cpp Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev llvm-dev libvulkan-dev glslc
+          sudo apt-get install -y libclang-dev llvm-dev libvulkan-dev glslc
 
       # ── base package ────────────────────────────────────────────────────
       - name: Build autoagents-py
@@ -74,47 +75,6 @@ jobs:
             --release
             --out dist/autoagents-guardrails
             --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
-
-      # ── llamacpp CPU (pyproject.toml in the dir is the CPU build) ───────
-      - name: Build autoagents-llamacpp-py (CPU)
-        uses: PyO3/maturin-action@v1
-        env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cpu-linux-x86_64
-        with:
-          target: x86_64
-          manylinux: "2_28"
-          before-script-linux: |
-            if command -v dnf >/dev/null 2>&1; then
-              dnf install -y clang llvm-devel libclang libclang-devel || dnf install -y clang llvm-devel clang-libs
-            elif command -v yum >/dev/null 2>&1; then
-              yum install -y clang llvm-devel libclang libclang-devel || yum install -y clang llvm-devel clang-libs
-            elif command -v apt-get >/dev/null 2>&1; then
-              apt-get update
-              apt-get install -y clang libclang-dev llvm-dev
-            else
-              echo "No supported package manager found to install clang/libclang"
-              exit 1
-            fi
-          sccache: true
-          args: >-
-            --release
-            --out dist/llamacpp-cpu
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
-
-      # ── llamacpp Vulkan ─────────────────────────────────────────────────
-      - name: Build autoagents-llamacpp-vulkan
-        uses: PyO3/maturin-action@v1
-        env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-vulkan-linux-x86_64
-        with:
-          target: x86_64
-          manylinux: "off"
-          sccache: true
-          args: >-
-            --release
-            --features vulkan
-            --out dist/llamacpp-vulkan
-            --manifest-path bindings/python/autoagents-llamacpp-vulkan/Cargo.toml
 
       # ── mistralrs CPU ───────────────────────────────────────────────────
       - name: Build autoagents-mistral-rs-py (CPU)
@@ -142,16 +102,6 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: wheels-autoagents-llamacpp-py-linux-x86_64
-          path: dist/llamacpp-cpu/*.whl
-
-      - uses: actions/upload-artifact@v6
-        with:
-          name: wheels-autoagents-llamacpp-vulkan-linux-x86_64
-          path: dist/llamacpp-vulkan/*.whl
-
-      - uses: actions/upload-artifact@v6
-        with:
           name: wheels-autoagents-mistral-rs-py-linux-x86_64
           path: dist/mistralrs-cpu/*.whl
 
@@ -163,19 +113,21 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - name: Prepare wheel output directories
         run: |
           mkdir -p dist/autoagents
           mkdir -p dist/autoagents-guardrails
-          mkdir -p dist/llamacpp-cpu
           mkdir -p dist/mistralrs-cpu
 
       - name: Install llama.cpp Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev llvm-dev
+          sudo apt-get install -y libclang-dev llvm-dev
 
       - name: Build autoagents-py
         uses: PyO3/maturin-action@v1
@@ -198,31 +150,6 @@ jobs:
             --release
             --out dist/autoagents-guardrails
             --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
-
-      - name: Build autoagents-llamacpp-py (CPU)
-        uses: PyO3/maturin-action@v1
-        env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cpu-linux-aarch64
-        with:
-          target: aarch64
-          manylinux: "2_28"
-          before-script-linux: |
-            if command -v dnf >/dev/null 2>&1; then
-              dnf install -y clang llvm-devel libclang libclang-devel || dnf install -y clang llvm-devel clang-libs
-            elif command -v yum >/dev/null 2>&1; then
-              yum install -y clang llvm-devel libclang libclang-devel || yum install -y clang llvm-devel clang-libs
-            elif command -v apt-get >/dev/null 2>&1; then
-              apt-get update
-              apt-get install -y clang libclang-dev llvm-dev
-            else
-              echo "No supported package manager found to install clang/libclang"
-              exit 1
-            fi
-          sccache: true
-          args: >-
-            --release
-            --out dist/llamacpp-cpu
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
 
       - name: Build autoagents-mistral-rs-py (CPU)
         uses: PyO3/maturin-action@v1
@@ -252,15 +179,87 @@ jobs:
           name: wheels-autoagents-mistral-rs-py-linux-aarch64
           path: dist/mistralrs-cpu/*.whl
 
+  # ── Build source distributions for llama.cpp/cuda/vulkan variants ────────
+  build-sdists:
+    name: Build variant sdists
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Install maturin
+        run: python -m pip install --upgrade pip maturin
+
+      - name: Build autoagents-llamacpp-py sdist
+        run: |
+          mkdir -p dist/sdists/llamacpp
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml \
+            --out dist/sdists/llamacpp
+
+      - name: Build autoagents-llamacpp-cuda sdist
+        run: |
+          mkdir -p dist/sdists/llamacpp-cuda
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-llamacpp-cuda/Cargo.toml \
+            --out dist/sdists/llamacpp-cuda
+
+      - name: Build autoagents-llamacpp-vulkan sdist
+        run: |
+          mkdir -p dist/sdists/llamacpp-vulkan
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-llamacpp-vulkan/Cargo.toml \
+            --out dist/sdists/llamacpp-vulkan
+
+      - name: Build autoagents-mistral-rs-cuda sdist
+        run: |
+          mkdir -p dist/sdists/mistralrs-cuda
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-mistralrs-cuda/Cargo.toml \
+            --out dist/sdists/mistralrs-cuda
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: sdist-autoagents-llamacpp-py
+          path: dist/sdists/llamacpp/*.tar.gz
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: sdist-autoagents-llamacpp-cuda
+          path: dist/sdists/llamacpp-cuda/*.tar.gz
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: sdist-autoagents-llamacpp-vulkan
+          path: dist/sdists/llamacpp-vulkan/*.tar.gz
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: sdist-autoagents-mistral-rs-cuda
+          path: dist/sdists/mistralrs-cuda/*.tar.gz
+
   # ── Linux CUDA (x86_64, non-manylinux — CUDA users have controlled envs) ─
   build-linux-cuda:
     name: Linux CUDA
+    if: false
     runs-on: ubuntu-22.04
 
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - name: Prepare wheel output directories
         run: |
@@ -332,7 +331,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - name: Install maturin
         run: python -m pip install --upgrade pip maturin
@@ -349,15 +351,6 @@ jobs:
           maturin build --release \
             --out dist/autoagents-guardrails \
             --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
-
-      # ── llamacpp CPU ────────────────────────────────────────────────────
-      - name: Build autoagents-llamacpp-py (CPU)
-        env:
-          CARGO_TARGET_DIR: target/python/llamacpp-cpu-macos
-        run: |
-          maturin build --release \
-            --out dist/llamacpp-cpu \
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
 
       # ── llamacpp Metal (Xcode ships Metal SDK — no extra setup) ─────────
       - name: Build autoagents-llamacpp-metal
@@ -400,11 +393,6 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: wheels-autoagents-llamacpp-py-macos-arm64
-          path: dist/llamacpp-cpu/*.whl
-
-      - uses: actions/upload-artifact@v6
-        with:
           name: wheels-autoagents-llamacpp-metal-macos-arm64
           path: dist/llamacpp-metal/*.whl
 
@@ -431,7 +419,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - name: Install CUDA toolkit
         uses: Jimver/cuda-toolkit@v0.2.29
@@ -539,8 +530,8 @@ jobs:
     needs:
       - build-linux-x86_64
       - build-linux-aarch64
-      - build-linux-cuda
       - build-macos
+      - build-sdists
       # build-windows is intentionally disabled above; keeping it in `needs`
       # causes this publish job to be skipped.
     if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch'
@@ -552,44 +543,62 @@ jobs:
           - package: autoagents-py
             environment: pypi
             artifact_pattern: wheels-autoagents-py-*
+            file_glob: "*.whl"
           - package: autoagents-guardrails-py
             environment: pypi-guardrails
             artifact_pattern: wheels-autoagents-guardrails-py-*
+            file_glob: "*.whl"
           - package: autoagents-llamacpp-py
             environment: pypi-llamacpp
-            artifact_pattern: wheels-autoagents-llamacpp-py-*
+            artifact_pattern: sdist-autoagents-llamacpp-py
+            file_glob: "*.tar.gz"
+          - package: autoagents-llamacpp-cuda
+            environment: pypi-llamacpp-cuda
+            artifact_pattern: sdist-autoagents-llamacpp-cuda
+            file_glob: "*.tar.gz"
+          - package: autoagents-llamacpp-vulkan
+            environment: pypi-llamacpp-vulkan
+            artifact_pattern: sdist-autoagents-llamacpp-vulkan
+            file_glob: "*.tar.gz"
           - package: autoagents-llamacpp-metal
             environment: pypi-llamacpp-metal
             artifact_pattern: wheels-autoagents-llamacpp-metal-*
+            file_glob: "*.whl"
           - package: autoagents-mistral-rs-py
             environment: pypi-mistralrs
             artifact_pattern: wheels-autoagents-mistral-rs-py-*
+            file_glob: "*.whl"
+          - package: autoagents-mistral-rs-cuda
+            environment: pypi-mistralrs-cuda
+            artifact_pattern: sdist-autoagents-mistral-rs-cuda
+            file_glob: "*.tar.gz"
           - package: autoagents-mistral-rs-metal
             environment: pypi-mistralrs-metal
             artifact_pattern: wheels-autoagents-mistral-rs-metal-*
+            file_glob: "*.whl"
     environment: ${{ matrix.environment }}
     permissions:
       id-token: write # required for OIDC trusted publisher — no token needed
 
     steps:
-      - name: Download wheels for ${{ matrix.package }}
+      - name: Download artifacts for ${{ matrix.package }}
         uses: actions/download-artifact@v7
         with:
           pattern: ${{ matrix.artifact_pattern }}
           merge-multiple: true
           path: publish/
 
-      - name: Verify downloaded wheels
+      - name: Verify downloaded artifacts
         run: |
-          count="$(find publish -type f -name '*.whl' | wc -l | tr -d ' ')"
-          echo "Downloaded ${count} wheel(s) for ${{ matrix.package }}"
+          count="$(find publish -type f -name '${{ matrix.file_glob }}' | wc -l | tr -d ' ')"
+          echo "Downloaded ${count} package file(s) for ${{ matrix.package }}"
           if [ "$count" = "0" ]; then
-            echo "No wheels were downloaded for pattern '${{ matrix.artifact_pattern }}'"
+            echo "No package files matching '${{ matrix.file_glob }}' were downloaded for pattern '${{ matrix.artifact_pattern }}'"
             exit 1
           fi
-          find publish -type f -name '*.whl' -print
+          find publish -type f -name '${{ matrix.file_glob }}' -print
 
-      - name: List publish wheels
+      - name: List publish artifacts
         run: ls -lh publish/
 
       - name: Publish to PyPI
@@ -604,34 +613,46 @@ jobs:
     needs:
       - build-linux-x86_64
       - build-linux-aarch64
-      - build-linux-cuda
       - build-macos
+      - build-sdists
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Download all wheels
+      - name: Download wheel artifacts
         uses: actions/download-artifact@v7
         with:
           pattern: wheels-*
           merge-multiple: true
           path: dist/
 
-      - name: Verify wheels to upload
+      - name: Download sdist artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: sdist-*
+          merge-multiple: true
+          path: dist/
+
+      - name: Verify packages to upload
         run: |
-          count="$(find dist -type f -name '*.whl' | wc -l | tr -d ' ')"
-          echo "Found ${count} wheel(s)"
+          wheel_count="$(find dist -type f -name '*.whl' | wc -l | tr -d ' ')"
+          sdist_count="$(find dist -type f -name '*.tar.gz' | wc -l | tr -d ' ')"
+          count="$((wheel_count + sdist_count))"
+          echo "Found ${wheel_count} wheel(s) and ${sdist_count} sdist(s)"
           if [ "$count" = "0" ]; then
-            echo "No wheel artifacts found to upload"
+            echo "No package artifacts found to upload"
             exit 1
           fi
           find dist -type f -name '*.whl' -print
+          find dist -type f -name '*.tar.gz' -print
 
       - name: Upload assets to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.release.tag_name }}
-          files: dist/**/*.whl
+          files: |
+            dist/**/*.whl
+            dist/**/*.tar.gz
           fail_on_unmatched_files: true
