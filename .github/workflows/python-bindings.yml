@@ -472,7 +472,8 @@ jobs:
       - build-linux-aarch64
       - build-linux-cuda
       - build-macos
-      - build-windows
+      # build-windows is intentionally disabled above; keeping it in `needs`
+      # causes this publish job to be skipped.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     strategy:
