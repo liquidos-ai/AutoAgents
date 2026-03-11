@@ -12,4 +12,5 @@ dependencies = ["autoagents-py==0.3.6"]
 
 [tool.maturin]
 module-name = "autoagents_llamacpp._autoagents_llamacpp"
+compatibility = "manylinux_2_28"
 python-source = "."

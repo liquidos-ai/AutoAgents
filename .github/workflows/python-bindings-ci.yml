@@ -79,7 +79,7 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cpu-linux-x86_64
         with:
           target: x86_64
-          manylinux: "off"
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -168,7 +168,7 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cpu-linux-aarch64
         with:
           target: aarch64
-          manylinux: "off"
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release

@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - "v*"
+  release:
+    types:
+      - published
   workflow_dispatch:
 
 permissions:
@@ -79,7 +82,7 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cpu-linux-x86_64
         with:
           target: x86_64
-          manylinux: "off"
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -190,7 +193,7 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cpu-linux-aarch64
         with:
           target: aarch64
-          manylinux: "off"
+          manylinux: "2_28"
           sccache: true
           args: >-
             --release
@@ -219,11 +222,6 @@ jobs:
         with:
           name: wheels-autoagents-guardrails-py-linux-aarch64
           path: dist/autoagents-guardrails/*.whl
-
-      - uses: actions/upload-artifact@v6
-        with:
-          name: wheels-autoagents-llamacpp-py-linux-aarch64
-          path: dist/llamacpp-cpu/*.whl
 
       - uses: actions/upload-artifact@v6
         with:
@@ -521,7 +519,7 @@ jobs:
       - build-macos
       # build-windows is intentionally disabled above; keeping it in `needs`
       # causes this publish job to be skipped.
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -536,21 +534,12 @@ jobs:
           - package: autoagents-llamacpp-py
             environment: pypi-llamacpp
             artifact_pattern: wheels-autoagents-llamacpp-py-*
-          - package: autoagents-llamacpp-cuda
-            environment: pypi-llamacpp-cuda
-            artifact_pattern: wheels-autoagents-llamacpp-cuda-*
           - package: autoagents-llamacpp-metal
             environment: pypi-llamacpp-metal
             artifact_pattern: wheels-autoagents-llamacpp-metal-*
-          - package: autoagents-llamacpp-vulkan
-            environment: pypi-llamacpp-vulkan
-            artifact_pattern: wheels-autoagents-llamacpp-vulkan-*
           - package: autoagents-mistral-rs-py
             environment: pypi-mistralrs
             artifact_pattern: wheels-autoagents-mistral-rs-py-*
-          - package: autoagents-mistral-rs-cuda
-            environment: pypi-mistralrs-cuda
-            artifact_pattern: wheels-autoagents-mistral-rs-cuda-*
           - package: autoagents-mistral-rs-metal
             environment: pypi-mistralrs-metal
             artifact_pattern: wheels-autoagents-mistral-rs-metal-*
@@ -584,3 +573,41 @@ jobs:
         with:
           packages-dir: publish/
           skip-existing: true
+          verbose: true
+
+  upload-release-assets:
+    name: Upload wheels to GitHub Release
+    needs:
+      - build-linux-x86_64
+      - build-linux-aarch64
+      - build-linux-cuda
+      - build-macos
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@v7
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist/
+
+      - name: Verify wheels to upload
+        run: |
+          count="$(find dist -type f -name '*.whl' | wc -l | tr -d ' ')"
+          echo "Found ${count} wheel(s)"
+          if [ "$count" = "0" ]; then
+            echo "No wheel artifacts found to upload"
+            exit 1
+          fi
+          find dist -type f -name '*.whl' -print
+
+      - name: Upload assets to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: dist/**/*.whl
+          fail_on_unmatched_files: true
