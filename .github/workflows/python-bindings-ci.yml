@@ -80,19 +80,21 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cpu-linux-x86_64
+          CC: gcc
+          CXX: g++
         with:
           target: x86_64
           manylinux: "2_28"
           before-script-linux: |
             if command -v dnf >/dev/null 2>&1; then
-              dnf install -y libclang libclang-devel llvm-devel || dnf install -y llvm-devel clang-libs
+              dnf install -y gcc gcc-c++ glibc-devel clang libclang libclang-devel llvm-devel
             elif command -v yum >/dev/null 2>&1; then
-              yum install -y libclang libclang-devel llvm-devel || yum install -y llvm-devel clang-libs
+              yum install -y gcc gcc-c++ glibc-devel clang libclang libclang-devel llvm-devel
             elif command -v apt-get >/dev/null 2>&1; then
               apt-get update
-              apt-get install -y libclang-dev llvm-dev
+              apt-get install -y build-essential clang libclang-dev llvm-dev libc6-dev
             else
-              echo "No supported package manager found to install clang/libclang"
+              echo "No supported package manager found to install C/C++ toolchain and libclang"
               exit 1
             fi
           sccache: true
@@ -184,19 +186,21 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cpu-linux-aarch64
+          CC: gcc
+          CXX: g++
         with:
           target: aarch64
           manylinux: "2_28"
           before-script-linux: |
             if command -v dnf >/dev/null 2>&1; then
-              dnf install -y libclang libclang-devel llvm-devel || dnf install -y llvm-devel clang-libs
+              dnf install -y gcc gcc-c++ glibc-devel clang libclang libclang-devel llvm-devel
             elif command -v yum >/dev/null 2>&1; then
-              yum install -y libclang libclang-devel llvm-devel || yum install -y llvm-devel clang-libs
+              yum install -y gcc gcc-c++ glibc-devel clang libclang libclang-devel llvm-devel
             elif command -v apt-get >/dev/null 2>&1; then
               apt-get update
-              apt-get install -y libclang-dev llvm-dev
+              apt-get install -y build-essential clang libclang-dev llvm-dev libc6-dev
             else
-              echo "No supported package manager found to install clang/libclang"
+              echo "No supported package manager found to install C/C++ toolchain and libclang"
               exit 1
             fi
           sccache: true
