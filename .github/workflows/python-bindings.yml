@@ -117,8 +117,28 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: wheels-linux-x86_64
-          path: dist/**/*.whl
+          name: wheels-autoagents-py-linux-x86_64
+          path: dist/autoagents/*.whl
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-autoagents-guardrails-py-linux-x86_64
+          path: dist/autoagents-guardrails/*.whl
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-autoagents-llamacpp-py-linux-x86_64
+          path: dist/llamacpp-cpu/*.whl
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-autoagents-llamacpp-vulkan-linux-x86_64
+          path: dist/llamacpp-vulkan/*.whl
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-autoagents-mistral-rs-py-linux-x86_64
+          path: dist/mistralrs-cpu/*.whl
 
   # ── Linux aarch64 (CPU only — Vulkan/CUDA not cross-compiled) ────────────
   build-linux-aarch64:
@@ -192,8 +212,23 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: wheels-linux-aarch64
-          path: dist/**/*.whl
+          name: wheels-autoagents-py-linux-aarch64
+          path: dist/autoagents/*.whl
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-autoagents-guardrails-py-linux-aarch64
+          path: dist/autoagents-guardrails/*.whl
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-autoagents-llamacpp-py-linux-aarch64
+          path: dist/llamacpp-cpu/*.whl
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-autoagents-mistral-rs-py-linux-aarch64
+          path: dist/mistralrs-cpu/*.whl
 
   # ── Linux CUDA (x86_64, non-manylinux — CUDA users have controlled envs) ─
   build-linux-cuda:
@@ -249,8 +284,13 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: wheels-linux-cuda
-          path: dist/**/*.whl
+          name: wheels-autoagents-llamacpp-cuda-linux-x86_64
+          path: dist/llamacpp-cuda/*.whl
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-autoagents-mistral-rs-cuda-linux-x86_64
+          path: dist/mistralrs-cuda/*.whl
 
   # ── macOS (CPU + Metal, Intel x86_64 and Apple Silicon arm64) ────────────
   build-macos:
@@ -262,7 +302,6 @@ jobs:
       matrix:
         include:
           - runner: macos-latest # Apple Silicon arm64
-            artifact: macos-arm64
 
     steps:
       - uses: actions/checkout@v5
@@ -329,8 +368,33 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: wheels-${{ matrix.artifact }}
-          path: dist/**/*.whl
+          name: wheels-autoagents-py-macos-arm64
+          path: dist/autoagents/*.whl
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-autoagents-guardrails-py-macos-arm64
+          path: dist/autoagents-guardrails/*.whl
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-autoagents-llamacpp-py-macos-arm64
+          path: dist/llamacpp-cpu/*.whl
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-autoagents-llamacpp-metal-macos-arm64
+          path: dist/llamacpp-metal/*.whl
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-autoagents-mistral-rs-py-macos-arm64
+          path: dist/mistralrs-cpu/*.whl
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wheels-autoagents-mistral-rs-metal-macos-arm64
+          path: dist/mistralrs-metal/*.whl
 
   # ── Windows x86_64 (CPU + CUDA + Vulkan) ─────────────────────────────────
   build-windows:
@@ -465,59 +529,55 @@ jobs:
         include:
           - package: autoagents-py
             environment: pypi
-            wheel_prefix: autoagents_py
+            artifact_pattern: wheels-autoagents-py-*
           - package: autoagents-guardrails-py
             environment: pypi-guardrails
-            wheel_prefix: autoagents_guardrails_py
+            artifact_pattern: wheels-autoagents-guardrails-py-*
           - package: autoagents-llamacpp-py
             environment: pypi-llamacpp
-            wheel_prefix: autoagents_llamacpp_py
+            artifact_pattern: wheels-autoagents-llamacpp-py-*
           - package: autoagents-llamacpp-cuda
             environment: pypi-llamacpp-cuda
-            wheel_prefix: autoagents_llamacpp_cuda
+            artifact_pattern: wheels-autoagents-llamacpp-cuda-*
           - package: autoagents-llamacpp-metal
             environment: pypi-llamacpp-metal
-            wheel_prefix: autoagents_llamacpp_metal
+            artifact_pattern: wheels-autoagents-llamacpp-metal-*
           - package: autoagents-llamacpp-vulkan
             environment: pypi-llamacpp-vulkan
-            wheel_prefix: autoagents_llamacpp_vulkan
+            artifact_pattern: wheels-autoagents-llamacpp-vulkan-*
           - package: autoagents-mistral-rs-py
             environment: pypi-mistralrs
-            wheel_prefix: autoagents_mistral_rs_py
+            artifact_pattern: wheels-autoagents-mistral-rs-py-*
           - package: autoagents-mistral-rs-cuda
             environment: pypi-mistralrs-cuda
-            wheel_prefix: autoagents_mistral_rs_cuda
+            artifact_pattern: wheels-autoagents-mistral-rs-cuda-*
           - package: autoagents-mistral-rs-metal
             environment: pypi-mistralrs-metal
-            wheel_prefix: autoagents_mistral_rs_metal
+            artifact_pattern: wheels-autoagents-mistral-rs-metal-*
     environment: ${{ matrix.environment }}
     permissions:
       id-token: write # required for OIDC trusted publisher — no token needed
 
     steps:
-      - name: Download all wheels
+      - name: Download wheels for ${{ matrix.package }}
         uses: actions/download-artifact@v7
         with:
-          pattern: wheels-*
+          pattern: ${{ matrix.artifact_pattern }}
           merge-multiple: true
-          path: dist/
+          path: publish/
 
-      - name: List wheels
-        run: ls -lh dist/
-
-      - name: Collect wheels for ${{ matrix.package }}
+      - name: Verify downloaded wheels
         run: |
-          mkdir -p publish/
-          shopt -s nullglob
-          wheels=(dist/${{ matrix.wheel_prefix }}-*.whl)
-
-          if [ ${#wheels[@]} -eq 0 ]; then
-            echo "No wheels found for ${{ matrix.package }} using prefix ${{ matrix.wheel_prefix }}"
+          count="$(find publish -type f -name '*.whl' | wc -l | tr -d ' ')"
+          echo "Downloaded ${count} wheel(s) for ${{ matrix.package }}"
+          if [ "$count" = "0" ]; then
+            echo "No wheels were downloaded for pattern '${{ matrix.artifact_pattern }}'"
             exit 1
           fi
+          find publish -type f -name '*.whl' -print
 
-          cp "${wheels[@]}" publish/
-          ls -lh publish/
+      - name: List publish wheels
+        run: ls -lh publish/
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
