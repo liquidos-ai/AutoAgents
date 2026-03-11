@@ -23,7 +23,7 @@ concurrency:
 # ─────────────────────────────────────────────────────────────────────────────
 
 jobs:
-  # ── Linux x86_64 (CPU + Vulkan) ──────────────────────────────────────────
+  # ── Linux x86_64 (wheel packages only) ───────────────────────────────────
   build-linux-x86_64:
     name: Linux x86_64
     if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
@@ -45,8 +45,6 @@ jobs:
         run: |
           mkdir -p dist/autoagents
           mkdir -p dist/autoagents-guardrails
-          mkdir -p dist/llamacpp-cpu
-          mkdir -p dist/llamacpp-vulkan
           mkdir -p dist/mistralrs-cpu
 
       - name: Install llama.cpp Linux build dependencies
@@ -75,47 +73,6 @@ jobs:
             --release
             --out dist/autoagents-guardrails
             --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
-
-      - name: Build autoagents-llamacpp-py (CPU)
-        uses: PyO3/maturin-action@v1
-        env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cpu-linux-x86_64
-          CC: gcc
-          CXX: g++
-        with:
-          target: x86_64
-          manylinux: "2_28"
-          before-script-linux: |
-            if command -v dnf >/dev/null 2>&1; then
-              dnf install -y gcc gcc-c++ glibc-devel clang libclang libclang-devel llvm-devel
-            elif command -v yum >/dev/null 2>&1; then
-              yum install -y gcc gcc-c++ glibc-devel clang libclang libclang-devel llvm-devel
-            elif command -v apt-get >/dev/null 2>&1; then
-              apt-get update
-              apt-get install -y build-essential clang libclang-dev llvm-dev libc6-dev
-            else
-              echo "No supported package manager found to install C/C++ toolchain and libclang"
-              exit 1
-            fi
-          sccache: true
-          args: >-
-            --release
-            --out dist/llamacpp-cpu
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
-
-      - name: Build autoagents-llamacpp-vulkan
-        uses: PyO3/maturin-action@v1
-        env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-vulkan-linux-x86_64
-        with:
-          target: x86_64
-          manylinux: "off"
-          sccache: true
-          args: >-
-            --release
-            --features vulkan
-            --out dist/llamacpp-vulkan
-            --manifest-path bindings/python/autoagents-llamacpp-vulkan/Cargo.toml
 
       - name: Build autoagents-mistral-rs-py (CPU)
         uses: PyO3/maturin-action@v1
@@ -152,7 +109,6 @@ jobs:
         run: |
           mkdir -p dist/autoagents
           mkdir -p dist/autoagents-guardrails
-          mkdir -p dist/llamacpp-cpu
           mkdir -p dist/mistralrs-cpu
 
       - name: Install llama.cpp Linux build dependencies
@@ -182,33 +138,6 @@ jobs:
             --out dist/autoagents-guardrails
             --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
 
-      - name: Build autoagents-llamacpp-py (CPU)
-        uses: PyO3/maturin-action@v1
-        env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/llamacpp-cpu-linux-aarch64
-          CC: gcc
-          CXX: g++
-        with:
-          target: aarch64
-          manylinux: "2_28"
-          before-script-linux: |
-            if command -v dnf >/dev/null 2>&1; then
-              dnf install -y gcc gcc-c++ glibc-devel clang libclang libclang-devel llvm-devel
-            elif command -v yum >/dev/null 2>&1; then
-              yum install -y gcc gcc-c++ glibc-devel clang libclang libclang-devel llvm-devel
-            elif command -v apt-get >/dev/null 2>&1; then
-              apt-get update
-              apt-get install -y build-essential clang libclang-dev llvm-dev libc6-dev
-            else
-              echo "No supported package manager found to install C/C++ toolchain and libclang"
-              exit 1
-            fi
-          sccache: true
-          args: >-
-            --release
-            --out dist/llamacpp-cpu
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
-
       - name: Build autoagents-mistral-rs-py (CPU)
         uses: PyO3/maturin-action@v1
         env:
@@ -222,10 +151,63 @@ jobs:
             --out dist/mistralrs-cpu
             --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
 
+  # ── Build source distributions for llama.cpp/cuda/vulkan variants ────────
+  build-sdists:
+    name: Build variant sdists
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Install maturin
+        run: python -m pip install --upgrade pip maturin
+
+      - name: Build autoagents-llamacpp-py sdist
+        run: |
+          mkdir -p dist/sdists/llamacpp
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml \
+            --out dist/sdists/llamacpp
+
+      - name: Build autoagents-llamacpp-cuda sdist
+        run: |
+          mkdir -p dist/sdists/llamacpp-cuda
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-llamacpp-cuda/Cargo.toml \
+            --out dist/sdists/llamacpp-cuda
+
+      - name: Build autoagents-llamacpp-vulkan sdist
+        run: |
+          mkdir -p dist/sdists/llamacpp-vulkan
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-llamacpp-vulkan/Cargo.toml \
+            --out dist/sdists/llamacpp-vulkan
+
+      - name: Build autoagents-mistral-rs-cuda sdist
+        run: |
+          mkdir -p dist/sdists/mistralrs-cuda
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-mistralrs-cuda/Cargo.toml \
+            --out dist/sdists/mistralrs-cuda
+
   # ── Linux CUDA (x86_64, non-manylinux — CUDA users have controlled envs) ─
   build-linux-cuda:
     name: Linux CUDA
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
+    if: false
     runs-on: ubuntu-22.04
 
     steps:
@@ -323,14 +305,6 @@ jobs:
           maturin build --release \
             --out dist/autoagents-guardrails \
             --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
-
-      - name: Build autoagents-llamacpp-py (CPU)
-        env:
-          CARGO_TARGET_DIR: target/python/llamacpp-cpu-macos
-        run: |
-          maturin build --release \
-            --out dist/llamacpp-cpu \
-            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
 
       - name: Build autoagents-llamacpp-metal
         env:
