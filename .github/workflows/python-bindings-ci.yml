@@ -207,7 +207,7 @@ jobs:
   # ── Linux CUDA (x86_64, non-manylinux — CUDA users have controlled envs) ─
   build-linux-cuda:
     name: Linux CUDA
-    if: false
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
     runs-on: ubuntu-22.04
 
     steps:
