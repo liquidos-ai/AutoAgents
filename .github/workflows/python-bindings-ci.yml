@@ -80,6 +80,18 @@ jobs:
         with:
           target: x86_64
           manylinux: "2_28"
+          before-script-linux: |
+            if command -v dnf >/dev/null 2>&1; then
+              dnf install -y clang llvm-devel libclang libclang-devel || dnf install -y clang llvm-devel clang-libs
+            elif command -v yum >/dev/null 2>&1; then
+              yum install -y clang llvm-devel libclang libclang-devel || yum install -y clang llvm-devel clang-libs
+            elif command -v apt-get >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y clang libclang-dev llvm-dev
+            else
+              echo "No supported package manager found to install clang/libclang"
+              exit 1
+            fi
           sccache: true
           args: >-
             --release
@@ -169,6 +181,18 @@ jobs:
         with:
           target: aarch64
           manylinux: "2_28"
+          before-script-linux: |
+            if command -v dnf >/dev/null 2>&1; then
+              dnf install -y clang llvm-devel libclang libclang-devel || dnf install -y clang llvm-devel clang-libs
+            elif command -v yum >/dev/null 2>&1; then
+              yum install -y clang llvm-devel libclang libclang-devel || yum install -y clang llvm-devel clang-libs
+            elif command -v apt-get >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y clang libclang-dev llvm-dev
+            else
+              echo "No supported package manager found to install clang/libclang"
+              exit 1
+            fi
           sccache: true
           args: >-
             --release
