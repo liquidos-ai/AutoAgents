@@ -6,7 +6,8 @@ build-backend = "maturin"
 name = "autoagents-py"
 dynamic = ["version"]
 requires-python = ">=3.9"
-description = "Python bindings for the AutoAgents Rust multi-agent framework"
+description = "Official Python bindings for the AutoAgents multi-agent framework"
+readme = "../README.md"
 license = { text = "MIT OR Apache-2.0" }
 dependencies = []
 

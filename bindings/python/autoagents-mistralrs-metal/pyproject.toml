@@ -6,7 +6,8 @@ build-backend = "maturin"
 name = "autoagents-mistral-rs-metal"
 dynamic = ["version"]
 requires-python = ">=3.9"
-description = "mistral-rs Python bindings for AutoAgents (Metal)"
+description = "Official Python bindings for AutoAgents mistral-rs backend (Metal)"
+readme = "../README.md"
 license = { text = "MIT OR Apache-2.0" }
 dependencies = ["autoagents-py==0.3.6"]
 
