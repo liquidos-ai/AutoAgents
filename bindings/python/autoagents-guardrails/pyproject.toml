@@ -7,7 +7,7 @@ name = "autoagents-guardrails-py"
 dynamic = ["version"]
 requires-python = ">=3.9"
 description = "Official Python bindings for AutoAgents Guardrails integration"
-readme = "../README.md"
+readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
 dependencies = ["autoagents-py==0.3.6"]
 
