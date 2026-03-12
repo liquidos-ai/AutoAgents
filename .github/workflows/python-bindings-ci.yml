@@ -169,10 +169,6 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-
       - name: Install maturin
         run: python -m pip install --upgrade pip maturin
 
