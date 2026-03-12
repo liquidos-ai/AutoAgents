@@ -6,7 +6,8 @@ build-backend = "maturin"
 name = "autoagents-guardrails-py"
 dynamic = ["version"]
 requires-python = ">=3.9"
-description = "Guardrails Python bindings for AutoAgents"
+description = "Official Python bindings for AutoAgents Guardrails integration"
+readme = "../README.md"
 license = { text = "MIT OR Apache-2.0" }
 dependencies = ["autoagents-py==0.3.6"]
 

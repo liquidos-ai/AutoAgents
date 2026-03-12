@@ -6,7 +6,8 @@ build-backend = "maturin"
 name = "autoagents-llamacpp-vulkan"
 dynamic = ["version"]
 requires-python = ">=3.9"
-description = "Llama.cpp Python bindings for AutoAgents (Vulkan)"
+description = "Official Python bindings for AutoAgents Llama.cpp backend (Vulkan)"
+readme = "../README.md"
 license = { text = "MIT OR Apache-2.0" }
 dependencies = ["autoagents-py==0.3.6"]
 
