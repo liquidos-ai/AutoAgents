@@ -2,7 +2,6 @@ use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::ReActAgent;
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, DirectAgent, DirectAgentHandle};
-use autoagents::core::agent::error::RunnableAgentError;
 use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents::llm::backends::openai::OpenAI;
 use autoagents::llm::builder::LLMBuilder;
@@ -15,7 +14,7 @@ use autoagents_speech::providers::parakeet::Parakeet;
 use autoagents_speech::providers::pocket_tts::PocketTTS;
 use autoagents_speech::vad::{SegmentTranscription, SileroVad, VadSttConfig, VadSttPipeline};
 use autoagents_speech::{
-    AudioChunk, AudioFormat, SpeechRequest, TTSSpeechProvider, TextChunk, VoiceIdentifier,
+    AudioFormat, SpeechRequest, TextChunk, VoiceIdentifier,
     StreamingTtsPipeline,
 };
 use serde::{Deserialize, Serialize};
@@ -26,8 +25,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use std::pin::Pin;
+use std::task::{Context as TaskContext, Poll};
 
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 
 use crate::vad_stt::{InputMode, build_parakeet_streaming_provider, build_vad_segmenter};
 
@@ -37,36 +37,58 @@ const DEFAULT_VOICE: &str = "eponine";
 type VadPipeline = VadSttPipeline<SileroVad, Parakeet>;
 type SpeechAgentHandle = DirectAgentHandle<ReActAgent<SpeechAgent>>;
 
-/// Adapter: connect SpeechAgent streaming output to the TTS streaming pipeline.
+/// Stream adapter that discards the last item.
 ///
-/// This takes the agent's `run_stream` output (a stream of partial String
-/// responses), converts it into a token stream, and feeds it into
-/// `StreamingTtsPipeline`, returning a stream of audio chunks.
-pub async fn agent_run_stream_to_tts_stream<T>(
-    agent: &SpeechAgentHandle,
-    task: Task,
-    tts: Arc<T>,
-    base_request: SpeechRequest,
-) -> Result<Pin<Box<dyn futures::Stream<Item = autoagents_speech::TTSResult<AudioChunk>> + Send>>, RunnableAgentError>
+/// Agent's `run_stream` emits partial text deltas followed by a final
+/// `done=true` item containing the full accumulated response. Wrapping
+/// the stream with `SkipLast` prevents the TTS pipeline from synthesizing
+/// the entire response a second time.
+struct SkipLast<S: Stream> {
+    inner: S,
+    buffered: Option<S::Item>,
+}
+
+impl<S: Stream + Unpin> SkipLast<S>
 where
-    T: TTSSpeechProvider + Send + Sync + 'static,
+    S::Item: Unpin,
 {
-    // Stream of Result<String, _> from the agent
-    let raw_stream = agent.agent.run_stream(task).await?;
-
-    // Map to a stream of plain String tokens, dropping empty chunks and errors.
-    let token_stream = raw_stream.filter_map(|res| async move {
-        match res {
-            Ok(text) if !text.is_empty() => Some(text),
-            _ => None,
+    fn new(inner: S) -> Self {
+        Self {
+            inner,
+            buffered: None,
         }
-    });
+    }
+}
 
-    // Build TTS pipeline and connect the token stream
-    let pipeline = StreamingTtsPipeline::new(tts);
-    let audio_stream = pipeline.run(token_stream, base_request);
+impl<S: Stream + Unpin> Stream for SkipLast<S>
+where
+    S::Item: Unpin,
+{
+    type Item = S::Item;
 
-    Ok(Box::pin(audio_stream))
+    fn poll_next(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        loop {
+            match Pin::new(&mut this.inner).poll_next(cx) {
+                Poll::Ready(Some(new_item)) => {
+                    // Yield the previously buffered item and buffer the new one.
+                    let prev = this.buffered.replace(new_item);
+                    if let Some(item) = prev {
+                        return Poll::Ready(Some(item));
+                    }
+                    // First item — buffered, loop to fetch the next.
+                }
+                Poll::Ready(None) => {
+                    // Inner stream ended — discard the buffered (last) item.
+                    this.buffered = None;
+                    return Poll::Ready(None);
+                }
+                Poll::Pending => {
+                    return Poll::Pending;
+                }
+            }
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
@@ -126,7 +148,7 @@ pub struct AgentArgs {
 pub async fn run(args: AgentArgs) -> Result<(), Box<dyn std::error::Error>> {
     let exit_flag = Arc::new(AtomicBool::new(false));
     let agent_handle = build_agent(args.agent_model.as_deref(), exit_flag.clone()).await?;
-    let tts = PocketTTS::new(None)?;
+    let tts = Arc::new(PocketTTS::new(None)?);
     let player = AudioPlayer::try_new().ok();
 
     match args.input {
@@ -172,11 +194,18 @@ async fn build_agent(
         .map_err(|_| "OPENAI_API_KEY must be set for the agent example")?;
     let model = model_override.unwrap_or(DEFAULT_AGENT_MODEL);
 
-    let llm: Arc<OpenAI> = LLMBuilder::<OpenAI>::new()
+    let mut builder = LLMBuilder::<OpenAI>::new()
         .api_key(api_key)
         .model(model)
         .max_tokens(256)
-        .temperature(0.4)
+        .temperature(0.4);
+
+    // Allow overriding the OpenAI base URL (e.g. for mock/local servers)
+    if let Ok(base_url) = std::env::var("OPENAI_BASE_URL") {
+        builder = builder.base_url(base_url);
+    }
+
+    let llm: Arc<OpenAI> = builder
         .build()
         .map_err(|e| format!("Failed to build OpenAI client: {e}"))?;
 
@@ -185,6 +214,7 @@ async fn build_agent(
     let handle = AgentBuilder::<_, DirectAgent>::new(agent)
         .llm(llm)
         .memory(memory)
+        .stream(true)
         .build()
         .await?;
 
@@ -196,7 +226,7 @@ async fn run_file(
     exit_flag: &Arc<AtomicBool>,
     pipeline: &mut VadPipeline,
     agent: &SpeechAgentHandle,
-    tts: &PocketTTS,
+    tts: &Arc<PocketTTS>,
     player: Option<&AudioPlayer>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let audio_path = args
@@ -231,7 +261,7 @@ async fn run_mic_streaming(
     args: &AgentArgs,
     exit_flag: &Arc<AtomicBool>,
     agent: &SpeechAgentHandle,
-    tts: &PocketTTS,
+    tts: &Arc<PocketTTS>,
     player: Option<&AudioPlayer>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let capture = match AudioCapture::with_config(AudioCaptureConfig::default()) {
@@ -321,7 +351,7 @@ async fn handle_segment(
     exit_flag: &Arc<AtomicBool>,
     segment: &SegmentTranscription,
     agent: &SpeechAgentHandle,
-    tts: &PocketTTS,
+    tts: &Arc<PocketTTS>,
     player: Option<&AudioPlayer>,
     stream: Option<&AudioCaptureStream>,
 ) -> Result<bool, Box<dyn std::error::Error>> {
@@ -342,7 +372,7 @@ async fn handle_user_text(
     exit_flag: &Arc<AtomicBool>,
     user_text: &str,
     agent: &SpeechAgentHandle,
-    tts: &PocketTTS,
+    tts: &Arc<PocketTTS>,
     player: Option<&AudioPlayer>,
     stream: Option<&AudioCaptureStream>,
 ) -> Result<bool, Box<dyn std::error::Error>> {
@@ -350,36 +380,79 @@ async fn handle_user_text(
         return Ok(false);
     }
 
-    let output = agent.agent.run(Task::new(user_text)).await?;
-    let response_text = output.trim().to_string();
-    let should_exit = exit_flag.load(Ordering::SeqCst);
-    if response_text.is_empty() && !should_exit {
-        return Ok(false);
-    }
+    // Get the streaming token output from the agent
+    let raw_stream = agent.agent.run_stream(Task::new(user_text)).await?;
 
-    if !response_text.is_empty() {
-        println!("Assistant: {response_text}");
-    }
+    // Channel to tee tokens: one side prints, the other feeds TTS.
+    let (token_tx, token_rx) = tokio::sync::mpsc::channel::<String>(64);
+    let token_stream = tokio_stream::wrappers::ReceiverStream::new(token_rx);
 
-    if !response_text.is_empty() {
-        let request = SpeechRequest {
-            text: response_text,
-            voice: VoiceIdentifier::new(args.voice.as_deref().unwrap_or(DEFAULT_VOICE)),
-            format: AudioFormat::Wav,
-            sample_rate: Some(24_000),
-        };
-        let response = tts.generate_speech(request).await?;
+    // Build base TTS request (text is replaced per-sentence by the pipeline)
+    let base_request = SpeechRequest {
+        text: String::default(),
+        voice: VoiceIdentifier::new(args.voice.as_deref().unwrap_or(DEFAULT_VOICE)),
+        format: AudioFormat::Wav,
+        sample_rate: Some(24_000),
+    };
 
-        if let Some(player) = player {
-            player.play_samples(&response.audio.samples, response.audio.sample_rate);
-            player.wait_until_end();
+    // Spawn the TTS pipeline, fed by the token channel
+    let pipeline = StreamingTtsPipeline::new(Arc::clone(tts));
+    let mut audio_stream = pipeline.run(token_stream, base_request);
 
-            if let Some(stream) = stream {
-                stream.clear_buffer()?;
+    // Spawn a task that reads agent tokens, prints them live, and forwards
+    // to the TTS pipeline (skipping the last duplicate item).
+    let print_handle = tokio::spawn(async move {
+        let filtered = raw_stream.filter_map(|res| async move {
+            match res {
+                Ok(text) if !text.is_empty() => Some(text),
+                _ => None,
+            }
+        });
+        // SkipLast drops the done=true full-response duplicate
+        let mut skip_last = SkipLast::new(filtered.boxed());
+        print!("Assistant: ");
+        let _ = std::io::stdout().flush();
+        while let Some(token) = skip_last.next().await {
+            print!("{token}");
+            let _ = std::io::stdout().flush();
+            // Forward to TTS pipeline; if receiver dropped, stop.
+            if token_tx.send(token).await.is_err() {
+                break;
+            }
+        }
+        println!();
+        // token_tx is dropped here, closing the channel so the pipeline
+        // knows no more tokens are coming and can flush the chunker.
+    });
+
+    // Play audio chunks as they arrive from the TTS pipeline
+    while let Some(result) = audio_stream.next().await {
+        match result {
+            Ok(chunk) => {
+                if let Some(player) = player {
+                    player.play_samples(&chunk.samples, chunk.sample_rate);
+                }
+            }
+            Err(e) => {
+                eprintln!("TTS error: {e}");
             }
         }
     }
 
+    // Wait for the print/forward task to finish
+    let _ = print_handle.await;
+
+    // Wait for any remaining audio to finish playing
+    if let Some(player) = player {
+        player.wait_until_end();
+
+        // Clear mic buffer accumulated during playback
+        if let Some(stream) = stream {
+            stream.clear_buffer()?;
+        }
+    }
+
+    let should_exit = exit_flag.load(Ordering::SeqCst);
     if stream.is_some() && !should_exit {
         println!("Listening...");
     }

@@ -30,7 +30,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::Stream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 
 use crate::error::TTSResult;
 use crate::provider::TTSSpeechProvider;
@@ -108,6 +108,10 @@ impl<T: TTSSpeechProvider + Send + Sync + 'static> StreamingTtsPipeline<T> {
         let mut chunker = SentenceChunker::with_config(config);
         let mut seq_idx: usize = 0;
 
+        // Semaphore to serialize TTS generation - some TTS backends (like PocketTTS)
+        // are not thread-safe for concurrent generation.
+        let tts_semaphore = Arc::new(Semaphore::new(1));
+
         let mut token_stream = std::pin::pin!(token_stream);
 
         // Process incoming tokens
@@ -121,6 +125,7 @@ impl<T: TTSSpeechProvider + Send + Sync + 'static> StreamingTtsPipeline<T> {
                     Arc::clone(&tts),
                     base_request.clone(),
                     result_tx.clone(),
+                    Arc::clone(&tts_semaphore),
                 );
             }
         }
@@ -128,7 +133,7 @@ impl<T: TTSSpeechProvider + Send + Sync + 'static> StreamingTtsPipeline<T> {
         // LLM stream ended — flush any remaining text
         if let Some(sentence) = chunker.force_flush() {
             let idx = seq_idx;
-            Self::spawn_tts_task(idx, sentence, tts, base_request, result_tx);
+            Self::spawn_tts_task(idx, sentence, tts, base_request, result_tx, tts_semaphore);
         }
 
         // result_tx is dropped here, signalling the consumer that no more
@@ -142,8 +147,12 @@ impl<T: TTSSpeechProvider + Send + Sync + 'static> StreamingTtsPipeline<T> {
         tts: Arc<T>,
         base_request: SpeechRequest,
         result_tx: mpsc::Sender<(usize, TTSResult<Vec<AudioChunk>>)>,
+        semaphore: Arc<Semaphore>,
     ) {
         tokio::spawn(async move {
+            // Acquire semaphore to serialize TTS calls
+            let _permit = semaphore.acquire().await;
+
             let request = SpeechRequest {
                 text: sentence,
                 voice: base_request.voice,
@@ -156,6 +165,7 @@ impl<T: TTSSpeechProvider + Send + Sync + 'static> StreamingTtsPipeline<T> {
                     // Convert SpeechResponse into a single AudioChunk
                     let chunk = AudioChunk {
                         samples: response.audio.samples,
+                        sample_rate: response.audio.sample_rate,
                         is_final: false, // will be set by the consumer for the last chunk
                     };
                     Ok(vec![chunk])
@@ -460,5 +470,164 @@ mod tests {
         let result = stream.next().await;
         assert!(result.is_some());
         assert!(result.unwrap().is_err());
+    }
+
+    /// Simulate an agent `run_stream` that emits text deltas followed by the
+    /// full accumulated response (the `done=true` duplicate). Without the
+    /// `SkipLast` adapter on the caller side, the pipeline would synthesize
+    /// the response twice. This test verifies that the pipeline itself works
+    /// correctly with clean token input (no duplicate).
+    #[tokio::test]
+    async fn test_pipeline_no_duplicate_when_tokens_are_clean() {
+        // Mock that records every text it synthesizes
+        use std::sync::Mutex;
+
+        struct RecordingTts {
+            calls: Arc<Mutex<Vec<String>>>,
+        }
+
+        #[async_trait]
+        impl TTSSpeechProvider for RecordingTts {
+            async fn generate_speech(&self, request: SpeechRequest) -> TTSResult<SpeechResponse> {
+                self.calls.lock().unwrap().push(request.text.clone());
+                Ok(SpeechResponse {
+                    audio: AudioData {
+                        samples: vec![0.1; 10],
+                        channels: 1,
+                        sample_rate: 24000,
+                    },
+                    text: request.text,
+                    duration_ms: 10,
+                })
+            }
+        }
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let tts = Arc::new(RecordingTts {
+            calls: Arc::clone(&calls),
+        });
+
+        let pipeline = StreamingTtsPipeline::with_config(
+            tts,
+            ChunkerConfig {
+                min_chunk_chars: 1,
+                max_chunk_chars: 250,
+            },
+        );
+
+        // Simulate CLEAN token stream (no final duplicate):
+        // "Hello there." and "How are you?" as token deltas only.
+        let tokens = futures::stream::iter(vec![
+            "Hello ".to_string(),
+            "there. ".to_string(),
+            "How ".to_string(),
+            "are ".to_string(),
+            "you?".to_string(),
+        ]);
+
+        let mut stream = pipeline.run(tokens, test_request());
+        while let Some(result) = stream.next().await {
+            result.unwrap();
+        }
+
+        let synthesized = calls.lock().unwrap().clone();
+        assert_eq!(
+            synthesized.len(),
+            2,
+            "Expected exactly 2 TTS calls (one per sentence), got {}: {:?}",
+            synthesized.len(),
+            synthesized
+        );
+        assert_eq!(synthesized[0].trim(), "Hello there.");
+        assert_eq!(synthesized[1].trim(), "How are you?");
+    }
+
+    /// Demonstrate what happens if the final duplicate is NOT removed:
+    /// the pipeline synthesizes the entire response again.
+    #[tokio::test]
+    async fn test_pipeline_duplicate_when_final_included() {
+        use std::sync::Mutex;
+
+        struct RecordingTts {
+            calls: Arc<Mutex<Vec<String>>>,
+        }
+
+        #[async_trait]
+        impl TTSSpeechProvider for RecordingTts {
+            async fn generate_speech(&self, request: SpeechRequest) -> TTSResult<SpeechResponse> {
+                self.calls.lock().unwrap().push(request.text.clone());
+                Ok(SpeechResponse {
+                    audio: AudioData {
+                        samples: vec![0.1; 10],
+                        channels: 1,
+                        sample_rate: 24000,
+                    },
+                    text: request.text,
+                    duration_ms: 10,
+                })
+            }
+        }
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let tts = Arc::new(RecordingTts {
+            calls: Arc::clone(&calls),
+        });
+
+        let pipeline = StreamingTtsPipeline::with_config(
+            tts,
+            ChunkerConfig {
+                min_chunk_chars: 1,
+                max_chunk_chars: 250,
+            },
+        );
+
+        // Simulate BROKEN token stream (with final duplicate):
+        // deltas + full accumulated response at the end (what run_stream does)
+        let tokens = futures::stream::iter(vec![
+            "Hello ".to_string(),
+            "there. ".to_string(),
+            "How ".to_string(),
+            "are ".to_string(),
+            "you?".to_string(),
+            // ↓ This is the done=true duplicate the agent adds
+            "Hello there. How are you?".to_string(),
+        ]);
+
+        let mut stream = pipeline.run(tokens, test_request());
+        while let Some(result) = stream.next().await {
+            result.unwrap();
+        }
+
+        let synthesized = calls.lock().unwrap().clone();
+        // With the duplicate, we get 4 TTS calls instead of 2:
+        // "Hello there." + "How are you?" from deltas,
+        // then "Hello there." + "How are you?" AGAIN from the duplicate.
+        assert!(
+            synthesized.len() > 2,
+            "With duplicate included, expected >2 TTS calls, got {}: {:?}",
+            synthesized.len(),
+            synthesized
+        );
+    }
+
+    #[tokio::test]
+    async fn test_audio_chunk_carries_sample_rate() {
+        let tts = Arc::new(MockTtsProvider);
+        let pipeline = StreamingTtsPipeline::with_config(
+            tts,
+            ChunkerConfig {
+                min_chunk_chars: 1,
+                max_chunk_chars: 250,
+            },
+        );
+
+        let tokens = futures::stream::iter(vec!["Hello world.".to_string()]);
+
+        let mut stream = pipeline.run(tokens, test_request());
+        if let Some(Ok(chunk)) = stream.next().await {
+            assert_eq!(chunk.sample_rate, 24000, "AudioChunk should carry sample_rate from TTS response");
+        } else {
+            panic!("Expected at least one audio chunk");
+        }
     }
 }
