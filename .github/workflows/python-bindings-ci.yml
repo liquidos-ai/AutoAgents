@@ -151,9 +151,9 @@ jobs:
             --out dist/mistralrs-cpu
             --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
 
-  # ── Build source distributions for llama.cpp/cuda/vulkan variants ────────
+  # ── Build source distributions for all python binding packages ────────────
   build-sdists:
-    name: Build variant sdists
+    name: Build all sdists
     if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
     runs-on: ubuntu-24.04
 
@@ -169,12 +169,22 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-
       - name: Install maturin
         run: python -m pip install --upgrade pip maturin
+
+      - name: Build autoagents-py sdist
+        run: |
+          mkdir -p dist/sdists/autoagents
+          maturin sdist \
+            --manifest-path bindings/python/autoagents/Cargo.toml \
+            --out dist/sdists/autoagents
+
+      - name: Build autoagents-guardrails-py sdist
+        run: |
+          mkdir -p dist/sdists/autoagents-guardrails
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-guardrails/Cargo.toml \
+            --out dist/sdists/autoagents-guardrails
 
       - name: Build autoagents-llamacpp-py sdist
         run: |
@@ -197,12 +207,33 @@ jobs:
             --manifest-path bindings/python/autoagents-llamacpp-vulkan/Cargo.toml \
             --out dist/sdists/llamacpp-vulkan
 
+      - name: Build autoagents-llamacpp-metal sdist
+        run: |
+          mkdir -p dist/sdists/llamacpp-metal
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-llamacpp-metal/Cargo.toml \
+            --out dist/sdists/llamacpp-metal
+
+      - name: Build autoagents-mistral-rs-py (CPU) sdist
+        run: |
+          mkdir -p dist/sdists/mistralrs-cpu
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml \
+            --out dist/sdists/mistralrs-cpu
+
       - name: Build autoagents-mistral-rs-cuda sdist
         run: |
           mkdir -p dist/sdists/mistralrs-cuda
           maturin sdist \
             --manifest-path bindings/python/autoagents-mistralrs-cuda/Cargo.toml \
             --out dist/sdists/mistralrs-cuda
+
+      - name: Build autoagents-mistral-rs-metal sdist
+        run: |
+          mkdir -p dist/sdists/mistralrs-metal
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-mistralrs-metal/Cargo.toml \
+            --out dist/sdists/mistralrs-metal
 
   # ── macOS (CPU + Metal, Intel x86_64 and Apple Silicon arm64) ────────────
   build-macos:
