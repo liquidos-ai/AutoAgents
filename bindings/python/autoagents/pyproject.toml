@@ -1,0 +1,29 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "autoagents-py"
+dynamic = ["version"]
+requires-python = ">=3.9"
+description = "Official Python bindings for the AutoAgents multi-agent framework"
+readme = "README.md"
+license = { text = "MIT OR Apache-2.0" }
+dependencies = []
+
+[project.optional-dependencies]
+guardrails     = ["autoagents-guardrails-py==0.3.6"]
+llamacpp       = ["autoagents-llamacpp-py==0.3.6"]
+llamacpp-metal = ["autoagents-llamacpp-metal==0.3.6"]
+llamacpp-cuda = ["autoagents-llamacpp-cuda==0.3.6"]
+llamacpp-vulkan = ["autoagents-llamacpp-vulkan==0.3.6"]
+mistralrs      = ["autoagents-mistral-rs-py==0.3.6"]
+mistralrs-metal = ["autoagents-mistral-rs-metal==0.3.6"]
+mistralrs-cuda = ["autoagents-mistral-rs-cuda==0.3.6"]
+
+[tool.maturin]
+module-name = "autoagents_py._autoagents_py"
+compatibility = "manylinux_2_28"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

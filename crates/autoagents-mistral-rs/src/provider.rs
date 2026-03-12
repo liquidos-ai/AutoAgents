@@ -26,12 +26,30 @@ use mistralrs::{
     TextMessageRole, TextModelBuilder, ToolCallResponse, ToolCallType,
     ToolChoice as MistralToolChoice, ToolType, Usage as MistralUsage, VisionModelBuilder,
 };
+use std::sync::OnceLock;
 use std::{
     collections::{HashMap, VecDeque},
     pin::Pin,
     sync::Arc,
 };
 use tokio::sync::mpsc;
+
+/// Dedicated tokio runtime for the mistral-rs provider.
+///
+/// Each compiled `.so` has its own copy of tokio's thread-local runtime state.
+/// When this crate is used from a Python extension the calling async context
+/// runs on a different `.so`'s runtime, so `tokio::spawn` here would panic
+/// with "no reactor running". Using a crate-local runtime avoids that.
+fn get_rt() -> &'static tokio::runtime::Runtime {
+    static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("mistralrs")
+            .build()
+            .expect("mistralrs runtime init failed")
+    })
+}
 
 /// MistralRs provider for local LLM inference
 pub struct MistralRsProvider {
@@ -296,19 +314,25 @@ impl MistralRsProvider {
                 });
 
                 let content = choice.delta.content;
+                let reasoning_content = choice.delta.reasoning_content;
                 let has_tool_calls = tool_calls
                     .as_ref()
                     .map(|calls| !calls.is_empty())
                     .unwrap_or(false);
                 let has_content = content.as_ref().map(|c| !c.is_empty()).unwrap_or(false);
+                let has_reasoning = reasoning_content
+                    .as_ref()
+                    .map(|c| !c.is_empty())
+                    .unwrap_or(false);
 
-                if !has_content && !has_tool_calls {
+                if !has_content && !has_reasoning && !has_tool_calls {
                     return None;
                 }
 
                 Some(StreamChoice {
                     delta: StreamDelta {
                         content,
+                        reasoning_content,
                         tool_calls,
                     },
                 })
@@ -330,6 +354,7 @@ impl MistralRsProvider {
             choices: vec![StreamChoice {
                 delta: StreamDelta {
                     content: None,
+                    reasoning_content: None,
                     tool_calls: None,
                 },
             }],
@@ -343,7 +368,7 @@ impl MistralRsProvider {
     ) -> std::pin::Pin<Box<dyn Stream<Item = Result<MistralStreamEvent, LLMError>> + Send>> {
         let (tx, rx) = mpsc::unbounded_channel::<Result<MistralStreamEvent, LLMError>>();
 
-        tokio::spawn(async move {
+        get_rt().spawn(async move {
             match model.stream_chat_request(request_builder).await {
                 Ok(mut response_stream) => {
                     while let Some(response) = response_stream.next().await {
@@ -417,6 +442,198 @@ impl MistralRsProvider {
 enum MistralStreamEvent {
     Chunk(ChatCompletionChunkResponse),
     Done(ChatCompletionResponse),
+}
+
+struct ToolUseState {
+    id: String,
+    name: String,
+    arguments: String,
+    call_type: String,
+    started: bool,
+}
+
+impl Default for ToolUseState {
+    fn default() -> Self {
+        Self {
+            id: String::default(),
+            name: String::default(),
+            arguments: String::default(),
+            call_type: "function".to_string(),
+            started: false,
+        }
+    }
+}
+
+struct ToolStreamState {
+    inner: Pin<Box<dyn Stream<Item = Result<MistralStreamEvent, LLMError>> + Send>>,
+    pending: VecDeque<Result<StreamChunk, LLMError>>,
+    tool_states: HashMap<usize, ToolUseState>,
+    stop_reason: Option<String>,
+    saw_tool_use: bool,
+    usage_emitted: bool,
+    done_sent: bool,
+}
+
+impl ToolStreamState {
+    fn new(
+        inner: Pin<Box<dyn Stream<Item = Result<MistralStreamEvent, LLMError>> + Send>>,
+    ) -> Self {
+        Self {
+            inner,
+            pending: VecDeque::new(),
+            tool_states: HashMap::new(),
+            stop_reason: None,
+            saw_tool_use: false,
+            usage_emitted: false,
+            done_sent: false,
+        }
+    }
+}
+
+fn normalize_stop_reason(reason: Option<String>, saw_tool_use: bool) -> String {
+    let fallback = if saw_tool_use { "tool_use" } else { "end_turn" };
+    let raw = reason.as_deref().unwrap_or(fallback);
+    match raw {
+        "tool_calls" => "tool_use".to_string(),
+        "stop" => "end_turn".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn push_tool_call_updates(
+    tool_calls: Vec<ToolCallResponse>,
+    tool_states: &mut HashMap<usize, ToolUseState>,
+    pending: &mut VecDeque<Result<StreamChunk, LLMError>>,
+    saw_tool_use: &mut bool,
+) {
+    for tool_call in tool_calls {
+        let index = tool_call.index;
+        let state = tool_states.entry(index).or_default();
+
+        if !tool_call.id.is_empty() {
+            state.id.clone_from(&tool_call.id);
+        }
+        if !tool_call.function.name.is_empty() {
+            state.name.clone_from(&tool_call.function.name);
+            if !state.started {
+                state.started = true;
+                *saw_tool_use = true;
+                pending.push_back(Ok(StreamChunk::ToolUseStart {
+                    index,
+                    id: state.id.clone(),
+                    name: state.name.clone(),
+                }));
+            }
+        }
+        if !tool_call.function.arguments.is_empty() {
+            state.arguments.push_str(&tool_call.function.arguments);
+            *saw_tool_use = true;
+            pending.push_back(Ok(StreamChunk::ToolUseInputDelta {
+                index,
+                partial_json: tool_call.function.arguments.clone(),
+            }));
+        }
+        state.call_type = tool_call.tp.to_string();
+    }
+}
+
+fn push_tool_completions(state: &mut ToolStreamState) {
+    for (index, tool_state) in state.tool_states.drain() {
+        if tool_state.started {
+            state.pending.push_back(Ok(StreamChunk::ToolUseComplete {
+                index,
+                tool_call: ToolCall {
+                    id: tool_state.id,
+                    call_type: tool_state.call_type,
+                    function: FunctionCall {
+                        name: tool_state.name,
+                        arguments: tool_state.arguments,
+                    },
+                },
+            }));
+        }
+    }
+}
+
+fn handle_chunk_for_tool_stream(state: &mut ToolStreamState, chunk: ChatCompletionChunkResponse) {
+    for choice in chunk.choices {
+        if let Some(content) = choice.delta.content
+            && !content.is_empty()
+        {
+            state.pending.push_back(Ok(StreamChunk::Text(content)));
+        }
+        if let Some(reasoning_content) = choice.delta.reasoning_content
+            && !reasoning_content.is_empty()
+        {
+            state
+                .pending
+                .push_back(Ok(StreamChunk::ReasoningContent(reasoning_content)));
+        }
+        if let Some(tool_calls) = choice.delta.tool_calls
+            && !tool_calls.is_empty()
+        {
+            push_tool_call_updates(
+                tool_calls,
+                &mut state.tool_states,
+                &mut state.pending,
+                &mut state.saw_tool_use,
+            );
+        }
+        if let Some(finish_reason) = choice.finish_reason {
+            state.stop_reason = Some(finish_reason);
+        }
+    }
+
+    if let Some(usage) = chunk.usage
+        && !state.usage_emitted
+    {
+        state
+            .pending
+            .push_back(Ok(StreamChunk::Usage(MistralRsProvider::convert_usage(
+                usage,
+            ))));
+        state.usage_emitted = true;
+    }
+}
+
+fn finalize_tool_stream(state: &mut ToolStreamState) {
+    push_tool_completions(state);
+    let stop_reason = normalize_stop_reason(state.stop_reason.take(), state.saw_tool_use);
+    state
+        .pending
+        .push_back(Ok(StreamChunk::Done { stop_reason }));
+    state.done_sent = true;
+}
+
+fn handle_done_for_tool_stream(state: &mut ToolStreamState, done: ChatCompletionResponse) {
+    let ChatCompletionResponse { choices, usage, .. } = done;
+    if let Some(choice) = choices.first() {
+        state.stop_reason = Some(choice.finish_reason.clone());
+    }
+
+    for choice in choices {
+        if let Some(tool_calls) = choice.message.tool_calls
+            && !tool_calls.is_empty()
+        {
+            push_tool_call_updates(
+                tool_calls,
+                &mut state.tool_states,
+                &mut state.pending,
+                &mut state.saw_tool_use,
+            );
+        }
+    }
+
+    push_tool_completions(state);
+    if !state.usage_emitted {
+        state
+            .pending
+            .push_back(Ok(StreamChunk::Usage(MistralRsProvider::convert_usage(
+                usage,
+            ))));
+        state.usage_emitted = true;
+    }
+    finalize_tool_stream(state);
 }
 
 /// Builder for MistralRsProvider
@@ -738,214 +955,29 @@ impl ChatProvider for MistralRsProvider {
         let request_builder = self.build_stream_request(messages, tools, json_schema)?;
         let response_stream = Self::spawn_response_stream(self.model.clone(), request_builder);
 
-        struct ToolUseState {
-            id: String,
-            name: String,
-            arguments: String,
-            call_type: String,
-            started: bool,
-        }
-
-        impl ToolUseState {
-            fn new() -> Self {
-                Self {
-                    id: String::default(),
-                    name: String::default(),
-                    arguments: String::default(),
-                    call_type: "function".to_string(),
-                    started: false,
-                }
-            }
-        }
-
-        struct StreamState {
-            inner: Pin<Box<dyn Stream<Item = Result<MistralStreamEvent, LLMError>> + Send>>,
-            pending: VecDeque<Result<StreamChunk, LLMError>>,
-            tool_states: HashMap<usize, ToolUseState>,
-            stop_reason: Option<String>,
-            saw_tool_use: bool,
-            usage_emitted: bool,
-            done_sent: bool,
-        }
-
         let stream = futures::stream::unfold(
-            StreamState {
-                inner: response_stream,
-                pending: VecDeque::new(),
-                tool_states: HashMap::new(),
-                stop_reason: None,
-                saw_tool_use: false,
-                usage_emitted: false,
-                done_sent: false,
-            },
+            ToolStreamState::new(response_stream),
             |mut state| async move {
-                fn normalize_stop_reason(reason: Option<String>, saw_tool_use: bool) -> String {
-                    let fallback = if saw_tool_use { "tool_use" } else { "end_turn" };
-                    let raw = reason.as_deref().unwrap_or(fallback);
-                    match raw {
-                        "tool_calls" => "tool_use".to_string(),
-                        "stop" => "end_turn".to_string(),
-                        other => other.to_string(),
-                    }
-                }
-
-                fn handle_tool_calls(
-                    tool_calls: Vec<ToolCallResponse>,
-                    tool_states: &mut HashMap<usize, ToolUseState>,
-                    pending: &mut VecDeque<Result<StreamChunk, LLMError>>,
-                    saw_tool_use: &mut bool,
-                ) {
-                    for tool_call in tool_calls {
-                        let index = tool_call.index;
-                        let state = tool_states.entry(index).or_insert_with(ToolUseState::new);
-
-                        if !tool_call.id.is_empty() {
-                            state.id = tool_call.id.clone();
-                        }
-                        if !tool_call.function.name.is_empty() {
-                            state.name = tool_call.function.name.clone();
-                            if !state.started {
-                                state.started = true;
-                                *saw_tool_use = true;
-                                pending.push_back(Ok(StreamChunk::ToolUseStart {
-                                    index,
-                                    id: state.id.clone(),
-                                    name: state.name.clone(),
-                                }));
-                            }
-                        }
-                        if !tool_call.function.arguments.is_empty() {
-                            state.arguments.push_str(&tool_call.function.arguments);
-                            *saw_tool_use = true;
-                            pending.push_back(Ok(StreamChunk::ToolUseInputDelta {
-                                index,
-                                partial_json: tool_call.function.arguments.clone(),
-                            }));
-                        }
-                        state.call_type = tool_call.tp.to_string();
-                    }
-                }
-
                 loop {
                     if let Some(item) = state.pending.pop_front() {
                         return Some((item, state));
                     }
-
                     if state.done_sent {
                         return None;
                     }
 
                     match state.inner.as_mut().next().await {
                         Some(Ok(MistralStreamEvent::Chunk(chunk))) => {
-                            for choice in chunk.choices {
-                                if let Some(content) = choice.delta.content
-                                    && !content.is_empty()
-                                {
-                                    state.pending.push_back(Ok(StreamChunk::Text(content)));
-                                }
-
-                                if let Some(tool_calls) = choice.delta.tool_calls
-                                    && !tool_calls.is_empty()
-                                {
-                                    handle_tool_calls(
-                                        tool_calls,
-                                        &mut state.tool_states,
-                                        &mut state.pending,
-                                        &mut state.saw_tool_use,
-                                    );
-                                }
-
-                                if let Some(finish_reason) = choice.finish_reason {
-                                    state.stop_reason = Some(finish_reason);
-                                }
-                            }
-
-                            if let Some(usage) = chunk.usage
-                                && !state.usage_emitted
-                            {
-                                state
-                                    .pending
-                                    .push_back(Ok(StreamChunk::Usage(Self::convert_usage(usage))));
-                                state.usage_emitted = true;
-                            }
+                            handle_chunk_for_tool_stream(&mut state, chunk)
                         }
                         Some(Ok(MistralStreamEvent::Done(done))) => {
-                            let ChatCompletionResponse { choices, usage, .. } = done;
-                            if let Some(choice) = choices.first() {
-                                state.stop_reason = Some(choice.finish_reason.clone());
-                            }
-
-                            for choice in choices {
-                                if let Some(tool_calls) = choice.message.tool_calls
-                                    && !tool_calls.is_empty()
-                                {
-                                    handle_tool_calls(
-                                        tool_calls,
-                                        &mut state.tool_states,
-                                        &mut state.pending,
-                                        &mut state.saw_tool_use,
-                                    );
-                                }
-                            }
-
-                            for (index, tool_state) in state.tool_states.drain() {
-                                if tool_state.started {
-                                    state.pending.push_back(Ok(StreamChunk::ToolUseComplete {
-                                        index,
-                                        tool_call: ToolCall {
-                                            id: tool_state.id,
-                                            call_type: tool_state.call_type,
-                                            function: FunctionCall {
-                                                name: tool_state.name,
-                                                arguments: tool_state.arguments,
-                                            },
-                                        },
-                                    }));
-                                }
-                            }
-
-                            if !state.usage_emitted {
-                                state
-                                    .pending
-                                    .push_back(Ok(StreamChunk::Usage(Self::convert_usage(usage))));
-                                state.usage_emitted = true;
-                            }
-
-                            let stop_reason =
-                                normalize_stop_reason(state.stop_reason.take(), state.saw_tool_use);
-                            state
-                                .pending
-                                .push_back(Ok(StreamChunk::Done { stop_reason }));
-                            state.done_sent = true;
+                            handle_done_for_tool_stream(&mut state, done)
                         }
                         Some(Err(err)) => {
                             state.done_sent = true;
                             return Some((Err(err), state));
                         }
-                        None => {
-                            for (index, tool_state) in state.tool_states.drain() {
-                                if tool_state.started {
-                                    state.pending.push_back(Ok(StreamChunk::ToolUseComplete {
-                                        index,
-                                        tool_call: ToolCall {
-                                            id: tool_state.id,
-                                            call_type: tool_state.call_type,
-                                            function: FunctionCall {
-                                                name: tool_state.name,
-                                                arguments: tool_state.arguments,
-                                            },
-                                        },
-                                    }));
-                                }
-                            }
-
-                            let stop_reason =
-                                normalize_stop_reason(state.stop_reason.take(), state.saw_tool_use);
-                            state
-                                .pending
-                                .push_back(Ok(StreamChunk::Done { stop_reason }));
-                            state.done_sent = true;
-                        }
+                        None => finalize_tool_stream(&mut state),
                     }
                 }
             },
@@ -1143,7 +1175,7 @@ mod tests {
                     content: Some("hi".to_string()),
                     role: "assistant".to_string(),
                     tool_calls: Some(vec![tool_call]),
-                    reasoning_content: None,
+                    reasoning_content: Some("think".to_string()),
                 },
                 logprobs: None,
             }],
@@ -1157,6 +1189,10 @@ mod tests {
         let response = MistralRsProvider::chunk_to_stream_response(chunk).unwrap();
         assert_eq!(response.choices.len(), 1);
         assert_eq!(response.choices[0].delta.content.as_deref(), Some("hi"));
+        assert_eq!(
+            response.choices[0].delta.reasoning_content.as_deref(),
+            Some("think")
+        );
         let tool_calls = response.choices[0].delta.tool_calls.as_ref().unwrap();
         assert_eq!(tool_calls[0].function.name, "lookup");
         assert_eq!(tool_calls[0].function.arguments, "{}");

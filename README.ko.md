@@ -11,6 +11,8 @@
 [![Build Status](https://github.com/liquidos-ai/AutoAgents/workflows/coverage/badge.svg)](https://github.com/liquidos-ai/AutoAgents/actions)
 [![codecov](https://codecov.io/gh/liquidos-ai/AutoAgents/graph/badge.svg)](https://codecov.io/gh/liquidos-ai/AutoAgents)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/liquidos-ai/AutoAgents)
+![Crates.io Downloads (recent)](https://img.shields.io/crates/dr/autoagents?label=Crates%20Downloads)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/autoagents-py?label=PyPI%20Downlods)
 
 [English](README.md) | [中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [한국어](README.ko.md) | [Português (Brasil)](README.pt-BR.md)
 <br />
@@ -127,10 +129,42 @@ lefthook install
 cargo build --workspace --all-features
 ```
 
+### Python 바인딩
+
+AutoAgents는 Python 바인딩을 별도 패키지로 제공합니다:
+
+- `autoagents-py` (코어 Python API + 클라우드 백엔드)
+- `autoagents-guardrails-py` (Python `LLMProvider`용 선택적 Guardrails)
+- `autoagents-llamacpp-py` (선택적 로컬 llama.cpp 백엔드)
+- `autoagents-mistral-rs-py` (선택적 로컬 mistral-rs 백엔드)
+
+이 저장소에서 개발용 설치:
+
+```bash
+uv venv --python=3.12
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+
+# 활성 venv에 CPU 바인딩 전체를 정리, 빌드, 설치
+make python-bindings-build
+
+# CPU + CUDA 바인딩을 정리, 빌드, 설치
+make python-bindings-build-cuda
+```
+
+Make 타깃은 재빌드 전에 오래된 editable-install 산출물을 제거하므로,
+소스 트리에 남아 있던 예전 `.abi3.so` 파일이 로드되는 것을 막습니다.
+
+예제 스크립트:
+
+- 코어 클라우드 예제: `bindings/python/autoagents/examples/openai_agent.py`
+- llama.cpp 예제: `bindings/python/autoagents-llamacpp/examples/llamacpp_agent.py`
+- mistral-rs 예제: `bindings/python/autoagents-mistralrs/examples/mistral_rs_agent.py`
+
 ### 테스트 실행
 
 ```bash
-cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
+cargo test --features "full" --workspace
 ```
 
 ---
@@ -319,6 +353,7 @@ AutoAgents/
 │   ├── autoagents-qdrant/         # Qdrant vector store
 │   └── autoagents-derive/         # Procedural macros
 ├── examples/                      # Example implementations
+├── bindings/                      # Bindings for different languages
 ```
 
 ### 핵심 구성 요소

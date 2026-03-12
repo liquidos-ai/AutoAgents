@@ -196,10 +196,6 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for BasicAgent<T> {
         task: &Task,
         context: Arc<Context>,
     ) -> Result<Self::Output, Self::Error> {
-        if self.on_run_start(task, &context).await == HookOutcome::Abort {
-            return Err(BasicExecutorError::Other("Run aborted by hook".to_string()));
-        }
-
         record_task_state(&context, task);
         let tx_event = context.tx().ok();
         EventHelper::send_task_started(
@@ -238,10 +234,6 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for BasicAgent<T> {
         context: Arc<Context>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>, Self::Error>
     {
-        if self.on_run_start(task, &context).await == HookOutcome::Abort {
-            return Err(BasicExecutorError::Other("Run aborted by hook".to_string()));
-        }
-
         record_task_state(&context, task);
         let tx_event = context.tx().ok();
         EventHelper::send_task_started(
@@ -274,7 +266,6 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for BasicAgent<T> {
                 .await;
 
             let mut final_response = String::default();
-
             match turn_stream {
                 Ok(mut stream) => {
                     use futures::StreamExt;
@@ -288,6 +279,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for BasicAgent<T> {
                                     }))
                                     .await;
                             }
+                            Ok(TurnDelta::ReasoningContent(_)) => {}
                             Ok(TurnDelta::ToolResults(_)) => {}
                             Ok(TurnDelta::Done(result)) => {
                                 let output = extract_turn_output(result);
@@ -343,6 +335,7 @@ fn extract_turn_output(
         crate::agent::executor::TurnResult::Continue(Some(output)) => output,
         crate::agent::executor::TurnResult::Continue(None) => TurnEngineOutput {
             response: String::default(),
+            reasoning_content: String::default(),
             tool_calls: Vec::default(),
         },
     }
@@ -352,7 +345,7 @@ fn extract_turn_output(
 mod tests {
     use super::*;
     use crate::agent::AgentDeriveT;
-    use crate::tests::{ConfigurableLLMProvider, MockAgentImpl, MockLLMProvider, TestAgentOutput};
+    use crate::tests::{ConfigurableLLMProvider, MockAgentImpl, MockLLMProvider};
     use async_trait::async_trait;
     use autoagents_llm::chat::{StreamChoice, StreamDelta, StreamResponse};
     use std::sync::Arc;
@@ -362,7 +355,7 @@ mod tests {
 
     #[async_trait]
     impl AgentDeriveT for AbortAgent {
-        type Output = TestAgentOutput;
+        type Output = String;
 
         fn description(&self) -> &str {
             "abort"
@@ -517,6 +510,7 @@ mod tests {
         let result = crate::agent::executor::TurnResult::Complete(
             crate::agent::executor::turn_engine::TurnEngineOutput {
                 response: "done".to_string(),
+                reasoning_content: String::default(),
                 tool_calls: Vec::new(),
             },
         );
@@ -529,6 +523,7 @@ mod tests {
         let result = crate::agent::executor::TurnResult::Continue(Some(
             crate::agent::executor::turn_engine::TurnEngineOutput {
                 response: "partial".to_string(),
+                reasoning_content: String::default(),
                 tool_calls: Vec::new(),
             },
         ));
@@ -556,6 +551,7 @@ mod tests {
                     choices: vec![StreamChoice {
                         delta: StreamDelta {
                             content: Some("Hello ".to_string()),
+                            reasoning_content: None,
                             tool_calls: None,
                         },
                     }],
@@ -565,6 +561,7 @@ mod tests {
                     choices: vec![StreamChoice {
                         delta: StreamDelta {
                             content: Some("world".to_string()),
+                            reasoning_content: None,
                             tool_calls: None,
                         },
                     }],
@@ -601,42 +598,99 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_basic_agent_execute_aborts_on_hook() {
+    async fn test_basic_agent_execute_stream_ignores_reasoning_output() {
         use crate::agent::{AgentConfig, Context};
         use autoagents_protocol::ActorID;
+        use futures::StreamExt;
 
-        let agent = BasicAgent::new(AbortAgent);
-        let llm = Arc::new(MockLLMProvider {});
+        let llm = Arc::new(ConfigurableLLMProvider {
+            structured_stream: vec![
+                StreamResponse {
+                    choices: vec![StreamChoice {
+                        delta: StreamDelta {
+                            content: None,
+                            reasoning_content: Some("plan".to_string()),
+                            tool_calls: None,
+                        },
+                    }],
+                    usage: None,
+                },
+                StreamResponse {
+                    choices: vec![StreamChoice {
+                        delta: StreamDelta {
+                            content: Some("done".to_string()),
+                            reasoning_content: None,
+                            tool_calls: None,
+                        },
+                    }],
+                    usage: None,
+                },
+            ],
+            ..ConfigurableLLMProvider::default()
+        });
+
+        let mock_agent = MockAgentImpl::new("stream_agent_reasoning", "desc");
+        let basic_agent = BasicAgent::new(mock_agent);
         let config = AgentConfig {
             id: ActorID::new_v4(),
-            name: "abort_agent".to_string(),
-            description: "abort".to_string(),
+            name: "stream_agent_reasoning".to_string(),
+            description: "desc".to_string(),
             output_schema: None,
         };
         let context = Arc::new(Context::new(llm, None).with_config(config));
-        let task = Task::new("abort");
+        let task = Task::new("Test task");
 
-        let err = agent.execute(&task, context).await.unwrap_err();
-        assert!(err.to_string().contains("aborted"));
+        let mut stream = basic_agent.execute_stream(&task, context).await.unwrap();
+        let mut outputs = Vec::new();
+        while let Some(item) = stream.next().await {
+            outputs.push(item.unwrap());
+        }
+
+        assert_eq!(outputs.len(), 2);
+        assert_eq!(outputs[0].response, "done");
+        assert!(!outputs[0].done);
+        assert_eq!(outputs[1].response, "done");
+        assert!(outputs[1].done);
     }
 
     #[tokio::test]
-    async fn test_basic_agent_execute_stream_aborts_on_hook() {
-        use crate::agent::{AgentConfig, Context};
-        use autoagents_protocol::ActorID;
+    async fn test_basic_agent_run_aborts_on_hook() {
+        use crate::agent::AgentBuilder;
+        use crate::agent::direct::DirectAgent;
+        use crate::agent::error::RunnableAgentError;
 
         let agent = BasicAgent::new(AbortAgent);
         let llm = Arc::new(MockLLMProvider {});
-        let config = AgentConfig {
-            id: ActorID::new_v4(),
-            name: "abort_agent".to_string(),
-            description: "abort".to_string(),
-            output_schema: None,
-        };
-        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let handle = AgentBuilder::<_, DirectAgent>::new(agent)
+            .llm(llm)
+            .build()
+            .await
+            .expect("build should succeed");
         let task = Task::new("abort");
 
-        let err = agent.execute_stream(&task, context).await.err().unwrap();
-        assert!(err.to_string().contains("aborted"));
+        let err = handle.agent.run(task).await.expect_err("expected abort");
+        assert!(matches!(err, RunnableAgentError::Abort));
+    }
+
+    #[tokio::test]
+    async fn test_basic_agent_run_stream_aborts_on_hook() {
+        use crate::agent::AgentBuilder;
+        use crate::agent::direct::DirectAgent;
+        use crate::agent::error::RunnableAgentError;
+
+        let agent = BasicAgent::new(AbortAgent);
+        let llm = Arc::new(MockLLMProvider {});
+        let handle = AgentBuilder::<_, DirectAgent>::new(agent)
+            .llm(llm)
+            .build()
+            .await
+            .expect("build should succeed");
+        let task = Task::new("abort");
+
+        let err = match handle.agent.run_stream(task).await {
+            Ok(_) => panic!("expected abort"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, RunnableAgentError::Abort));
     }
 }

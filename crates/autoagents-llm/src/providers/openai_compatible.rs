@@ -159,6 +159,8 @@ pub struct OpenAIChatMsg {
     #[allow(dead_code)]
     pub role: String,
     pub content: Option<String>,
+    #[serde(default, alias = "reasoning")]
+    pub reasoning_content: Option<String>,
     pub tool_calls: Option<Vec<ToolCall>>,
 }
 
@@ -200,6 +202,8 @@ pub struct OpenAIStreamChoice {
 #[derive(Deserialize, Debug)]
 pub struct OpenAIStreamDelta {
     pub content: Option<String>,
+    #[serde(default, alias = "reasoning")]
+    pub reasoning_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<StreamToolCall>>,
 }
@@ -264,6 +268,12 @@ impl ChatResponse for OpenAIChatResponse {
         self.choices
             .first()
             .and_then(|c| c.message.tool_calls.clone())
+    }
+
+    fn thinking(&self) -> Option<String> {
+        self.choices
+            .first()
+            .and_then(|c| c.message.reasoning_content.clone())
     }
 
     fn usage(&self) -> Option<Usage> {
@@ -834,6 +844,11 @@ fn parse_openai_sse_chunk_with_tools(
                 {
                     results.push(ChatStreamChunk::Text(content.clone()));
                 }
+                if let Some(reasoning_content) = &choice.delta.reasoning_content
+                    && !reasoning_content.is_empty()
+                {
+                    results.push(ChatStreamChunk::ReasoningContent(reasoning_content.clone()));
+                }
 
                 // Handle tool calls (per-index)
                 if let Some(tool_calls) = &choice.delta.tool_calls {
@@ -934,6 +949,8 @@ struct OpenAIToolStreamChoice {
 #[derive(Debug, Deserialize)]
 struct OpenAIToolStreamDelta {
     content: Option<String>,
+    #[serde(default, alias = "reasoning")]
+    reasoning_content: Option<String>,
     tool_calls: Option<Vec<OpenAIToolStreamToolCall>>,
 }
 
@@ -1037,6 +1054,7 @@ impl SSEStreamParser {
                 choices: vec![StreamChoice {
                     delta: StreamDelta {
                         content: None,
+                        reasoning_content: None,
                         tool_calls: Some(vec![self.tool_buffer.clone()]),
                     },
                 }],
@@ -1065,6 +1083,7 @@ impl SSEStreamParser {
                             choices: vec![StreamChoice {
                                 delta: StreamDelta {
                                     content: None,
+                                    reasoning_content: None,
                                     tool_calls: None,
                                 },
                             }],
@@ -1087,6 +1106,7 @@ impl SSEStreamParser {
             }
             for choice in &response.choices {
                 let content = choice.delta.content.clone();
+                let reasoning_content = choice.delta.reasoning_content.clone();
                 let tool_calls: Option<Vec<ToolCall>> =
                     choice.delta.tool_calls.clone().map(|calls| {
                         calls
@@ -1101,7 +1121,7 @@ impl SSEStreamParser {
                             })
                             .collect::<Vec<ToolCall>>()
                     });
-                if content.is_some() || tool_calls.is_some() {
+                if content.is_some() || reasoning_content.is_some() || tool_calls.is_some() {
                     if self.normalize_response && tool_calls.is_some() {
                         if let Some(calls) = &tool_calls {
                             for call in calls {
@@ -1132,6 +1152,7 @@ impl SSEStreamParser {
                             choices: vec![StreamChoice {
                                 delta: StreamDelta {
                                     content,
+                                    reasoning_content,
                                     tool_calls,
                                 },
                             }],
@@ -1203,6 +1224,19 @@ mod tests {
         match &results[0] {
             ChatStreamChunk::Text(text) => assert_eq!(text, "Hello"),
             _ => panic!("Expected Text chunk, got {:?}", results[0]),
+        }
+    }
+
+    #[test]
+    fn test_parse_openai_stream_reasoning_delta() {
+        let event = r#"data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"think"},"finish_reason":null}]}"#;
+        let mut tool_states = HashMap::new();
+        let results = parse_openai_sse_chunk_with_tools(event, &mut tool_states).unwrap();
+
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            ChatStreamChunk::ReasoningContent(text) => assert_eq!(text, "think"),
+            _ => panic!("Expected ReasoningContent chunk, got {:?}", results[0]),
         }
     }
 
@@ -1752,6 +1786,7 @@ mod tests {
                 message: OpenAIChatMsg {
                     role: "assistant".to_string(),
                     content: Some("hi".to_string()),
+                    reasoning_content: Some("plan".to_string()),
                     tool_calls: Some(vec![ToolCall {
                         id: "call_1".to_string(),
                         call_type: "function".to_string(),
@@ -1772,6 +1807,7 @@ mod tests {
         };
 
         assert_eq!(response.text(), Some("hi".to_string()));
+        assert_eq!(response.thinking(), Some("plan".to_string()));
         assert_eq!(response.tool_calls().unwrap().len(), 1);
         assert_eq!(response.usage().unwrap().total_tokens, 3);
         let display = format!("{response}");
@@ -1788,6 +1824,21 @@ mod tests {
         let response = results[0].as_ref().unwrap();
         assert_eq!(response.choices.len(), 1);
         assert_eq!(response.choices[0].delta.content.as_deref(), Some("Hello"));
+    }
+
+    #[test]
+    fn test_sse_stream_parser_emits_reasoning_content() {
+        let mut parser = SSEStreamParser::new(false);
+        let results = parser.consume_text(
+            "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think\"}}]}\n\n",
+        );
+        assert_eq!(results.len(), 1);
+        let response = results[0].as_ref().unwrap();
+        assert_eq!(response.choices.len(), 1);
+        assert_eq!(
+            response.choices[0].delta.reasoning_content.as_deref(),
+            Some("think")
+        );
     }
 
     #[test]

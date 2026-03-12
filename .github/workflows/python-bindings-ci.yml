@@ -1,0 +1,416 @@
+name: Python Bindings CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ── Build strategy ────────────────────────────────────────────────────────────
+# Match the release publishing build matrix so packaging issues are caught in
+# PR validation before a release tag is pushed.
+# ─────────────────────────────────────────────────────────────────────────────
+
+jobs:
+  # ── Linux x86_64 (wheel packages only) ───────────────────────────────────
+  build-linux-x86_64:
+    name: Linux x86_64
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Prepare wheel output directories
+        run: |
+          mkdir -p dist/autoagents
+          mkdir -p dist/autoagents-guardrails
+          mkdir -p dist/mistralrs-cpu
+
+      - name: Install llama.cpp Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev libvulkan-dev glslc
+
+      - name: Build autoagents-py
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64
+          manylinux: "2_28"
+          sccache: true
+          args: >-
+            --release
+            --out dist/autoagents
+            --manifest-path bindings/python/autoagents/Cargo.toml
+
+      - name: Build autoagents-guardrails-py
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64
+          manylinux: "2_28"
+          sccache: true
+          args: >-
+            --release
+            --out dist/autoagents-guardrails
+            --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
+
+      - name: Build autoagents-mistral-rs-py (CPU)
+        uses: PyO3/maturin-action@v1
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/mistralrs-cpu-linux-x86_64
+        with:
+          target: x86_64
+          manylinux: "2_28"
+          sccache: true
+          args: >-
+            --release
+            --out dist/mistralrs-cpu
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
+
+  # ── Linux aarch64 (CPU only — Vulkan/CUDA not cross-compiled) ────────────
+  build-linux-aarch64:
+    name: Linux aarch64
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Prepare wheel output directories
+        run: |
+          mkdir -p dist/autoagents
+          mkdir -p dist/autoagents-guardrails
+          mkdir -p dist/mistralrs-cpu
+
+      - name: Install llama.cpp Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev llvm-dev
+
+      - name: Build autoagents-py
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64
+          manylinux: "2_28"
+          sccache: true
+          args: >-
+            --release
+            --out dist/autoagents
+            --manifest-path bindings/python/autoagents/Cargo.toml
+
+      - name: Build autoagents-guardrails-py
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64
+          manylinux: "2_28"
+          sccache: true
+          args: >-
+            --release
+            --out dist/autoagents-guardrails
+            --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
+
+      - name: Build autoagents-mistral-rs-py (CPU)
+        uses: PyO3/maturin-action@v1
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/mistralrs-cpu-linux-aarch64
+        with:
+          target: aarch64
+          manylinux: "2_28"
+          sccache: true
+          args: >-
+            --release
+            --out dist/mistralrs-cpu
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
+
+  # ── Build source distributions for all python binding packages ────────────
+  build-sdists:
+    name: Build all sdists
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Install maturin
+        run: python -m pip install --upgrade pip maturin
+
+      - name: Build autoagents-py sdist
+        run: |
+          mkdir -p dist/sdists/autoagents
+          maturin sdist \
+            --manifest-path bindings/python/autoagents/Cargo.toml \
+            --out dist/sdists/autoagents
+
+      - name: Build autoagents-guardrails-py sdist
+        run: |
+          mkdir -p dist/sdists/autoagents-guardrails
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-guardrails/Cargo.toml \
+            --out dist/sdists/autoagents-guardrails
+
+      - name: Build autoagents-llamacpp-py sdist
+        run: |
+          mkdir -p dist/sdists/llamacpp
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml \
+            --out dist/sdists/llamacpp
+
+      - name: Build autoagents-llamacpp-cuda sdist
+        run: |
+          mkdir -p dist/sdists/llamacpp-cuda
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-llamacpp-cuda/Cargo.toml \
+            --out dist/sdists/llamacpp-cuda
+
+      - name: Build autoagents-llamacpp-vulkan sdist
+        run: |
+          mkdir -p dist/sdists/llamacpp-vulkan
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-llamacpp-vulkan/Cargo.toml \
+            --out dist/sdists/llamacpp-vulkan
+
+      - name: Build autoagents-llamacpp-metal sdist
+        run: |
+          mkdir -p dist/sdists/llamacpp-metal
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-llamacpp-metal/Cargo.toml \
+            --out dist/sdists/llamacpp-metal
+
+      - name: Build autoagents-mistral-rs-py (CPU) sdist
+        run: |
+          mkdir -p dist/sdists/mistralrs-cpu
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml \
+            --out dist/sdists/mistralrs-cpu
+
+      - name: Build autoagents-mistral-rs-cuda sdist
+        run: |
+          mkdir -p dist/sdists/mistralrs-cuda
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-mistralrs-cuda/Cargo.toml \
+            --out dist/sdists/mistralrs-cuda
+
+      - name: Build autoagents-mistral-rs-metal sdist
+        run: |
+          mkdir -p dist/sdists/mistralrs-metal
+          maturin sdist \
+            --manifest-path bindings/python/autoagents-mistralrs-metal/Cargo.toml \
+            --out dist/sdists/mistralrs-metal
+
+  # ── macOS (CPU + Metal, Intel x86_64 and Apple Silicon arm64) ────────────
+  build-macos:
+    name: macOS ${{ matrix.runner }}
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Install maturin
+        run: python -m pip install --upgrade pip maturin
+
+      - name: Build autoagents-py
+        run: |
+          maturin build --release \
+            --out dist/autoagents \
+            --manifest-path bindings/python/autoagents/Cargo.toml
+
+      - name: Build autoagents-guardrails-py
+        run: |
+          maturin build --release \
+            --out dist/autoagents-guardrails \
+            --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
+
+      - name: Build autoagents-llamacpp-metal
+        env:
+          CARGO_TARGET_DIR: target/python/llamacpp-metal-macos
+        run: |
+          maturin build --release \
+            --features metal \
+            --out dist/llamacpp-metal \
+            --manifest-path bindings/python/autoagents-llamacpp-metal/Cargo.toml
+
+      - name: Build autoagents-mistral-rs-py (CPU)
+        env:
+          CARGO_TARGET_DIR: target/python/mistralrs-cpu-macos
+        run: |
+          maturin build --release \
+            --out dist/mistralrs-cpu \
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
+
+      - name: Build autoagents-mistral-rs-metal
+        env:
+          CARGO_TARGET_DIR: target/python/mistralrs-metal-macos
+        run: |
+          maturin build --release \
+            --features metal \
+            --out dist/mistralrs-metal \
+            --manifest-path bindings/python/autoagents-mistralrs-metal/Cargo.toml
+
+  # ── Windows x86_64 (CPU + CUDA + Vulkan) ─────────────────────────────────
+  build-windows:
+    name: Windows x86_64
+    if: false # Temporarily disabled: Windows bindings build is too slow for CI.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Install CUDA toolkit
+        uses: Jimver/cuda-toolkit@v0.2.19
+        with:
+          cuda: "12.6.0"
+          method: network
+
+      - name: Install Vulkan SDK
+        shell: pwsh
+        run: |
+          $url = "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-sdk.exe"
+          Invoke-WebRequest -Uri $url -OutFile vulkan-sdk.exe
+          Start-Process -FilePath vulkan-sdk.exe `
+            -ArgumentList "--accept-licenses --default-answer --confirm-command install" `
+            -Wait -NoNewWindow
+          $vulkanRoot = Get-ChildItem -Path "C:\VulkanSDK" -Directory |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+          if (-not $vulkanRoot) {
+            throw "Vulkan SDK installation succeeded but no SDK folder was found under C:\VulkanSDK"
+          }
+          "VULKAN_SDK=$($vulkanRoot.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "$($vulkanRoot.FullName)\Bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install maturin
+        run: python -m pip install --upgrade pip maturin
+
+      - name: Build autoagents-py
+        shell: pwsh
+        run: |
+          maturin build --release `
+            --out dist/autoagents `
+            --manifest-path bindings/python/autoagents/Cargo.toml
+
+      - name: Build autoagents-guardrails-py
+        shell: pwsh
+        run: |
+          maturin build --release `
+            --out dist/autoagents-guardrails `
+            --manifest-path bindings/python/autoagents-guardrails/Cargo.toml
+
+      - name: Build autoagents-llamacpp-py (CPU)
+        shell: pwsh
+        env:
+          CARGO_TARGET_DIR: target/python/llamacpp-cpu-windows
+        run: |
+          maturin build --release `
+            --out dist/llamacpp-cpu `
+            --manifest-path bindings/python/autoagents-llamacpp/Cargo.toml
+
+      - name: Build autoagents-llamacpp-cuda
+        shell: pwsh
+        env:
+          CARGO_TARGET_DIR: target/python/llamacpp-cuda-windows
+        run: |
+          maturin build --release `
+            --features cuda `
+            --out dist/llamacpp-cuda `
+            --manifest-path bindings/python/autoagents-llamacpp-cuda/Cargo.toml
+
+      - name: Build autoagents-llamacpp-vulkan
+        shell: pwsh
+        env:
+          CARGO_TARGET_DIR: target/python/llamacpp-vulkan-windows
+        run: |
+          maturin build --release `
+            --features vulkan `
+            --out dist/llamacpp-vulkan `
+            --manifest-path bindings/python/autoagents-llamacpp-vulkan/Cargo.toml
+
+      - name: Build autoagents-mistral-rs-py (CPU)
+        shell: pwsh
+        env:
+          CARGO_TARGET_DIR: target/python/mistralrs-cpu-windows
+        run: |
+          maturin build --release `
+            --out dist/mistralrs-cpu `
+            --manifest-path bindings/python/autoagents-mistralrs/Cargo.toml
+
+      - name: Build autoagents-mistral-rs-cuda
+        shell: pwsh
+        env:
+          CARGO_TARGET_DIR: target/python/mistralrs-cuda-windows
+          CUDA_COMPUTE_CAP: "80"
+        run: |
+          maturin build --release `
+            --features cuda `
+            --out dist/mistralrs-cuda `
+            --manifest-path bindings/python/autoagents-mistralrs-cuda/Cargo.toml

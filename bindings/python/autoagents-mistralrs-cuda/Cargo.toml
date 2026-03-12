@@ -1,0 +1,20 @@
+[package]
+name = "autoagents-mistral-rs-cuda-py"
+version.workspace = true
+edition.workspace = true
+description = "Python bindings for AutoAgents mistral-rs CUDA backend"
+license.workspace = true
+publish = false
+
+[lib]
+name = "_autoagents_mistral_rs_cuda"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+cuda = ["autoagents-mistral-rs-py-core/cuda"]
+cudnn = ["autoagents-mistral-rs-py-core/cudnn"]
+
+[dependencies]
+autoagents-mistral-rs-py-core = { path = "../autoagents-mistralrs-core" }
+pyo3 = { version = "0.28.2", features = ["extension-module", "abi3-py39"] }

@@ -6,6 +6,9 @@ If you want to contribute to AutoAgents or build from source, follow these addit
 
 - **LeftHook** - Git hooks manager for code quality
 - **Cargo Tarpaulin** - Test coverage tool (optional)
+- **Python 3.12+** - required for Python bindings development
+- **maturin** - build backend for PyO3 packages
+- **uv** - Python package manager
 
 ### Installing LeftHook
 
@@ -38,6 +41,27 @@ cargo build --release
 # Run tests to verify setup
 cargo test --all-features
 ```
+
+### Python Bindings Development Setup
+
+```bash
+# From repository root
+ uv venv --python=3.12
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+```
+
+Build and install all CPU packages using the repository Makefile:
+
+```bash
+make python-bindings-build
+
+# With CUDA (requires CUDA Toolkit 12.x)
+make python-bindings-build-cuda
+```
+
+See [Python Bindings](../getting-started/python-bindings.md) for the full
+local testing guide including protocol events and GPU variants.
 
 ### Installing Additional Development Tools
 

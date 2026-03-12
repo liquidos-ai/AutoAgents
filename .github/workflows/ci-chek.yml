@@ -56,13 +56,51 @@ jobs:
       - name: Run tests
         run: |
           if [ -z "${{ matrix.features }}" ]; then
-            cargo test --features default --workspace --exclude autoagents-mistral-rs
+            cargo test --features default --workspace \
+              --exclude autoagents-mistral-rs
           else
-            cargo test --workspace --features "${{ matrix.features }}" --exclude autoagents-mistral-rs
+            cargo test --workspace --features "${{ matrix.features }}" \
+              --exclude autoagents-mistral-rs
           fi
 
       - name: Run cargo check
-        run: cargo check --all-targets --no-default-features
+        run: |
+          cargo check --workspace --all-targets --no-default-features
+
+  python_bindings_py:
+    name: Python Bindings (Python Coverage)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libasound2-dev pkg-config
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create virtualenv
+        run: python -m venv .venv
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Install Python test dependencies
+        run: .venv/bin/python -m pip install --upgrade pip maturin pytest pytest-asyncio pytest-cov
+
+      - name: Run Python binding tests
+        run: make python-bindings-test-clean
 
   multi_os:
     name: Multi-OS build
@@ -92,4 +130,10 @@ jobs:
           sudo apt-get install -y pkg-config libasound2-dev
 
       - name: Build Workspace
+        if: matrix.os != 'windows-latest'
+        run: cargo build --workspace --release
+
+      - name: Build Workspace (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: cargo build --workspace --release

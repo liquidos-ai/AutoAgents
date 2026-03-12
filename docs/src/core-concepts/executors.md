@@ -14,6 +14,7 @@ Key points:
 - No tool calls
 - Optional streaming variant
 - Output type: `BasicAgentOutput` → convert to your agent output via `From<...>`
+- Reasoning/thinking chunks are emitted in stream events (`StreamChunk::ReasoningContent`) when supported.
 
 ```rust
 use autoagents::core::agent::prebuilt::executor::BasicAgent;
@@ -29,6 +30,7 @@ Key points:
 - Tool calls are serialized, executed, and their results fed back to the LLM
 - Emits events: tool requested/completed, turn started/completed, stream chunks
 - Output type: `ReActAgentOutput` → convert to your agent output via `From<...>`
+- Reasoning/thinking remains event-level (`StreamChunk::ReasoningContent`) and is not included in final output fields by default.
 
 ```rust
 use autoagents::core::agent::prebuilt::executor::ReActAgent;
@@ -36,4 +38,3 @@ let agent = ReActAgent::new(MyAgent);
 ```
 
 Tip: `ReActAgentOutput::extract_agent_output<T>` can deserialize a structured JSON response into your type when you expect strict JSON.
-

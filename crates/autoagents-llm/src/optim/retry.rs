@@ -251,6 +251,17 @@ where
 
 #[async_trait]
 impl ChatProvider for RetryProvider {
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        retry_call(&self.config, || {
+            self.inner.chat(messages, json_schema.clone())
+        })
+        .await
+    }
+
     async fn chat_with_tools(
         &self,
         messages: &[ChatMessage],
@@ -404,6 +415,8 @@ mod tests {
     /// Succeeds on `success_after`-th call (1-based); returns `err` before that.
     struct CountingMock {
         calls: AtomicU32,
+        chat_calls: AtomicU32,
+        chat_with_tools_calls: AtomicU32,
         success_after: u32,
         err: LLMError,
     }
@@ -412,6 +425,8 @@ mod tests {
         fn new(success_after: u32, err: LLMError) -> Arc<Self> {
             Arc::new(Self {
                 calls: AtomicU32::new(0),
+                chat_calls: AtomicU32::new(0),
+                chat_with_tools_calls: AtomicU32::new(0),
                 success_after,
                 err,
             })
@@ -441,12 +456,22 @@ mod tests {
 
     #[async_trait]
     impl ChatProvider for CountingMock {
+        async fn chat(
+            &self,
+            _messages: &[ChatMessage],
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            self.chat_calls.fetch_add(1, Ordering::Relaxed);
+            self.next_result()
+        }
+
         async fn chat_with_tools(
             &self,
             _messages: &[ChatMessage],
             _tools: Option<&[Tool]>,
             _json_schema: Option<StructuredOutputFormat>,
         ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            self.chat_with_tools_calls.fetch_add(1, Ordering::Relaxed);
             self.next_result()
         }
     }
@@ -698,6 +723,18 @@ mod tests {
         let msg = ChatMessage::user().content("hi").build();
         provider.chat(&[msg], None).await.unwrap_err();
         assert_eq!(mock.call_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn chat_preserves_chat_method_shape() {
+        let mock = CountingMock::new(1, LLMError::Generic("never".into()));
+        let provider = build_retry(mock.clone(), RetryConfig::default());
+        let msg = ChatMessage::user().content("Hello").build();
+
+        let resp = provider.chat(&[msg], None).await.unwrap();
+        assert_eq!(resp.text().as_deref(), Some("ok"));
+        assert_eq!(mock.chat_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(mock.chat_with_tools_calls.load(Ordering::Relaxed), 0);
     }
 
     #[tokio::test]

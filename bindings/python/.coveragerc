@@ -1,0 +1,14 @@
+[run]
+branch = True
+source =
+    bindings/python/autoagents/autoagents
+    bindings/python/autoagents-guardrails/autoagents_guardrails
+    bindings/python/autoagents-llamacpp/autoagents_llamacpp
+    bindings/python/autoagents-mistralrs/autoagents_mistral_rs
+
+[report]
+skip_empty = True
+show_missing = True
+omit =
+    */tests/*
+    */examples/*

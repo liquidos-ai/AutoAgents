@@ -11,6 +11,7 @@ AutoAgents ships two execution strategies out of the box. Pick based on your tas
   - Fast endpoints or CLI utilities
 - Streaming: Yes (`execute_stream` yields delta content)
 - Output: `BasicAgentOutput { response, done }` — can be converted to your structured type with `parse_or_map`.
+- Reasoning/thinking deltas, when supported by the model/provider, are emitted via stream events (`Event::StreamChunk(StreamChunk::ReasoningContent)`).
 
 Use if you need a quick, single-shot LLM call.
 
@@ -23,6 +24,7 @@ Use if you need a quick, single-shot LLM call.
   - Streaming UI with turn events
 - Streaming: Yes (delta content and tool-call accumulation)
 - Output: `ReActAgentOutput { response, tool_calls, done }` — parse via `try_parse`/`parse_or_map` or `extract_agent_output`.
+- Reasoning/thinking deltas are available through stream events (`StreamChunk::ReasoningContent`).
 
 Use if your agent must call tools or orchestrate multiple turns.
 

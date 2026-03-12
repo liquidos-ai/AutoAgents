@@ -11,6 +11,8 @@
 [![Build Status](https://github.com/liquidos-ai/AutoAgents/workflows/coverage/badge.svg)](https://github.com/liquidos-ai/AutoAgents/actions)
 [![codecov](https://codecov.io/gh/liquidos-ai/AutoAgents/graph/badge.svg)](https://codecov.io/gh/liquidos-ai/AutoAgents)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/liquidos-ai/AutoAgents)
+![Crates.io Downloads (recent)](https://img.shields.io/crates/dr/autoagents?label=Crates%20Downloads)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/autoagents-py?label=PyPI%20Downlods)
 
 [English](README.md) | [中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [한국어](README.ko.md) | [Português (Brasil)](README.pt-BR.md)
 <br />
@@ -99,6 +101,9 @@ More info at [GitHub](https://github.com/liquidos-ai/autoagents-bench)
 - **Rust** (latest stable recommended)
 - **Cargo** package manager
 - **LeftHook** for Git hooks management
+- **Python 3.9+** (required for Python bindings)
+- **uv** for Python environment and package management
+- **maturin** (required to build/install local Python bindings from source)
 
 ### Prerequisite
 
@@ -130,10 +135,52 @@ lefthook install
 cargo build --workspace --all-features
 ```
 
+### Python Bindings
+
+AutoAgents ships Python bindings to PyPI. Install the base package and add
+backends via extras:
+
+```bash
+pip install autoagents-py                            # core + cloud LLM providers
+pip install "autoagents-py[llamacpp]"               # + llama.cpp CPU
+pip install "autoagents-py[llamacpp-cuda]"          # + llama.cpp CUDA
+pip install "autoagents-py[llamacpp-metal]"         # + llama.cpp Metal (macOS)
+pip install "autoagents-py[llamacpp-vulkan]"        # + llama.cpp Vulkan
+pip install "autoagents-py[mistralrs]"              # + mistral-rs CPU
+pip install "autoagents-py[mistralrs-cuda]"         # + mistral-rs CUDA
+pip install "autoagents-py[mistralrs-metal]"        # + mistral-rs Metal (macOS)
+pip install "autoagents-py[guardrails]"             # + Guardrails
+pip install "autoagents-py[llamacpp-cuda,guardrails]"  # combine extras
+```
+
+Development install from this repo:
+
+```bash
+uv venv --python=3.12
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+
+# Clean, build, and install all CPU bindings into the active venv
+make python-bindings-build
+
+# Clean, build, and install CPU + CUDA bindings
+make python-bindings-build-cuda
+```
+
+The Make targets remove stale editable-install extension artifacts before
+rebuilding, which avoids loading out-of-date `.abi3.so` files from the source
+tree.
+
+Example scripts:
+
+- Core cloud example: `bindings/python/autoagents/examples/openai_agent.py`
+- llama.cpp example: `bindings/python/autoagents-llamacpp/examples/llamacpp_agent.py`
+- mistral-rs example: `bindings/python/autoagents-mistralrs/examples/mistral_rs_agent.py`
+
 ### Run Tests
 
 ```bash
-cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
+cargo test --features "full" --workspace
 ```
 
 ---
@@ -323,6 +370,7 @@ AutoAgents/
 │   ├── autoagents-qdrant/         # Qdrant vector store
 │   └── autoagents-derive/         # Procedural macros
 ├── examples/                      # Example implementations
+├── bindings/                      # Bindings for different languages
 ```
 
 ### Core Components

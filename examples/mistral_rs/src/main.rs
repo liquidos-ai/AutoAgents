@@ -5,6 +5,7 @@
 //! 2. Vision models from HuggingFace
 //! 3. GGUF quantized models from local files
 //! 4. Tool calling with capable models
+//! 5. Thinking/reasoning stream output
 //!
 //! Run with:
 //! ```bash
@@ -24,6 +25,7 @@
 mod gguf;
 mod stream;
 mod text;
+mod thinking;
 mod tool;
 mod vision;
 
@@ -40,6 +42,8 @@ enum ModelTypeArg {
     Gguf,
     /// Tool calling model (Mistral-7B-Instruct)
     Tools,
+    /// Thinking/reasoning stream output
+    Thinking,
     ///Streaming
     Stream,
 }
@@ -150,6 +154,19 @@ async fn main() -> Result<(), Error> {
             let llm = tool::load_model(&tool_args).await?;
             println!("Model loaded successfully!\n");
             tool::run_example(llm).await?;
+        }
+        ModelTypeArg::Thinking => {
+            println!("Loading THINKING model from HuggingFace...");
+            let thinking_args = thinking::ThinkingArgs {
+                repo_id: args.repo_id,
+                max_tokens: args.max_tokens,
+                temperature: args.temperature,
+                paged_attention: args.paged_attention,
+                verbose: args.verbose,
+            };
+            let llm = thinking::load_model(&thinking_args).await?;
+            println!("Model loaded successfully!\n");
+            thinking::run_example(llm).await?;
         }
         ModelTypeArg::Stream => {
             //TODO

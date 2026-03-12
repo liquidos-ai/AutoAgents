@@ -119,10 +119,10 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     println!("Result: {:?}", result);
 
     println!("Multi-step calculation");
-    let result3 = agent_handle
+    let result = agent_handle
         .agent
         .run(Task::new("What is (10 + 5) * 3?"))
         .await?;
-    println!("Result: {:?}\n", result3);
+    println!("Result: {:?}\n", result);
     Ok(())
 }

@@ -1,0 +1,17 @@
+[package]
+name = "autoagents-guardrails-py"
+version.workspace = true
+edition.workspace = true
+description = "Python bindings for AutoAgents guardrails"
+license.workspace = true
+publish = false
+
+[lib]
+name = "_autoagents_guardrails"
+crate-type = ["cdylib"]
+
+[dependencies]
+autoagents-py = { path = "../autoagents", default-features = false }
+autoagents-guardrails = { workspace = true }
+autoagents-llm = { workspace = true }
+pyo3 = { version = "0.28.2", features = ["extension-module", "abi3-py39"] }

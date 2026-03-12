@@ -57,6 +57,9 @@ pub struct StreamDelta {
     /// The incremental content, if any
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    /// The incremental reasoning content, if any
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
     /// The incremental tool calls, if any
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
@@ -71,6 +74,8 @@ pub struct StreamDelta {
 pub enum StreamChunk {
     /// Text content delta
     Text(String),
+    /// Reasoning content delta
+    ReasoningContent(String),
 
     /// Tool use block started (contains tool id and name)
     ToolUseStart {

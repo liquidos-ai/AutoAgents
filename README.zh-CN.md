@@ -11,6 +11,8 @@
 [![Build Status](https://github.com/liquidos-ai/AutoAgents/workflows/coverage/badge.svg)](https://github.com/liquidos-ai/AutoAgents/actions)
 [![codecov](https://codecov.io/gh/liquidos-ai/AutoAgents/graph/badge.svg)](https://codecov.io/gh/liquidos-ai/AutoAgents)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/liquidos-ai/AutoAgents)
+![Crates.io Downloads (recent)](https://img.shields.io/crates/dr/autoagents?label=Crates%20Downloads)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/autoagents-py?label=PyPI%20Downlods)
 
 [English](README.md) | [中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [한국어](README.ko.md) | [Português (Brasil)](README.pt-BR.md)
 <br />
@@ -127,10 +129,42 @@ lefthook install
 cargo build --workspace --all-features
 ```
 
+### Python 绑定
+
+AutoAgents 将 Python 绑定拆分为独立包：
+
+- `autoagents-py`（核心 Python API + 云端后端）
+- `autoagents-guardrails-py`（适用于 Python `LLMProvider` 的可选 Guardrails）
+- `autoagents-llamacpp-py`（可选本地 llama.cpp 后端）
+- `autoagents-mistral-rs-py`（可选本地 mistral-rs 后端）
+
+从当前仓库进行开发安装：
+
+```bash
+uv venv --python=3.12
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+
+# 清理、构建并安装全部 CPU Python 绑定
+make python-bindings-build
+
+# 清理、构建并安装 CPU + CUDA Python 绑定
+make python-bindings-build-cuda
+```
+
+这些 Make 目标会在重建前删除过期的 editable-install 产物，避免从源码树中加载旧的
+`.abi3.so` 文件。
+
+示例脚本：
+
+- 核心云端示例：`bindings/python/autoagents/examples/openai_agent.py`
+- llama.cpp 示例：`bindings/python/autoagents-llamacpp/examples/llamacpp_agent.py`
+- mistral-rs 示例：`bindings/python/autoagents-mistralrs/examples/mistral_rs_agent.py`
+
 ### 运行测试
 
 ```bash
-cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
+cargo test --features "full" --workspace
 ```
 
 ---
@@ -319,6 +353,7 @@ AutoAgents/
 │   ├── autoagents-qdrant/         # Qdrant vector store
 │   └── autoagents-derive/         # Procedural macros
 ├── examples/                      # Example implementations
+├── bindings/                      # Bindings for different languages
 ```
 
 ### 核心组件

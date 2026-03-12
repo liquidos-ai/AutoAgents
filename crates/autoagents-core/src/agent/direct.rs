@@ -141,12 +141,12 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
         // Execute the agent's streaming logic using the executor
         match self.inner().execute_stream(&task, context.clone()).await {
             Ok(stream) => {
-                use futures::StreamExt;
-                // Convert the stream output
-                let transformed_stream = stream.map(move |result| match result {
-                    Ok(output) => Ok(output.into()),
-                    Err(e) => Err(Into::<RunnableAgentError>::into(e).into()),
-                });
+                use futures::TryStreamExt;
+                // Convert stream output/error without returning large Result err types from closures.
+                let transformed_stream = stream
+                    .map_ok(Into::into)
+                    .map_err(Into::<RunnableAgentError>::into)
+                    .map_err(Error::from);
 
                 Ok(Box::pin(transformed_stream))
             }
@@ -163,16 +163,21 @@ mod tests {
     use super::*;
     use crate::agent::hooks::HookOutcome;
     use crate::agent::output::AgentOutputT;
+    use crate::agent::prebuilt::executor::{
+        BasicAgent as StableBasicAgent, BasicAgentOutput, ReActAgent as StableReActAgent,
+        ReActAgentOutput,
+    };
     use crate::agent::task::Task;
     use crate::agent::{Context, ExecutorConfig};
     use crate::tests::{ConfigurableLLMProvider, MockAgentImpl, TestAgentOutput, TestError};
     use crate::tool::ToolT;
     use async_trait::async_trait;
     use futures::StreamExt;
+    use serde::{Deserialize, Serialize};
     use serde_json::Value;
     use std::sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     };
 
     #[tokio::test]
@@ -217,6 +222,126 @@ mod tests {
         let task = Task::new("fail");
         let err = handle.agent.run(task).await.expect_err("expected error");
         assert!(matches!(err, RunnableAgentError::ExecutorError(_)));
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct HookCountOutput {
+        result: String,
+    }
+
+    impl AgentOutputT for HookCountOutput {
+        fn output_schema() -> &'static str {
+            r#"{"type":"object","properties":{"result":{"type":"string"}},"required":["result"]}"#
+        }
+
+        fn structured_output_format() -> Value {
+            serde_json::json!({
+                "name": "HookCountOutput",
+                "description": "Hook count output",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "result": {"type": "string"}
+                    },
+                    "required": ["result"]
+                },
+                "strict": true
+            })
+        }
+    }
+
+    impl From<BasicAgentOutput> for HookCountOutput {
+        fn from(output: BasicAgentOutput) -> Self {
+            Self {
+                result: output.response,
+            }
+        }
+    }
+
+    impl From<ReActAgentOutput> for HookCountOutput {
+        fn from(output: ReActAgentOutput) -> Self {
+            Self {
+                result: output.response,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct CountingHookAgent {
+        on_run_start_calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl AgentDeriveT for CountingHookAgent {
+        type Output = HookCountOutput;
+
+        fn description(&self) -> &'static str {
+            "counting hook agent"
+        }
+
+        fn output_schema(&self) -> Option<Value> {
+            Some(serde_json::json!({
+                "type": "object",
+                "properties": {"result": {"type": "string"}},
+                "required": ["result"]
+            }))
+        }
+
+        fn name(&self) -> &'static str {
+            "counting_hook_agent"
+        }
+
+        fn tools(&self) -> Vec<Box<dyn ToolT>> {
+            vec![]
+        }
+    }
+
+    #[async_trait]
+    impl AgentHooks for CountingHookAgent {
+        async fn on_run_start(&self, _task: &Task, _ctx: &Context) -> HookOutcome {
+            self.on_run_start_calls.fetch_add(1, Ordering::SeqCst);
+            HookOutcome::Continue
+        }
+    }
+
+    #[tokio::test]
+    async fn test_direct_basic_agent_run_calls_on_run_start_once() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let llm = Arc::new(ConfigurableLLMProvider::default());
+        let handle =
+            AgentBuilder::<_, DirectAgent>::new(StableBasicAgent::new(CountingHookAgent {
+                on_run_start_calls: Arc::clone(&calls),
+            }))
+            .llm(llm)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let task = Task::new("hello");
+        let result = handle.agent.run(task).await.expect("run should succeed");
+
+        assert_eq!(result.result, "Mock response");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_direct_react_agent_run_calls_on_run_start_once() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let llm = Arc::new(ConfigurableLLMProvider::default());
+        let handle =
+            AgentBuilder::<_, DirectAgent>::new(StableReActAgent::new(CountingHookAgent {
+                on_run_start_calls: Arc::clone(&calls),
+            }))
+            .llm(llm)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let task = Task::new("hello");
+        let result = handle.agent.run(task).await.expect("run should succeed");
+
+        assert_eq!(result.result, "Mock response");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     #[derive(Clone, Debug)]

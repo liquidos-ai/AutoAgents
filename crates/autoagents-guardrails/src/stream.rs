@@ -170,6 +170,7 @@ impl Stream for StructGuardedStream {
                             choices: vec![StreamChoice {
                                 delta: StreamDelta {
                                     content: Some(text),
+                                    reasoning_content: None,
                                     tool_calls: None,
                                 },
                             }],

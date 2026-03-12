@@ -1,0 +1,36 @@
+[package]
+name = "autoagents-py"
+version.workspace = true
+edition.workspace = true
+description = "Python bindings for the AutoAgents Rust framework"
+license.workspace = true
+publish = false
+
+[lib]
+name = "_autoagents_py"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["extension-module"]
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+autoagents-core     = { workspace = true }
+autoagents-llm      = { workspace = true, features = ["full"] }
+autoagents-protocol = { workspace = true }
+pyo3                = { version = "0.28.2", features = ["abi3-py39"] }
+pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
+pyo3-log            = "0.13"
+tokio               = { workspace = true }
+once_cell           = { workspace = true }
+async-trait         = { workspace = true }
+futures             = { workspace = true }
+futures-util        = { workspace = true }
+tokio-stream        = { workspace = true, features = ["sync"] }
+serde_json          = { workspace = true }
+serde               = { workspace = true }
+log                 = { workspace = true }
+ractor              = { workspace = true }
+
+[build-dependencies]
+pyo3-build-config   = "0.28.2"

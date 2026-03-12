@@ -69,6 +69,7 @@ pub struct FunctionCall {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StreamChunk {
     Text(String),
+    ReasoningContent(String),
     ToolUseStart {
         index: usize,
         id: String,

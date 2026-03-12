@@ -1,0 +1,17 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "autoagents-llamacpp-metal"
+dynamic = ["version"]
+requires-python = ">=3.9"
+description = "Official Python bindings for AutoAgents Llama.cpp backend (Metal)"
+readme = "README.md"
+license = { text = "MIT OR Apache-2.0" }
+dependencies = ["autoagents-py==0.3.6"]
+
+[tool.maturin]
+module-name = "autoagents_llamacpp_metal._autoagents_llamacpp_metal"
+features = ["metal"]
+python-source = "."

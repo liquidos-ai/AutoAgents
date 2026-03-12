@@ -5,6 +5,7 @@
 # Getting Started
 
 - [Quick Start](./getting-started/quick-start.md)
+- [Python Bindings](./getting-started/python-bindings.md)
 - [Your First Agent](./getting-started/first-agent.md)
 
 # Core Concepts

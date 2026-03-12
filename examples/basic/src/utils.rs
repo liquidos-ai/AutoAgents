@@ -19,6 +19,9 @@ pub fn handle_events(mut event_stream: BoxEventStream<Event>) {
                 Event::TaskComplete { result, .. } => {
                     println!("✅ Task Completed: {:?}", result);
                 }
+                Event::StreamChunk { chunk, .. } => {
+                    println!("Chunk: {:?}", chunk);
+                }
                 _ => {
                     // Ignore other events for this example
                 }

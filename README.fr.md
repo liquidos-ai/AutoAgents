@@ -11,6 +11,8 @@
 [![Build Status](https://github.com/liquidos-ai/AutoAgents/workflows/coverage/badge.svg)](https://github.com/liquidos-ai/AutoAgents/actions)
 [![codecov](https://codecov.io/gh/liquidos-ai/AutoAgents/graph/badge.svg)](https://codecov.io/gh/liquidos-ai/AutoAgents)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/liquidos-ai/AutoAgents)
+![Crates.io Downloads (recent)](https://img.shields.io/crates/dr/autoagents?label=Crates%20Downloads)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/autoagents-py?label=PyPI%20Downlods)
 
 [English](README.md) | [中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [한국어](README.ko.md) | [Português (Brasil)](README.pt-BR.md)
 <br />
@@ -127,10 +129,43 @@ lefthook install
 cargo build --workspace --all-features
 ```
 
+### Bindings Python
+
+AutoAgents propose des bindings Python sous forme de paquets séparés :
+
+- `autoagents-py` (API Python principale + backends cloud)
+- `autoagents-guardrails-py` (guardrails optionnels pour les `LLMProvider` Python)
+- `autoagents-llamacpp-py` (backend local llama.cpp optionnel)
+- `autoagents-mistral-rs-py` (backend local mistral-rs optionnel)
+
+Installation de développement depuis ce dépôt :
+
+```bash
+uv venv --python=3.12
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+
+# Nettoyer, compiler et installer tous les bindings CPU dans la venv active
+make python-bindings-build
+
+# Nettoyer, compiler et installer les bindings CPU + CUDA
+make python-bindings-build-cuda
+```
+
+Les cibles Make suppriment les artefacts obsolètes des installations éditables
+avant chaque reconstruction, afin d'éviter de charger d'anciens fichiers
+`.abi3.so` depuis l'arbre source.
+
+Scripts d'exemple :
+
+- Exemple cloud principal : `bindings/python/autoagents/examples/openai_agent.py`
+- Exemple llama.cpp : `bindings/python/autoagents-llamacpp/examples/llamacpp_agent.py`
+- Exemple mistral-rs : `bindings/python/autoagents-mistralrs/examples/mistral_rs_agent.py`
+
 ### Exécuter les tests
 
 ```bash
-cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
+cargo test --features "full" --workspace
 ```
 
 ---
@@ -319,6 +354,7 @@ AutoAgents/
 │   ├── autoagents-qdrant/         # Qdrant vector store
 │   └── autoagents-derive/         # Procedural macros
 ├── examples/                      # Example implementations
+├── bindings/                      # Bindings for different languages
 ```
 
 ### Composants principaux

@@ -8,12 +8,21 @@ default-members = [
     "crates/autoagents-derive",
     "crates/autoagents-protocol",
 ]
-members = ["crates/*", "examples/*"]
+members = [
+    "crates/*",
+    "examples/*",
+    "bindings/python/*",
+]
 
-exclude = ["examples/wasm_tool", "crates/autoagents-test-utils"]
+exclude = [
+    "examples/wasm_tool",
+    "crates/autoagents-test-utils",
+    "bindings/python/.pytest_cache",
+    "bindings/python/__pycache__",
+]
 
 [workspace.package]
-version = "0.3.5"
+version = "0.3.6"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Agent Framework for Building Autonomous Agents"
@@ -24,26 +33,26 @@ categories = []
 
 [workspace.dependencies]
 # Core Crates
-autoagents = { path = "crates/autoagents", version = "0.3.5" }
-autoagents-derive = { path = "crates/autoagents-derive", version = "0.3.5" }
-autoagents-core = { path = "crates/autoagents-core", version = "0.3.5" }
-autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.3.5" }
-autoagents-protocol = { path = "crates/autoagents-protocol", version = "0.3.5" }
-autoagents-guardrails = { path = "crates/autoagents-guardrails", version = "0.3.5" }
+autoagents = { path = "crates/autoagents", version = "0.3.6" }
+autoagents-derive = { path = "crates/autoagents-derive", version = "0.3.6" }
+autoagents-core = { path = "crates/autoagents-core", version = "0.3.6" }
+autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.3.6" }
+autoagents-protocol = { path = "crates/autoagents-protocol", version = "0.3.6" }
+autoagents-guardrails = { path = "crates/autoagents-guardrails", version = "0.3.6" }
 
 # LLM and Providers
-autoagents-llm = { path = "crates/autoagents-llm", version = "0.3.5" }
-autoagents-mistral-rs = { path = "crates/autoagents-mistral-rs", version = "0.3.5" }
-autoagents-llamacpp = { path = "crates/autoagents-llamacpp", version = "0.3.5" }
+autoagents-llm = { path = "crates/autoagents-llm", version = "0.3.6" }
+autoagents-mistral-rs = { path = "crates/autoagents-mistral-rs", version = "0.3.6" }
+autoagents-llamacpp = { path = "crates/autoagents-llamacpp", version = "0.3.6" }
 
 # Store
-autoagents-qdrant = { path = "crates/autoagents-qdrant", version = "0.3.5" }
+autoagents-qdrant = { path = "crates/autoagents-qdrant", version = "0.3.6" }
 
 # Speech (TTS/STT)
-autoagents-speech = { path = "crates/autoagents-speech", version = "0.3.5" }
+autoagents-speech = { path = "crates/autoagents-speech", version = "0.3.6" }
 
 # Telemetry
-autoagents-telemetry = { path = "crates/autoagents-telemetry", version = "0.3.5" }
+autoagents-telemetry = { path = "crates/autoagents-telemetry", version = "0.3.6" }
 
 
 syn = { version = "2.0.98", features = ["full"] }
@@ -110,13 +119,12 @@ qdrant-client = { version = "1.17.0", default-features = false, features = [
 ] }
 httpmock = "0.8.3"
 testcontainers = "0.27.0"
-surrealdb = "2.6.1"
 hound = "3.5.1"
 rodio = "0.21.1"
+ractor = { version = "0.15.7" }
 
 
 [profile.release]
-debug = true      # Include debug symbols
 lto = "thin"      # Enable link-time optimization
 codegen-units = 1 # Better optimization (slower compile)
 

@@ -1,0 +1,18 @@
+[package]
+name = "autoagents-llamacpp-py"
+version.workspace = true
+edition.workspace = true
+description = "Python bindings for AutoAgents llama.cpp backend"
+license.workspace = true
+publish = false
+
+[lib]
+name = "_autoagents_llamacpp"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+
+[dependencies]
+autoagents-llamacpp-py-core = { path = "../autoagents-llamacpp-core" }
+pyo3 = { version = "0.28.2", features = ["extension-module", "abi3-py39"] }

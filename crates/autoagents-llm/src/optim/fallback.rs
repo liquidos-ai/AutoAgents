@@ -225,6 +225,18 @@ where
 
 #[async_trait]
 impl ChatProvider for FallbackProvider {
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        try_fallback(&self.providers, &self.config, |p| {
+            let js = json_schema.clone();
+            async move { p.chat(messages, js).await }
+        })
+        .await
+    }
+
     async fn chat_with_tools(
         &self,
         messages: &[ChatMessage],
@@ -453,6 +465,8 @@ mod tests {
     struct AlwaysSucceeds {
         text: String,
         calls: AtomicU32,
+        chat_calls: AtomicU32,
+        chat_with_tools_calls: AtomicU32,
     }
 
     impl AlwaysSucceeds {
@@ -460,6 +474,8 @@ mod tests {
             Arc::new(Self {
                 text: text.into(),
                 calls: AtomicU32::new(0),
+                chat_calls: AtomicU32::new(0),
+                chat_with_tools_calls: AtomicU32::new(0),
             })
         }
         fn call_count(&self) -> u32 {
@@ -469,6 +485,16 @@ mod tests {
 
     #[async_trait]
     impl ChatProvider for AlwaysSucceeds {
+        async fn chat(
+            &self,
+            _messages: &[ChatMessage],
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            self.chat_calls.fetch_add(1, Ordering::Relaxed);
+            Ok(Box::new(MockResponse(self.text.clone())))
+        }
+
         async fn chat_with_tools(
             &self,
             _messages: &[ChatMessage],
@@ -476,6 +502,7 @@ mod tests {
             _json_schema: Option<StructuredOutputFormat>,
         ) -> Result<Box<dyn ChatResponse>, LLMError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
+            self.chat_with_tools_calls.fetch_add(1, Ordering::Relaxed);
             Ok(Box::new(MockResponse(self.text.clone())))
         }
     }
@@ -533,6 +560,8 @@ mod tests {
         assert_eq!(resp.text().unwrap(), "primary");
         assert_eq!(primary.call_count(), 1);
         assert_eq!(fallback.call_count(), 0, "fallback must not be called");
+        assert_eq!(primary.chat_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(primary.chat_with_tools_calls.load(Ordering::Relaxed), 0);
     }
 
     #[tokio::test]

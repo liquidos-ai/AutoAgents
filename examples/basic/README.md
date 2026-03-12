@@ -51,6 +51,29 @@ optimum-cli export onnx \
       --task text-generation ./models/tinyllama
 ```
 
+### Reasoning / Thinking Output
+
+Demonstrates agent-level `reasoning_content` for both:
+- stream `run_stream()` via event chunks
+
+```sh
+cargo run --package basic-example -- --usecase thinking
+```
+
+This use case uses the OpenAI-compatible backend pointed at a vLLM server.
+Set:
+- `VLLM_BASE_URL` (or `OPENAI_BASE_URL`) default: `http://127.0.0.1:8000/v1`
+- `VLLM_MODEL` default: `Qwen/Qwen3-8B`
+- `OPENAI_API_KEY` (vLLM typically accepts any non-empty value)
+
+and prints:
+- response text events
+- reasoning events from `Event::StreamChunk(StreamChunk::ReasoningContent)`
+
+This avoids adding reasoning fields to the agent output schema.
+
+Note: `reasoning_content` chunks are provider/model dependent.
+
 
 ### ToolKit
 
