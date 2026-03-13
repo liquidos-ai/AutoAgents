@@ -36,9 +36,8 @@ impl Default for ChunkerConfig {
 
 /// Known abbreviations that should NOT cause a sentence split.
 const ABBREVIATIONS: &[&str] = &[
-    "Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "vs", "etc", "No", "Fig", "St",
-    "Ave", "Blvd", "Corp", "Inc", "Ltd", "Gen", "Gov", "Sgt", "Cpl", "Pvt",
-    "Est", "approx", "dept", "vol",
+    "Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "vs", "etc", "No", "Fig", "St", "Ave", "Blvd",
+    "Corp", "Inc", "Ltd", "Gen", "Gov", "Sgt", "Cpl", "Pvt", "Est", "approx", "dept", "vol",
 ];
 
 /// A sentence chunker that accumulates tokens and emits complete sentences.
@@ -235,7 +234,9 @@ impl SentenceChunker {
         let word_end_byte = chars[word_end].0;
         let word = &self.buffer[word_start_byte..word_end_byte];
 
-        ABBREVIATIONS.iter().any(|abbr| abbr.eq_ignore_ascii_case(word))
+        ABBREVIATIONS
+            .iter()
+            .any(|abbr| abbr.eq_ignore_ascii_case(word))
     }
 
     /// Check if a string starts with whitespace followed by an uppercase letter.
@@ -304,30 +305,21 @@ mod tests {
     fn test_abbreviation_no_split() {
         let tokens = vec!["Mr. Smith went home. He arrived."];
         let result = chunk_text_default(&tokens);
-        assert_eq!(
-            result,
-            vec!["Mr. Smith went home.", "He arrived."]
-        );
+        assert_eq!(result, vec!["Mr. Smith went home.", "He arrived."]);
     }
 
     #[test]
     fn test_decimal_no_split() {
         let tokens = vec!["Price is $4.50. Buy now!"];
         let result = chunk_text_default(&tokens);
-        assert_eq!(
-            result,
-            vec!["Price is $4.50.", "Buy now!"]
-        );
+        assert_eq!(result, vec!["Price is $4.50.", "Buy now!"]);
     }
 
     #[test]
     fn test_multiple_sentences() {
         let tokens = vec!["Hello! How are you? Fine."];
         let result = chunk_text_default(&tokens);
-        assert_eq!(
-            result,
-            vec!["Hello!", "How are you?", "Fine."]
-        );
+        assert_eq!(result, vec!["Hello!", "How are you?", "Fine."]);
     }
 
     #[test]
@@ -372,20 +364,14 @@ mod tests {
             "Mr", ".", " Smith", " went", " home", ".", " He", " arrived", ".",
         ];
         let result = chunk_text_default(&tokens);
-        assert_eq!(
-            result,
-            vec!["Mr. Smith went home.", "He arrived."]
-        );
+        assert_eq!(result, vec!["Mr. Smith went home.", "He arrived."]);
     }
 
     #[test]
     fn test_paragraph_break() {
         let tokens = vec!["First paragraph.\n\nSecond paragraph."];
         let result = chunk_text_default(&tokens);
-        assert_eq!(
-            result,
-            vec!["First paragraph.", "Second paragraph."]
-        );
+        assert_eq!(result, vec!["First paragraph.", "Second paragraph."]);
     }
 
     #[test]
@@ -408,10 +394,7 @@ mod tests {
     fn test_version_number_no_split() {
         let tokens = vec!["Use v2.0 for this. It is better."];
         let result = chunk_text_default(&tokens);
-        assert_eq!(
-            result,
-            vec!["Use v2.0 for this.", "It is better."]
-        );
+        assert_eq!(result, vec!["Use v2.0 for this.", "It is better."]);
     }
 
     #[test]
@@ -428,10 +411,7 @@ mod tests {
     fn test_exclamation_and_question() {
         let tokens = vec!["Wow! Really? Yes."];
         let result = chunk_text_default(&tokens);
-        assert_eq!(
-            result,
-            vec!["Wow!", "Really?", "Yes."]
-        );
+        assert_eq!(result, vec!["Wow!", "Really?", "Yes."]);
     }
 
     #[test]
@@ -439,10 +419,7 @@ mod tests {
         // "etc." should not cause a split
         let tokens = vec!["Items etc. are here. Done."];
         let result = chunk_text_default(&tokens);
-        assert_eq!(
-            result,
-            vec!["Items etc. are here.", "Done."]
-        );
+        assert_eq!(result, vec!["Items etc. are here.", "Done."]);
     }
 
     #[test]
@@ -452,7 +429,9 @@ mod tests {
             max_chunk_chars: 50,
         };
         // First sentence < 50, second pushes over
-        let tokens = vec!["Short sentence here. And then a much longer sentence that pushes over the limit."];
+        let tokens = vec![
+            "Short sentence here. And then a much longer sentence that pushes over the limit.",
+        ];
         let result = chunk_text(&tokens, config);
         assert_eq!(result[0], "Short sentence here.");
         assert!(result.len() >= 2);

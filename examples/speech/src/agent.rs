@@ -14,18 +14,17 @@ use autoagents_speech::providers::parakeet::Parakeet;
 use autoagents_speech::providers::pocket_tts::PocketTTS;
 use autoagents_speech::vad::{SegmentTranscription, SileroVad, VadSttConfig, VadSttPipeline};
 use autoagents_speech::{
-    AudioFormat, SpeechRequest, TextChunk, VoiceIdentifier,
-    StreamingTtsPipeline,
+    AudioFormat, SpeechRequest, StreamingTtsPipeline, TextChunk, VoiceIdentifier,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::io::Write;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-use std::pin::Pin;
 use std::task::{Context as TaskContext, Poll};
+use std::time::Duration;
 
 use futures::{Stream, StreamExt};
 

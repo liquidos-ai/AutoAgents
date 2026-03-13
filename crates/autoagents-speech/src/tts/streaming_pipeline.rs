@@ -30,7 +30,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::Stream;
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{Semaphore, mpsc};
 
 use crate::error::TTSResult;
 use crate::provider::TTSSpeechProvider;
@@ -72,11 +72,7 @@ impl<T: TTSSpeechProvider + Send + Sync + 'static> StreamingTtsPipeline<T> {
     ///
     /// # Returns
     /// A stream of `Result<AudioChunk, TTSError>` in sequential sentence order.
-    pub fn run<S>(
-        &self,
-        token_stream: S,
-        base_request: SpeechRequest,
-    ) -> OrderedAudioStream
+    pub fn run<S>(&self, token_stream: S, base_request: SpeechRequest) -> OrderedAudioStream
     where
         S: Stream<Item = String> + Send + 'static,
     {
@@ -364,7 +360,11 @@ mod tests {
             chunks.push(result.unwrap());
         }
         // Should have at least 2 chunks (one per sentence)
-        assert!(chunks.len() >= 2, "Expected >= 2 chunks, got {}", chunks.len());
+        assert!(
+            chunks.len() >= 2,
+            "Expected >= 2 chunks, got {}",
+            chunks.len()
+        );
     }
 
     #[tokio::test]
@@ -625,7 +625,10 @@ mod tests {
 
         let mut stream = pipeline.run(tokens, test_request());
         if let Some(Ok(chunk)) = stream.next().await {
-            assert_eq!(chunk.sample_rate, 24000, "AudioChunk should carry sample_rate from TTS response");
+            assert_eq!(
+                chunk.sample_rate, 24000,
+                "AudioChunk should carry sample_rate from TTS response"
+            );
         } else {
             panic!("Expected at least one audio chunk");
         }
