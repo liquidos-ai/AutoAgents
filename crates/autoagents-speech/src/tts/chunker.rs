@@ -218,9 +218,9 @@ impl SentenceChunker {
     }
 
     /// Force flush at the best available point when buffer exceeds max length.
-    /// Tries to split at the last sentence boundary; falls back to the full buffer.
+    /// Tries to split at the first sentence boundary; falls back to the full buffer.
     fn force_flush_at_best_point(&mut self) -> Option<String> {
-        // Try to find a sentence boundary to split at
+        // Try to find the first sentence boundary to split at
         if let Some((split_pos, _)) = self.find_sentence_boundary_from(0) {
             let candidate = self.buffer[..split_pos].trim().to_string();
             if !candidate.is_empty() {

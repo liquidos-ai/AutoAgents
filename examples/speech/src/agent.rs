@@ -404,7 +404,11 @@ async fn handle_user_text(
         let filtered = raw_stream.filter_map(|res| async move {
             match res {
                 Ok(text) if !text.is_empty() => Some(text),
-                _ => None,
+                Ok(_) => None, // Empty text, skip
+                Err(e) => {
+                    eprintln!("Agent stream error: {e}");
+                    None
+                }
             }
         });
         // SkipLast drops the done=true full-response duplicate

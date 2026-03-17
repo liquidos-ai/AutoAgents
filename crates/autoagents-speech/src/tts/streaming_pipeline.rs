@@ -198,6 +198,8 @@ pub struct OrderedAudioStream {
     channel_closed: bool,
     /// Whether we've sent the final chunk
     done: bool,
+    /// Track the highest sequence index we've seen (to detect gaps)
+    max_seq_seen: Option<usize>,
 }
 
 impl OrderedAudioStream {
@@ -209,6 +211,35 @@ impl OrderedAudioStream {
             pending_chunks: Vec::new(),
             channel_closed: false,
             done: false,
+            max_seq_seen: None,
+        }
+    }
+
+    /// Check if `next_seq` is missing and will never arrive.
+    ///
+    /// This happens when the channel is closed, `next_seq` is not in buffer,
+    /// but we have buffered sequences with higher indices. This indicates a
+    /// TTS task panicked or failed to send its result.
+    fn is_seq_missing(&self) -> bool {
+        if !self.channel_closed {
+            return false;
+        }
+        // If buffer is empty, nothing is missing
+        if self.buffer.is_empty() {
+            return false;
+        }
+        // If next_seq is in buffer, it's not missing
+        if self.buffer.contains_key(&self.next_seq) {
+            return false;
+        }
+        // Check if we have any sequence > next_seq (gap detected)
+        self.buffer.keys().any(|&k| k > self.next_seq)
+    }
+
+    /// Skip to the next available sequence when a gap is detected.
+    fn skip_to_next_available(&mut self) {
+        if let Some(&min_key) = self.buffer.keys().next() {
+            self.next_seq = min_key;
         }
     }
 
@@ -262,9 +293,21 @@ impl Stream for OrderedAudioStream {
                 return Poll::Ready(None);
             }
 
+            // Check for missing sequence (TTS task panicked/failed to send)
+            if this.is_seq_missing() {
+                // Skip the missing sequence and continue with what we have
+                this.skip_to_next_available();
+                // Loop back to try draining from the new position
+                continue;
+            }
+
             // Try to receive more results
             match this.result_rx.poll_recv(cx) {
                 Poll::Ready(Some((seq_idx, result))) => {
+                    // Track max sequence seen for gap detection
+                    this.max_seq_seen = Some(
+                        this.max_seq_seen.map_or(seq_idx, |m| m.max(seq_idx))
+                    );
                     this.buffer.insert(seq_idx, result);
                     // Loop back to try draining
                 }
