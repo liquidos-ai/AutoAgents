@@ -79,6 +79,7 @@ impl TTSSpeechProvider for PocketTTS {
         let audio_stream = futures::stream::StreamExt::map(stream, |result| {
             result.map_err(TTSError::from).map(|response| AudioChunk {
                 samples: response.audio.samples,
+                sample_rate: response.audio.sample_rate,
                 is_final: false, // In streaming, we don't know when it's final, TODO: Can we improve this
             })
         });

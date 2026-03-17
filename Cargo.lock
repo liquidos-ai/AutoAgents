@@ -8356,10 +8356,12 @@ dependencies = [
  "autoagents-speech",
  "clap",
  "env_logger",
+ "futures",
  "hound",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-stream",
 ]
 
 [[package]]

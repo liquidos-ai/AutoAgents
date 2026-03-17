@@ -146,6 +146,7 @@ pub struct SpeechResponse {
 #[derive(Clone, Debug)]
 pub struct AudioChunk {
     pub samples: Vec<f32>,
+    pub sample_rate: u32,
     pub is_final: bool,
 }
 

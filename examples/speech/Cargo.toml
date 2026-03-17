@@ -20,3 +20,5 @@ autoagents = { workspace = true, features = ["openai"] }
 autoagents-derive = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+futures = { workspace = true }
+tokio-stream = { workspace = true }
