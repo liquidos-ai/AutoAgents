@@ -305,9 +305,7 @@ impl Stream for OrderedAudioStream {
             match this.result_rx.poll_recv(cx) {
                 Poll::Ready(Some((seq_idx, result))) => {
                     // Track max sequence seen for gap detection
-                    this.max_seq_seen = Some(
-                        this.max_seq_seen.map_or(seq_idx, |m| m.max(seq_idx))
-                    );
+                    this.max_seq_seen = Some(this.max_seq_seen.map_or(seq_idx, |m| m.max(seq_idx)));
                     this.buffer.insert(seq_idx, result);
                     // Loop back to try draining
                 }
