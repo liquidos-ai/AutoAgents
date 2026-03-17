@@ -147,7 +147,13 @@ impl<T: TTSSpeechProvider + Send + Sync + 'static> StreamingTtsPipeline<T> {
     ) {
         tokio::spawn(async move {
             // Acquire semaphore to serialize TTS calls
-            let _permit = semaphore.acquire().await;
+            let _permit = match semaphore.acquire().await {
+                Ok(permit) => permit,
+                Err(_) => {
+                    // Semaphore closed - pipeline is shutting down
+                    return;
+                }
+            };
 
             let request = SpeechRequest {
                 text: sentence,

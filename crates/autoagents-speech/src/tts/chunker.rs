@@ -1,15 +1,14 @@
 //! Sentence chunker for TTS input.
 //!
 //! Splits streaming text into natural sentence boundaries so each chunk can be
-//! synthesized independently. Handles abbreviations, decimal numbers, and
-//! enforces min/max chunk sizes to avoid TTS quality issues.
+//! synthesized independently. Handles decimal numbers and enforces min/max
+//! chunk sizes to avoid TTS quality issues.
 //!
 //! # Design
 //!
 //! Inspired by production chunkers in LiveKit Agents and Pipecat:
 //! - Split at `[.!?]` followed by whitespace + uppercase (or end of input)
 //! - Split at `\n\n` (paragraph break) unconditionally
-//! - Do NOT split on abbreviations (`Mr.`, `Dr.`, `vs.`, etc.)
 //! - Do NOT split on decimal numbers (`$4.50`, `v2.0`)
 //! - Force flush when buffer exceeds `max_chunk_chars`
 //! - Hold result if it would be shorter than `min_chunk_chars`
@@ -34,18 +33,12 @@ impl Default for ChunkerConfig {
     }
 }
 
-/// Known abbreviations that should NOT cause a sentence split.
-const ABBREVIATIONS: &[&str] = &[
-    "Mr", "Mrs", "Ms", "Dr", "Prof", "Sr", "Jr", "vs", "etc", "No", "Fig", "St", "Ave", "Blvd",
-    "Corp", "Inc", "Ltd", "Gen", "Gov", "Sgt", "Cpl", "Pvt", "Est", "approx", "dept", "vol",
-];
-
 /// A sentence chunker that accumulates tokens and emits complete sentences.
 ///
 /// Feed tokens via [`push_token`](SentenceChunker::push_token) and collect
 /// emitted sentences. When the input stream ends, call
 /// [`force_flush`](SentenceChunker::force_flush) to emit any remainder.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SentenceChunker {
     buffer: String,
     config: ChunkerConfig,
@@ -170,11 +163,6 @@ impl SentenceChunker {
                 continue;
             }
 
-            // Skip if this is an abbreviation: <word>.
-            if ch == '.' && self.is_abbreviation_at(&chars, idx) {
-                continue;
-            }
-
             // Valid boundary if followed by whitespace + uppercase letter,
             // OR if punctuation is at the very end of the buffer.
             if after_punct >= bytes.len() {
@@ -210,33 +198,6 @@ impl SentenceChunker {
         // Period at end after a digit — might be a decimal waiting for more
         // tokens. Treat as decimal to be safe.
         false
-    }
-
-    /// Check if the period at char_idx ends an abbreviation.
-    fn is_abbreviation_at(&self, chars: &[(usize, char)], char_idx: usize) -> bool {
-        if char_idx == 0 {
-            return false;
-        }
-        // Walk backwards to find the word before the period
-        let word_end = char_idx; // exclusive — the period itself
-        let mut word_start = char_idx;
-        for i in (0..char_idx).rev() {
-            if chars[i].1.is_alphanumeric() {
-                word_start = i;
-            } else {
-                break;
-            }
-        }
-        if word_start == word_end {
-            return false;
-        }
-        let word_start_byte = chars[word_start].0;
-        let word_end_byte = chars[word_end].0;
-        let word = &self.buffer[word_start_byte..word_end_byte];
-
-        ABBREVIATIONS
-            .iter()
-            .any(|abbr| abbr.eq_ignore_ascii_case(word))
     }
 
     /// Check if a string starts with whitespace followed by an uppercase letter.
@@ -302,13 +263,6 @@ mod tests {
     }
 
     #[test]
-    fn test_abbreviation_no_split() {
-        let tokens = vec!["Mr. Smith went home. He arrived."];
-        let result = chunk_text_default(&tokens);
-        assert_eq!(result, vec!["Mr. Smith went home.", "He arrived."]);
-    }
-
-    #[test]
     fn test_decimal_no_split() {
         let tokens = vec!["Price is $4.50. Buy now!"];
         let result = chunk_text_default(&tokens);
@@ -361,10 +315,10 @@ mod tests {
     fn test_streaming_tokens() {
         // Simulate LLM streaming token by token
         let tokens = vec![
-            "Mr", ".", " Smith", " went", " home", ".", " He", " arrived", ".",
+            "Hello", " ", "world", ".", " ", "How", " ", "are", " ", "you", "?",
         ];
         let result = chunk_text_default(&tokens);
-        assert_eq!(result, vec!["Mr. Smith went home.", "He arrived."]);
+        assert_eq!(result, vec!["Hello world.", "How are you?"]);
     }
 
     #[test]
@@ -398,28 +352,10 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_abbreviations() {
-        let tokens = vec!["Dr. Smith and Prof. Jones met. They talked."];
-        let result = chunk_text_default(&tokens);
-        assert_eq!(
-            result,
-            vec!["Dr. Smith and Prof. Jones met.", "They talked."]
-        );
-    }
-
-    #[test]
     fn test_exclamation_and_question() {
         let tokens = vec!["Wow! Really? Yes."];
         let result = chunk_text_default(&tokens);
         assert_eq!(result, vec!["Wow!", "Really?", "Yes."]);
-    }
-
-    #[test]
-    fn test_no_split_mid_sentence_period() {
-        // "etc." should not cause a split
-        let tokens = vec!["Items etc. are here. Done."];
-        let result = chunk_text_default(&tokens);
-        assert_eq!(result, vec!["Items etc. are here.", "Done."]);
     }
 
     #[test]
