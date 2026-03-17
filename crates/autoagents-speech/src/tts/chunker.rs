@@ -47,10 +47,7 @@ pub struct SentenceChunker {
 impl SentenceChunker {
     /// Create a new chunker with the default configuration.
     pub fn new() -> Self {
-        Self {
-            buffer: String::default(),
-            config: ChunkerConfig::default(),
-        }
+        Self::default()
     }
 
     /// Create a new chunker with a custom configuration.
