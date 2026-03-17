@@ -217,14 +217,14 @@ impl OrderedAudioStream {
 
     /// Check if `next_seq` is missing and will never arrive.
     ///
-    /// This happens when the channel is closed, `next_seq` is not in buffer,
-    /// but we have buffered sequences with higher indices. This indicates a
-    /// TTS task panicked or failed to send its result.
+    /// This happens when the channel is closed and `next_seq` is not in buffer.
+    /// Since no more results can arrive, the missing sequence will never be
+    /// delivered (the TTS task panicked or failed to send its result).
     fn is_seq_missing(&self) -> bool {
         if !self.channel_closed {
             return false;
         }
-        // If buffer is empty, nothing is missing
+        // If buffer is empty, there's nothing to skip to
         if self.buffer.is_empty() {
             return false;
         }
@@ -232,8 +232,9 @@ impl OrderedAudioStream {
         if self.buffer.contains_key(&self.next_seq) {
             return false;
         }
-        // Check if we have any sequence > next_seq (gap detected)
-        self.buffer.keys().any(|&k| k > self.next_seq)
+        // Channel is closed, buffer is non-empty, but next_seq isn't there.
+        // This means next_seq will never arrive - it's missing.
+        true
     }
 
     /// Skip to the next available sequence when a gap is detected.
@@ -679,5 +680,75 @@ mod tests {
         } else {
             panic!("Expected at least one audio chunk");
         }
+    }
+
+    /// Test that the stream terminates correctly when a sequence is missing
+    /// (e.g., a TTS task panicked before sending its result).
+    /// This verifies the fix for the infinite loop bug where poll_next would
+    /// keep polling a closed channel if next_seq was missing.
+    #[tokio::test]
+    async fn test_missing_sequence_does_not_hang() {
+        use tokio::time::{Duration, timeout};
+
+        // Directly test OrderedAudioStream with a controlled channel
+        let (tx, rx) = mpsc::channel::<(usize, TTSResult<Vec<AudioChunk>>)>(32);
+        let mut stream = OrderedAudioStream::new(rx);
+
+        // Send sequence 1, but NOT sequence 0
+        // This simulates a TTS task for sequence 0 panicking
+        let chunk = AudioChunk {
+            samples: vec![0.5; 10],
+            sample_rate: 24000,
+            is_final: false,
+        };
+        tx.send((1, Ok(vec![chunk.clone()]))).await.unwrap();
+
+        // Close the channel (no more results coming)
+        drop(tx);
+
+        // The stream should NOT hang - it should skip missing seq 0 and yield seq 1
+        let result = timeout(Duration::from_secs(1), stream.next()).await;
+        assert!(
+            result.is_ok(),
+            "Stream should not hang when sequence is missing"
+        );
+
+        // Should have received the chunk from sequence 1
+        let item = result.unwrap();
+        assert!(item.is_some(), "Should yield buffered sequence 1");
+        assert!(item.unwrap().is_ok());
+
+        // Stream should terminate
+        let result = timeout(Duration::from_secs(1), stream.next()).await;
+        assert!(result.is_ok(), "Stream should terminate cleanly");
+        assert!(result.unwrap().is_none(), "Stream should be done");
+    }
+
+    /// Test that consecutive missing sequences are handled correctly.
+    #[tokio::test]
+    async fn test_multiple_missing_sequences() {
+        use tokio::time::{Duration, timeout};
+
+        let (tx, rx) = mpsc::channel::<(usize, TTSResult<Vec<AudioChunk>>)>(32);
+        let mut stream = OrderedAudioStream::new(rx);
+
+        // Only send sequence 3, missing 0, 1, and 2
+        let chunk = AudioChunk {
+            samples: vec![0.5; 10],
+            sample_rate: 24000,
+            is_final: false,
+        };
+        tx.send((3, Ok(vec![chunk]))).await.unwrap();
+        drop(tx);
+
+        // Should skip to seq 3 and yield it
+        let result = timeout(Duration::from_secs(1), stream.next()).await;
+        assert!(result.is_ok(), "Should not hang with multiple missing seqs");
+        assert!(result.unwrap().is_some());
+
+        // Should terminate
+        let result = timeout(Duration::from_secs(1), stream.next()).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
     }
 }
