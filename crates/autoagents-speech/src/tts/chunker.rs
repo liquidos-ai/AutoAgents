@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_force_flush_remainder() {
-        let mut chunker = SentenceChunker::new();
+        let mut chunker = SentenceChunker::default();
         chunker.push_token("Hello there");
         let flushed = chunker.force_flush();
         assert_eq!(flushed, Some("Hello there".to_string()));
@@ -297,13 +297,13 @@ mod tests {
 
     #[test]
     fn test_force_flush_empty() {
-        let mut chunker = SentenceChunker::new();
+        let mut chunker = SentenceChunker::default();
         assert_eq!(chunker.force_flush(), None);
     }
 
     #[test]
     fn test_force_flush_whitespace_only() {
-        let mut chunker = SentenceChunker::new();
+        let mut chunker = SentenceChunker::default();
         chunker.push_token("   ");
         assert_eq!(chunker.force_flush(), None);
     }
