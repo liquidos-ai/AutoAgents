@@ -738,21 +738,21 @@ fn create_openai_tool_stream(
         .bytes_stream()
         .scan(
             (
-                String::default(),
+                Vec::<u8>::new(),
                 HashMap::<usize, OpenAIToolUseState>::default(),
             ),
             move |(buffer, tool_states), chunk| {
                 let result = match chunk {
                     Ok(bytes) => {
-                        let text = String::from_utf8_lossy(&bytes);
-                        buffer.push_str(&text);
-
                         let mut results = Vec::new();
+                        buffer.extend_from_slice(&bytes);
 
                         // Process complete SSE events (separated by double newlines)
-                        while let Some(pos) = buffer.find("\n\n") {
-                            let event = buffer[..pos].to_string();
+                        while let Some(pos) = buffer.windows(2).position(|w| w == b"\n\n") {
+                            let event_bytes: Vec<u8> = buffer[..pos].to_vec();
                             buffer.drain(..pos + 2);
+
+                            let event = String::from_utf8_lossy(&event_bytes).into_owned();
 
                             // Also handle \r\n\r\n
                             let event = event.trim();
