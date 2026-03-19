@@ -747,14 +747,12 @@ fn create_openai_tool_stream(
                         let mut results = Vec::new();
                         buffer.extend_from_slice(&bytes);
 
-                        // Process complete SSE events (separated by double newlines)
-                        while let Some(pos) = buffer.windows(2).position(|w| w == b"\n\n") {
+                        // Process complete SSE events separated by LF or CRLF blank lines.
+                        while let Some((pos, delimiter_len)) = find_sse_event_boundary(buffer) {
                             let event_bytes: Vec<u8> = buffer[..pos].to_vec();
-                            buffer.drain(..pos + 2);
+                            buffer.drain(..pos + delimiter_len);
 
                             let event = String::from_utf8_lossy(&event_bytes).into_owned();
-
-                            // Also handle \r\n\r\n
                             let event = event.trim();
                             if event.is_empty() {
                                 continue;
@@ -777,6 +775,23 @@ fn create_openai_tool_stream(
         .flat_map(futures::stream::iter);
 
     Box::pin(stream)
+}
+
+fn find_sse_event_boundary(buffer: &[u8]) -> Option<(usize, usize)> {
+    let lf = buffer
+        .windows(2)
+        .position(|window| window == b"\n\n")
+        .map(|pos| (pos, 2));
+    let crlf = buffer
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|pos| (pos, 4));
+
+    match (lf, crlf) {
+        (Some(left), Some(right)) => Some(if left.0 <= right.0 { left } else { right }),
+        (Some(boundary), None) | (None, Some(boundary)) => Some(boundary),
+        (None, None) => None,
+    }
 }
 
 /// Parses OpenAI-compatible SSE chunks with tool use support.
@@ -1022,7 +1037,7 @@ pub fn chat_message_to_openai_message(chat_msg: ChatMessage) -> OpenAIChatMessag
 }
 
 struct SSEStreamParser {
-    event_buffer: String,
+    event_buffer: Vec<u8>,
     tool_buffer: ToolCall,
     usage: Option<Usage>,
     results: Vec<Result<StreamResponse, LLMError>>,
@@ -1032,7 +1047,7 @@ struct SSEStreamParser {
 impl SSEStreamParser {
     fn new(normalize_response: bool) -> Self {
         Self {
-            event_buffer: String::default(),
+            event_buffer: Vec::default(),
             usage: None,
             results: Vec::default(),
             tool_buffer: ToolCall {
@@ -1073,8 +1088,9 @@ impl SSEStreamParser {
 
     /// Parse the accumulated event_buffer as one SSE event
     fn parse_event(&mut self) {
+        let event = String::from_utf8_lossy(&self.event_buffer);
         let mut data_payload = String::default();
-        for line in self.event_buffer.lines() {
+        for line in event.lines() {
             if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
                     self.push_tool_call();
@@ -1164,18 +1180,23 @@ impl SSEStreamParser {
         }
     }
 
-    fn consume_text(&mut self, text: &str) -> Vec<Result<StreamResponse, LLMError>> {
-        for line in text.lines() {
-            let line = line.trim_end();
-            if line.is_empty() {
-                self.parse_event();
-                self.event_buffer.clear();
-            } else {
-                self.event_buffer.push_str(line);
-                self.event_buffer.push('\n');
-            }
+    fn consume_bytes(&mut self, bytes: &[u8]) -> Vec<Result<StreamResponse, LLMError>> {
+        self.event_buffer.extend_from_slice(bytes);
+
+        while let Some((pos, delimiter_len)) = find_sse_event_boundary(&self.event_buffer) {
+            let event_bytes = self.event_buffer[..pos].to_vec();
+            self.event_buffer.drain(..pos + delimiter_len);
+            self.event_buffer = event_bytes;
+            self.parse_event();
+            self.event_buffer.clear();
         }
+
         self.results.drain(..).collect::<Vec<_>>()
+    }
+
+    #[cfg(test)]
+    fn consume_text(&mut self, text: &str) -> Vec<Result<StreamResponse, LLMError>> {
+        self.consume_bytes(text.as_bytes())
     }
 }
 
@@ -1190,10 +1211,7 @@ pub fn create_sse_stream(
     let stream = bytes_stream
         .scan(SSEStreamParser::new(normalize_response), |parser, chunk| {
             let results = match chunk {
-                Ok(bytes) => {
-                    let text = String::from_utf8_lossy(&bytes);
-                    parser.consume_text(&text)
-                }
+                Ok(bytes) => parser.consume_bytes(&bytes),
                 Err(e) => vec![Err(LLMError::HttpError(e.to_string()))],
             };
             futures::future::ready(Some(results))
@@ -1510,6 +1528,39 @@ mod tests {
             "Expected ToolUseComplete, got {:?}",
             results[0]
         );
+    }
+
+    #[test]
+    fn test_sse_stream_parser_preserves_split_utf8_content() {
+        let mut parser = SSEStreamParser::new(false);
+        let event = b"data: {\"choices\":[{\"delta\":{\"content\":\"Hi \xF0\x9F\x98\x80\"}}]}\n\n";
+
+        let first = parser.consume_bytes(&event[..43]);
+        assert!(first.is_empty());
+
+        let second = parser.consume_bytes(&event[43..]);
+        assert_eq!(second.len(), 1);
+        match &second[0] {
+            Ok(StreamResponse { choices, .. }) => {
+                assert_eq!(choices[0].delta.content.as_deref(), Some("Hi 😀"));
+            }
+            other => panic!("Expected content delta, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_sse_stream_parser_handles_crlf_event_boundaries() {
+        let mut parser = SSEStreamParser::new(false);
+        let results = parser
+            .consume_bytes(b"data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\r\n\r\n");
+
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            Ok(StreamResponse { choices, .. }) => {
+                assert_eq!(choices[0].delta.content.as_deref(), Some("hello"));
+            }
+            other => panic!("Expected content delta, got {other:?}"),
+        }
     }
 
     #[test]
