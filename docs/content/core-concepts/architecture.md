@@ -18,4 +18,18 @@ Key layers:
 - Runtime: optional actor system for multi‑agent workflows
 - Providers: pluggable LLM backends (cloud/local)
 
-![AutoAgents architecture](../img/autoagents-architecture.png)
+In practice, execution starts with an agent definition. That definition is paired
+with an executor, which decides how the task is handled, whether the run stays
+single-turn or enters a multi-step reasoning loop with tool calls. During a run,
+the executor can read from memory, invoke tools or MCP-backed capabilities, and
+dispatch prompts to an LLM provider.
+
+Direct agents execute this flow inline and return results to the caller. Actor
+agents add the runtime layer, which lets multiple agents communicate through
+topics, coordinate background work, and participate in larger workflows. The
+runtime sits above the provider layer, so the same agent logic can target cloud
+or local models without changing the core execution model.
+
+This separation is what keeps AutoAgents modular: agent behavior, execution
+strategy, memory, tools, runtime orchestration, and model providers can evolve
+independently while still composing into one consistent system.

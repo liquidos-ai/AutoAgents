@@ -27,7 +27,6 @@ const sidebars: SidebarsConfig = {
         'core-concepts/telemetry',
       ],
     },
-    'serve-cli',
     {
       type: 'category',
       label: 'LLM Providers',

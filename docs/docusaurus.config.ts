@@ -108,10 +108,6 @@ const config: Config = {
               label: 'Python Bindings',
               to: '/python-bindings/',
             },
-            {
-              label: 'Serve And CLI',
-              to: '/serve-cli/',
-            },
           ],
         },
         {

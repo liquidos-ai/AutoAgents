@@ -80,7 +80,7 @@ html[data-theme='dark'] {
 }
 
 .navbar__title::after {
-  content: 'AutoAgents Docs';
+  content: 'AutoAgents';
   display: block;
   margin-top: 4px;
   font-size: 11px;
