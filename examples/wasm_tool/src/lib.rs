@@ -1,9 +1,9 @@
-use std::alloc::{alloc as std_alloc, dealloc as std_dealloc, Layout};
+use std::alloc::{Layout, alloc as std_alloc, dealloc as std_dealloc};
 use std::ptr::copy_nonoverlapping;
 use std::slice;
 use tinyjson::JsonValue;
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn alloc(size: i32) -> *mut u8 {
     unsafe {
         let layout = Layout::from_size_align(size as usize, 1).unwrap();
@@ -11,7 +11,7 @@ pub extern "C" fn alloc(size: i32) -> *mut u8 {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn free(ptr: *mut u8, size: i32) {
     unsafe {
         let layout = Layout::from_size_align(size as usize, 1).unwrap();
@@ -19,7 +19,7 @@ pub extern "C" fn free(ptr: *mut u8, size: i32) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn execute(ptr: *mut u8, len: i32) -> i32 {
     unsafe {
         let input_slice = slice::from_raw_parts(ptr, len as usize);
