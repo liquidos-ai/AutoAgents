@@ -8,11 +8,7 @@ default-members = [
     "crates/autoagents-derive",
     "crates/autoagents-protocol",
 ]
-members = [
-    "crates/*",
-    "examples/*",
-    "bindings/python/*",
-]
+members = ["crates/*", "examples/*", "bindings/python/*"]
 
 exclude = [
     "examples/wasm_tool",
@@ -55,17 +51,17 @@ autoagents-speech = { path = "crates/autoagents-speech", version = "0.3.6" }
 autoagents-telemetry = { path = "crates/autoagents-telemetry", version = "0.3.6" }
 
 
-syn = { version = "2.0.98", features = ["full"] }
-tokio = { version = "1.43.0", features = ["full"] }
+syn = { version = "2.0.117", features = ["full"] }
+tokio = { version = "1.50.0", features = ["full"] }
 async-trait = "0.1.89"
 reqwest = { version = "0.13.2", features = ["json", "query", "stream"] }
 serde = { version = "1.0.228", features = [
     "derive",
     "rc",
 ], default-features = false }
-serde_json = "1.0.145"
-strum = { version = "0.27.2", features = ["derive", "strum_macros"] }
-strum_macros = "0.27.2"
+serde_json = "1.0.149"
+strum = { version = "0.28.0", features = ["derive", "strum_macros"] }
+strum_macros = "0.28.0"
 tokio-stream = "0.1.18"
 thiserror = "2.0.18"
 futures = "0.3.32"
@@ -73,12 +69,12 @@ futures-core = "0.3.32"
 futures-util = "0.3.32"
 proc-macro2 = "1.0.106"
 quote = "1.0.44"
-clap = { version = "4.5.58", features = ["derive"] }
+clap = { version = "4.6.0", features = ["derive"] }
 ureq = { version = "3.2.0", features = ["json"] }
 uuid = { version = "1.21.0", features = ["v4"] }
 log = "0.4.29"
 env_logger = { version = "0.11.9" }
-chrono = { version = "0.4", default-features = false, features = [
+chrono = { version = "0.4.44", default-features = false, features = [
     "serde",
     "clock",
 ] }
@@ -87,42 +83,44 @@ regex = "1.12.3"
 glob = "0.3.3"
 walkdir = "2.5"
 ignore = "0.4.25"
-wasmtime = "42.0.0"
-tokenizers = { version = "0.22.0", default-features = false, features = [] }
+wasmtime = "43.0.0"
+tokenizers = { version = "0.22.2", default-features = false, features = [] }
 rand = "0.10.0"
-minijinja = "2.3"
+minijinja = "2.18.0"
 tiktoken-rs = { version = "0.9.1" }
 base64 = "0.22.1"
 either = { version = "1.15.0", features = ["serde"] }
-tempfile = "3.10.1"
-getrandom = "0.4.1"
+tempfile = "3.27.0"
+getrandom = "0.4.2"
 ndarray = "0.17.2"
-tokio-test = "0.4"
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4.50"
+tokio-test = "0.4.5"
+wasm-bindgen = "0.2.114"
+wasm-bindgen-futures = "0.4.64"
 serde-wasm-bindgen = "0.6"
 bytemuck = "1.23.2"
 once_cell = "1.21.3"
 pdf-extract = "0.10.0"
 zip = { version = "8.0.0", default-features = false, features = ["deflate"] }
 quick-xml = "0.39.1"
-calamine = "0.33"
+calamine = "0.34"
 html2text = "0.16.7"
 csv = "1.4"
-rmcp = { version = "0.15.0" }
+rmcp = { version = "1.2.0" }
 image = { version = "0.25.9" }
 anyhow = "1.0.101"
 tracing = "0.1.44"
-tracing-subscriber = "0.3.22"
+tracing-subscriber = "0.3.23"
 qdrant-client = { version = "1.17.0", default-features = false, features = [
     "serde",
 ] }
 httpmock = "0.8.3"
 testcontainers = "0.27.0"
 hound = "3.5.1"
-rodio = "0.21.1"
+rodio = "0.22.2"
 ractor = { version = "0.15.7" }
-
+toml = { version = "1.0.7" }
+hf-hub = { version = "0.5.0", default-features = false }
+encoding_rs = "0.8.35"
 
 [profile.release]
 lto = "thin"      # Enable link-time optimization
