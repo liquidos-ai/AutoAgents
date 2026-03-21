@@ -77,11 +77,11 @@ impl ToolRuntime for McpToolAdapter {
         };
 
         // Prepare the call tool request
-        let request = CallToolRequestParams {
-            meta: None,
-            name: self.name.clone().into(),
-            arguments,
-            task: None,
+        let request = match arguments {
+            Some(arguments) => {
+                CallToolRequestParams::new(self.name.clone()).with_arguments(arguments)
+            }
+            None => CallToolRequestParams::new(self.name.clone()),
         };
 
         // Execute the tool via MCP

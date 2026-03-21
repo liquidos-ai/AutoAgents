@@ -19,14 +19,14 @@ mtmd = ["llama-cpp-2/mtmd"]
 llama-cpp-2 = { version = "0.1.133", default-features = false }
 autoagents-llm = { workspace = true }
 async-trait = { workspace = true }
-hf-hub = { version = "0.4.3", default-features = false, features = ["ureq"] }
+hf-hub = { workspace = true, default-features = false, features = ["ureq"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 rand = { workspace = true }
 log = { workspace = true }
-encoding_rs = "0.8"
+encoding_rs.workspace = true
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -1,29 +1,30 @@
-use rodio::{OutputStream, OutputStreamBuilder, Sink};
+use std::num::{NonZeroU16, NonZeroU32};
+
+use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, buffer::SamplesBuffer};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AudioPlayerError {
     #[error("Failed to initialize audio output stream")]
     InitFailed,
-    #[error("Failed to create audio sink")]
-    FailedToCreateAudioSink,
 }
 
 /// Audio player that handles playback of audio samples
 pub struct AudioPlayer {
-    _stream: OutputStream,
-    sink: Sink,
+    _stream: MixerDeviceSink,
+    sink: Player,
 }
 
 impl AudioPlayer {
     /// Try to create a new audio player
     /// Returns None if no audio device is available
     pub fn try_new() -> Result<Self, AudioPlayerError> {
-        let stream = match OutputStreamBuilder::open_default_stream() {
+        let mut stream = match DeviceSinkBuilder::open_default_sink() {
             Ok(s) => s,
             Err(_) => return Err(AudioPlayerError::InitFailed),
         };
+        stream.log_on_drop(false);
 
-        let sink = Sink::connect_new(stream.mixer());
+        let sink = Player::connect_new(stream.mixer());
 
         Ok(AudioPlayer {
             _stream: stream,
@@ -33,7 +34,12 @@ impl AudioPlayer {
 
     /// Play audio samples (mono)
     pub fn play_samples(&self, samples: &[f32], sample_rate: u32) {
-        let source = rodio::buffer::SamplesBuffer::new(1, sample_rate, samples.to_vec());
+        let Some(sample_rate) = NonZeroU32::new(sample_rate) else {
+            return;
+        };
+        let channels =
+            NonZeroU16::new(1).expect("mono playback channel count must always be non-zero");
+        let source = SamplesBuffer::new(channels, sample_rate, samples.to_vec());
         self.sink.append(source);
     }
 

@@ -127,7 +127,7 @@ impl AudioCapture {
 
     /// Capture microphone audio for a fixed duration.
     pub fn capture_for(&self, duration: Duration) -> AudioCaptureResult<AudioData> {
-        let input_sample_rate = self.input_config.sample_rate().0;
+        let input_sample_rate = self.input_config.sample_rate();
         let input_channels = self.input_config.channels() as usize;
 
         let expected_samples =
@@ -184,7 +184,7 @@ impl AudioCapture {
         Ok(AudioCaptureStream {
             _stream: stream,
             buffer,
-            input_sample_rate: self.input_config.sample_rate().0,
+            input_sample_rate: self.input_config.sample_rate(),
             input_channels: self.input_config.channels() as usize,
             target_config: self.target_config.clone(),
             last_error: stream_error,

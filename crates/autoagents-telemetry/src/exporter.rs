@@ -72,13 +72,15 @@ impl SpanExporterWrapper {
 #[derive(Clone)]
 struct LoggingHttpClient {
     inner: ReqwestClient,
+    log_responses: bool,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl LoggingHttpClient {
-    fn new() -> Self {
+    fn new(log_responses: bool) -> Self {
         Self {
             inner: ReqwestClient::new(),
+            log_responses,
         }
     }
 }
@@ -101,21 +103,25 @@ impl HttpClient for LoggingHttpClient {
         let body = response.bytes().await?;
 
         if status.is_success() {
-            tracing::debug!(
-                target: "autoagents.telemetry.otlp",
-                status = %status,
-                body_len = body.len(),
-                "OTLP export succeeded"
-            );
+            if self.log_responses {
+                tracing::debug!(
+                    target: "autoagents.telemetry.otlp",
+                    status = %status,
+                    body_len = body.len(),
+                    "OTLP export succeeded"
+                );
+            }
         } else {
             let body_preview = String::from_utf8_lossy(&body);
             let preview = body_preview.chars().take(4096).collect::<String>();
-            tracing::warn!(
-                target: "autoagents.telemetry.otlp",
-                status = %status,
-                body = %preview,
-                "OTLP export failed"
-            );
+            if self.log_responses {
+                tracing::warn!(
+                    target: "autoagents.telemetry.otlp",
+                    status = %status,
+                    body = %preview,
+                    "OTLP export failed"
+                );
+            }
             return Err(format!("OTLP export failed with status {status}: {preview}").into());
         }
 
@@ -231,12 +237,7 @@ where
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        if config.debug_http {
-            builder = builder.with_http_client(LoggingHttpClient::new());
-        } else {
-            let client = ReqwestClient::new();
-            builder = builder.with_http_client(client);
-        }
+        builder = builder.with_http_client(LoggingHttpClient::new(config.debug_http));
     }
 
     if let Some(endpoint) = resolve_signal_endpoint(config, signal_path) {
