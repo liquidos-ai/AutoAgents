@@ -1,8 +1,4 @@
-# Sample workflow for building and deploying a mdBook site to GitHub Pages
-#
-# To get started with mdBook see: https://rust-lang.github.io/mdBook/index.html
-#
-name: Deploy mdBook site to Pages
+name: Deploy docs site to Pages
 
 on:
   # Runs on pushes targeting the default branch
@@ -29,35 +25,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Build job
   build:
     runs-on: ubuntu-latest
-    env:
-      MDBOOK_VERSION: 0.5.1
     steps:
       - uses: actions/checkout@v4
-      - name: Install mdBook
-        run: |
-          curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf -y | sh
-          rustup update
-          cargo install --version ${MDBOOK_VERSION} mdbook
-      - name: Install mdBook Mermaid
-        run: |
-          source $HOME/.cargo/env || true
-          cargo install mdbook-mermaid
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v5
-      - name: Build with mdBook
+      - name: Install dependencies
         run: |
-          cd docs  # Change to the subdirectory if the mdBook content is under "docs"
-          mdbook build
+          cd docs
+          npm ci
+      - name: Build site
+        env:
+          DOCUSAURUS_BASE_URL: /AutoAgents/
+        run: |
+          cd docs
+          npm run build
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./docs/book
+          path: ./docs/build
 
-  # Deployment job
   deploy:
     environment:
       name: github-pages
