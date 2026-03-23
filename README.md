@@ -29,8 +29,7 @@
 ## Overview
 
 AutoAgents is a modular, multi-agent framework for building intelligent systems in Rust. It combines a type-safe agent
-model with structured tool calling, configurable memory, and pluggable LLM backends. The architecture is designed for
-performance, safety, and composability across server, edge.
+model with structured tool calling, configurable memory, and pluggable LLM backends. The architecture is designed for performance, safety, and composability across server and edge, and serves as the foundation for higher-level systems like [Odyssey](https://github.com/liquidos-ai/Odyssey).
 
 ---
 
