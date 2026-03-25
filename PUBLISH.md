@@ -12,7 +12,7 @@ git checkout -b feature/vx.x.x
 
 2. Update the Cargo.toml `[workspace.package]` version and `[workspace.dependencies]` version. We use SemVer versions.
    Update the pyproject.toml version and dependencies version and variants
-
+   Run `Cargo update` and `make python-bindings-build` or `make python-bindings-build-cuda`
 
 3. Commit the release changes on the release branch:
 

@@ -9,7 +9,7 @@ requires-python = ">=3.9"
 description = "Official Python bindings for AutoAgents Llama.cpp backend (Vulkan)"
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
-dependencies = ["autoagents-py==0.3.6"]
+dependencies = ["autoagents-py==0.3.7"]
 
 [tool.maturin]
 module-name = "autoagents_llamacpp_vulkan._autoagents_llamacpp_vulkan"
