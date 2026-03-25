@@ -12,14 +12,14 @@ license = { text = "MIT OR Apache-2.0" }
 dependencies = []
 
 [project.optional-dependencies]
-guardrails     = ["autoagents-guardrails-py==0.3.6"]
-llamacpp       = ["autoagents-llamacpp-py==0.3.6"]
-llamacpp-metal = ["autoagents-llamacpp-metal==0.3.6"]
-llamacpp-cuda = ["autoagents-llamacpp-cuda==0.3.6"]
-llamacpp-vulkan = ["autoagents-llamacpp-vulkan==0.3.6"]
-mistralrs      = ["autoagents-mistral-rs-py==0.3.6"]
-mistralrs-metal = ["autoagents-mistral-rs-metal==0.3.6"]
-mistralrs-cuda = ["autoagents-mistral-rs-cuda==0.3.6"]
+guardrails = ["autoagents-guardrails-py==0.3.7"]
+llamacpp = ["autoagents-llamacpp-py==0.3.7"]
+llamacpp-metal = ["autoagents-llamacpp-metal==0.3.7"]
+llamacpp-cuda = ["autoagents-llamacpp-cuda==0.3.7"]
+llamacpp-vulkan = ["autoagents-llamacpp-vulkan==0.3.7"]
+mistralrs = ["autoagents-mistral-rs-py==0.3.7"]
+mistralrs-metal = ["autoagents-mistral-rs-metal==0.3.7"]
+mistralrs-cuda = ["autoagents-mistral-rs-cuda==0.3.7"]
 
 [tool.maturin]
 module-name = "autoagents_py._autoagents_py"
