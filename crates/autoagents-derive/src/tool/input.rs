@@ -126,7 +126,10 @@ impl InputParser {
                         Choice::String(s) => Ok(serde_json::Value::String(s.value())),
                         Choice::Number(n) => {
                             let parsed = n.base10_parse::<i64>().map_err(|_| {
-                                Error::new(n.span(), "Numeric `choice` value is out of range for i64")
+                                Error::new(
+                                    n.span(),
+                                    "Numeric `choice` value is out of range for i64",
+                                )
                             })?;
                             Ok(serde_json::Value::Number(parsed.into()))
                         }
@@ -197,7 +200,10 @@ impl InputParser {
                 !matches!(
                     (c, instance_type),
                     (Choice::String(_), InstanceType::String)
-                        | (Choice::Number(_), InstanceType::Integer | InstanceType::Number)
+                        | (
+                            Choice::Number(_),
+                            InstanceType::Integer | InstanceType::Number
+                        )
                 )
             });
 
@@ -271,18 +277,23 @@ mod tests {
         .unwrap();
 
         let mut parser = InputParser::default();
-        parser.parse_struct(match &input.data {
-            Data::Struct(s) => s,
-            _ => panic!("Expected struct"),
-        })
-        .unwrap();
+        parser
+            .parse_struct(match &input.data {
+                Data::Struct(s) => s,
+                _ => panic!("Expected struct"),
+            })
+            .unwrap();
 
         let serialized_data = serde_json::to_string(&parser.root_schema.schema).unwrap();
 
         // The serialized schema should be valid JSON
         assert!(serialized_data.contains("\"type\":\"object\""));
-        assert!(serialized_data.contains("\"name\":{\"description\":\"The name\",\"type\":\"string\"}"));
-        assert!(serialized_data.contains("\"age\":{\"description\":\"The age\",\"type\":\"integer\"}"));
+        assert!(
+            serialized_data.contains("\"name\":{\"description\":\"The name\",\"type\":\"string\"}")
+        );
+        assert!(
+            serialized_data.contains("\"age\":{\"description\":\"The age\",\"type\":\"integer\"}")
+        );
         assert!(serialized_data.contains("\"required\":[\"name\"]"));
         assert!(!serialized_data.contains("\"required\":[\"age\"]"));
     }
