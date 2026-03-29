@@ -61,6 +61,7 @@ serde = { version = "1.0.228", features = [
 ], default-features = false }
 serde_json = "1.0.149"
 strum = { version = "0.28.0", features = ["derive", "strum_macros"] }
+schemars = "0.8.19"
 strum_macros = "0.28.0"
 tokio-stream = "0.1.18"
 thiserror = "2.0.18"

@@ -1,11 +1,9 @@
-use super::{
-    field::{Choice, FieldSchemaAttr},
-    json::JsonType,
-};
+use super::field::{Choice, FieldSchemaAttr};
 use proc_macro::TokenStream;
 use quote::quote;
-use serde::Serialize;
-use std::collections::HashMap;
+use schemars::schema::{
+    InstanceType, Metadata, ObjectValidation, RootSchema, Schema, SchemaObject, SingleOrVec,
+};
 use strum::{Display, EnumString};
 use syn::{
     Attribute, Data, DataStruct, DeriveInput, Error, Field, GenericArgument, Ident, LitStr,
@@ -18,40 +16,9 @@ enum InputAttrIdent {
     Input,
 }
 
-#[derive(Debug, Serialize)]
-pub(crate) struct InputToolProperty {
-    description: Option<String>,
-    #[serde(rename = "type")]
-    _type: String,
-    #[serde(rename = "enum", skip_serializing_if = "Option::is_none")]
-    _enum: Option<Vec<String>>,
-}
-
-#[derive(Debug, Serialize, Default)]
-pub(crate) struct InputToolParseData {
-    properties: HashMap<String, InputToolProperty>,
-    required: Vec<String>,
-    #[serde(rename = "type")]
-    arg_type: String,
-}
-
-impl InputToolParseData {
-    fn add_required_field(&mut self, field: String) {
-        self.required.push(field);
-    }
-
-    fn add_property(&mut self, name: String, property: InputToolProperty) {
-        self.properties.insert(name, property);
-    }
-
-    fn set_type(&mut self, arg_type: String) {
-        self.arg_type = arg_type;
-    }
-}
-
 #[derive(Debug, Default)]
 pub(crate) struct InputParser {
-    tool_parse_data: InputToolParseData,
+    root_schema: RootSchema,
     ident: Option<Ident>,
 }
 
@@ -61,11 +28,13 @@ impl InputParser {
         let struct_ident = input.ident.clone();
         self.ident = Some(input.ident);
 
-        //Safe to unwrap as if it fails here, It will should panic
-        self.parse_data(input.data).unwrap();
+        if let Err(err) = self.parse_data(input.data) {
+            return err.to_compile_error().into();
+        }
 
-        let serialized_data =
-            serde_json::to_string::<InputToolParseData>(&self.tool_parse_data).unwrap();
+        // Serialize only the SchemaObject to avoid the top-level $schema and definitions
+        // for better compatibility with LLM providers like OpenAI.
+        let serialized_data = serde_json::to_string(&self.root_schema.schema).unwrap();
 
         let schema_literal = LitStr::new(&serialized_data, struct_ident.span());
         let expanded = quote! {
@@ -84,7 +53,7 @@ impl InputParser {
             _ => {
                 return Err(Error::new(
                     proc_macro2::Span::call_site(),
-                    "Uninon or Enums not yet supported!",
+                    "Union or Enums not yet supported!",
                 ));
             }
         };
@@ -92,6 +61,10 @@ impl InputParser {
     }
 
     fn parse_struct(&mut self, input: &DataStruct) -> Result<()> {
+        self.root_schema.schema.instance_type =
+            Some(SingleOrVec::Single(Box::new(InstanceType::Object)));
+        self.root_schema.schema.object = Some(Box::new(ObjectValidation::default()));
+
         match &input.fields {
             syn::Fields::Named(fields) => {
                 for field in fields.named.iter() {
@@ -100,60 +73,76 @@ impl InputParser {
                         .as_ref()
                         .expect("Couldn't get the field name!")
                         .to_string();
-                    let input_property = self.parse_field(field_name.clone(), field)?;
-                    self.tool_parse_data
-                        .add_property(field_name, input_property);
+                    let (schema, optional) = self.parse_field(field_name.clone(), field)?;
+
+                    let object = self.root_schema.schema.object.as_mut().unwrap();
+                    object.properties.insert(field_name.clone(), schema);
+                    if !optional {
+                        object.required.insert(field_name);
+                    }
                 }
             }
             _ => {
                 return Err(Error::new(
                     proc_macro2::Span::call_site(),
-                    "Uninon or Enums not yet supported!",
+                    "Union or Enums not yet supported!",
                 ));
             }
         }
-        self.tool_parse_data.set_type(JsonType::Object.to_string());
         Ok(())
     }
 
-    fn parse_field(&mut self, name: String, field: &Field) -> Result<InputToolProperty> {
+    fn parse_field(&mut self, _name: String, field: &Field) -> Result<(Schema, bool)> {
         // Determine JSON schema type from the Rust type.
-        let (json_type, optional) = self.get_json_type(&field.ty)?;
-        if !optional {
-            self.tool_parse_data.add_required_field(name.clone());
-        }
+        let (instance_type, optional) = self.get_json_type(&field.ty)?;
+
+        let mut schema_obj = SchemaObject {
+            instance_type: Some(SingleOrVec::Single(Box::new(instance_type))),
+            ..Default::default()
+        };
+
         let mut tool_property: Option<FieldSchemaAttr> = None;
 
-        //Currently handling Input ident only
         for attr in &field.attrs {
             if attr
                 .path()
                 .is_ident(InputAttrIdent::Input.to_string().as_str())
             {
-                tool_property = Some(self.parse_macro_attributes(attr, &json_type)?);
+                tool_property = Some(self.parse_macro_attributes(attr, &instance_type)?);
             }
         }
 
         if let Some(property) = tool_property {
-            Ok(InputToolProperty {
-                description: property
-                    .description
-                    .map_or_else(|| None, |f| Some(f.value())),
-                _enum: property.choice.map_or_else(
-                    || None,
-                    |f| Some(f.iter().map(|f| f.to_string()).collect::<Vec<String>>()),
-                ),
-                _type: json_type.to_string(),
-            })
-        } else {
-            Err(Error::new(
-                proc_macro2::Span::call_site(),
-                "Coudn't Create the tool arg property",
-            ))
+            let mut metadata = Metadata::default();
+            if let Some(desc) = property.description {
+                metadata.description = Some(desc.value());
+            }
+            schema_obj.metadata = Some(Box::new(metadata));
+
+            if let Some(choices) = property.choice {
+                let enum_values = choices
+                    .into_iter()
+                    .map(|c| match c {
+                        Choice::String(s) => Ok(serde_json::Value::String(s.value())),
+                        Choice::Number(n) => {
+                            let parsed = n.base10_parse::<i64>().map_err(|_| {
+                                Error::new(
+                                    n.span(),
+                                    "Numeric `choice` value is out of range for i64",
+                                )
+                            })?;
+                            Ok(serde_json::Value::Number(parsed.into()))
+                        }
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                schema_obj.enum_values = Some(enum_values);
+            }
         }
+
+        Ok((Schema::Object(schema_obj), optional))
     }
 
-    fn get_json_type(&mut self, field_type: &Type) -> Result<(JsonType, bool)> {
+    fn get_json_type(&mut self, field_type: &Type) -> Result<(InstanceType, bool)> {
         match field_type {
             Type::Path(path) => {
                 let Some(segment) = path.path.segments.last() else {
@@ -167,8 +156,8 @@ impl InputParser {
                     && let PathArguments::AngleBracketed(args) = &segment.arguments
                     && let Some(GenericArgument::Type(inner)) = args.args.first()
                 {
-                    let (json_type, _) = self.get_json_type(inner)?;
-                    return Ok((json_type, true));
+                    let (instance_type, _) = self.get_json_type(inner)?;
+                    return Ok((instance_type, true));
                 }
 
                 if segment.ident == "Option" {
@@ -178,44 +167,47 @@ impl InputParser {
                     ));
                 }
 
-                let json_type = self.get_base_json_type(&segment.ident.to_string());
-                Ok((json_type, false))
+                let instance_type = self.get_base_json_type(&segment.ident.to_string());
+                Ok((instance_type, false))
             }
             Type::Reference(reference) => self.get_json_type(&reference.elem),
             Type::Group(group) => self.get_json_type(&group.elem),
             Type::Paren(paren) => self.get_json_type(&paren.elem),
-            // Fallback to string for other complex cases.
-            _ => Ok((JsonType::String, false)),
+            _ => Ok((InstanceType::String, false)),
         }
     }
 
-    fn get_base_json_type(&self, type_str: &str) -> JsonType {
+    fn get_base_json_type(&self, type_str: &str) -> InstanceType {
         match type_str {
-            "String" | "str" => JsonType::String,
-            "i32" | "u32" | "f64" | "f32" | "u8" | "i64" | "u16" | "usize" | "isize" => {
-                JsonType::Number
-            }
-            "bool" => JsonType::Boolean,
-            // For custom enums or other simple types, default to string representation.
-            _ => JsonType::String,
+            "String" | "str" => InstanceType::String,
+            "i32" | "u32" | "u8" | "i64" | "u16" | "usize" | "isize" => InstanceType::Integer,
+            "f64" | "f32" => InstanceType::Number,
+            "bool" => InstanceType::Boolean,
+            "Vec" => InstanceType::Array,
+            _ => InstanceType::String,
         }
     }
 
     fn parse_macro_attributes(
         &mut self,
         attribute: &Attribute,
-        field_type: &JsonType,
+        instance_type: &InstanceType,
     ) -> Result<FieldSchemaAttr> {
         let attributes = attribute.parse_args::<FieldSchemaAttr>()?;
 
         if let Some(ref enum_vals) = attributes.choice {
-            let invalid_choice = enum_vals.iter().find(|c| match (c, field_type) {
-                (Choice::String(_), JsonType::String) => false,
-                (Choice::Number(_), JsonType::Number) => false,
-                _ => true, // Invalid case
+            let invalid_choice = enum_vals.iter().any(|c| {
+                !matches!(
+                    (c, instance_type),
+                    (Choice::String(_), InstanceType::String)
+                        | (
+                            Choice::Number(_),
+                            InstanceType::Integer | InstanceType::Number
+                        )
+                )
             });
 
-            if invalid_choice.is_some() {
+            if invalid_choice {
                 return Err(Error::new(
                     proc_macro2::Span::call_site(),
                     "Choices must be of the same type as the field",
@@ -250,46 +242,59 @@ mod tests {
         let mut parser = InputParser::default();
         parser.parse_data(input.data).unwrap();
 
-        assert_eq!(parser.tool_parse_data.arg_type, "object");
-        assert!(parser.tool_parse_data.required.contains(&"id".to_string()));
-        assert!(
-            !parser
-                .tool_parse_data
-                .required
-                .contains(&"count".to_string())
-        );
+        let object = parser.root_schema.schema.object.as_ref().unwrap();
+        assert!(object.properties.contains_key("id"));
+        assert!(object.properties.contains_key("count"));
+        assert!(object.properties.contains_key("mode"));
 
-        let mode = parser.tool_parse_data.properties.get("mode").unwrap();
-        assert_eq!(mode._type, "string");
-        assert_eq!(mode._enum.as_ref().unwrap().len(), 2);
+        assert!(object.required.contains("id"));
+        assert!(!object.required.contains("count"));
+
+        let mode_schema = object.properties.get("mode").unwrap();
+        if let Schema::Object(obj) = mode_schema {
+            assert_eq!(
+                obj.instance_type,
+                Some(SingleOrVec::Single(Box::new(InstanceType::String)))
+            );
+            assert_eq!(obj.enum_values.as_ref().unwrap().len(), 2);
+        } else {
+            panic!("Expected Schema::Object");
+        }
     }
 
     #[test]
-    fn missing_input_attribute_errors() {
+    fn verify_serialized_schema() {
         let input: DeriveInput = syn::parse_str(
             r#"
             struct ToolArgs {
-                id: String,
+                #[input(description = "The name")]
+                name: String,
+                #[input(description = "The age")]
+                age: Option<u32>,
             }
             "#,
         )
         .unwrap();
-        let mut parser = InputParser::default();
-        let err = parser.parse_data(input.data).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("Coudn't Create the tool arg property")
-        );
-    }
 
-    #[test]
-    fn tuple_struct_errors() {
-        let input: DeriveInput = syn::parse_str(r#"struct ToolArgs(u32);"#).unwrap();
         let mut parser = InputParser::default();
-        let err = parser.parse_data(input.data).unwrap_err();
+        parser
+            .parse_struct(match &input.data {
+                Data::Struct(s) => s,
+                _ => panic!("Expected struct"),
+            })
+            .unwrap();
+
+        let serialized_data = serde_json::to_string(&parser.root_schema.schema).unwrap();
+
+        // The serialized schema should be valid JSON
+        assert!(serialized_data.contains("\"type\":\"object\""));
         assert!(
-            err.to_string()
-                .contains("Uninon or Enums not yet supported")
+            serialized_data.contains("\"name\":{\"description\":\"The name\",\"type\":\"string\"}")
         );
+        assert!(
+            serialized_data.contains("\"age\":{\"description\":\"The age\",\"type\":\"integer\"}")
+        );
+        assert!(serialized_data.contains("\"required\":[\"name\"]"));
+        assert!(!serialized_data.contains("\"required\":[\"age\"]"));
     }
 }

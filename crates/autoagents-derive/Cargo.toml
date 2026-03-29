@@ -17,4 +17,5 @@ quote = { workspace = true }
 syn = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+schemars = { workspace = true }
 strum = { workspace = true }
