@@ -264,12 +264,31 @@ where
         let agent = self.0.clone();
         let task = message;
 
+        // DEBUG: Track message received
+        log::info!(
+            "[ACTOR] Received message: stream={}, task_prompt={}",
+            agent.stream(),
+            task.prompt
+        );
+
         //Run agent
         if agent.stream() {
-            let _ = agent.run_stream(task).await?;
+            log::info!("[ACTOR] About to call run_stream");
+            let result = agent.run_stream(task).await;
+            match &result {
+                Ok(_) => log::info!("[ACTOR] run_stream completed: OK"),
+                Err(e) => log::error!("[ACTOR] run_stream completed: ERR: {:?}", e),
+            }
+            let _ = result?;
             Ok(())
         } else {
-            let _ = agent.run(task).await?;
+            log::info!("[ACTOR] About to call run");
+            let result = agent.run(task).await;
+            match &result {
+                Ok(_) => log::info!("[ACTOR] run completed: OK"),
+                Err(e) => log::error!("[ACTOR] run completed: ERR: {:?}", e),
+            }
+            let _ = result?;
             Ok(())
         }
     }

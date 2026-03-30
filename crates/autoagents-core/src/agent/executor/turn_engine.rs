@@ -173,7 +173,25 @@ impl TurnEngine {
         let store_user = should_store_user(turn_state);
 
         let tools = context.tools();
+
+        // DEBUG: Track LLM call start
+        log::info!(
+            "[DEBUG] Before get_llm_response call: agent_id={}, agent_name={}, turn_index={}, num_messages={}",
+            context.config().id,
+            context.config().name,
+            turn_index,
+            messages.len()
+        );
+
         let response = self.get_llm_response(context, &messages, tools).await?;
+
+        // DEBUG: Track LLM call success
+        log::info!(
+            "[DEBUG] After get_llm_response call: agent_id={}, agent_name={}, turn_index={}",
+            context.config().id,
+            context.config().name,
+            turn_index
+        );
         let response_text = response.text().unwrap_or_default();
         let reasoning_content = response.thinking().unwrap_or_default();
         if store_user {
@@ -518,7 +536,15 @@ impl TurnEngine {
         let llm = context.llm();
         let output_schema = context.config().output_schema.clone();
 
-        if matches!(self.config.tool_mode, ToolMode::Enabled) && !tools.is_empty() {
+        // DEBUG: Track which LLM method we're calling
+        log::info!(
+            "[DEBUG] get_llm_response: agent_name={}, tool_mode={:?}, num_tools={}",
+            context.config().name,
+            self.config.tool_mode,
+            tools.len()
+        );
+
+        let result = if matches!(self.config.tool_mode, ToolMode::Enabled) && !tools.is_empty() {
             let cached = context.serialized_tools();
             let tools_serialized = if let Some(cached) = cached {
                 cached
@@ -532,7 +558,26 @@ impl TurnEngine {
             llm.chat(messages, output_schema)
                 .await
                 .map_err(TurnEngineError::LLMError)
+        };
+
+        // DEBUG: Track LLM call result
+        match &result {
+            Ok(_) => {
+                log::info!(
+                    "[DEBUG] get_llm_response: agent_name={}, LLM call SUCCESS",
+                    context.config().name
+                );
+            }
+            Err(e) => {
+                log::error!(
+                    "[DEBUG] get_llm_response: agent_name={}, LLM call FAILED: {:?}",
+                    context.config().name,
+                    e
+                );
+            }
         }
+
+        result
     }
 
     async fn get_structured_stream(

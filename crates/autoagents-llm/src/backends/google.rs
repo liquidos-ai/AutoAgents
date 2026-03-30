@@ -53,6 +53,8 @@ pub struct Google {
     pub top_p: Option<f32>,
     /// Top-k sampling parameter
     pub top_k: Option<u32>,
+    // Optional base URL for Gemini-compatible proxies
+    pub base_url: Option<String>,
     /// HTTP client for making API requests
     client: Client,
 }
@@ -415,6 +417,7 @@ impl Google {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         api_key: impl Into<String>,
+        base_url: Option<String>,
         model: Option<String>,
         max_tokens: Option<u32>,
         temperature: Option<f32>,
@@ -428,6 +431,7 @@ impl Google {
         }
         Self {
             api_key: api_key.into(),
+            base_url,
             model: model.unwrap_or_else(|| "gemini-1.5-flash".to_string()),
             max_tokens,
             temperature,
@@ -480,13 +484,25 @@ impl Google {
             log::trace!("Google Gemini request payload (tool): {json}");
         }
 
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
-            model = self.model,
-            key = self.api_key
-        );
+        let url = if let Some(base_url) = &self.base_url {
+            format!(
+                "{}/v1beta/models/{}:generateContent",
+                base_url.trim_end_matches("/"),
+                self.model
+            )
+        } else {
+            format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
+                model = self.model,
+                key = self.api_key
+            )
+        };
 
         let mut request = self.client.post(&url).json(&req_body);
+
+        if self.base_url.is_some() {
+            request = request.bearer_auth(&self.api_key);
+        }
 
         if let Some(timeout) = self.timeout_seconds {
             request = request.timeout(std::time::Duration::from_secs(timeout));
@@ -581,13 +597,25 @@ impl ChatProvider for Google {
             tools: None,
         };
 
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={key}",
-            model = self.model,
-            key = self.api_key
-        );
+        let url = if let Some(base_url) = &self.base_url {
+            format!(
+                "{}/v1beta/models/{}:streamGenerateContent?alt=sse",
+                base_url.trim_end_matches("/"),
+                self.model
+            )
+        } else {
+            format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={key}",
+                model = self.model,
+                key = self.api_key
+            )
+        };
 
         let mut request = self.client.post(&url).json(&req_body);
+
+        if self.base_url.is_some() {
+            request = request.bearer_auth(&self.api_key);
+        }
 
         if let Some(timeout) = self.timeout_seconds {
             request = request.timeout(std::time::Duration::from_secs(timeout));
@@ -656,18 +684,25 @@ impl EmbeddingProvider for Google {
                 },
             };
 
-            let url = format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={}",
-                self.api_key
-            );
+            let url = if let Some(base_url) = &self.base_url {
+                format!(
+                    "{}/v1beta/models/text-embedding-004:embedContent",
+                    base_url.trim_end_matches("/")
+                )
+            } else {
+                format!(
+                    "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={}",
+                    self.api_key
+                )
+            };
 
-            let resp = self
-                .client
-                .post(&url)
-                .json(&req_body)
-                .send()
-                .await?
-                .error_for_status()?;
+            let mut request = self.client.post(&url).json(&req_body);
+
+            if self.base_url.is_some() {
+                request = request.bearer_auth(&self.api_key);
+            }
+
+            let resp = request.send().await?.error_for_status()?;
 
             let embedding_resp: GoogleEmbeddingResponse = resp.json().await?;
             embeddings.push(embedding_resp.embedding.values);
@@ -886,6 +921,7 @@ impl LLMBuilder<Google> {
 
         let google = Google::new(
             api_key,
+            self.base_url,
             self.model,
             self.max_tokens,
             self.temperature,
@@ -907,6 +943,7 @@ impl EmbeddingBuilder<Google> {
 
         let provider = Google::new(
             api_key,
+            self.base_url,
             self.model,
             None,
             None,

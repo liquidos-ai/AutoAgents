@@ -24,6 +24,9 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+const MESSAGES_ENDPOINT: &str = "/v1/messages";
+const MODELS_ENDPOINT: &str = "/v1/models";
+
 /// Client for interacting with Anthropic's API.
 ///
 /// Provides methods for chat and completion requests using Anthropic's models.
@@ -39,6 +42,7 @@ pub struct Anthropic {
     pub tool_choice: Option<ToolChoice>,
     pub reasoning: bool,
     pub thinking_budget_tokens: Option<u32>,
+    pub base_url: String,
     client: Client,
 }
 
@@ -465,7 +469,7 @@ impl Anthropic {
     /// * `max_tokens` - Maximum tokens in response (defaults to 300)
     /// * `temperature` - Sampling temperature (defaults to 0.7)
     /// * `timeout_seconds` - Request timeout in seconds (defaults to 30)
-    /// *
+    /// * `base_url` - Optional custom base URL for API requests
     /// * `thinking_budget_tokens` - Budget tokens for thinking (optional)
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -479,6 +483,7 @@ impl Anthropic {
         tool_choice: Option<ToolChoice>,
         reasoning: Option<bool>,
         thinking_budget_tokens: Option<u32>,
+        base_url: Option<String>,
     ) -> Self {
         let mut builder = Client::builder();
         if let Some(sec) = timeout_seconds {
@@ -496,6 +501,7 @@ impl Anthropic {
             reasoning: reasoning.unwrap_or(false),
             thinking_budget_tokens,
             client: builder.build().expect("Failed to build reqwest Client"),
+            base_url: base_url.unwrap_or_else(|| "https://api.anthropic.com".to_string()),
         }
     }
 }
@@ -562,10 +568,11 @@ impl ChatProvider for Anthropic {
 
         let mut request = self
             .client
-            .post("https://api.anthropic.com/v1/messages")
+            .post(format!("{}{}", &self.base_url, MESSAGES_ENDPOINT))
             .header("x-api-key", &self.api_key)
             .header("Content-Type", "application/json")
             .header("anthropic-version", "2023-06-01")
+            .header("User-Agent", "Claude-Code/1.0")
             .json(&req_body);
 
         if self.timeout_seconds > 0 {
@@ -710,10 +717,11 @@ impl ChatProvider for Anthropic {
 
         let mut request = self
             .client
-            .post("https://api.anthropic.com/v1/messages")
+            .post(format!("{}{}", &self.base_url, MESSAGES_ENDPOINT))
             .header("x-api-key", &self.api_key)
             .header("Content-Type", "application/json")
             .header("anthropic-version", "2023-06-01")
+            .header("User-Agent", "Claude-Code/1.0")
             .json(&req_body);
 
         if self.timeout_seconds > 0 {
@@ -788,10 +796,11 @@ impl ChatProvider for Anthropic {
 
         let mut request = self
             .client
-            .post("https://api.anthropic.com/v1/messages")
+            .post(format!("{}{}", &self.base_url, MESSAGES_ENDPOINT))
             .header("x-api-key", &self.api_key)
             .header("Content-Type", "application/json")
             .header("anthropic-version", "2023-06-01")
+            .header("User-Agent", "Claude-Code/1.0")
             .json(&req_body);
 
         if self.timeout_seconds > 0 {
@@ -953,10 +962,11 @@ impl ModelsProvider for Anthropic {
     ) -> Result<Box<dyn ModelListResponse>, LLMError> {
         let resp = self
             .client
-            .get("https://api.anthropic.com/v1/models")
+            .get(format!("{}{}", &self.base_url, MODELS_ENDPOINT))
             .header("x-api-key", &self.api_key)
             .header("Content-Type", "application/json")
             .header("anthropic-version", "2023-06-01")
+            .header("User-Agent", "Claude-Code/1.0")
             .send()
             .await?;
 
@@ -1152,6 +1162,7 @@ impl LLMBuilder<Anthropic> {
             self.tool_choice,
             self.reasoning,
             self.reasoning_budget_tokens,
+            self.base_url,
         );
 
         Ok(Arc::new(anthro))

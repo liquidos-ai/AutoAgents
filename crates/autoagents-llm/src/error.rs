@@ -97,6 +97,19 @@ impl std::error::Error for LLMError {}
 #[cfg(not(target_arch = "wasm32"))]
 impl From<reqwest::Error> for LLMError {
     fn from(err: reqwest::Error) -> Self {
+        // Log detailed error information before the source chain is flattened to a string
+        log::error!(
+            "[LLM HTTP Error] url={:?} is_timeout={} is_connect={} is_request={} is_body={} is_decode={} is_status={} status={:?} | full chain: {:#?}",
+            err.url(),
+            err.is_timeout(),
+            err.is_connect(),
+            err.is_request(),
+            err.is_body(),
+            err.is_decode(),
+            err.is_status(),
+            err.status(),
+            err,
+        );
         LLMError::HttpError(err.to_string())
     }
 }

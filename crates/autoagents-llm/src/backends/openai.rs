@@ -288,6 +288,7 @@ impl ChatProvider for OpenAI {
         let openai_msgs = self.provider.prepare_messages(messages);
         let response_format: Option<OpenAIResponseFormat> = json_schema.clone().map(|s| s.into());
         let final_tools = self.build_function_tools(tools);
+        let has_function_tools = final_tools.is_some();
         let request_tool_choice = self.resolve_tool_choice_for_request(&final_tools);
         let body = OpenAIAPIChatRequest {
             model: self.provider.model.as_str(),
@@ -306,6 +307,9 @@ impl ChatProvider for OpenAI {
             stream_options: None,
             extra_body: self.provider.extra_body.clone(),
         };
+        if self.should_use_responses_endpoint_for_chat() {
+            return self.chat_with_responses_endpoint(&body).await;
+        }
         let url = self
             .provider
             .base_url
@@ -330,6 +334,15 @@ impl ChatProvider for OpenAI {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await?;
+            if status == reqwest::StatusCode::FORBIDDEN
+                && error_text.contains("Invalid client")
+                && !has_function_tools
+            {
+                log::debug!(
+                    "OpenAI chat/completions returned Invalid client; retrying with /responses endpoint"
+                );
+                return self.chat_with_responses_endpoint(&body).await;
+            }
             return Err(LLMError::ResponseFormatError {
                 message: format!("OpenAI API returned error status: {status}"),
                 raw_response: error_text,
@@ -654,6 +667,53 @@ impl OpenAI {
                 raw_response: resp_text,
             }),
         }
+    }
+
+    async fn chat_with_responses_endpoint(
+        &self,
+        body: &OpenAIAPIChatRequest<'_>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        let url = self
+            .provider
+            .base_url
+            .join("responses")
+            .map_err(|e| LLMError::HttpError(e.to_string()))?;
+
+        let mut request = self
+            .provider
+            .client
+            .post(url)
+            .bearer_auth(&self.provider.api_key)
+            .json(body);
+
+        if let Some(timeout) = self.provider.timeout_seconds {
+            request = request.timeout(std::time::Duration::from_secs(timeout));
+        }
+
+        let response = request.send().await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await?;
+            return Err(LLMError::ResponseFormatError {
+                message: format!("OpenAI /responses API returned error status: {status}"),
+                raw_response: error_text,
+            });
+        }
+
+        let resp_text = response.text().await?;
+        let json_resp: Result<OpenAIWebSearchChatResponse, serde_json::Error> =
+            serde_json::from_str(&resp_text);
+        match json_resp {
+            Ok(response) => Ok(Box::new(response)),
+            Err(e) => Err(LLMError::ResponseFormatError {
+                message: format!("Failed to decode OpenAI /responses API response: {e}"),
+                raw_response: resp_text,
+            }),
+        }
+    }
+
+    fn should_use_responses_endpoint_for_chat(&self) -> bool {
+        self.provider.base_url.host_str() == Some("api.openai.com")
     }
 }
 
