@@ -22,7 +22,7 @@ pub struct MiniMaxConfig;
 
 impl OpenAIProviderConfig for MiniMaxConfig {
     const PROVIDER_NAME: &'static str = "MiniMax";
-    const DEFAULT_BASE_URL: &'static str = "https://api.minimaxi.chat/v1/";
+    const DEFAULT_BASE_URL: &'static str = "https://api.minimax.chat/v1/";
     const DEFAULT_MODEL: &'static str = "MiniMax-M2.5";
     const SUPPORTS_REASONING_EFFORT: bool = false;
     const SUPPORTS_STRUCTURED_OUTPUT: bool = false;
