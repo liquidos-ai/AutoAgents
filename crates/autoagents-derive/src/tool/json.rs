@@ -5,6 +5,10 @@ use strum::{Display, EnumString};
 pub(crate) enum JsonType {
     #[strum(serialize = "string")]
     String,
+    // JSON Schema distinguishes whole numbers from general numeric values:
+    // use `integer` for Rust integral types and `number` for floating-point types.
+    #[strum(serialize = "integer")]
+    Integer,
     #[strum(serialize = "number")]
     Number,
     #[strum(serialize = "boolean")]

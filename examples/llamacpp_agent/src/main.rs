@@ -103,7 +103,7 @@ impl ToolRuntime for Addition {
     name = "math_agent",
     description = "You are a Math agent, answer user question and also explain them why you got the answer",
     tools = [Addition],
-    // output = MathAgentOutput //Does not work properly comment for now TODO
+    output = MathAgentOutput
 )]
 #[derive(Default, Clone, AgentHooks)]
 struct MathAgent {}
@@ -188,7 +188,7 @@ async fn main() -> Result<(), Error> {
                 item = stream.next(), if !stream_done => {
                     match item {
                         Some(Ok(output)) => {
-                            print!("{output}");
+                            print!("{:?}", output);
                         }
                         Some(Err(err)) => {
                             println!("stream error: {err}");
@@ -257,7 +257,7 @@ this usually means the model used all generation tokens in thinking mode."
 
     while let Some(result) = stream.next().await {
         if let Ok(output) = result {
-            print!("{}", output);
+            print!("{:?}", output);
         }
     }
 

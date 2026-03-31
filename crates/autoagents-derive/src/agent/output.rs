@@ -224,8 +224,10 @@ impl OutputParser {
         let type_str = field_type.to_token_stream().to_string();
         let json_type = match type_str.as_str() {
             "String" | "str" => JsonType::String,
-            "i32" | "u32" | "f64" | "f32" | "u8" | "i64" | "u64" | "i16" | "u16" | "isize"
-            | "usize" => JsonType::Number,
+            "i32" | "u32" | "u8" | "i64" | "u64" | "i16" | "u16" | "isize" | "usize" => {
+                JsonType::Integer
+            }
+            "f64" | "f32" => JsonType::Number,
             "bool" => JsonType::Boolean,
             _ => {
                 // Check if it's a Vec<T>
@@ -254,6 +256,7 @@ impl OutputParser {
                 match (c, field_type) {
                     (super::super::tool::field::Choice::String(_), JsonType::String) => false,
                     (super::super::tool::field::Choice::Number(_), JsonType::Number) => false,
+                    (super::super::tool::field::Choice::Number(_), JsonType::Integer) => false,
                     _ => true, // Invalid case
                 }
             });
@@ -327,7 +330,7 @@ mod tests {
         assert_eq!(mode._enum.as_ref().unwrap().len(), 2);
 
         let age = parser.output_data.schema.properties.get("age").unwrap();
-        assert_eq!(age._type, "number");
+        assert_eq!(age._type, "integer");
     }
 
     #[test]

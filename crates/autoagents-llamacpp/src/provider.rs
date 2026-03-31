@@ -127,18 +127,33 @@ enum ChatPrompt {
 
 #[derive(Debug, Deserialize)]
 struct OpenAICompatMessage {
-    content: Option<String>,
-    #[serde(default)]
-    reasoning_content: Option<String>,
-    tool_calls: Option<Vec<ToolCall>>,
+    content: Option<StringOrJson>,
+    reasoning_content: Option<StringOrJson>,
+    tool_calls: Option<Vec<OpenAICompatToolCall>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct OpenAICompatDelta {
-    content: Option<String>,
-    #[serde(default)]
-    reasoning_content: Option<String>,
+    content: Option<StringOrJson>,
+    reasoning_content: Option<StringOrJson>,
     tool_calls: Option<Vec<OpenAIToolCallDelta>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAICompatToolCall {
+    #[serde(default)]
+    id: StringOrJson,
+    #[serde(rename = "type", default = "default_call_type_value")]
+    call_type: StringOrJson,
+    function: OpenAICompatFunctionCall,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAICompatFunctionCall {
+    #[serde(default)]
+    name: StringOrJson,
+    #[serde(default)]
+    arguments: StringOrJson,
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,7 +169,7 @@ struct OpenAIToolCallDelta {
 struct OpenAIFunctionDelta {
     name: Option<String>,
     #[serde(default)]
-    arguments: String,
+    arguments: StringOrJson,
 }
 
 #[derive(Debug, Default)]
@@ -163,6 +178,51 @@ struct ToolCallState {
     name: String,
     arguments: String,
     started: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum StringOrJson {
+    String(String),
+    Json(Value),
+}
+
+impl Default for StringOrJson {
+    fn default() -> Self {
+        Self::String(String::new())
+    }
+}
+
+impl StringOrJson {
+    fn into_string(self) -> String {
+        match self {
+            Self::String(text) => text,
+            Self::Json(Value::Null) => String::new(),
+            Self::Json(value) => value.to_string(),
+        }
+    }
+
+    fn into_non_empty_string(self) -> Option<String> {
+        let text = self.into_string();
+        if text.is_empty() { None } else { Some(text) }
+    }
+}
+
+impl From<OpenAICompatToolCall> for ToolCall {
+    fn from(value: OpenAICompatToolCall) -> Self {
+        ToolCall {
+            id: value.id.into_string(),
+            call_type: value.call_type.into_string(),
+            function: FunctionCall {
+                name: value.function.name.into_string(),
+                arguments: value.function.arguments.into_string(),
+            },
+        }
+    }
+}
+
+fn default_call_type_value() -> StringOrJson {
+    StringOrJson::String(autoagents_llm::default_call_type())
 }
 
 impl LlamaCppProvider {
@@ -251,14 +311,11 @@ impl LlamaCppProvider {
                 _ => None,
             };
 
-            let json_schema_value = json_schema
-                .and_then(|schema| schema.schema.as_ref())
-                .map(Value::to_string);
-            let grammar_value = if json_schema_value.is_none() && self.config.force_json_grammar {
-                Some(JSON_GRAMMAR.to_string())
-            } else {
-                None
-            };
+            let (json_schema_value, grammar_value) = select_template_schema_and_grammar(
+                tools_json.is_some(),
+                json_schema,
+                self.config.force_json_grammar,
+            );
             let chat_template_kwargs = self
                 .config
                 .extra_body
@@ -883,9 +940,15 @@ impl ChatProvider for LlamaCppProvider {
                 ));
 
                 Ok(Box::new(LlamaCppResponse {
-                    content: message.content,
-                    thinking: message.reasoning_content,
-                    tool_calls: message.tool_calls,
+                    content: message
+                        .content
+                        .and_then(StringOrJson::into_non_empty_string),
+                    thinking: message
+                        .reasoning_content
+                        .and_then(StringOrJson::into_non_empty_string),
+                    tool_calls: message
+                        .tool_calls
+                        .map(|calls| calls.into_iter().map(Into::into).collect()),
                     usage,
                 }))
             }
@@ -907,9 +970,10 @@ impl ChatProvider for LlamaCppProvider {
                     match event {
                         Ok(StreamEvent::Token(token)) => Some(Ok(token)),
                         Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
-                            Ok(parsed) => {
-                                parsed.content.filter(|content| !content.is_empty()).map(Ok)
-                            }
+                            Ok(parsed) => parsed
+                                .content
+                                .and_then(StringOrJson::into_non_empty_string)
+                                .map(Ok),
                             Err(err) => Some(Err(err)),
                         },
                         Ok(StreamEvent::Usage(_)) | Ok(StreamEvent::Done { .. }) => None,
@@ -940,7 +1004,10 @@ impl ChatProvider for LlamaCppProvider {
             match event {
                 Ok(StreamEvent::Token(token)) => Some(Ok(token)),
                 Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
-                    Ok(parsed) => parsed.content.filter(|content| !content.is_empty()).map(Ok),
+                    Ok(parsed) => parsed
+                        .content
+                        .and_then(StringOrJson::into_non_empty_string)
+                        .map(Ok),
                     Err(err) => Some(Err(err)),
                 },
                 Ok(StreamEvent::Usage(_)) | Ok(StreamEvent::Done { .. }) => None,
@@ -1110,6 +1177,39 @@ fn prepare_fallback_messages_with_schema(
     all_messages
 }
 
+fn sanitize_chat_template_schema(schema: &StructuredOutputFormat) -> Option<Value> {
+    let mut schema = schema.schema.clone()?;
+    if schema.get("additionalProperties").is_none()
+        && matches!(schema.get("type"), Some(Value::String(kind)) if kind == "object")
+    {
+        schema["additionalProperties"] = Value::Bool(false);
+    }
+    Some(schema)
+}
+
+fn select_template_schema_and_grammar(
+    tools_present: bool,
+    json_schema: Option<&StructuredOutputFormat>,
+    force_json_grammar: bool,
+) -> (Option<String>, Option<String>) {
+    // llama.cpp's OpenAI-compatible template API treats `json_schema` as part of grammar
+    // generation. When tools are present, passing the agent response schema here can
+    // produce invalid grammar and break tool-calling requests entirely.
+    if tools_present {
+        return (None, None);
+    }
+
+    let json_schema_value = json_schema
+        .and_then(sanitize_chat_template_schema)
+        .map(|schema| schema.to_string());
+    let grammar_value = if json_schema_value.is_none() && force_json_grammar {
+        Some(JSON_GRAMMAR.to_string())
+    } else {
+        None
+    };
+    (json_schema_value, grammar_value)
+}
+
 fn ensure_supported_messages_for_config(
     _config: &LlamaCppConfig,
     messages: &[ChatMessage],
@@ -1155,8 +1255,10 @@ fn mtmd_structured_stream(
             Ok(StreamEvent::Usage(_)) | Ok(StreamEvent::Done { .. }) => None,
             Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
                 Ok(parsed) => {
-                    let content = parsed.content.filter(|c| !c.is_empty());
-                    let reasoning_content = parsed.reasoning_content.filter(|c| !c.is_empty());
+                    let content = parsed.content.and_then(StringOrJson::into_non_empty_string);
+                    let reasoning_content = parsed
+                        .reasoning_content
+                        .and_then(StringOrJson::into_non_empty_string);
                     if content.is_none() && reasoning_content.is_none() {
                         None
                     } else {
@@ -1195,8 +1297,10 @@ fn mtmd_tool_stream(
                 Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
                     Ok(parsed) => {
                         push_text_and_reasoning_chunks(
-                            parsed.content,
-                            parsed.reasoning_content,
+                            parsed.content.and_then(StringOrJson::into_non_empty_string),
+                            parsed
+                                .reasoning_content
+                                .and_then(StringOrJson::into_non_empty_string),
                             &mut outputs,
                         );
                     }
@@ -1241,8 +1345,10 @@ fn map_struct_stream_event(
         Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
             Ok(parsed) => {
                 push_struct_content_and_reasoning(
-                    parsed.content,
-                    parsed.reasoning_content,
+                    parsed.content.and_then(StringOrJson::into_non_empty_string),
+                    parsed
+                        .reasoning_content
+                        .and_then(StringOrJson::into_non_empty_string),
                     &mut outputs,
                 );
                 if let Some(tool_calls) = parsed.tool_calls {
@@ -1274,8 +1380,10 @@ fn map_tool_stream_event(
         Ok(StreamEvent::Delta(delta)) => match parse_openai_delta(&delta) {
             Ok(parsed) => {
                 push_text_and_reasoning_chunks(
-                    parsed.content,
-                    parsed.reasoning_content,
+                    parsed.content.and_then(StringOrJson::into_non_empty_string),
+                    parsed
+                        .reasoning_content
+                        .and_then(StringOrJson::into_non_empty_string),
                     &mut outputs,
                 );
                 if let Some(tool_calls) = parsed.tool_calls {
@@ -1333,8 +1441,9 @@ fn push_struct_tool_call_updates(
             if let Some(name) = function.name {
                 state.name = name;
             }
-            if !function.arguments.is_empty() {
-                state.arguments.push_str(&function.arguments);
+            let arguments = function.arguments.into_string();
+            if !arguments.is_empty() {
+                state.arguments.push_str(&arguments);
             }
         }
         if !state.id.is_empty() || !state.name.is_empty() || !state.arguments.is_empty() {
@@ -1382,11 +1491,12 @@ fn push_tool_chunk_updates(
                     }));
                 }
             }
-            if !function.arguments.is_empty() {
-                state.arguments.push_str(&function.arguments);
+            let arguments = function.arguments.into_string();
+            if !arguments.is_empty() {
+                state.arguments.push_str(&arguments);
                 outputs.push(Ok(StreamChunk::ToolUseInputDelta {
                     index,
-                    partial_json: function.arguments,
+                    partial_json: arguments,
                 }));
             }
         }
@@ -2426,11 +2536,75 @@ mod tests {
     fn test_parse_openai_delta_valid_and_invalid() {
         let valid = r#"{"content":"hi","reasoning_content":"think"}"#;
         let parsed = parse_openai_delta(valid).expect("valid json should parse");
-        assert_eq!(parsed.content, Some("hi".to_string()));
-        assert_eq!(parsed.reasoning_content, Some("think".to_string()));
+        assert_eq!(
+            parsed.content.and_then(StringOrJson::into_non_empty_string),
+            Some("hi".to_string())
+        );
+        assert_eq!(
+            parsed
+                .reasoning_content
+                .and_then(StringOrJson::into_non_empty_string),
+            Some("think".to_string())
+        );
 
         let err = parse_openai_delta("{bad").expect_err("invalid json should error");
         assert!(matches!(err, LLMError::JsonError(_)));
+    }
+
+    #[test]
+    fn test_parse_openai_delta_allows_json_content() {
+        let valid = r#"{"content":{"value":50},"reasoning_content":["step1","step2"]}"#;
+        let parsed = parse_openai_delta(valid).expect("json content should parse");
+        assert_eq!(
+            parsed.content.and_then(StringOrJson::into_non_empty_string),
+            Some(r#"{"value":50}"#.to_string())
+        );
+        assert_eq!(
+            parsed
+                .reasoning_content
+                .and_then(StringOrJson::into_non_empty_string),
+            Some(r#"["step1","step2"]"#.to_string())
+        );
+    }
+
+    #[test]
+    fn test_openai_compat_message_allows_json_content_and_tool_arguments() {
+        let valid = r#"{
+            "content":{"value":50},
+            "reasoning_content":{"step":"done"},
+            "tool_calls":[
+                {
+                    "id":"call_1",
+                    "type":"function",
+                    "function":{
+                        "name":"Addition",
+                        "arguments":{"left":42,"right":8}
+                    }
+                }
+            ]
+        }"#;
+        let parsed: OpenAICompatMessage =
+            serde_json::from_str(valid).expect("json content should parse");
+        assert_eq!(
+            parsed.content.and_then(StringOrJson::into_non_empty_string),
+            Some(r#"{"value":50}"#.to_string())
+        );
+        assert_eq!(
+            parsed
+                .reasoning_content
+                .and_then(StringOrJson::into_non_empty_string),
+            Some(r#"{"step":"done"}"#.to_string())
+        );
+
+        let tool_calls = parsed
+            .tool_calls
+            .expect("tool calls should decode")
+            .into_iter()
+            .map(ToolCall::from)
+            .collect::<Vec<_>>();
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_calls[0].function.name, "Addition");
+        assert_eq!(tool_calls[0].function.arguments, r#"{"left":42,"right":8}"#);
     }
 
     #[test]
@@ -2493,6 +2667,111 @@ mod tests {
         assert!(last.content.contains("TestSchema"));
         assert!(last.content.contains("desc"));
         assert!(last.content.contains("\"type\":\"object\""));
+    }
+
+    #[test]
+    fn test_sanitize_chat_template_schema_adds_additional_properties() {
+        let schema = StructuredOutputFormat {
+            name: "MathAgentOutput".to_string(),
+            description: None,
+            schema: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "value": {"type": "integer"}
+                },
+                "required": ["value"]
+            })),
+            strict: Some(true),
+        };
+
+        let sanitized = sanitize_chat_template_schema(&schema).expect("schema should exist");
+        assert_eq!(sanitized["type"], "object");
+        assert_eq!(sanitized["properties"]["value"]["type"], "integer");
+        assert_eq!(sanitized["additionalProperties"], false);
+    }
+
+    #[test]
+    fn test_select_template_schema_and_grammar_ignores_schema_when_tools_present() {
+        let schema = StructuredOutputFormat {
+            name: "MathAgentOutput".to_string(),
+            description: None,
+            schema: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "value": {"type": "integer"}
+                },
+                "required": ["value"]
+            })),
+            strict: Some(true),
+        };
+
+        let (json_schema, grammar) = select_template_schema_and_grammar(true, Some(&schema), true);
+        assert!(json_schema.is_none());
+        assert!(grammar.is_none());
+    }
+
+    #[test]
+    fn test_select_template_schema_and_grammar_sanitizes_schema_without_tools() {
+        let schema = StructuredOutputFormat {
+            name: "MathAgentOutput".to_string(),
+            description: None,
+            schema: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "value": {"type": "integer"}
+                },
+                "required": ["value"]
+            })),
+            strict: Some(true),
+        };
+
+        let (json_schema, grammar) =
+            select_template_schema_and_grammar(false, Some(&schema), false);
+        assert!(grammar.is_none());
+        let json_schema = json_schema.expect("schema should be present");
+        let parsed: Value =
+            serde_json::from_str(&json_schema).expect("schema should be valid json");
+        assert_eq!(parsed["additionalProperties"], false);
+        assert_eq!(parsed["properties"]["value"]["type"], "integer");
+    }
+
+    #[test]
+    fn test_llama_json_schema_to_grammar_accepts_integer_object_schema() {
+        let grammar = llama_cpp_2::json_schema_to_grammar(
+            r#"{
+                "type":"object",
+                "properties":{
+                    "value":{"type":"integer"},
+                    "explanation":{"type":"string"}
+                },
+                "required":["value","explanation"],
+                "additionalProperties":false
+            }"#,
+        )
+        .expect("integer object schema should convert to grammar");
+
+        assert!(grammar.contains("space ::="));
+        assert!(grammar.contains("value"));
+        assert!(grammar.contains("explanation"));
+    }
+
+    #[test]
+    fn test_llama_json_schema_to_grammar_accepts_tool_parameter_schema() {
+        let grammar = llama_cpp_2::json_schema_to_grammar(
+            r#"{
+                "type":"object",
+                "properties":{
+                    "left":{"type":"integer","description":"Left operand"},
+                    "right":{"type":"integer","description":"Right operand"}
+                },
+                "required":["left","right"]
+            }"#,
+        )
+        .expect("tool parameter schema should convert to grammar");
+
+        assert!(grammar.contains("space ::="));
+        assert!(grammar.contains("left"));
+        assert!(grammar.contains("right"));
     }
 
     #[test]
