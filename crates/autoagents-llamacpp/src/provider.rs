@@ -189,7 +189,7 @@ enum StringOrJson {
 
 impl Default for StringOrJson {
     fn default() -> Self {
-        Self::String(String::new())
+        Self::String(String::default())
     }
 }
 
@@ -197,7 +197,7 @@ impl StringOrJson {
     fn into_string(self) -> String {
         match self {
             Self::String(text) => text,
-            Self::Json(Value::Null) => String::new(),
+            Self::Json(Value::Null) => String::default(),
             Self::Json(value) => value.to_string(),
         }
     }
@@ -2687,7 +2687,11 @@ mod tests {
         let sanitized = sanitize_chat_template_schema(&schema).expect("schema should exist");
         assert_eq!(sanitized["type"], "object");
         assert_eq!(sanitized["properties"]["value"]["type"], "integer");
-        assert_eq!(sanitized["additionalProperties"], false);
+        assert!(
+            sanitized["additionalProperties"]
+                .as_bool()
+                .is_some_and(|value| !value)
+        );
     }
 
     #[test]
@@ -2731,7 +2735,11 @@ mod tests {
         let json_schema = json_schema.expect("schema should be present");
         let parsed: Value =
             serde_json::from_str(&json_schema).expect("schema should be valid json");
-        assert_eq!(parsed["additionalProperties"], false);
+        assert!(
+            parsed["additionalProperties"]
+                .as_bool()
+                .is_some_and(|value| !value)
+        );
         assert_eq!(parsed["properties"]["value"]["type"], "integer");
     }
 
