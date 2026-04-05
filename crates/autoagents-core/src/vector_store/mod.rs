@@ -1,3 +1,8 @@
+pub use payload::{
+    NamedVectorPayloadDocument, PayloadDocument, PreparedNamedVectorPayloadDocument,
+    PreparedPayloadDocument, embed_documents_with_payload_fields, embed_named_payload_documents,
+    embed_payload_documents, mirrored_payload_fields, mirrored_payload_fields_for,
+};
 pub use request::VectorSearchRequest;
 
 use async_trait::async_trait;
@@ -6,11 +11,12 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::document::Document;
-use crate::embeddings::{Embed, Embedding, EmbeddingError, SharedEmbeddingProvider, TextEmbedder};
+use crate::embeddings::{Embed, Embedding, EmbeddingError, SharedEmbeddingProvider};
 use crate::one_or_many::OneOrMany;
 use crate::vector_store::request::{FilterError, SearchFilter};
 
 pub mod in_memory_store;
+pub mod payload;
 pub mod request;
 
 pub const DEFAULT_VECTOR_NAME: &str = "default";
@@ -103,69 +109,17 @@ pub async fn embed_documents<T>(
 where
     T: Embed + Serialize + Send + Sync + Clone,
 {
-    let mut all_texts = Vec::new();
-    let mut ranges = Vec::new();
-    let mut raws = Vec::new();
-    let mut ids = Vec::new();
-
-    for (id, doc) in documents.iter() {
-        let mut embedder = TextEmbedder::default();
-        doc.embed(&mut embedder).map_err(|err| {
-            VectorStoreError::EmbeddingError(EmbeddingError::EmbedFailure(err.to_string()))
-        })?;
-
-        if embedder.is_empty() {
-            return Err(VectorStoreError::EmbeddingError(EmbeddingError::Empty));
-        }
-
-        let start = all_texts.len();
-        let count = embedder.len();
-        all_texts.extend(embedder.into_parts());
-        ranges.push((start, count));
-        raws.push(serde_json::to_value(doc)?);
-        ids.push(id.clone());
-    }
-
-    let vectors = provider
-        .embed(all_texts.clone())
-        .await
-        .map_err(EmbeddingError::Provider)?;
-
-    let mut prepared = Vec::with_capacity(ids.len());
-    let mut vectors_iter = vectors.into_iter();
-    let mut expected_start = 0usize;
-    for ((id, raw), (start, count)) in ids.into_iter().zip(raws).zip(ranges.into_iter()) {
-        if start != expected_start {
-            return Err(VectorStoreError::EmbeddingError(
-                EmbeddingError::EmbedFailure("embedding ranges are inconsistent".into()),
-            ));
-        }
-
-        let mut embeddings = Vec::with_capacity(count);
-        for offset in 0..count {
-            let Some(vector) = vectors_iter.next() else {
-                return Err(VectorStoreError::EmbeddingError(
-                    EmbeddingError::EmbedFailure(
-                        "embedding provider returned fewer vectors than expected".into(),
-                    ),
-                ));
-            };
-
-            embeddings.push(Embedding {
-                document: all_texts[start + offset].clone(),
-                vec: vector.into(),
-            });
-        }
-        expected_start += count;
-
-        prepared.push(PreparedDocument {
-            id,
-            raw,
-            embeddings: OneOrMany::from(embeddings),
-        });
-    }
-
-    Ok(prepared)
+    let prepared =
+        embed_documents_with_payload_fields(provider, documents, std::iter::empty::<&str>())
+            .await?;
+    Ok(prepared
+        .into_iter()
+        .map(|doc| PreparedDocument {
+            id: doc.id,
+            raw: doc.raw,
+            embeddings: doc.embeddings,
+        })
+        .collect())
 }
 
 pub async fn embed_named_documents<T>(
@@ -175,72 +129,25 @@ pub async fn embed_named_documents<T>(
 where
     T: Serialize + Send + Sync + Clone,
 {
-    let mut all_texts = Vec::new();
-    let mut ranges = Vec::new();
-    let mut raws = Vec::new();
-    let mut ids = Vec::new();
-    let mut names_by_doc = Vec::new();
-
-    for doc in documents {
-        if doc.vectors.is_empty() {
-            return Err(VectorStoreError::EmbeddingError(EmbeddingError::Empty));
-        }
-
-        let mut names = Vec::with_capacity(doc.vectors.len());
-        let start = all_texts.len();
-
-        for (name, text) in doc.vectors {
-            names.push(name);
-            all_texts.push(text);
-        }
-
-        ranges.push((start, names.len()));
-        names_by_doc.push(names);
-        raws.push(serde_json::to_value(doc.raw)?);
-        ids.push(doc.id);
-    }
-
-    let vectors = provider
-        .embed(all_texts.clone())
-        .await
-        .map_err(EmbeddingError::Provider)?;
-
-    let mut prepared = Vec::with_capacity(ids.len());
-    let mut vectors_iter = vectors.into_iter();
-    let mut expected_start = 0usize;
-    for (((id, raw), (start, count)), names) in ids
+    let documents = documents
         .into_iter()
-        .zip(raws)
-        .zip(ranges.into_iter())
-        .zip(names_by_doc.into_iter())
-    {
-        if start != expected_start {
-            return Err(VectorStoreError::EmbeddingError(
-                EmbeddingError::EmbedFailure("embedding ranges are inconsistent".into()),
-            ));
-        }
+        .map(|doc| NamedVectorPayloadDocument {
+            id: doc.id,
+            raw: doc.raw,
+            vectors: doc.vectors,
+            payload_fields: HashMap::new(),
+        })
+        .collect();
 
-        let mut mapped = HashMap::with_capacity(count);
-        for name in names.into_iter() {
-            let Some(vector) = vectors_iter.next() else {
-                return Err(VectorStoreError::EmbeddingError(
-                    EmbeddingError::EmbedFailure(
-                        "embedding provider returned fewer vectors than expected".into(),
-                    ),
-                ));
-            };
-            mapped.insert(name, vector);
-        }
-        expected_start += count;
-
-        prepared.push(PreparedNamedVectorDocument {
-            id,
-            raw,
-            vectors: mapped,
-        });
-    }
-
-    Ok(prepared)
+    let prepared = embed_named_payload_documents(provider, documents).await?;
+    Ok(prepared
+        .into_iter()
+        .map(|doc| PreparedNamedVectorDocument {
+            id: doc.id,
+            raw: doc.raw,
+            vectors: doc.vectors,
+        })
+        .collect())
 }
 
 pub fn normalize_id(id: Option<String>) -> String {
