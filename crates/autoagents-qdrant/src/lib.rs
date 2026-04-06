@@ -5,8 +5,10 @@ use autoagents_core::embeddings::{Embed, Embedding, EmbeddingError, SharedEmbedd
 use autoagents_core::one_or_many::OneOrMany;
 use autoagents_core::vector_store::request::{Filter, FilterError};
 use autoagents_core::vector_store::{
-    DEFAULT_VECTOR_NAME, NamedVectorDocument, PreparedDocument, VectorSearchRequest,
-    VectorStoreError, VectorStoreIndex, embed_documents, embed_named_documents, normalize_id,
+    DEFAULT_VECTOR_NAME, NamedVectorDocument, NamedVectorPayloadDocument, PayloadDocument,
+    PreparedDocument, PreparedNamedVectorPayloadDocument, PreparedPayloadDocument,
+    VectorSearchRequest, VectorStoreError, VectorStoreIndex, embed_documents,
+    embed_named_documents, embed_named_payload_documents, embed_payload_documents, normalize_id,
 };
 use qdrant_client::Payload;
 use qdrant_client::Qdrant;
@@ -126,6 +128,12 @@ impl QdrantVectorStore {
         Payload::try_from(payload).map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))
     }
 
+    fn payload_for_shaped(doc: &PreparedPayloadDocument) -> Result<Payload, VectorStoreError> {
+        let payload = shaped_payload(doc.id.clone(), doc.raw.clone(), doc.payload_fields.clone());
+
+        Payload::try_from(payload).map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))
+    }
+
     fn decode_id(payload: &HashMap<String, qdrant_client::qdrant::Value>) -> Option<String> {
         payload
             .get("source_id")
@@ -198,6 +206,132 @@ impl QdrantVectorStore {
             .iter()
             .map(|(name, vector)| (name.clone(), vector.len() as u64))
             .collect()
+    }
+
+    pub async fn insert_payload_documents<T>(
+        &self,
+        documents: Vec<PayloadDocument<T>>,
+    ) -> Result<(), VectorStoreError>
+    where
+        T: Embed + Serialize + Send + Sync + Clone,
+    {
+        let normalized = documents
+            .into_iter()
+            .map(|doc| PayloadDocument {
+                id: normalize_id(Some(doc.id)),
+                raw: doc.raw,
+                payload_fields: doc.payload_fields,
+            })
+            .collect::<Vec<_>>();
+        let prepared = embed_payload_documents(&self.provider, normalized).await?;
+        self.upsert_prepared_payload_documents(prepared).await
+    }
+
+    pub async fn insert_documents_with_payload_fields<T, I, S>(
+        &self,
+        documents: Vec<(String, T)>,
+        payload_fields: I,
+    ) -> Result<(), VectorStoreError>
+    where
+        T: Embed + Serialize + Send + Sync + Clone,
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let normalized = documents
+            .into_iter()
+            .map(|(id, doc)| (normalize_id(Some(id)), doc))
+            .collect::<Vec<_>>();
+        let prepared = autoagents_core::vector_store::embed_documents_with_payload_fields(
+            &self.provider,
+            normalized,
+            payload_fields,
+        )
+        .await?;
+        self.upsert_prepared_payload_documents(prepared).await
+    }
+
+    pub async fn insert_named_vector_payload_documents<T>(
+        &self,
+        documents: Vec<NamedVectorPayloadDocument<T>>,
+    ) -> Result<(), VectorStoreError>
+    where
+        T: Serialize + Send + Sync + Clone,
+    {
+        let normalized = documents
+            .into_iter()
+            .map(|doc| NamedVectorPayloadDocument {
+                id: normalize_id(Some(doc.id)),
+                raw: doc.raw,
+                vectors: doc.vectors,
+                payload_fields: doc.payload_fields,
+            })
+            .collect::<Vec<_>>();
+        let prepared = embed_named_payload_documents(&self.provider, normalized).await?;
+        self.upsert_prepared_named_payload_documents(prepared).await
+    }
+
+    async fn upsert_prepared_payload_documents(
+        &self,
+        prepared: Vec<PreparedPayloadDocument>,
+    ) -> Result<(), VectorStoreError> {
+        let Some(first) = prepared.first() else {
+            return Ok(());
+        };
+
+        let dim = first
+            .embeddings
+            .iter()
+            .next()
+            .map(|e| e.vec.len())
+            .unwrap_or(0);
+        self.ensure_collection(dim as u64).await?;
+
+        let mut points = Vec::new();
+        for doc in prepared {
+            let payload = Self::payload_for_shaped(&doc)?;
+            let vector = combine_embeddings(&doc.embeddings)?;
+            let point_id = Self::stable_point_id(&doc.id);
+            points.push(PointStruct::new(point_id, vector, payload));
+        }
+
+        let request = UpsertPointsBuilder::new(self.collection_name.clone(), points).build();
+        self.client
+            .upsert_points(request)
+            .await
+            .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
+        Ok(())
+    }
+
+    async fn upsert_prepared_named_payload_documents(
+        &self,
+        prepared: Vec<PreparedNamedVectorPayloadDocument>,
+    ) -> Result<(), VectorStoreError> {
+        let Some(first) = prepared.first() else {
+            return Ok(());
+        };
+
+        let dimensions = Self::named_dimensions(&first.vectors);
+        self.ensure_named_collection(&dimensions).await?;
+
+        let mut points = Vec::new();
+        for doc in prepared {
+            let source_id = doc.id.clone();
+            let payload = Payload::try_from(shaped_payload(
+                source_id.clone(),
+                doc.raw,
+                doc.payload_fields,
+            ))
+            .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
+            let point_id = Self::stable_point_id(&source_id);
+            points.push(PointStruct::new(point_id, doc.vectors, payload));
+        }
+
+        let request = UpsertPointsBuilder::new(self.collection_name.clone(), points).build();
+        self.client
+            .upsert_points(request)
+            .await
+            .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
+        Ok(())
     }
 }
 
@@ -410,6 +544,26 @@ impl VectorStoreIndex for QdrantVectorStore {
     }
 }
 
+fn shaped_payload(
+    source_id: String,
+    raw: serde_json::Value,
+    payload_fields: HashMap<String, serde_json::Value>,
+) -> serde_json::Value {
+    let mut payload = serde_json::Map::with_capacity(payload_fields.len() + 2);
+    payload.insert(
+        "source_id".to_string(),
+        serde_json::Value::String(source_id),
+    );
+    for (key, value) in payload_fields {
+        if key == "raw" || key == "source_id" {
+            continue;
+        }
+        payload.insert(key, value);
+    }
+    payload.insert("raw".to_string(), raw);
+    serde_json::Value::Object(payload)
+}
+
 fn to_qdrant_filter(filter: Filter<serde_json::Value>) -> Result<QdrantFilter, VectorStoreError> {
     use Filter::*;
 
@@ -583,6 +737,36 @@ mod tests {
 
         let decoded: Option<TestDoc> = QdrantVectorStore::decode_raw(&payload_map).unwrap();
         assert_eq!(decoded.unwrap().name, "alpha");
+    }
+
+    #[test]
+    fn test_payload_mirrors_selected_fields_at_root() {
+        let doc = PreparedPayloadDocument {
+            id: "doc-1".to_string(),
+            raw: serde_json::json!({
+                "workspace_id": "ws-1",
+                "project_id": "proj-1",
+                "file_path": "src/lib.rs",
+                "body": "large text"
+            }),
+            payload_fields: HashMap::from([
+                ("workspace_id".to_string(), serde_json::json!("ws-1")),
+                ("project_id".to_string(), serde_json::json!("proj-1")),
+                ("file_path".to_string(), serde_json::json!("src/lib.rs")),
+            ]),
+            embeddings: OneOrMany::One(Embedding {
+                document: "alpha".to_string(),
+                vec: Arc::from(vec![0.1_f32, 0.2_f32]),
+            }),
+        };
+
+        let payload = QdrantVectorStore::payload_for_shaped(&doc).unwrap();
+        let payload_map: HashMap<String, qdrant_client::qdrant::Value> = payload.into();
+        let payload_json = serde_json::to_value(payload_map).unwrap();
+        assert_eq!(payload_json["workspace_id"], "ws-1");
+        assert_eq!(payload_json["project_id"], "proj-1");
+        assert_eq!(payload_json["file_path"], "src/lib.rs");
+        assert_eq!(payload_json["raw"]["body"], "large text");
     }
 
     #[test]
