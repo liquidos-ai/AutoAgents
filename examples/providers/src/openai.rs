@@ -3,7 +3,7 @@ use autoagents::core::agent::prebuilt::executor::BasicAgent;
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, DirectAgent};
 use autoagents::core::error::Error;
-use autoagents::llm::backends::openai::OpenAI;
+use autoagents::llm::backends::openai::{OpenAI, OpenAIApiMode};
 use autoagents::llm::builder::LLMBuilder;
 use autoagents_derive::{AgentHooks, agent};
 use std::sync::Arc;
@@ -23,6 +23,7 @@ pub async fn run() -> Result<(), Error> {
     let llm: Arc<OpenAI> = LLMBuilder::<OpenAI>::new()
         .api_key(api_key) // Set the API key
         .model("gpt-4o") // Use GPT-4o-mini model
+        .api_mode(OpenAIApiMode::ChatCompletions)
         .max_tokens(512) // Limit response length
         .temperature(0.2) // Control response randomness (0.0-1.0)
         .build()

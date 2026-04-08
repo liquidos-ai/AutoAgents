@@ -5,6 +5,7 @@ mod groq;
 mod minimax;
 mod ollama;
 mod openai;
+mod openai_responses;
 mod openrouter;
 
 use autoagents::init_logging;
@@ -13,6 +14,7 @@ use clap::{Parser, ValueEnum};
 #[derive(Debug, ValueEnum, Clone)]
 pub enum Backend {
     OpenAI,
+    OpenAIResponses,
     OpenRouter,
     Anthropic,
     Ollama,
@@ -37,8 +39,12 @@ async fn main() -> anyhow::Result<()> {
 
     match args.backend {
         Backend::OpenAI => {
-            println!("Using OpenAI backend (requires OPENAI_API_KEY)");
+            println!("Using OpenAI backend (default OpenAI mode, requires OPENAI_API_KEY)");
             openai::run().await?;
+        }
+        Backend::OpenAIResponses => {
+            println!("Using OpenAI Responses backend (requires OPENAI_API_KEY)");
+            openai_responses::run().await?;
         }
         Backend::OpenRouter => {
             println!("Using OpenRouter backend (requires OPENROUTER_API_KEY)");
