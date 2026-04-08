@@ -11,6 +11,8 @@ use autoagents_llm::ToolCall;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, StreamChunk, StreamResponse};
 use autoagents_llm::error::LLMError;
 use autoagents_protocol::{Event, SubmissionId};
+#[cfg(target_arch = "wasm32")]
+use futures::SinkExt;
 use futures::{Stream, StreamExt};
 use serde_json::Value;
 use std::collections::HashSet;

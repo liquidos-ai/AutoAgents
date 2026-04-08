@@ -59,6 +59,7 @@ tokio-stream = { workspace = true }
 reqwest = { workspace = true }
 ureq = { workspace = true }
 dirs = { workspace = true }
+bytes = { workspace = true }
 
 # WASM dependencies (only when targeting wasm32)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -71,7 +72,7 @@ getrandom = { workspace = true, features = ["wasm_js"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 rstest = "0.26"
-bytes = "1.11.1"
+bytes = { workspace = true }
 http = "1.2"
 http-body-util = "0.1"
 hyper = "1.5"

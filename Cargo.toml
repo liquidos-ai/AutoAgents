@@ -122,6 +122,7 @@ ractor = { version = "0.15.7" }
 toml = { version = "1.0.7" }
 hf-hub = { version = "0.5.0", default-features = false }
 encoding_rs = "0.8.35"
+bytes = "1.11.1"
 
 [profile.release]
 lto = "thin"      # Enable link-time optimization
