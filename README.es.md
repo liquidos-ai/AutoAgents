@@ -81,16 +81,6 @@ Ver https://github.com/liquidos-ai/AutoAgents-Experimental-Backends
 
 El soporte de proveedores se expande activamente según las necesidades de la comunidad.
 
----
-
-## Benchmarks
-
-![Benchmark](./assets/Benchmark.png)
-
-Más información en [GitHub](https://github.com/liquidos-ai/autoagents-bench)
-
----
-
 ## Instalación
 
 ### Requisitos previos

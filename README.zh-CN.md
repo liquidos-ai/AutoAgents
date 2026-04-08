@@ -81,16 +81,6 @@ AutoAgents 是一个用于在 Rust 中构建智能系统的模块化多智能体
 
 提供方支持会根据社区需求持续扩展。
 
----
-
-## 基准测试
-
-![Benchmark](./assets/Benchmark.png)
-
-更多信息见 [GitHub](https://github.com/liquidos-ai/autoagents-bench)
-
----
-
 ## 安装
 
 ### 先决条件
