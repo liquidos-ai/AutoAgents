@@ -3,7 +3,9 @@ use std::fmt;
 use std::pin::Pin;
 
 use async_trait::async_trait;
-use futures::stream::{Stream, StreamExt};
+use futures::stream::Stream;
+#[cfg(not(target_arch = "wasm32"))]
+use futures::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -650,6 +652,7 @@ impl ChatMessageBuilder {
 /// # Returns
 ///
 /// A pinned stream of text tokens or an error
+#[cfg(not(target_arch = "wasm32"))]
 #[allow(dead_code)]
 pub(crate) fn create_sse_stream<F>(
     response: reqwest::Response,
@@ -662,7 +665,8 @@ where
         .bytes_stream()
         .scan(
             (String::default(), Vec::default()),
-            move |(buffer, utf8_buffer), chunk| {
+            move |(buffer, utf8_buffer): &mut (String, Vec<u8>),
+                  chunk: Result<bytes::Bytes, reqwest::Error>| {
                 let result = match chunk {
                     Ok(bytes) => {
                         utf8_buffer.extend_from_slice(&bytes);

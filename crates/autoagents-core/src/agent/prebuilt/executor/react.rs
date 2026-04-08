@@ -11,6 +11,8 @@ use crate::utils::{receiver_into_stream, spawn_future};
 use async_trait::async_trait;
 use autoagents_llm::ToolCall;
 use autoagents_llm::error::LLMError;
+#[cfg(target_arch = "wasm32")]
+use futures::SinkExt;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -348,7 +350,8 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
         let task = task.clone();
         let executor = self.clone();
 
-        let (tx, rx) = channel::<Result<ReActAgentOutput, ReActExecutorError>>(100);
+        #[cfg_attr(not(target_arch = "wasm32"), allow(unused_mut))]
+        let (mut tx, rx) = channel::<Result<ReActAgentOutput, ReActExecutorError>>(100);
 
         spawn_future(async move {
             let mut accumulated_tool_calls = Vec::new();
