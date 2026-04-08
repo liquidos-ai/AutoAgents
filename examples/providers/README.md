@@ -5,6 +5,7 @@ This directory contains examples demonstrating how to use different LLM provider
 ## Available providers In This Example
 
 - **OpenAI**: GPT models from OpenAI
+- **OpenAI Responses**: OpenAI using the Responses API explicitly
 - **Anthropic**: Claude models from Anthropic
 - **Groq**: Fast inference with various open-source models
 - **OpenRouter**: Access to multiple models through one API
@@ -19,6 +20,13 @@ Each backend requires different setup:
 ```bash
 export OPENAI_API_KEY=your_api_key_here
 cargo run --package providers -- --backend open-ai
+```
+
+### OpenAI Responses
+
+```bash
+export OPENAI_API_KEY=your_api_key_here
+cargo run --package providers -- --backend open-ai-responses
 ```
 
 ### Anthropic
@@ -57,7 +65,8 @@ cargo run --package providers -- --backend ollama
 
 ## Backend-Specific Notes
 
-- **OpenAI**: Uses GPT-4o model by default
+- **OpenAI**: Uses the OpenAI backend defaults
+- **OpenAI Responses**: Explicitly selects `OpenAIApiMode::Responses`
 - **Anthropic**: Uses Claude 3.5 Sonnet model by default
 - **Groq**: Uses Llama 3.3 70B model for fast inference
 - **OpenRouter**: Uses a free Gemini model by default
