@@ -348,7 +348,7 @@ impl ChatResponse for OpenAIResponsesResponse {
             })
             .filter_map(|part| part.text.clone())
             .collect::<Vec<_>>()
-            .join("");
+            .concat();
 
         if text.is_empty() { None } else { Some(text) }
     }
@@ -385,7 +385,7 @@ impl ChatResponse for OpenAIResponsesResponse {
             .flat_map(|item| item.summary.iter())
             .filter_map(|summary| summary.text.clone())
             .collect::<Vec<_>>()
-            .join("");
+            .concat();
 
         if thinking.is_empty() {
             None
@@ -1350,7 +1350,7 @@ fn find_sse_event_boundary(buffer: &[u8]) -> Option<(usize, usize)> {
 }
 
 fn parse_sse_data_payload(event: &str) -> Option<String> {
-    let mut payload = String::new();
+    let mut payload = String::default();
     for line in event.lines() {
         let line = line.trim();
         let data_opt = line
@@ -1441,133 +1441,174 @@ fn parse_responses_sse_event(
                 raw_response: data_trimmed.to_string(),
             })?;
 
-    let mut results = Vec::new();
     match event_type {
-        "response.output_text.delta" => {
-            if let Some(delta) = value.get("delta").and_then(Value::as_str)
-                && !delta.is_empty()
-            {
-                results.push(StreamChunk::Text(delta.to_string()));
-            }
-        }
+        "response.output_text.delta" => Ok(parse_responses_text_delta(&value, false)),
         "response.reasoning_text.delta" | "response.reasoning_summary_text.delta" => {
-            if let Some(delta) = value.get("delta").and_then(Value::as_str)
-                && !delta.is_empty()
-            {
-                results.push(StreamChunk::ReasoningContent(delta.to_string()));
-            }
+            Ok(parse_responses_text_delta(&value, true))
         }
-        "response.output_item.added" => {
-            let output_index = value
-                .get("output_index")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as usize;
-            let item = value.get("item").cloned().unwrap_or(Value::Null);
-            if item.get("type").and_then(Value::as_str) == Some("function_call") {
-                let tool_state = state.tool_states.entry(output_index).or_default();
-                tool_state.call_id = item
-                    .get("call_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                tool_state.item_id = item
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .map(ToOwned::to_owned);
-                tool_state.name = item
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
+        "response.output_item.added" => Ok(handle_responses_output_item_added(&value, state)),
+        "response.function_call_arguments.delta" => Ok(
+            handle_responses_function_call_arguments_delta(&value, state),
+        ),
+        "response.function_call_arguments.done" | "response.output_item.done" => Ok(
+            handle_responses_function_call_completion(event_type, &value, state),
+        ),
+        "response.completed" | "response.done" => Ok(handle_responses_done(&value, state)),
+        "error" | "response.failed" => Err(LLMError::ProviderError(data_trimmed.to_string())),
+        _ => Ok(Vec::new()),
+    }
+}
 
-                if !tool_state.started && !tool_state.name.is_empty() {
-                    tool_state.started = true;
-                    results.push(StreamChunk::ToolUseStart {
-                        index: output_index,
-                        id: tool_state.call_id.clone(),
-                        name: tool_state.name.clone(),
-                    });
-                }
-            }
-        }
-        "response.function_call_arguments.delta" => {
-            let output_index = value
-                .get("output_index")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as usize;
-            let delta = value
-                .get("delta")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let tool_state = state.tool_states.entry(output_index).or_default();
-            if tool_state.item_id.is_none() {
-                tool_state.item_id = value
-                    .get("item_id")
-                    .and_then(Value::as_str)
-                    .map(ToOwned::to_owned);
-            }
-            if !delta.is_empty() {
-                tool_state.arguments_buffer.push_str(delta);
-                results.push(StreamChunk::ToolUseInputDelta {
-                    index: output_index,
-                    partial_json: delta.to_string(),
-                });
-            }
-        }
-        "response.function_call_arguments.done" | "response.output_item.done" => {
-            let output_index = value
-                .get("output_index")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as usize;
-            let item = value.get("item").cloned().unwrap_or(Value::Null);
-            let is_function_call = event_type == "response.function_call_arguments.done"
-                || item.get("type").and_then(Value::as_str) == Some("function_call");
-            if is_function_call {
-                let tool_state = state.tool_states.entry(output_index).or_default();
-                if let Some(call_id) = item.get("call_id").and_then(Value::as_str) {
-                    tool_state.call_id = call_id.to_string();
-                }
-                if let Some(item_id) = item.get("id").and_then(Value::as_str) {
-                    tool_state.item_id = Some(item_id.to_string());
-                }
-                if let Some(name) = item.get("name").and_then(Value::as_str) {
-                    tool_state.name = name.to_string();
-                }
-                if let Some(arguments) = item.get("arguments").and_then(Value::as_str) {
-                    tool_state.arguments_buffer = arguments.to_string();
-                }
-
-                if let Some(tool_state) = state.tool_states.remove(&output_index)
-                    && !tool_state.name.is_empty()
-                {
-                    state.saw_tool_completion = true;
-                    results.push(StreamChunk::ToolUseComplete {
-                        index: output_index,
-                        tool_call: ToolCall {
-                            id: tool_state.call_id,
-                            call_type: "function".to_string(),
-                            function: FunctionCall {
-                                name: tool_state.name,
-                                arguments: tool_state.arguments_buffer,
-                            },
-                        },
-                    });
-                }
-            }
-        }
-        "response.completed" | "response.done" => {
-            if let Some(usage) = usage_from_value(&value) {
-                results.push(StreamChunk::Usage(usage));
-            }
-            results.extend(finalize_responses_stream(state, true));
-        }
-        "error" | "response.failed" => {
-            return Err(LLMError::ProviderError(data_trimmed.to_string()));
-        }
-        _ => {}
+fn parse_responses_text_delta(value: &Value, reasoning: bool) -> Vec<StreamChunk> {
+    let Some(delta) = value.get("delta").and_then(Value::as_str) else {
+        return Vec::new();
+    };
+    if delta.is_empty() {
+        return Vec::new();
     }
 
-    Ok(results)
+    vec![if reasoning {
+        StreamChunk::ReasoningContent(delta.to_string())
+    } else {
+        StreamChunk::Text(delta.to_string())
+    }]
+}
+
+fn responses_output_index(value: &Value) -> usize {
+    value
+        .get("output_index")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize
+}
+
+fn handle_responses_output_item_added(
+    value: &Value,
+    state: &mut ResponsesStreamState,
+) -> Vec<StreamChunk> {
+    let output_index = responses_output_index(value);
+    let item = value.get("item").cloned().unwrap_or(Value::Null);
+    if item.get("type").and_then(Value::as_str) != Some("function_call") {
+        return Vec::new();
+    }
+
+    let tool_state = state.tool_states.entry(output_index).or_default();
+    tool_state.call_id = item
+        .get("call_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    tool_state.item_id = item
+        .get("id")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    tool_state.name = item
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+
+    if tool_state.started || tool_state.name.is_empty() {
+        return Vec::new();
+    }
+
+    tool_state.started = true;
+    vec![StreamChunk::ToolUseStart {
+        index: output_index,
+        id: tool_state.call_id.clone(),
+        name: tool_state.name.clone(),
+    }]
+}
+
+fn handle_responses_function_call_arguments_delta(
+    value: &Value,
+    state: &mut ResponsesStreamState,
+) -> Vec<StreamChunk> {
+    let output_index = responses_output_index(value);
+    let delta = value
+        .get("delta")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let tool_state = state.tool_states.entry(output_index).or_default();
+    if tool_state.item_id.is_none() {
+        tool_state.item_id = value
+            .get("item_id")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+    }
+
+    if delta.is_empty() {
+        return Vec::new();
+    }
+
+    tool_state.arguments_buffer.push_str(delta);
+    vec![StreamChunk::ToolUseInputDelta {
+        index: output_index,
+        partial_json: delta.to_string(),
+    }]
+}
+
+fn handle_responses_function_call_completion(
+    event_type: &str,
+    value: &Value,
+    state: &mut ResponsesStreamState,
+) -> Vec<StreamChunk> {
+    let output_index = responses_output_index(value);
+    let item = value.get("item").cloned().unwrap_or(Value::Null);
+    let is_function_call = event_type == "response.function_call_arguments.done"
+        || item.get("type").and_then(Value::as_str) == Some("function_call");
+    if !is_function_call {
+        return Vec::new();
+    }
+
+    let tool_state = state.tool_states.entry(output_index).or_default();
+    if let Some(call_id) = item.get("call_id").and_then(Value::as_str) {
+        tool_state.call_id = call_id.to_string();
+    }
+    if let Some(item_id) = item.get("id").and_then(Value::as_str) {
+        tool_state.item_id = Some(item_id.to_string());
+    }
+    if let Some(name) = item.get("name").and_then(Value::as_str) {
+        tool_state.name = name.to_string();
+    }
+    if let Some(arguments) = item.get("arguments").and_then(Value::as_str) {
+        tool_state.arguments_buffer = arguments.to_string();
+    }
+
+    complete_responses_tool_call(output_index, state)
+}
+
+fn complete_responses_tool_call(
+    output_index: usize,
+    state: &mut ResponsesStreamState,
+) -> Vec<StreamChunk> {
+    let Some(tool_state) = state.tool_states.remove(&output_index) else {
+        return Vec::new();
+    };
+    if tool_state.name.is_empty() {
+        return Vec::new();
+    }
+
+    state.saw_tool_completion = true;
+    vec![StreamChunk::ToolUseComplete {
+        index: output_index,
+        tool_call: ToolCall {
+            id: tool_state.call_id,
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: tool_state.name,
+                arguments: tool_state.arguments_buffer,
+            },
+        },
+    }]
+}
+
+fn handle_responses_done(value: &Value, state: &mut ResponsesStreamState) -> Vec<StreamChunk> {
+    let mut results = Vec::new();
+    if let Some(usage) = usage_from_value(value) {
+        results.push(StreamChunk::Usage(usage));
+    }
+    results.extend(finalize_responses_stream(state, true));
+    results
 }
 
 fn create_responses_tool_stream(
