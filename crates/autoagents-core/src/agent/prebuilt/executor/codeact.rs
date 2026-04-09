@@ -849,19 +849,7 @@ async fn build_messages(
 fn build_codeact_system_prompt(base_prompt: &str, tool_bindings: &[CodeActToolBinding]) -> String {
     let declarations = tool_bindings
         .iter()
-        .map(|binding| {
-            format!(
-                "/** {} */\ntype {} = {};\ntype {} = {};\ndeclare function {}(args: {}): Promise<{}>;\n\n",
-                escape_typescript_doc_comment(&binding.description),
-                binding.args_type_alias,
-                binding.args_type,
-                binding.result_type_alias,
-                binding.result_type,
-                binding.js_name,
-                binding.args_type_alias,
-                binding.result_type_alias,
-            )
-        })
+        .map(render_typescript_binding_declaration)
         .collect::<String>();
 
     format!(
@@ -943,6 +931,52 @@ fn parse_execute_args(arguments: &str) -> Result<ExecuteTypescriptArgs, String> 
 
 fn wrap_typescript_source(source: &str) -> String {
     format!("{CODEACT_WRAPPER_PREFIX}{source}{CODEACT_WRAPPER_SUFFIX}")
+}
+
+fn render_typescript_binding_declaration(binding: &CodeActToolBinding) -> String {
+    format!(
+        "/** {} */\ntype {} = {};\ntype {} = {};\ndeclare function {}(args: {}): Promise<{}>;\n\n",
+        escape_typescript_doc_comment(&binding.description),
+        binding.args_type_alias,
+        binding.args_type,
+        binding.result_type_alias,
+        binding.result_type,
+        binding.js_name,
+        binding.args_type_alias,
+        binding.result_type_alias,
+    )
+}
+
+fn render_typescript_binding_implementation(binding: &CodeActToolBinding) -> String {
+    format!(
+        "/** {} */\ntype {} = {};\ntype {} = {};\nasync function {}(args: {}): Promise<{}> {{\n  const __reply = JSON.parse(await __codeact_invoke({:?}, JSON.stringify(args ?? {{}})));\n  if (!__reply.ok) {{\n    throw new Error(__reply.error ?? \"tool call failed\");\n  }}\n  return __reply.value;\n}}\n\n",
+        escape_typescript_doc_comment(&binding.description),
+        binding.args_type_alias,
+        binding.args_type,
+        binding.result_type_alias,
+        binding.result_type,
+        binding.js_name,
+        binding.args_type_alias,
+        binding.result_type_alias,
+        binding.original_name,
+    )
+}
+
+fn build_typescript_prelude(tool_bindings: &[CodeActToolBinding]) -> String {
+    tool_bindings
+        .iter()
+        .map(render_typescript_binding_implementation)
+        .collect()
+}
+
+fn build_typescript_program(source: &str, tool_bindings: &[CodeActToolBinding]) -> String {
+    let prelude = build_typescript_prelude(tool_bindings);
+    let wrapped_source = wrap_typescript_source(source);
+    if prelude.is_empty() {
+        wrapped_source
+    } else {
+        format!("{prelude}{wrapped_source}")
+    }
 }
 
 fn parse_typescript_program(source: &str) -> Result<ParsedSource, CodeActExecutorError> {
@@ -1287,6 +1321,7 @@ impl Visit for ForbiddenSyntaxVisitor {
 
 fn validate_typescript_source(
     source: &str,
+    tool_bindings: &[CodeActToolBinding],
     limits: &CodeActSandboxLimits,
 ) -> Result<ParsedSource, CodeActExecutorError> {
     if source.len() > limits.max_source_bytes {
@@ -1296,7 +1331,7 @@ fn validate_typescript_source(
         )));
     }
 
-    let parsed = parse_typescript_program(&wrap_typescript_source(source))?;
+    let parsed = parse_typescript_program(&build_typescript_program(source, tool_bindings))?;
     let mut visitor = ForbiddenSyntaxVisitor::default();
     parsed.program_ref().visit_with(&mut visitor);
 
@@ -1312,9 +1347,10 @@ fn validate_typescript_source(
 
 fn transpile_typescript(
     source: &str,
+    tool_bindings: &[CodeActToolBinding],
     limits: &CodeActSandboxLimits,
 ) -> Result<String, CodeActExecutorError> {
-    let parsed = validate_typescript_source(source, limits)?;
+    let parsed = validate_typescript_source(source, tool_bindings, limits)?;
     let parsed = if let Some(normalized_source) = normalize_wrapped_typescript_source(&parsed)? {
         parse_typescript_program(&normalized_source)?
     } else {
@@ -1677,11 +1713,14 @@ async fn run_typescript_sandbox<H>(hooks: H, request: CodeActSandboxRequest) -> 
 where
     H: AgentHooks + Clone + Send + Sync + 'static,
 {
-    let transpiled = match transpile_typescript(&request.source, &request.limits) {
-        Ok(transpiled) => transpiled,
-        Err(error) => return SandboxOutcome::failure(error.to_string(), Vec::new(), Vec::new()),
-    };
-    let script = build_runtime_script(&transpiled, &request.tool_bindings);
+    let transpiled =
+        match transpile_typescript(&request.source, &request.tool_bindings, &request.limits) {
+            Ok(transpiled) => transpiled,
+            Err(error) => {
+                return SandboxOutcome::failure(error.to_string(), Vec::new(), Vec::new());
+            }
+        };
+    let script = build_runtime_script(&transpiled);
 
     let console_capture = ConsoleCapture::new(request.limits.max_console_bytes);
     let invocation_state = Arc::new(CodeActToolInvocationState::new(&request.limits));
@@ -1757,11 +1796,14 @@ async fn run_typescript_sandbox<H>(hooks: H, request: CodeActSandboxRequest) -> 
 where
     H: AgentHooks + Clone + Send + Sync + 'static,
 {
-    let transpiled = match transpile_typescript(&request.source, &request.limits) {
-        Ok(transpiled) => transpiled,
-        Err(error) => return SandboxOutcome::failure(error.to_string(), Vec::new(), Vec::new()),
-    };
-    let script = build_runtime_script(&transpiled, &request.tool_bindings);
+    let transpiled =
+        match transpile_typescript(&request.source, &request.tool_bindings, &request.limits) {
+            Ok(transpiled) => transpiled,
+            Err(error) => {
+                return SandboxOutcome::failure(error.to_string(), Vec::new(), Vec::new());
+            }
+        };
+    let script = build_runtime_script(&transpiled);
 
     let console_capture = ConsoleCapture::new(request.limits.max_console_bytes);
     let invocation_state = Arc::new(CodeActToolInvocationState::new(&request.limits));
@@ -1847,18 +1889,7 @@ where
     )
 }
 
-fn build_runtime_script(transpiled: &str, tool_bindings: &[CodeActToolBinding]) -> String {
-    let bindings = tool_bindings
-        .iter()
-        .map(|binding| {
-            format!(
-                "async function {js_name}(args) {{\n  const __reply = JSON.parse(await __codeact_invoke({tool_name:?}, JSON.stringify(args ?? {{}})));\n  if (!__reply.ok) {{\n    throw new Error(__reply.error ?? 'tool call failed');\n  }}\n  return __reply.value;\n}}\n",
-                js_name = binding.js_name,
-                tool_name = binding.original_name,
-            )
-        })
-        .collect::<String>();
-
+fn build_runtime_script(transpiled: &str) -> String {
     format!(
         r#"
 globalThis.eval = undefined;
@@ -1883,8 +1914,6 @@ globalThis.console = {{
   warn: (...args) => __codeact_console("warn", args.map(__codeact_format).join(" ")),
   info: (...args) => __codeact_console("info", args.map(__codeact_format).join(" ")),
 }};
-
-{bindings}
 
 {transpiled}
 
@@ -2155,9 +2184,31 @@ mod tests {
     }
 
     #[test]
+    fn test_build_typescript_prelude_generates_typed_tool_helpers() {
+        let bindings = vec![CodeActToolBinding {
+            original_name: "dangerous".to_string(),
+            js_name: "external_dangerous".to_string(),
+            args_type_alias: "DangerousArgs".to_string(),
+            args_type: "{ value: string; }".to_string(),
+            result_type_alias: "DangerousResult".to_string(),
+            result_type: "number".to_string(),
+            description: "comment */ breaker".to_string(),
+        }];
+
+        let prelude = build_typescript_prelude(&bindings);
+        assert!(prelude.contains("/** comment *\\/ breaker */"));
+        assert!(prelude.contains(
+            "async function external_dangerous(args: DangerousArgs): Promise<DangerousResult>"
+        ));
+        assert!(
+            prelude.contains(r#"await __codeact_invoke("dangerous", JSON.stringify(args ?? {}))"#)
+        );
+    }
+
+    #[test]
     fn test_validate_typescript_source_rejects_dynamic_imports() {
         let limits = CodeActSandboxLimits::default();
-        let error = validate_typescript_source("await import('y');", &limits).unwrap_err();
+        let error = validate_typescript_source("await import('y');", &[], &limits).unwrap_err();
         assert!(matches!(error, CodeActExecutorError::ValidationError(_)));
     }
 
@@ -2167,7 +2218,7 @@ mod tests {
             max_source_bytes: 4,
             ..CodeActSandboxLimits::default()
         };
-        let error = validate_typescript_source("hello", &limits).unwrap_err();
+        let error = validate_typescript_source("hello", &[], &limits).unwrap_err();
         assert!(matches!(error, CodeActExecutorError::ValidationError(_)));
     }
 
@@ -2180,11 +2231,48 @@ const processValue = "ok";
 console.log(processValue);
 return processValue;
 "#,
+            &[],
             &limits,
         )
         .expect("identifier-only usage should pass validation");
 
         assert!(parsed.text().contains("processValue"));
+    }
+
+    #[test]
+    fn test_transpile_typescript_includes_generated_tool_helpers() {
+        let limits = CodeActSandboxLimits::default();
+        let bindings = vec![CodeActToolBinding {
+            original_name: "tool_a".to_string(),
+            js_name: "external_tool_a".to_string(),
+            args_type_alias: "tool_aArgs".to_string(),
+            args_type: "{ path: string; }".to_string(),
+            result_type_alias: "tool_aResult".to_string(),
+            result_type: "{ ok: boolean; }".to_string(),
+            description: "read a path".to_string(),
+        }];
+
+        let transpiled = transpile_typescript(
+            "return await external_tool_a({ path: 'x' });",
+            &bindings,
+            &limits,
+        )
+        .expect("transpile should include generated helpers");
+
+        assert!(transpiled.contains("async function external_tool_a(args)"));
+        assert!(
+            transpiled.contains(r#"await __codeact_invoke("tool_a", JSON.stringify(args ?? {}))"#)
+        );
+    }
+
+    #[test]
+    fn test_build_runtime_script_keeps_runtime_shell_static() {
+        let script = build_runtime_script("const __codeact_main = async () => 1;");
+
+        assert!(script.contains("globalThis.console"));
+        assert!(script.contains("const __codeact_main = async () => 1;"));
+        assert!(!script.contains("__codeact_invoke(\"tool_a\""));
+        assert!(!script.contains("async function external_tool_a"));
     }
 
     #[cfg(not(target_arch = "wasm32"))]
