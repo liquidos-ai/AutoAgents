@@ -6,8 +6,8 @@ pub mod turn_engine;
 
 use crate::agent::context::Context;
 use crate::agent::task::Task;
+use crate::utils::BoxRuntimeStream;
 use async_trait::async_trait;
-use futures::Stream;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::error::Error;
@@ -39,7 +39,8 @@ impl Default for ExecutorConfig {
 ///
 /// Executors are responsible for implementing the specific execution logic
 /// for agents, such as ReAct loops, chain-of-thought, or custom patterns.
-#[async_trait]
+#[cfg_attr(all(target_arch = "wasm32", target_os = "wasi"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "wasi")), async_trait)]
 pub trait AgentExecutor: Send + Sync + 'static {
     type Output: Serialize + DeserializeOwned + Clone + Send + Sync + Debug;
     type Error: Error + Send + Sync + 'static;
@@ -56,10 +57,7 @@ pub trait AgentExecutor: Send + Sync + 'static {
         &self,
         task: &Task,
         context: Arc<Context>,
-    ) -> Result<
-        std::pin::Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>,
-        Self::Error,
-    > {
+    ) -> Result<BoxRuntimeStream<Result<Self::Output, Self::Error>>, Self::Error> {
         // Default fallback to self.execute with final result as a single-item stream
         let context_clone = context.clone();
         let result = self.execute(task, context_clone).await;
@@ -154,10 +152,7 @@ mod tests {
             &self,
             task: &Task,
             context: Arc<Context>,
-        ) -> Result<
-            std::pin::Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>,
-            Self::Error,
-        > {
+        ) -> Result<BoxRuntimeStream<Result<Self::Output, Self::Error>>, Self::Error> {
             // Use the default implementation from the trait
             let context_clone = context.clone();
             let result = self.execute(task, context_clone).await;

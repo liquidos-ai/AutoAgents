@@ -4,7 +4,6 @@ use crate::agent::task::Task;
 use crate::agent::{AgentBuilder, AgentDeriveT, AgentExecutor, AgentHooks, BaseAgent, HookOutcome};
 use crate::error::Error;
 use autoagents_protocol::Event;
-use futures::Stream;
 
 use crate::agent::constants::DEFAULT_CHANNEL_BUFFER;
 
@@ -122,7 +121,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
         &self,
         task: Task,
     ) -> Result<
-        std::pin::Pin<Box<dyn Stream<Item = Result<<T as AgentDeriveT>::Output, Error>> + Send>>,
+        crate::utils::BoxRuntimeStream<Result<<T as AgentDeriveT>::Output, Error>>,
         RunnableAgentError,
     >
     where

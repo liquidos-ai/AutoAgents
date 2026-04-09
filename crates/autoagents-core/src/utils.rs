@@ -1,6 +1,4 @@
 use futures_core::Stream;
-#[cfg(target_arch = "wasm32")]
-use futures_util::stream::StreamExt;
 #[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
 use std::future::Future;
 use std::pin::Pin;
@@ -19,6 +17,12 @@ pub use futures::channel::mpsc::{Receiver, Sender, channel};
 // -----------------------------
 // Unified boxed stream type
 // -----------------------------
+#[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
+pub type BoxRuntimeStream<T> = Pin<Box<dyn Stream<Item = T> + Send>>;
+
+#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+pub type BoxRuntimeStream<T> = Pin<Box<dyn Stream<Item = T>>>;
+
 #[cfg(not(target_arch = "wasm32"))]
 pub type BoxEventStream<T> = Pin<Box<dyn Stream<Item = T> + Send + Sync>>;
 
@@ -36,13 +40,13 @@ pub(crate) fn receiver_into_stream<T: 'static + Send>(rx: Receiver<T>) -> BoxEve
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn receiver_into_stream<T: 'static + Send>(rx: Receiver<T>) -> BoxEventStream<T> {
-    rx.boxed()
+    Box::pin(rx)
 }
 
 #[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
 struct WasiDrivenStream<T> {
-    producer: Pin<Box<dyn Future<Output = ()> + Send>>,
-    receiver: BoxEventStream<T>,
+    producer: Pin<Box<dyn Future<Output = ()>>>,
+    receiver: BoxRuntimeStream<T>,
     producer_done: bool,
 }
 
@@ -82,34 +86,36 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn stream_from_producer<T, F>(rx: Receiver<T>, producer: F) -> BoxEventStream<T>
+pub(crate) fn stream_from_producer<T, F>(rx: Receiver<T>, producer: F) -> BoxRuntimeStream<T>
 where
     T: 'static + Send,
     F: std::future::Future<Output = ()> + Send + 'static,
 {
+    use tokio_stream::wrappers::ReceiverStream;
+
     spawn_future(producer);
-    receiver_into_stream(rx)
+    Box::pin(ReceiverStream::new(rx))
 }
 
 #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
-pub(crate) fn stream_from_producer<T, F>(rx: Receiver<T>, producer: F) -> BoxEventStream<T>
+pub(crate) fn stream_from_producer<T, F>(rx: Receiver<T>, producer: F) -> BoxRuntimeStream<T>
 where
     T: 'static + Send,
     F: std::future::Future<Output = ()> + 'static,
 {
     spawn_future(producer);
-    receiver_into_stream(rx)
+    Box::pin(rx)
 }
 
 #[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
-pub(crate) fn stream_from_producer<T, F>(rx: Receiver<T>, producer: F) -> BoxEventStream<T>
+pub(crate) fn stream_from_producer<T, F>(rx: Receiver<T>, producer: F) -> BoxRuntimeStream<T>
 where
     T: 'static + Send,
-    F: std::future::Future<Output = ()> + Send + 'static,
+    F: std::future::Future<Output = ()> + 'static,
 {
     Box::pin(WasiDrivenStream {
         producer: Box::pin(producer),
-        receiver: receiver_into_stream(rx),
+        receiver: Box::pin(rx),
         producer_done: false,
     })
 }

@@ -13,12 +13,10 @@ use autoagents_llm::ToolCall;
 use autoagents_llm::error::LLMError;
 #[cfg(target_arch = "wasm32")]
 use futures::SinkExt;
-use futures::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::ops::Deref;
-use std::pin::Pin;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -251,7 +249,8 @@ where
 }
 
 /// Implementation of AgentExecutor for the ReActExecutorWrapper
-#[async_trait]
+#[cfg_attr(all(target_arch = "wasm32", target_os = "wasi"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "wasi")), async_trait)]
 impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
     type Output = ReActAgentOutput;
     type Error = ReActExecutorError;
@@ -327,10 +326,8 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
         &self,
         task: &Task,
         context: Arc<Context>,
-    ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<ReActAgentOutput, Self::Error>> + Send>>,
-        Self::Error,
-    > {
+    ) -> Result<crate::utils::BoxRuntimeStream<Result<ReActAgentOutput, Self::Error>>, Self::Error>
+    {
         record_task_state(&context, task);
 
         let tx_event = context.tx().ok();

@@ -256,10 +256,7 @@ impl TurnEngine {
         turn_state: &mut TurnState,
         turn_index: usize,
         max_turns: usize,
-    ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<TurnDelta, TurnEngineError>> + Send>>,
-        TurnEngineError,
-    >
+    ) -> Result<crate::utils::BoxRuntimeStream<Result<TurnDelta, TurnEngineError>>, TurnEngineError>
     where
         H: AgentHooks + Clone + Send + Sync + 'static,
     {

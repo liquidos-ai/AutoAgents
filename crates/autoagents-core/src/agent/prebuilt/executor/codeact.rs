@@ -14,13 +14,11 @@ use autoagents_llm::error::LLMError;
 use autoagents_protocol::{Event, SubmissionId};
 #[cfg(target_arch = "wasm32")]
 use futures::SinkExt;
-use futures::Stream;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::ops::Deref;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -289,7 +287,8 @@ where
     }
 }
 
-#[async_trait]
+#[cfg_attr(all(target_arch = "wasm32", target_os = "wasi"), async_trait(?Send))]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "wasi")), async_trait)]
 impl<T> AgentExecutor for CodeActAgent<T>
 where
     T: AgentDeriveT + AgentHooks + Send + Sync + 'static,
@@ -329,7 +328,7 @@ where
         &self,
         task: &Task,
         context: Arc<Context>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>, Self::Error>
+    ) -> Result<crate::utils::BoxRuntimeStream<Result<Self::Output, Self::Error>>, Self::Error>
     {
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
         {
@@ -546,7 +545,7 @@ impl CodeActEngine {
         task: &Task,
         context: Arc<Context>,
     ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<CodeActAgentOutput, CodeActExecutorError>> + Send>>,
+        crate::utils::BoxRuntimeStream<Result<CodeActAgentOutput, CodeActExecutorError>>,
         CodeActExecutorError,
     >
     where
@@ -1843,15 +1842,15 @@ where
         Err(error) => return SandboxOutcome::failure(error.to_string(), Vec::new(), Vec::new()),
     };
 
+    let console_capture_for_js = console_capture.clone();
     let execution_result = rquickjs::async_with!(js_context => |ctx| {
         let globals = ctx.globals();
 
-        let console_capture = console_capture.clone();
         globals
             .set(
                 "__codeact_console",
                 Func::from(move |level: String, message: String| -> String {
-                    console_capture.push(level, message)
+                    console_capture_for_js.push(level, message)
                 }),
             )
             .map_err(|err| err.to_string())?;
@@ -2368,6 +2367,74 @@ return { total: left.value + right.value };
             assert!(outcome.error.is_none());
             assert_eq!(outcome.tool_calls.len(), 2);
             assert_eq!(outcome.console, vec!["[log] sum 3".to_string()]);
+        });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_async_quickjs_runtime_executes_async_tool_bridge() {
+        run_async_test(async {
+            let runtime =
+                rquickjs::AsyncRuntime::new().expect("async quickjs runtime should build");
+            let js_context = rquickjs::AsyncContext::full(&runtime)
+                .await
+                .expect("async quickjs context should build");
+
+            let result = rquickjs::async_with!(js_context => |ctx| {
+                ctx.globals()
+                    .set(
+                        "__codeact_invoke",
+                        Func::from(rquickjs::function::Async(
+                            |tool_name: String, args_json: String| async move {
+                                let args: Value = serde_json::from_str(&args_json)
+                                    .expect("tool args should be valid json");
+                                json!({
+                                    "ok": true,
+                                    "value": {
+                                        "tool": tool_name,
+                                        "args": args,
+                                    }
+                                })
+                                .to_string()
+                            },
+                        )),
+                    )
+                    .expect("async tool bridge should register");
+
+                let promise = ctx
+                    .eval::<Promise, _>(
+                        r#"
+(async () => {
+  const reply = JSON.parse(
+    await __codeact_invoke("tool_a", JSON.stringify({ path: "src/lib.rs" }))
+  );
+  if (!reply.ok) {
+    throw new Error("tool bridge failed");
+  }
+  return JSON.stringify(reply.value);
+})()
+"#,
+                    )
+                    .catch(&ctx)
+                    .expect("script should evaluate");
+
+                promise
+                    .into_future::<String>()
+                    .await
+                    .catch(&ctx)
+                    .expect("async tool bridge should resolve")
+            })
+            .await;
+
+            let parsed: Value =
+                serde_json::from_str(&result).expect("tool bridge result should be valid json");
+            assert_eq!(
+                parsed,
+                json!({
+                    "tool": "tool_a",
+                    "args": { "path": "src/lib.rs" },
+                })
+            );
         });
     }
 

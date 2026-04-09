@@ -15,7 +15,6 @@ use async_trait::async_trait;
 use autoagents_protocol::Event;
 #[cfg(target_arch = "wasm32")]
 use futures::SinkExt;
-use futures::Stream;
 #[cfg(not(target_arch = "wasm32"))]
 use ractor::Actor;
 #[cfg(not(target_arch = "wasm32"))]
@@ -187,9 +186,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         self: Arc<Self>,
         task: Task,
     ) -> Result<
-        std::pin::Pin<
-            Box<dyn Stream<Item = Result<<T as AgentDeriveT>::Output, RunnableAgentError>> + Send>,
-        >,
+        crate::utils::BoxRuntimeStream<Result<<T as AgentDeriveT>::Output, RunnableAgentError>>,
         RunnableAgentError,
     >
     where
