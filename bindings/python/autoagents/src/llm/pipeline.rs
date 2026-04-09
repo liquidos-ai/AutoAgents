@@ -164,6 +164,7 @@ fn tool_to_py(py: Python<'_>, tool: &Tool) -> Result<Py<PyAny>, LLMError> {
         tool.function.description.clone(),
         schema_json,
         py.None(),
+        None,
     )
     .map_err(|e| provider_error(e.to_string()))?;
     let bound = Py::new(py, py_tool).map_err(|e| provider_error(e.to_string()))?;

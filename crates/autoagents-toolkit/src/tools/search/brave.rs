@@ -1,6 +1,6 @@
 use autoagents::core::{
     ractor::async_trait,
-    tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT},
+    tool::{ToolCallError, ToolRuntime, ToolT},
 };
 use autoagents_derive::{ToolInput, tool};
 use once_cell::sync::Lazy;

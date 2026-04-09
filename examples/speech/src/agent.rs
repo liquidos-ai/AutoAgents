@@ -2,7 +2,7 @@ use autoagents::core::agent::memory::SlidingWindowMemory;
 use autoagents::core::agent::prebuilt::executor::ReActAgent;
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, DirectAgent, DirectAgentHandle};
-use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
+use autoagents::core::tool::{ToolCallError, ToolRuntime, ToolT};
 use autoagents::llm::backends::openai::OpenAI;
 use autoagents::llm::builder::LLMBuilder;
 use autoagents_derive::{AgentHooks, ToolInput, agent, tool};

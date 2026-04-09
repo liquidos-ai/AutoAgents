@@ -131,15 +131,28 @@ class ExecutorConfig(TypedDict, total=False):
     max_turns: int
 
 
+class CodeActExecutionRecord(TypedDict):
+    execution_id: str
+    source: str
+    console: List[str]
+    tool_calls: List[JsonObject]
+    result: Optional[JsonValue]
+    success: bool
+    error: Optional[str]
+    duration_ms: int
+
+
 class ExecutorOutput(TypedDict):
     response: str
     done: bool
     tool_calls: List[JsonObject]
+    executions: List[CodeActExecutionRecord]
 
 
 class AgentRunResult(TypedDict):
     response: str
     tool_calls: List[JsonObject]
+    executions: List[CodeActExecutionRecord]
     done: bool
     events: List["ProtocolEvent"]
 

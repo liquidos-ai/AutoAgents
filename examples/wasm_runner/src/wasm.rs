@@ -7,7 +7,7 @@ use autoagents::core::agent::{ActorAgent, AgentBuilder, AgentOutputT};
 use autoagents::core::environment::Environment;
 use autoagents::core::error::Error;
 use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
-use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT, WasmRuntime};
+use autoagents::core::tool::{ToolCallError, ToolRuntime, ToolT, WasmRuntime};
 use autoagents::core::utils::BoxEventStream;
 use autoagents::llm::LLMProvider;
 use autoagents::protocol::Event;

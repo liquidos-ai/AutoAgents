@@ -15,7 +15,7 @@ default = ["extension-module"]
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
-autoagents-core     = { workspace = true }
+autoagents-core     = { workspace = true, features = ["codeact"] }
 autoagents-llm      = { workspace = true, features = ["full"] }
 autoagents-protocol = { workspace = true }
 pyo3                = { version = "0.28.2", features = ["abi3-py39"] }

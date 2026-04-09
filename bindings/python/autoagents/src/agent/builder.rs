@@ -290,6 +290,10 @@ fn event_submission_id(event: &Event) -> Option<SubmissionId> {
         | Event::ToolCallFailed { sub_id, .. }
         | Event::TurnStarted { sub_id, .. }
         | Event::TurnCompleted { sub_id, .. }
+        | Event::CodeExecutionStarted { sub_id, .. }
+        | Event::CodeExecutionConsole { sub_id, .. }
+        | Event::CodeExecutionCompleted { sub_id, .. }
+        | Event::CodeExecutionFailed { sub_id, .. }
         | Event::StreamChunk { sub_id, .. }
         | Event::StreamToolCall { sub_id, .. }
         | Event::StreamComplete { sub_id, .. } => Some(*sub_id),

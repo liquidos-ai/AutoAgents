@@ -20,8 +20,13 @@ impl EventHelper {
     pub async fn send(tx: &Option<mpsc::Sender<Event>>, event: Event) {
         if let Some(tx) = tx {
             #[cfg(not(target_arch = "wasm32"))]
-            //TODO: WASM Targets currently does not support event handling
             let _ = tx.send(event).await;
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let mut tx = tx.clone();
+                let _ = tx.send(event).await;
+            }
         }
     }
 
@@ -158,6 +163,88 @@ impl EventHelper {
     /// Send stream complete event
     pub async fn send_stream_complete(tx: &Option<mpsc::Sender<Event>>, sub_id: SubmissionId) {
         Self::send(tx, Event::StreamComplete { sub_id }).await;
+    }
+
+    pub async fn send_code_execution_started(
+        tx: &Option<mpsc::Sender<Event>>,
+        sub_id: SubmissionId,
+        actor_id: ActorID,
+        execution_id: String,
+        language: String,
+        source: String,
+    ) {
+        Self::send(
+            tx,
+            Event::CodeExecutionStarted {
+                sub_id,
+                actor_id,
+                execution_id,
+                language,
+                source,
+            },
+        )
+        .await;
+    }
+
+    pub async fn send_code_execution_console(
+        tx: &Option<mpsc::Sender<Event>>,
+        sub_id: SubmissionId,
+        actor_id: ActorID,
+        execution_id: String,
+        message: String,
+    ) {
+        Self::send(
+            tx,
+            Event::CodeExecutionConsole {
+                sub_id,
+                actor_id,
+                execution_id,
+                message,
+            },
+        )
+        .await;
+    }
+
+    pub async fn send_code_execution_completed(
+        tx: &Option<mpsc::Sender<Event>>,
+        sub_id: SubmissionId,
+        actor_id: ActorID,
+        execution_id: String,
+        result: Value,
+        duration_ms: u64,
+    ) {
+        Self::send(
+            tx,
+            Event::CodeExecutionCompleted {
+                sub_id,
+                actor_id,
+                execution_id,
+                result,
+                duration_ms,
+            },
+        )
+        .await;
+    }
+
+    pub async fn send_code_execution_failed(
+        tx: &Option<mpsc::Sender<Event>>,
+        sub_id: SubmissionId,
+        actor_id: ActorID,
+        execution_id: String,
+        error: String,
+        duration_ms: u64,
+    ) {
+        Self::send(
+            tx,
+            Event::CodeExecutionFailed {
+                sub_id,
+                actor_id,
+                execution_id,
+                error,
+                duration_ms,
+            },
+        )
+        .await;
     }
 }
 

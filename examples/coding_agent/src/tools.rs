@@ -1,5 +1,5 @@
 use autoagents::async_trait;
-use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
+use autoagents::core::tool::{ToolCallError, ToolRuntime, ToolT};
 use autoagents_derive::{ToolInput, tool};
 use regex::Regex;
 use serde::{Deserialize, Serialize};

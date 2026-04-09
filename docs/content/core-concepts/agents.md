@@ -1,13 +1,13 @@
 # Agents
 
-Agents are the core building blocks of AutoAgents. They understand tasks, apply an execution strategy (e.g., ReAct or Basic), optionally call tools, and produce outputs (string or structured JSON).
+Agents are the core building blocks of AutoAgents. They understand tasks, apply an execution strategy (for example Basic, ReAct, or CodeAct), optionally call tools, and produce outputs (string or structured JSON).
 
 ## What Is an Agent?
 
 An agent in AutoAgents typically:
 
 - Defines metadata (name, description) and available tools
-- Chooses an executor (Basic or ReAct)
+- Chooses an executor (Basic, ReAct, or CodeAct)
 - Uses an LLM provider
 - Optionally has memory for context
 - Emits events (task started/completed, tool calls, streaming chunks)
@@ -54,7 +54,7 @@ Lifecycle hooks:
 - `on_agent_create(&self)` — called when the agent is constructed
 - `on_run_start(&self, task, ctx) -> HookOutcome` — called before execution; return `Abort` to cancel
 - `on_run_complete(&self, task, result, ctx)` — called after execution succeeds
-- `on_turn_start(&self, turn_index, ctx)` — called at the start of each executor turn (e.g., ReAct)
+- `on_turn_start(&self, turn_index, ctx)` — called at the start of each executor turn (e.g., ReAct or CodeAct)
 - `on_turn_complete(&self, turn_index, ctx)` — called when a turn completes
 - `on_tool_call(&self, tool_call, ctx) -> HookOutcome` — gate a tool call before it executes
 - `on_tool_start(&self, tool_call, ctx)` — tool execution started

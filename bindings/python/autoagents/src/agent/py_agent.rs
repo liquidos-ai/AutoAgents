@@ -3,8 +3,9 @@ use crate::tool::PyTool;
 use async_trait::async_trait;
 use autoagents_core::agent::error::RunnableAgentError;
 use autoagents_core::agent::memory::MemoryProvider;
-use autoagents_core::agent::prebuilt::executor::BasicAgentOutput;
-use autoagents_core::agent::prebuilt::executor::ReActAgentOutput;
+use autoagents_core::agent::prebuilt::executor::{
+    BasicAgentOutput, CodeActAgentOutput, CodeActExecutionRecord, ReActAgentOutput,
+};
 use autoagents_core::agent::task::Task;
 use autoagents_core::agent::{
     AgentDeriveT, AgentExecutor, AgentHooks, AgentOutputT, BaseAgent, Context, DirectAgent,
@@ -41,6 +42,8 @@ use std::sync::{Arc, Mutex};
 pub struct PyAgentOutput {
     pub response: String,
     pub tool_calls: Vec<ToolCallResult>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub executions: Vec<Value>,
     pub done: bool,
 }
 
@@ -102,11 +105,35 @@ impl From<PyAgentOutput> for Value {
     }
 }
 
+fn collect_codeact_tool_calls(executions: &[CodeActExecutionRecord]) -> Vec<ToolCallResult> {
+    executions
+        .iter()
+        .flat_map(|execution| execution.tool_calls.iter().cloned())
+        .collect()
+}
+
 impl From<ReActAgentOutput> for PyAgentOutput {
     fn from(r: ReActAgentOutput) -> Self {
         PyAgentOutput {
             response: r.response,
             tool_calls: r.tool_calls,
+            executions: Vec::new(),
+            done: r.done,
+        }
+    }
+}
+
+impl From<CodeActAgentOutput> for PyAgentOutput {
+    fn from(r: CodeActAgentOutput) -> Self {
+        let tool_calls = collect_codeact_tool_calls(&r.executions);
+        PyAgentOutput {
+            response: r.response,
+            tool_calls,
+            executions: r
+                .executions
+                .into_iter()
+                .map(|execution| serde_json::to_value(execution).unwrap_or(Value::Null))
+                .collect(),
             done: r.done,
         }
     }
@@ -117,6 +144,7 @@ impl From<BasicAgentOutput> for PyAgentOutput {
         PyAgentOutput {
             response: r.response,
             tool_calls: Vec::new(),
+            executions: Vec::new(),
             done: r.done,
         }
     }

@@ -18,6 +18,7 @@ make python-bindings-build
 
 ```bash
 python examples/openai_agent.py
+python examples/code_mode.py
 python examples/actor_agent.py
 python examples/protocol_event_streaming.py
 python examples/custom_pipeline_layer.py
@@ -44,6 +45,11 @@ async for chunk in agent.run_stream("Solve 15 * 9"):
 `openai_agent.py` includes a `CustomHooks` implementation and demonstrates
 how to dispatch typed protocol events (`TurnStarted`, `ToolCallRequested`, …)
 from `result["events"]`.
+
+## CodeAct / Code Mode
+
+`code_mode.py` mirrors the Rust `examples/code_mode` sample with a `CodeActAgent`,
+typed Python tools, and a printed sandbox execution trace.
 
 ## Custom Executor (Experimental)
 

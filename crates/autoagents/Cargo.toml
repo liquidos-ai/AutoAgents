@@ -11,7 +11,7 @@ readme.workspace = true
 
 [features]
 default = []
-full = ["autoagents-core/full", "autoagents-llm/full", "wasmtime", "logging"]
+full = ["autoagents-core/full", "autoagents-llm/full", "wasmtime", "logging", "codeact"]
 openai = ["autoagents-llm/openai"]
 anthropic = ["autoagents-llm/anthropic"]
 ollama = ["autoagents-llm/ollama"]
@@ -26,6 +26,7 @@ minimax = ["autoagents-llm/minimax"]
 optim = ["autoagents-llm/optim"]
 logging = ["dep:env_logger"]
 wasmtime = ["autoagents-core/wasmtime"]
+codeact = ["autoagents-core/codeact"]
 
 [dependencies]
 autoagents-core.workspace = true

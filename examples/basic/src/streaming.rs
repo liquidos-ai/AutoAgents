@@ -5,7 +5,7 @@ use autoagents::core::agent::prebuilt::executor::{ReActAgent, ReActAgentOutput};
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentOutputT, DirectAgent};
 use autoagents::core::error::Error;
-use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
+use autoagents::core::tool::{ToolCallError, ToolRuntime, ToolT};
 use autoagents::llm::LLMProvider;
 use autoagents_derive::{AgentHooks, AgentOutput, ToolInput, agent, tool};
 use colored::Colorize;

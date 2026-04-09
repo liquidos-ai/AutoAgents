@@ -1,6 +1,6 @@
 # Executors: When To Use What
 
-AutoAgents ships two execution strategies out of the box. Pick based on your task shape and integration needs.
+AutoAgents ships three execution strategies out of the box. Pick based on your task shape and integration needs.
 
 ### BasicAgent
 
@@ -28,9 +28,22 @@ Use if you need a quick, single-shot LLM call.
 
 Use if your agent must call tools or orchestrate multiple turns.
 
+### CodeActAgent
+
+- Multi-turn loop where the model writes sandboxed TypeScript to compose tools.
+- Great for:
+  - Coding and data-processing workflows where tool composition matters
+  - Tasks that benefit from local computation inside the executor instead of repeated model turns
+  - Rich observability around code execution, console output, and nested tool calls
+- Streaming: Yes (delta content plus code-execution lifecycle events)
+- Output: `CodeActAgentOutput { response, executions, done }` — parse via `try_parse`/`parse_or_map` or `extract_agent_output`.
+- Requires the `codeact` cargo feature and a native target.
+
+Use if your agent should plan with tools by writing small TypeScript programs instead of issuing direct tool calls.
+
 ### Structured Output Helpers
 
-Both executors provide helpers to reduce parsing boilerplate:
+All prebuilt executors provide helpers to reduce parsing boilerplate:
 
 ```rust
 // Best-effort parse with fallback to raw text mapping

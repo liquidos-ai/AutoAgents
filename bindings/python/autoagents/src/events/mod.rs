@@ -138,6 +138,68 @@ fn event_to_payload(event: Event) -> PyResult<Value> {
                 "final_turn": final_turn,
             }),
         )),
+        Event::CodeExecutionStarted {
+            sub_id,
+            actor_id,
+            execution_id,
+            language,
+            source,
+        } => Ok(task_payload(
+            "code_execution_started",
+            sub_id,
+            actor_id,
+            json!({
+                "execution_id": execution_id,
+                "language": language,
+                "source": source,
+            }),
+        )),
+        Event::CodeExecutionConsole {
+            sub_id,
+            actor_id,
+            execution_id,
+            message,
+        } => Ok(task_payload(
+            "code_execution_console",
+            sub_id,
+            actor_id,
+            json!({
+                "execution_id": execution_id,
+                "message": message,
+            }),
+        )),
+        Event::CodeExecutionCompleted {
+            sub_id,
+            actor_id,
+            execution_id,
+            result,
+            duration_ms,
+        } => Ok(task_payload(
+            "code_execution_completed",
+            sub_id,
+            actor_id,
+            json!({
+                "execution_id": execution_id,
+                "result": result,
+                "duration_ms": duration_ms,
+            }),
+        )),
+        Event::CodeExecutionFailed {
+            sub_id,
+            actor_id,
+            execution_id,
+            error,
+            duration_ms,
+        } => Ok(task_payload(
+            "code_execution_failed",
+            sub_id,
+            actor_id,
+            json!({
+                "execution_id": execution_id,
+                "error": error,
+                "duration_ms": duration_ms,
+            }),
+        )),
         Event::StreamChunk { sub_id, chunk } => stream_chunk_payload(sub_id, chunk),
         Event::StreamToolCall { sub_id, tool_call } => Ok(json!({
             "kind": "stream_tool_call",

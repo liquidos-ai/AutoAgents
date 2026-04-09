@@ -7,7 +7,7 @@ use autoagents::core::agent::prebuilt::executor::ReActAgentOutput;
 use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, AgentOutputT, DirectAgent};
 use autoagents::core::error::Error;
-use autoagents::core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
+use autoagents::core::tool::{ToolCallError, ToolRuntime, ToolT};
 use autoagents_derive::{AgentHooks, AgentOutput, ToolInput, agent, tool};
 use autoagents_mistral_rs::models::ModelType;
 use autoagents_mistral_rs::{IsqType, MistralRsProvider, ModelSource};

@@ -12,7 +12,7 @@ AutoAgents is built with a modular, extensible architecture that prioritizes per
 Key layers:
 
 - Agent Definition: your agent’s metadata, tools, and output
-- Executors: Basic (single‑turn) and ReAct (multi‑turn with tools, streaming)
+- Executors: Basic (single‑turn), ReAct (multi‑turn with direct tool calls), and CodeAct (multi‑turn with sandboxed TypeScript tool composition)
 - Memory: context storage (e.g., sliding window)
 - Tools/MCP: capabilities the agent can call
 - Runtime: optional actor system for multi‑agent workflows

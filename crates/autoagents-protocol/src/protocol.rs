@@ -90,6 +90,41 @@ pub enum Event {
         error: String,
     },
 
+    /// Sandbox code execution has started
+    CodeExecutionStarted {
+        sub_id: SubmissionId,
+        actor_id: ActorID,
+        execution_id: String,
+        language: String,
+        source: String,
+    },
+
+    /// Console output produced during sandbox code execution
+    CodeExecutionConsole {
+        sub_id: SubmissionId,
+        actor_id: ActorID,
+        execution_id: String,
+        message: String,
+    },
+
+    /// Sandbox code execution completed successfully
+    CodeExecutionCompleted {
+        sub_id: SubmissionId,
+        actor_id: ActorID,
+        execution_id: String,
+        result: serde_json::Value,
+        duration_ms: u64,
+    },
+
+    /// Sandbox code execution failed
+    CodeExecutionFailed {
+        sub_id: SubmissionId,
+        actor_id: ActorID,
+        execution_id: String,
+        error: String,
+        duration_ms: u64,
+    },
+
     /// A turn has started
     TurnStarted {
         sub_id: SubmissionId,
@@ -268,6 +303,63 @@ mod tests {
                 assert_eq!(error, "Tool execution failed");
             }
             _ => panic!("Expected ToolCallFailed variant"),
+        }
+    }
+
+    #[test]
+    fn test_event_serialization_code_execution_started() {
+        let event = Event::CodeExecutionStarted {
+            sub_id: Uuid::new_v4(),
+            actor_id: Uuid::new_v4(),
+            execution_id: "exec_123".to_string(),
+            language: "typescript".to_string(),
+            source: "return 42;".to_string(),
+        };
+
+        let serialized = serde_json::to_string(&event).unwrap();
+        let deserialized: Event = serde_json::from_str(&serialized).unwrap();
+
+        match deserialized {
+            Event::CodeExecutionStarted {
+                execution_id,
+                language,
+                source,
+                ..
+            } => {
+                assert_eq!(execution_id, "exec_123");
+                assert_eq!(language, "typescript");
+                assert_eq!(source, "return 42;");
+            }
+            _ => panic!("Expected CodeExecutionStarted variant"),
+        }
+    }
+
+    #[test]
+    fn test_event_serialization_code_execution_completed() {
+        let result = json!({"value": 42});
+        let event = Event::CodeExecutionCompleted {
+            sub_id: Uuid::new_v4(),
+            actor_id: Uuid::new_v4(),
+            execution_id: "exec_456".to_string(),
+            result: result.clone(),
+            duration_ms: 17,
+        };
+
+        let serialized = serde_json::to_string(&event).unwrap();
+        let deserialized: Event = serde_json::from_str(&serialized).unwrap();
+
+        match deserialized {
+            Event::CodeExecutionCompleted {
+                execution_id,
+                result: actual,
+                duration_ms,
+                ..
+            } => {
+                assert_eq!(execution_id, "exec_456");
+                assert_eq!(actual, result);
+                assert_eq!(duration_ms, 17);
+            }
+            _ => panic!("Expected CodeExecutionCompleted variant"),
         }
     }
 

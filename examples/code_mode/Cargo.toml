@@ -1,0 +1,21 @@
+[package]
+name = "code-mode-example"
+version.workspace = true
+edition.workspace = true
+publish = false
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+readme = "README.md"
+categories.workspace = true
+
+[dependencies]
+autoagents-derive = { workspace = true }
+autoagents = { workspace = true, features = [
+    "openai",
+    "codeact",
+] }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

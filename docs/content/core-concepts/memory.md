@@ -21,7 +21,7 @@ let handle = AgentBuilder::<_, DirectAgent>::new(agent)
     .await?;
 ```
 
-The ReAct executor automatically stores user/assistant messages and tool interactions in memory each turn.
+The ReAct and CodeAct executors automatically store user/assistant messages and tool interactions in memory each turn.
 
 ## Custom Memory
 

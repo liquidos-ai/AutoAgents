@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::fs;
 
-use autoagents::prelude::{ToolInputT, ToolT};
+use autoagents::prelude::ToolT;
 
 use super::BaseFileTool;
 

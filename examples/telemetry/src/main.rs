@@ -9,7 +9,7 @@ use autoagents::core::runtime::{SingleThreadedRuntime, TypedRuntime};
 use autoagents::core::tool::{ToolCallError, ToolRuntime};
 use autoagents::core::utils::BoxEventStream;
 use autoagents::llm::LLMProvider;
-use autoagents::prelude::{AgentOutputT, LLMBuilder, ToolInputT, ToolT};
+use autoagents::prelude::{AgentOutputT, LLMBuilder, ToolT};
 use autoagents::protocol::Event;
 use autoagents_derive::{AgentHooks, AgentOutput, ToolInput, agent, tool};
 use autoagents_telemetry::{LangfuseRegion, LangfuseTelemetry, TelemetryProvider, Tracer};
