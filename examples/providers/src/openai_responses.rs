@@ -8,7 +8,7 @@ use autoagents::core::tool::ToolCallError;
 use autoagents::llm::backends::openai::{OpenAI, OpenAIApiMode};
 use autoagents::llm::builder::LLMBuilder;
 use autoagents::llm::chat::ReasoningEffort;
-use autoagents::prelude::{ToolInputT, ToolRuntime, ToolT};
+use autoagents::prelude::{ToolRuntime, ToolT};
 use autoagents_derive::{AgentHooks, ToolInput, agent, tool};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

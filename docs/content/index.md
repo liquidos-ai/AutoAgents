@@ -14,7 +14,7 @@ Designed for performance, safety, and scalability, AutoAgents provides a robust 
 
 AutoAgents helps you create agents that can:
 
-- Reason: Use execution strategies like ReAct and Basic for problem solving
+- Reason: Use execution strategies like Basic, ReAct, and CodeAct for problem solving
 - Act: Call tools and interact with external systems safely
 - Remember: Maintain context with configurable memory providers
 - Collaborate: Coordinate through an actor runtime and pub/sub topics

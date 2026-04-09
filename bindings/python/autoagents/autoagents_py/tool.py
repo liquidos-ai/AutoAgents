@@ -202,6 +202,18 @@ def _infer_schema(fn: Callable[..., object]) -> JsonObject:
     return schema
 
 
+def _infer_return_schema(fn: Callable[..., object]) -> Optional[JsonObject]:
+    try:
+        hints = get_type_hints(fn)
+    except Exception:
+        hints = dict(getattr(fn, "__annotations__", {}))
+
+    return_type = hints.get("return")
+    if return_type is None:
+        return None
+    return _json_schema_for_type(return_type)
+
+
 # ── Callable wrapper ──────────────────────────────────────────────────────────
 
 ToolSyncCallable = Callable[[JsonObject], object]
@@ -276,7 +288,14 @@ def tool(
         _name = name or fn.__name__
         _description = description or (fn.__doc__ or "").strip()
         _schema = schema or _infer_schema(fn)
+        _output_schema = _infer_return_schema(fn)
         _callable = _wrap_callable(fn)
-        return Tool(_name, _description, json.dumps(_schema), _callable)
+        return Tool(
+            _name,
+            _description,
+            json.dumps(_schema),
+            _callable,
+            json.dumps(_output_schema) if _output_schema is not None else None,
+        )
 
     return decorator

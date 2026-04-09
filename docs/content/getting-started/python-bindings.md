@@ -76,6 +76,7 @@ The stable Python API is intentionally narrow:
 Use the stable package surface for production:
 
 - `BasicAgent`
+- `CodeActAgent`
 - `ReActAgent`
 - `SlidingWindowMemory`
 - `AgentBuilder`
@@ -254,6 +255,10 @@ Available event types (all importable from `autoagents`):
 | `ToolCallFailed` | `sub_id`, `actor_id`, `id`, `tool_name`, `error` |
 | `TurnStarted` | `sub_id`, `actor_id`, `turn_number`, `max_turns` |
 | `TurnCompleted` | `sub_id`, `actor_id`, `turn_number`, `final_turn` |
+| `CodeExecutionStarted` | `sub_id`, `actor_id`, `execution_id`, `language`, `source` |
+| `CodeExecutionConsole` | `sub_id`, `actor_id`, `execution_id`, `message` |
+| `CodeExecutionCompleted` | `sub_id`, `actor_id`, `execution_id`, `result`, `duration_ms` |
+| `CodeExecutionFailed` | `sub_id`, `actor_id`, `execution_id`, `error`, `duration_ms` |
 | `StreamChunk` | `sub_id`, `chunk` |
 | `StreamToolCall` | `sub_id`, `tool_call` |
 | `StreamComplete` | `sub_id` |
@@ -265,6 +270,7 @@ Available event types (all importable from `autoagents`):
 ```bash
 # Cloud provider (requires OPENAI_API_KEY)
 OPENAI_API_KEY=sk-... python bindings/python/autoagents/examples/openai_agent.py
+OPENAI_API_KEY=sk-... python bindings/python/autoagents/examples/code_mode.py
 OPENAI_API_KEY=sk-... python bindings/python/autoagents/examples/actor_agent.py
 OPENAI_API_KEY=sk-... python bindings/python/autoagents/examples/protocol_event_streaming.py
 OPENAI_API_KEY=sk-... python bindings/python/autoagents/examples/custom_pipeline_layer.py
@@ -291,6 +297,10 @@ OPENAI_API_KEY=sk-... python bindings/python/autoagents/examples/custom_memory.p
 The actor example mirrors the Rust runtime model: create a `Runtime`, register
 it with an `Environment`, build the actor against the runtime, listen on the
 environment event stream, then publish a `Task` to the topic.
+
+The CodeAct example mirrors the Rust `examples/code_mode` sample: it exposes
+typed Python tools to the LLM, lets the model write sandboxed TypeScript, and
+prints the captured execution trace after the run.
 
 ---
 

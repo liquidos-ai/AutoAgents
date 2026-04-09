@@ -54,6 +54,17 @@ impl MemoryPolicy {
             store_tool_interactions: true,
         }
     }
+
+    pub fn codeact() -> Self {
+        Self {
+            recall: true,
+            recall_query: RecallQuery::Prompt,
+            recall_limit: None,
+            store_user: true,
+            store_assistant: true,
+            store_tool_interactions: true,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -74,6 +85,17 @@ mod tests {
     #[test]
     fn test_react_memory_policy_fields() {
         let policy = MemoryPolicy::react();
+        assert!(policy.recall);
+        assert!(matches!(policy.recall_query, RecallQuery::Prompt));
+        assert_eq!(policy.recall_limit, None);
+        assert!(policy.store_user);
+        assert!(policy.store_assistant);
+        assert!(policy.store_tool_interactions);
+    }
+
+    #[test]
+    fn test_codeact_memory_policy_fields() {
+        let policy = MemoryPolicy::codeact();
         assert!(policy.recall);
         assert!(matches!(policy.recall_query, RecallQuery::Prompt));
         assert_eq!(policy.recall_limit, None);

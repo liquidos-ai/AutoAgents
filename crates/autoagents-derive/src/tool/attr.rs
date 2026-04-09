@@ -8,6 +8,7 @@ pub(crate) struct ToolAttributes {
     pub(crate) name: LitStr,
     pub(crate) description: LitStr,
     pub(crate) input: Type,
+    pub(crate) output: Option<Type>,
 }
 
 #[derive(EnumString, Display)]
@@ -18,6 +19,8 @@ pub(crate) enum ToolAttributeKeys {
     Description,
     #[strum(serialize = "input")]
     Input,
+    #[strum(serialize = "output")]
+    Output,
     Unknown(String),
 }
 
@@ -27,6 +30,7 @@ impl From<Ident> for ToolAttributeKeys {
             "name" => Self::Name,
             "description" => Self::Description,
             "input" => Self::Input,
+            "output" => Self::Output,
             other => Self::Unknown(other.to_string()),
         }
     }
@@ -37,6 +41,7 @@ impl Parse for ToolAttributes {
         let mut name = None;
         let mut description = None;
         let mut args = None;
+        let mut output = None;
         while !input.is_empty() {
             let key: Ident = input.parse()?;
             let key_span = key.span();
@@ -53,6 +58,9 @@ impl Parse for ToolAttributes {
                 }
                 ToolAttributeKeys::Input => {
                     args = Some(input.parse::<Type>()?);
+                }
+                ToolAttributeKeys::Output => {
+                    output = Some(input.parse::<Type>()?);
                 }
                 ToolAttributeKeys::Unknown(other) => {
                     return Err(syn::Error::new(
@@ -84,6 +92,7 @@ impl Parse for ToolAttributes {
                     format!("Missing attribute: {}", ToolAttributeKeys::Input),
                 )
             })?,
+            output,
         })
     }
 }
@@ -106,6 +115,23 @@ mod tests {
             Type::Path(path) => {
                 let ident = &path.path.segments.last().unwrap().ident;
                 assert_eq!(ident, "String");
+            }
+            _ => panic!("Unexpected type parsed"),
+        }
+        assert!(attrs.output.is_none());
+    }
+
+    #[test]
+    fn test_tool_attributes_parse_optional_output() {
+        let attrs: ToolAttributes = syn::parse_str(
+            r#"name = "lookup", description = "Look up values", input = String, output = i64"#,
+        )
+        .expect("expected attributes to parse");
+
+        match attrs.output.expect("expected output type") {
+            Type::Path(path) => {
+                let ident = &path.path.segments.last().unwrap().ident;
+                assert_eq!(ident, "i64");
             }
             _ => panic!("Unexpected type parsed"),
         }

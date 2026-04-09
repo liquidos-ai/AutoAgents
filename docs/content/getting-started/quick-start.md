@@ -105,4 +105,4 @@ async fn main() -> anyhow::Result<()> {
 cargo run
 ```
 
-Tip: for a ReAct multi‑turn agent with tools and streaming, see the examples in `examples/basic` and `examples/coding_agent`.
+Tip: for multi‑turn agents with tools or sandboxed code execution, see the examples in `examples/basic` and `examples/coding_agent`.

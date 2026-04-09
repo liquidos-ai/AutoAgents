@@ -20,6 +20,13 @@ impl ToolParser {
         let tool_name_literal = tool_attrs.name.clone();
         let tool_description = tool_attrs.description;
         let args_type = tool_attrs.input;
+        let output_schema_impl = tool_attrs.output.map(|output_type| {
+            quote! {
+                fn output_schema(&self) -> Option<serde_json::Value> {
+                    Some(<#output_type as autoagents::core::tool::ToolOutputT>::io_schema())
+                }
+            }
+        });
 
         let expanded = quote! {
             #input_struct
@@ -33,10 +40,11 @@ impl ToolParser {
                 }
                 fn args_schema(&self) -> serde_json::Value {
                     // Get the JSON schema string from the input type
-                    let params_str = <#args_type as ToolInputT>::io_schema();
+                    let params_str = <#args_type as autoagents::core::tool::ToolInputT>::io_schema();
                     serde_json::from_str(params_str)
                         .expect("Failed to parse parameters schema")
                 }
+                #output_schema_impl
             }
 
             impl std::fmt::Debug for #struct_name {

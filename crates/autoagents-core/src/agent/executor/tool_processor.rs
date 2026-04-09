@@ -159,6 +159,12 @@ impl ToolProcessor {
         if let Some(tx) = tx {
             #[cfg(not(target_arch = "wasm32"))]
             let _ = tx.send(event).await;
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let mut tx = tx.clone();
+                let _ = tx.send(event).await;
+            }
         }
     }
 

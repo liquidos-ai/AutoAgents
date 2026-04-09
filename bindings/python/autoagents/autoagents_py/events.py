@@ -90,6 +90,41 @@ class TurnCompleted:
 
 
 @dataclass(slots=True, frozen=True)
+class CodeExecutionStarted:
+    sub_id: str
+    actor_id: str
+    execution_id: str
+    language: str
+    source: str
+
+
+@dataclass(slots=True, frozen=True)
+class CodeExecutionConsole:
+    sub_id: str
+    actor_id: str
+    execution_id: str
+    message: str
+
+
+@dataclass(slots=True, frozen=True)
+class CodeExecutionCompleted:
+    sub_id: str
+    actor_id: str
+    execution_id: str
+    result: JsonValue
+    duration_ms: int
+
+
+@dataclass(slots=True, frozen=True)
+class CodeExecutionFailed:
+    sub_id: str
+    actor_id: str
+    execution_id: str
+    error: str
+    duration_ms: int
+
+
+@dataclass(slots=True, frozen=True)
 class StreamChunk:
     sub_id: str
     chunk: JsonObject
@@ -117,6 +152,10 @@ ProtocolEvent = Union[
     ToolCallFailed,
     TurnStarted,
     TurnCompleted,
+    CodeExecutionStarted,
+    CodeExecutionConsole,
+    CodeExecutionCompleted,
+    CodeExecutionFailed,
     StreamChunk,
     StreamToolCall,
     StreamComplete,
@@ -133,6 +172,10 @@ _EVENT_TYPES = {
     "tool_call_failed": ToolCallFailed,
     "turn_started": TurnStarted,
     "turn_completed": TurnCompleted,
+    "code_execution_started": CodeExecutionStarted,
+    "code_execution_console": CodeExecutionConsole,
+    "code_execution_completed": CodeExecutionCompleted,
+    "code_execution_failed": CodeExecutionFailed,
     "stream_chunk": StreamChunk,
     "stream_tool_call": StreamToolCall,
     "stream_complete": StreamComplete,

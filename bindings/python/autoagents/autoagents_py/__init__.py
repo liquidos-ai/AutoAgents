@@ -8,6 +8,10 @@ from .agent import (
     AgentHandle,
 )
 from .events import (
+    CodeExecutionCompleted,
+    CodeExecutionConsole,
+    CodeExecutionFailed,
+    CodeExecutionStarted,
     EventStream,
     NewTask,
     ProtocolEvent,
@@ -35,7 +39,7 @@ from .exceptions import (
     ToolExecutionError,
 )
 from .pipeline import CacheLayer, PipelineBuilder, PipelineLayer, RetryLayer
-from .prebuilt import BasicAgent, ReActAgent, SlidingWindowMemory
+from .prebuilt import BasicAgent, CodeActAgent, ReActAgent, SlidingWindowMemory
 from .runtime import Environment, Runtime, Topic
 from .task import ImageMime, Task, TaskImage
 from .tool import Tool, tool
@@ -64,6 +68,7 @@ __all__ = [
     "AgentHooks",
     "HookOutcome",
     "BasicAgent",
+    "CodeActAgent",
     "ReActAgent",
     "SlidingWindowMemory",
     "Runtime",
@@ -92,6 +97,10 @@ __all__ = [
     "ToolCallFailed",
     "TurnStarted",
     "TurnCompleted",
+    "CodeExecutionStarted",
+    "CodeExecutionConsole",
+    "CodeExecutionCompleted",
+    "CodeExecutionFailed",
     "StreamChunk",
     "StreamToolCall",
     "StreamComplete",

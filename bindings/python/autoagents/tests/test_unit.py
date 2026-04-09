@@ -11,6 +11,7 @@ import pytest
 import autoagents_py as aa
 import autoagents_py.memory as memory_module
 from autoagents_py import experimental as experimental_api
+from autoagents_py.events import event_from_payload
 from autoagents_py.prebuilt import BasicAgent, SlidingWindowMemory
 from autoagents_py.agent import AgentBuilder, _infer_output_schema
 from autoagents_py.exceptions import (
@@ -20,7 +21,13 @@ from autoagents_py.exceptions import (
     AgentTimeoutError,
     AutoAgentsError,
 )
-from autoagents_py.tool import _infer_schema, _json_schema_for_type, _wrap_callable, tool
+from autoagents_py.tool import (
+    _infer_return_schema,
+    _infer_schema,
+    _json_schema_for_type,
+    _wrap_callable,
+    tool,
+)
 from autoagents_py.types import AgentRunResult
 
 
@@ -251,6 +258,15 @@ class TestToolDecorator:
             def bad(*args: int) -> int:
                 return sum(args)
 
+    def test_return_schema_is_inferred(self):
+        def summarize() -> List[str]:
+            return []
+
+        assert _infer_return_schema(summarize) == {
+            "type": "array",
+            "items": {"type": "string"},
+        }
+
 
 class TestOutputSchema:
     def test_infer_output_schema_dataclass(self):
@@ -306,6 +322,28 @@ class TestPyTool:
         )
         t = aa.Tool("my_tool", "Does something", schema, lambda args: {"result": args["x"] * 2})
         assert repr(t) == "Tool(name='my_tool')"
+
+
+class TestEvents:
+    def test_code_execution_payloads_are_typed(self):
+        payload = {
+            "kind": "code_execution_completed",
+            "sub_id": "sub-1",
+            "actor_id": "actor-1",
+            "execution_id": "exec-1",
+            "result": {"ok": True},
+            "duration_ms": 17,
+        }
+
+        event = event_from_payload(payload)
+
+        assert event == aa.CodeExecutionCompleted(
+            sub_id="sub-1",
+            actor_id="actor-1",
+            execution_id="exec-1",
+            result={"ok": True},
+            duration_ms=17,
+        )
 
 
 class TestExceptions:

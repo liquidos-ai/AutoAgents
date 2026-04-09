@@ -8,7 +8,9 @@ use crate::tool::PyTool;
 use autoagents_core::actor::Topic;
 use autoagents_core::agent::error::RunnableAgentError;
 use autoagents_core::agent::memory::MemoryProvider;
-use autoagents_core::agent::prebuilt::executor::{BasicAgent, ReActAgent};
+use autoagents_core::agent::prebuilt::executor::{
+    BasicAgent, CodeActAgent, CodeActSandboxLimits, ReActAgent,
+};
 use autoagents_core::agent::task::Task;
 use autoagents_core::agent::{
     ActorAgent, ActorAgentHandle, AgentBuilder, AgentDeriveT, AgentExecutor, AgentHooks, Context,
@@ -411,6 +413,7 @@ fn default_stream_output() -> PyAgentOutput {
     PyAgentOutput {
         response: String::default(),
         tool_calls: Vec::default(),
+        executions: Vec::default(),
         done: true,
     }
 }
@@ -426,6 +429,23 @@ fn parse_tool_calls(value: Option<&Value>) -> Vec<ToolCallResult> {
         .collect()
 }
 
+fn parse_executions(value: Option<&Value>) -> Vec<Value> {
+    let Some(Value::Array(items)) = value else {
+        return Vec::new();
+    };
+
+    items.clone()
+}
+
+fn aggregate_execution_tool_calls(executions: &[Value]) -> Vec<ToolCallResult> {
+    executions
+        .iter()
+        .filter_map(|execution| execution.get("tool_calls").and_then(Value::as_array))
+        .flat_map(|tool_calls| tool_calls.iter())
+        .filter_map(|tool_call| serde_json::from_value::<ToolCallResult>(tool_call.clone()).ok())
+        .collect()
+}
+
 fn parse_executor_output(value: &Value) -> Result<PyAgentOutput, String> {
     let obj = value
         .as_object()
@@ -438,13 +458,56 @@ fn parse_executor_output(value: &Value) -> Result<PyAgentOutput, String> {
         .to_string();
 
     let done = obj.get("done").and_then(|v| v.as_bool()).unwrap_or(true);
-    let tool_calls = parse_tool_calls(obj.get("tool_calls"));
+    let executions = parse_executions(obj.get("executions"));
+    let mut tool_calls = parse_tool_calls(obj.get("tool_calls"));
+    if tool_calls.is_empty() {
+        tool_calls = aggregate_execution_tool_calls(&executions);
+    }
 
     Ok(PyAgentOutput {
         response,
         tool_calls,
+        executions,
         done,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_executor_output;
+    use serde_json::json;
+
+    #[test]
+    fn parse_executor_output_aggregates_codeact_tool_calls() {
+        let value = json!({
+            "response": "done",
+            "done": true,
+            "executions": [
+                {
+                    "execution_id": "exec_1",
+                    "source": "return 1;",
+                    "console": [],
+                    "tool_calls": [
+                        {
+                            "tool_name": "search",
+                            "success": true,
+                            "arguments": {"query": "rust"},
+                            "result": {"matches": 1}
+                        }
+                    ],
+                    "result": 1,
+                    "success": true,
+                    "error": null,
+                    "duration_ms": 5
+                }
+            ]
+        });
+
+        let output = parse_executor_output(&value).expect("output should parse");
+        assert_eq!(output.tool_calls.len(), 1);
+        assert_eq!(output.tool_calls[0].tool_name, "search");
+        assert_eq!(output.executions.len(), 1);
+    }
 }
 
 async fn call_python_executor_method(
@@ -667,6 +730,15 @@ pub(crate) fn parse_executor_spec(
             max_turns: extract_usize_attr(agent, "_max_turns")?.max(1),
             hooks,
         }),
+        "codeact" => Box::new(PyCodeActAgent {
+            name,
+            description,
+            tools,
+            output_schema,
+            max_turns: extract_usize_attr(agent, "_max_turns")?.max(1),
+            hooks,
+            sandbox_limits: extract_codeact_sandbox_limits(agent)?,
+        }),
         "basic" => Box::new(PyBasicAgent {
             name,
             description,
@@ -691,6 +763,57 @@ pub(crate) fn parse_executor_spec(
     };
 
     Ok((executor, agent_def))
+}
+
+fn extract_codeact_sandbox_limits(agent: &Bound<'_, PyAny>) -> PyResult<CodeActSandboxLimits> {
+    let Some(value) = get_attr(agent, "_sandbox_limits")? else {
+        return Ok(CodeActSandboxLimits::default());
+    };
+    if value.is_none() {
+        return Ok(CodeActSandboxLimits::default());
+    }
+
+    let json = py_any_to_json_value(&value).map_err(|e| {
+        PyRuntimeError::new_err(format!(
+            "executor._sandbox_limits must be a JSON object: {e}"
+        ))
+    })?;
+    let limits: CodeActSandboxLimits = serde_json::from_value(json).map_err(|e| {
+        PyRuntimeError::new_err(format!("invalid executor._sandbox_limits value: {e}"))
+    })?;
+    validate_codeact_sandbox_limits(&limits)?;
+    Ok(limits)
+}
+
+fn validate_codeact_sandbox_limits(limits: &CodeActSandboxLimits) -> PyResult<()> {
+    for (name, value) in [
+        ("timeout_ms", limits.timeout_ms as u128),
+        ("memory_limit_bytes", limits.memory_limit_bytes as u128),
+        ("max_source_bytes", limits.max_source_bytes as u128),
+        ("max_console_bytes", limits.max_console_bytes as u128),
+        (
+            "max_tool_calls_per_execution",
+            limits.max_tool_calls_per_execution as u128,
+        ),
+        (
+            "max_concurrent_tool_calls",
+            limits.max_concurrent_tool_calls as u128,
+        ),
+    ] {
+        if value == 0 {
+            return Err(PyRuntimeError::new_err(format!(
+                "executor._sandbox_limits.{name} must be > 0"
+            )));
+        }
+    }
+
+    if limits.max_concurrent_tool_calls > limits.max_tool_calls_per_execution {
+        return Err(PyRuntimeError::new_err(
+            "executor._sandbox_limits.max_concurrent_tool_calls must be <= max_tool_calls_per_execution",
+        ));
+    }
+
+    Ok(())
 }
 
 fn extract_tools(agent: &Bound<'_, PyAny>) -> PyResult<Vec<Arc<dyn ToolT>>> {
@@ -848,6 +971,30 @@ impl PyReActAgent {
             "ReActAgent(name='{}', max_turns={})",
             self.name, self.max_turns
         )
+    }
+}
+
+pub struct PyCodeActAgent {
+    pub name: String,
+    pub description: String,
+    pub tools: Vec<Arc<dyn ToolT>>,
+    pub output_schema: Option<Value>,
+    pub max_turns: usize,
+    pub hooks: Option<Py<PyAny>>,
+    pub sandbox_limits: CodeActSandboxLimits,
+}
+
+impl Clone for PyCodeActAgent {
+    fn clone(&self) -> Self {
+        Python::attach(|py| Self {
+            name: self.name.clone(),
+            description: self.description.clone(),
+            tools: self.tools.clone(),
+            output_schema: self.output_schema.clone(),
+            max_turns: self.max_turns,
+            hooks: self.hooks.as_ref().map(|h| h.clone_ref(py)),
+            sandbox_limits: self.sandbox_limits.clone(),
+        })
     }
 }
 
@@ -1026,6 +1173,42 @@ impl PyExecutorBuildable for PyReActAgent {
         let max_turns = self.max_turns;
         build_actor_executor(
             ReActAgent::with_max_turns(agent_def, max_turns),
+            llm,
+            memory,
+            runtime,
+            topics,
+        )
+    }
+}
+
+impl PyExecutorBuildable for PyCodeActAgent {
+    fn build_direct(
+        &self,
+        agent_def: PyAgentDef,
+        llm: Arc<dyn LLMProvider>,
+        memory: Box<dyn MemoryProvider>,
+    ) -> BuildDirectResult {
+        let max_turns = self.max_turns;
+        let sandbox_limits = self.sandbox_limits.clone();
+        build_direct_executor(
+            CodeActAgent::with_max_turns(agent_def, max_turns).with_sandbox_limits(sandbox_limits),
+            llm,
+            memory,
+        )
+    }
+
+    fn build_actor(
+        &self,
+        agent_def: PyAgentDef,
+        llm: Arc<dyn LLMProvider>,
+        memory: Box<dyn MemoryProvider>,
+        runtime: Arc<dyn Runtime>,
+        topics: Vec<String>,
+    ) -> BuildActorResult {
+        let max_turns = self.max_turns;
+        let sandbox_limits = self.sandbox_limits.clone();
+        build_actor_executor(
+            CodeActAgent::with_max_turns(agent_def, max_turns).with_sandbox_limits(sandbox_limits),
             llm,
             memory,
             runtime,

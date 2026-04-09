@@ -91,7 +91,9 @@ def test_public_api_exports_key_symbols():
     assert "MemoryProvider" not in exported
     assert "AgentExecutor" not in exported
     assert "experimental" in exported
-    assert {"BasicAgent", "ReActAgent", "SlidingWindowMemory"} == set(prebuilt_module.__all__)
+    assert {"BasicAgent", "CodeActAgent", "ReActAgent", "SlidingWindowMemory"} == set(
+        prebuilt_module.__all__
+    )
 
 
 def test_core_coerce_llm_provider_accepts_built_provider(built_llm):

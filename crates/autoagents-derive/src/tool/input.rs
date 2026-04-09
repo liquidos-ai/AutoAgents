@@ -38,7 +38,7 @@ impl InputParser {
 
         let schema_literal = LitStr::new(&serialized_data, struct_ident.span());
         let expanded = quote! {
-            impl ToolInputT for #struct_ident {
+            impl autoagents::core::tool::ToolInputT for #struct_ident {
                 fn io_schema() -> &'static str {
                     #schema_literal
                 }

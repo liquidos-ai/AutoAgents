@@ -1,5 +1,7 @@
 use autoagents_llm::chat::{FunctionTool, Tool};
 pub use autoagents_protocol::ToolCallResult;
+use schemars::JsonSchema;
+use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -26,12 +28,28 @@ pub trait ToolT: Send + Sync + Debug + ToolRuntime {
     fn description(&self) -> &str;
     /// Return a description of the expected arguments.
     fn args_schema(&self) -> Value;
+    /// Return a description of the tool output when available.
+    fn output_schema(&self) -> Option<Value> {
+        None
+    }
 }
 
 /// Marker trait for input types used by `#[derive(ToolInput)]` macros.
 pub trait ToolInputT {
     fn io_schema() -> &'static str;
 }
+
+/// Marker trait for output types used by typed tool bindings.
+pub trait ToolOutputT: Serialize + DeserializeOwned + Send + Sync + JsonSchema {
+    fn io_schema() -> Value {
+        let schema = schemars::r#gen::SchemaSettings::draft07()
+            .into_generator()
+            .into_root_schema_for::<Self>();
+        serde_json::to_value(schema.schema).unwrap_or(Value::Null)
+    }
+}
+
+impl<T> ToolOutputT for T where T: Serialize + DeserializeOwned + Send + Sync + JsonSchema {}
 
 /// A wrapper that allows Arc<dyn ToolT> to be used as Box<dyn ToolT>
 /// This is useful for sharing tools across multiple agents without cloning
@@ -68,6 +86,10 @@ impl ToolT for SharedTool {
     fn args_schema(&self) -> Value {
         self.inner.args_schema()
     }
+
+    fn output_schema(&self) -> Option<Value> {
+        self.inner.output_schema()
+    }
 }
 
 /// Helper function to convert Vec<Arc<dyn ToolT>> to Vec<Box<dyn ToolT>>
@@ -98,6 +120,7 @@ pub fn to_llm_tool(tool: &Box<dyn ToolT>) -> Tool {
 mod tests {
     use super::*;
     use autoagents_llm::chat::Tool;
+    use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
     use serde_json::json;
 
@@ -105,6 +128,12 @@ mod tests {
     struct TestInput {
         name: String,
         value: i32,
+    }
+
+    #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+    struct TestOutput {
+        processed_name: String,
+        doubled_value: i32,
     }
 
     impl ToolInputT for TestInput {
@@ -324,6 +353,20 @@ mod tests {
     }
 
     #[test]
+    fn test_tool_output_trait() {
+        let schema = TestOutput::io_schema();
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["properties"]["processed_name"]["type"], "string");
+        assert_eq!(schema["properties"]["doubled_value"]["type"], "integer");
+        let required = schema["required"]
+            .as_array()
+            .expect("required fields should be serialized as an array");
+        assert_eq!(required.len(), 2);
+        assert!(required.iter().any(|value| value == "processed_name"));
+        assert!(required.iter().any(|value| value == "doubled_value"));
+    }
+
+    #[test]
     fn test_test_input_serialization() {
         let input = TestInput {
             name: "test".to_string(),
@@ -377,8 +420,12 @@ mod tests {
         assert_eq!(schema["type"], "object");
         assert_eq!(schema["properties"]["name"]["type"], "string");
         assert_eq!(schema["properties"]["value"]["type"], "integer");
-        assert_eq!(schema["required"][0], "name");
-        assert_eq!(schema["required"][1], "value");
+        let required = schema["required"]
+            .as_array()
+            .expect("required fields should be serialized as an array");
+        assert_eq!(required.len(), 2);
+        assert!(required.iter().any(|value| value == "name"));
+        assert!(required.iter().any(|value| value == "value"));
     }
 
     #[test]

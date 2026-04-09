@@ -8,12 +8,16 @@ pub use crate::core::agent::memory::SlidingWindowMemory;
 pub use crate::core::agent::prebuilt::executor::{
     BasicAgent, BasicAgentOutput, ReActAgent, ReActAgentOutput,
 };
+#[cfg(feature = "codeact")]
+pub use crate::core::agent::prebuilt::executor::{
+    CodeActAgent, CodeActAgentOutput, CodeActExecutionRecord, CodeActSandboxLimits,
+};
 pub use crate::core::agent::task::Task;
 pub use crate::core::agent::{ActorAgent, AgentBuilder, DirectAgent};
 pub use crate::core::agent::{AgentHooks as _, AgentOutputT, Context};
 
 // Tools
-pub use crate::core::tool::{ToolCallResult, ToolInputT, ToolRuntime, ToolT};
+pub use crate::core::tool::{ToolCallResult, ToolInputT, ToolOutputT, ToolRuntime, ToolT};
 
 // Runtime / Environment / Messaging (non-WASM)
 #[cfg(not(target_arch = "wasm32"))]

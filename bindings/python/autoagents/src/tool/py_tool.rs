@@ -278,6 +278,7 @@ pub struct PyTool {
     name: String,
     description: String,
     schema: Value,
+    output_schema: Option<Value>,
     callable: Py<PyAny>,
     task_locals: Option<TaskLocals>,
 }
@@ -288,6 +289,7 @@ impl Clone for PyTool {
             name: self.name.clone(),
             description: self.description.clone(),
             schema: self.schema.clone(),
+            output_schema: self.output_schema.clone(),
             callable: self.callable.clone_ref(py),
             task_locals: self.task_locals.clone(),
         })
@@ -297,11 +299,13 @@ impl Clone for PyTool {
 #[pymethods]
 impl PyTool {
     #[new]
+    #[pyo3(signature = (name, description, schema_json, callable, output_schema_json=None))]
     pub fn new(
         name: String,
         description: String,
         schema_json: String,
         callable: Py<PyAny>,
+        output_schema_json: Option<String>,
     ) -> PyResult<Self> {
         let schema: Value = serde_json::from_str(&schema_json)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
@@ -310,6 +314,19 @@ impl PyTool {
                 "tool schema must be a JSON object",
             ));
         }
+        let output_schema = match output_schema_json {
+            Some(output_schema_json) => {
+                let output_schema: Value = serde_json::from_str(&output_schema_json)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                if !matches!(output_schema, Value::Object(_)) {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "tool output schema must be a JSON object",
+                    ));
+                }
+                Some(output_schema)
+            }
+            None => None,
+        };
         let task_locals = Python::attach(|py| -> PyResult<Option<TaskLocals>> {
             let bound = callable.bind(py);
             if !bound.is_none() && !bound.is_callable() {
@@ -323,6 +340,7 @@ impl PyTool {
             name,
             description,
             schema,
+            output_schema,
             callable,
             task_locals,
         })
@@ -348,6 +366,10 @@ impl ToolT for PyTool {
     }
     fn args_schema(&self) -> Value {
         self.schema.clone()
+    }
+
+    fn output_schema(&self) -> Option<Value> {
+        self.output_schema.clone()
     }
 }
 

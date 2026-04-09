@@ -1,9 +1,10 @@
 # Executors
 
-AutoAgents ships with two primary executors. You can also implement your own by conforming to `AgentExecutor`.
+AutoAgents ships with three primary executors. You can also implement your own by conforming to `AgentExecutor`.
 
 - Basic: single‑turn chat without tool calls
 - ReAct: multi‑turn reasoning with tool calls and streaming
+- CodeAct: multi‑turn reasoning where the model writes sandboxed TypeScript that composes tools
 
 ## Basic
 
@@ -38,3 +39,21 @@ let agent = ReActAgent::new(MyAgent);
 ```
 
 Tip: `ReActAgentOutput::extract_agent_output<T>` can deserialize a structured JSON response into your type when you expect strict JSON.
+
+## CodeAct
+
+Use `CodeActAgent<T>` when you want the model to compose tools through sandboxed TypeScript instead of issuing direct tool calls one by one.
+
+Key points:
+
+- The model only sees one tool: `execute_typescript`
+- Your registered tools are exposed inside the sandbox as typed `external_*` functions
+- Each execution runs in a fresh native sandbox with explicit resource limits
+- Output type: `CodeActAgentOutput { response, executions, done }`
+- Emits additional events for code execution lifecycle and console output
+- Available on native targets with the `codeact` feature enabled
+
+```rust
+use autoagents::core::agent::prebuilt::executor::CodeActAgent;
+let agent = CodeActAgent::new(MyAgent);
+```

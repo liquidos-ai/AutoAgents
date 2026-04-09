@@ -113,6 +113,18 @@ impl From<crate::agent::prebuilt::executor::ReActExecutorError> for RunnableAgen
     }
 }
 
+#[cfg(feature = "codeact")]
+impl From<crate::agent::prebuilt::executor::CodeActExecutorError> for RunnableAgentError {
+    fn from(error: crate::agent::prebuilt::executor::CodeActExecutorError) -> Self {
+        match error {
+            crate::agent::prebuilt::executor::CodeActExecutorError::LLMError(err) => {
+                RunnableAgentError::LLMError(err)
+            }
+            other => RunnableAgentError::ExecutorError(other.to_string()),
+        }
+    }
+}
+
 /// Specific conversion for tokio mpsc send errors
 #[cfg(not(target_arch = "wasm32"))]
 impl<T> From<tokio::sync::mpsc::error::SendError<T>> for RunnableAgentError
