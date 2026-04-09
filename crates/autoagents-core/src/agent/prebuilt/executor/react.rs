@@ -7,7 +7,7 @@ use crate::agent::task::Task;
 use crate::agent::{AgentDeriveT, Context, ExecutorConfig};
 use crate::channel::channel;
 use crate::tool::{ToolCallResult, ToolT};
-use crate::utils::{receiver_into_stream, spawn_future};
+use crate::utils::stream_from_producer;
 use async_trait::async_trait;
 use autoagents_llm::ToolCall;
 use autoagents_llm::error::LLMError;
@@ -353,7 +353,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
         #[cfg_attr(not(target_arch = "wasm32"), allow(unused_mut))]
         let (mut tx, rx) = channel::<Result<ReActAgentOutput, ReActExecutorError>>(100);
 
-        spawn_future(async move {
+        let producer = async move {
             let mut accumulated_tool_calls = Vec::new();
             let mut final_response = String::new();
 
@@ -463,9 +463,9 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                 )
                 .await;
             }
-        });
+        };
 
-        Ok(receiver_into_stream(rx))
+        Ok(stream_from_producer(rx, producer))
     }
 }
 

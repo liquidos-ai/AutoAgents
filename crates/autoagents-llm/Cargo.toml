@@ -61,8 +61,8 @@ ureq = { workspace = true }
 dirs = { workspace = true }
 bytes = { workspace = true }
 
-# WASM dependencies (only when targeting wasm32)
-[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Browser WASM dependencies (only when targeting wasm32 outside WASI)
+[target.'cfg(all(target_arch = "wasm32", not(target_os = "wasi")))'.dependencies]
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 serde-wasm-bindgen = { workspace = true }

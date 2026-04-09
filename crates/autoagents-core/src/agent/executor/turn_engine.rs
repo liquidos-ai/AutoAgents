@@ -6,7 +6,7 @@ use crate::agent::hooks::AgentHooks;
 use crate::agent::task::Task;
 use crate::channel::{Sender, channel};
 use crate::tool::{ToolCallResult, ToolT, to_llm_tool};
-use crate::utils::{receiver_into_stream, spawn_future};
+use crate::utils::stream_from_producer;
 use autoagents_llm::ToolCall;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType, StreamChunk, StreamResponse};
 use autoagents_llm::error::LLMError;
@@ -282,7 +282,7 @@ impl TurnEngine {
         let memory = turn_state.memory.clone();
         let messages = messages.clone();
 
-        spawn_future(async move {
+        let producer = async move {
             let tx_event = context_clone.tx().ok();
             EventHelper::send_turn_started(
                 &tx_event,
@@ -342,9 +342,9 @@ impl TurnEngine {
                     let _ = tx.send(Err(err)).await;
                 }
             }
-        });
+        };
 
-        Ok(receiver_into_stream(rx))
+        Ok(stream_from_producer(rx, producer))
     }
 
     async fn stream_structured(

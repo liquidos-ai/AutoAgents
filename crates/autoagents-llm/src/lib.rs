@@ -17,6 +17,27 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(all(
+    target_arch = "wasm32",
+    any(
+        feature = "openai",
+        feature = "anthropic",
+        feature = "ollama",
+        feature = "deepseek",
+        feature = "xai",
+        feature = "phind",
+        feature = "google",
+        feature = "groq",
+        feature = "azure_openai",
+        feature = "openrouter",
+        feature = "minimax"
+    )
+))]
+compile_error!(
+    "autoagents-llm HTTP provider backends are not supported on wasm32 targets yet. \
+Use a native host for provider access, or build for a non-wasm target."
+);
+
 /// Backend implementations for supported LLM providers like OpenAI, Anthropic, etc.
 pub mod backends;
 
