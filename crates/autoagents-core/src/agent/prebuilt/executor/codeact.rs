@@ -442,7 +442,7 @@ impl CodeActEngine {
         let tools = Arc::new(vec![execute_tool]);
         let max_turns = self.max_turns;
         let mut stored_user = false;
-        let mut final_response = String::new();
+        let mut final_response = String::default();
         let mut executions = Vec::new();
 
         for turn_index in 0..max_turns {
@@ -504,7 +504,7 @@ impl CodeActEngine {
             }
 
             if !response_text.is_empty() {
-                final_response = response_text.clone();
+                final_response.clone_from(&response_text);
             }
 
             let tool_results = self
@@ -578,7 +578,7 @@ impl CodeActEngine {
 
         spawn_future(async move {
             let mut stored_user = false;
-            let mut final_response = String::new();
+            let mut final_response = String::default();
             let mut executions = Vec::new();
 
             for turn_index in 0..max_turns {
@@ -610,7 +610,7 @@ impl CodeActEngine {
                     )
                     .await;
 
-                let mut response_text = String::new();
+                let mut response_text = String::default();
                 let mut tool_calls = Vec::new();
                 let mut seen_tool_ids = HashSet::new();
 
@@ -709,7 +709,7 @@ impl CodeActEngine {
                 }
 
                 if !response_text.is_empty() {
-                    final_response = response_text.clone();
+                    final_response.clone_from(&response_text);
                 }
 
                 let tool_results = engine
@@ -727,7 +727,7 @@ impl CodeActEngine {
 
                 let _ = tx
                     .send(Ok(CodeActAgentOutput {
-                        response: String::new(),
+                        response: String::default(),
                         executions: executions.clone(),
                         done: false,
                     }))
@@ -777,7 +777,7 @@ impl CodeActEngine {
                 }
                 Err(error) => failed_execution_record(
                     tool_call.id.clone(),
-                    String::new(),
+                    String::default(),
                     error,
                     Vec::new(),
                     Vec::new(),
@@ -847,20 +847,22 @@ async fn build_messages(
 }
 
 fn build_codeact_system_prompt(base_prompt: &str, tool_bindings: &[CodeActToolBinding]) -> String {
-    let mut declarations = String::new();
-    for binding in tool_bindings {
-        declarations.push_str(&format!(
-            "/** {} */\ntype {} = {};\ntype {} = {};\ndeclare function {}(args: {}): Promise<{}>;\n\n",
-            escape_typescript_doc_comment(&binding.description),
-            binding.args_type_alias,
-            binding.args_type,
-            binding.result_type_alias,
-            binding.result_type,
-            binding.js_name,
-            binding.args_type_alias,
-            binding.result_type_alias,
-        ));
-    }
+    let declarations = tool_bindings
+        .iter()
+        .map(|binding| {
+            format!(
+                "/** {} */\ntype {} = {};\ntype {} = {};\ndeclare function {}(args: {}): Promise<{}>;\n\n",
+                escape_typescript_doc_comment(&binding.description),
+                binding.args_type_alias,
+                binding.args_type,
+                binding.result_type_alias,
+                binding.result_type,
+                binding.js_name,
+                binding.args_type_alias,
+                binding.result_type_alias,
+            )
+        })
+        .collect::<String>();
 
     format!(
         "{base_prompt}\n\n\
@@ -1485,13 +1487,13 @@ impl ConsoleCapture {
             guard.push(line);
         }
 
-        String::new()
+        String::default()
     }
 
     fn snapshot(&self) -> Vec<String> {
         self.lines
             .lock()
-            .map(|guard| guard.clone())
+            .map(|guard| guard.to_vec())
             .unwrap_or_default()
     }
 }
@@ -1521,7 +1523,7 @@ impl CodeActToolInvocationState {
     fn tool_results(&self) -> Vec<ToolCallResult> {
         self.tool_results
             .lock()
-            .map(|guard| guard.clone())
+            .map(|guard| guard.to_vec())
             .unwrap_or_default()
     }
 }
@@ -1846,14 +1848,16 @@ where
 }
 
 fn build_runtime_script(transpiled: &str, tool_bindings: &[CodeActToolBinding]) -> String {
-    let mut bindings = String::new();
-    for binding in tool_bindings {
-        bindings.push_str(&format!(
-            "async function {js_name}(args) {{\n  const __reply = JSON.parse(await __codeact_invoke({tool_name:?}, JSON.stringify(args ?? {{}})));\n  if (!__reply.ok) {{\n    throw new Error(__reply.error ?? 'tool call failed');\n  }}\n  return __reply.value;\n}}\n",
-            js_name = binding.js_name,
-            tool_name = binding.original_name,
-        ));
-    }
+    let bindings = tool_bindings
+        .iter()
+        .map(|binding| {
+            format!(
+                "async function {js_name}(args) {{\n  const __reply = JSON.parse(await __codeact_invoke({tool_name:?}, JSON.stringify(args ?? {{}})));\n  if (!__reply.ok) {{\n    throw new Error(__reply.error ?? 'tool call failed');\n  }}\n  return __reply.value;\n}}\n",
+                js_name = binding.js_name,
+                tool_name = binding.original_name,
+            )
+        })
+        .collect::<String>();
 
     format!(
         r#"
