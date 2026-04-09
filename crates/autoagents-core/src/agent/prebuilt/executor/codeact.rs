@@ -6,7 +6,7 @@ use crate::agent::task::Task;
 use crate::agent::{AgentDeriveT, AgentExecutor, AgentHooks, Context, ExecutorConfig, HookOutcome};
 use crate::channel::channel;
 use crate::tool::{ToolCallResult, ToolT};
-use crate::utils::{receiver_into_stream, spawn_future};
+use crate::utils::stream_from_producer;
 use async_trait::async_trait;
 use autoagents_llm::ToolCall;
 use autoagents_llm::chat::{ChatMessage, ChatRole, FunctionTool, MessageType, StreamChunk, Tool};
@@ -576,7 +576,7 @@ impl CodeActEngine {
         #[cfg_attr(not(target_arch = "wasm32"), allow(unused_mut))]
         let (mut tx, rx) = channel::<Result<CodeActAgentOutput, CodeActExecutorError>>(100);
 
-        spawn_future(async move {
+        let producer = async move {
             let mut stored_user = false;
             let mut final_response = String::default();
             let mut executions = Vec::new();
@@ -747,9 +747,9 @@ impl CodeActEngine {
             let _ = tx
                 .send(Err(CodeActExecutorError::MaxTurnsExceeded { max_turns }))
                 .await;
-        });
+        };
 
-        Ok(receiver_into_stream(rx))
+        Ok(stream_from_producer(rx, producer))
     }
 
     async fn process_code_calls<H>(

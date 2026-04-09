@@ -1,32 +1,32 @@
-#[cfg(feature = "openai")]
+#[cfg(all(feature = "openai", not(target_arch = "wasm32")))]
 pub mod openai;
 
-#[cfg(feature = "anthropic")]
+#[cfg(all(feature = "anthropic", not(target_arch = "wasm32")))]
 pub mod anthropic;
 
-#[cfg(feature = "ollama")]
+#[cfg(all(feature = "ollama", not(target_arch = "wasm32")))]
 pub mod ollama;
 
-#[cfg(feature = "deepseek")]
+#[cfg(all(feature = "deepseek", not(target_arch = "wasm32")))]
 pub mod deepseek;
 
-#[cfg(feature = "xai")]
+#[cfg(all(feature = "xai", not(target_arch = "wasm32")))]
 pub mod xai;
 
-#[cfg(feature = "phind")]
+#[cfg(all(feature = "phind", not(target_arch = "wasm32")))]
 pub mod phind;
 
-#[cfg(feature = "google")]
+#[cfg(all(feature = "google", not(target_arch = "wasm32")))]
 pub mod google;
 
-#[cfg(feature = "groq")]
+#[cfg(all(feature = "groq", not(target_arch = "wasm32")))]
 pub mod groq;
 
-#[cfg(feature = "azure_openai")]
+#[cfg(all(feature = "azure_openai", not(target_arch = "wasm32")))]
 pub mod azure_openai;
 
-#[cfg(feature = "openrouter")]
+#[cfg(all(feature = "openrouter", not(target_arch = "wasm32")))]
 pub mod openrouter;
 
-#[cfg(feature = "minimax")]
+#[cfg(all(feature = "minimax", not(target_arch = "wasm32")))]
 pub mod minimax;

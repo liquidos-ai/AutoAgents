@@ -42,6 +42,9 @@ jobs:
         with:
           components: llvm-tools-preview,rustfmt,clippy
 
+      - name: Add WASI target
+        run: rustup target add wasm32-wasip1
+
       - name: Run fmt
         run: cargo fmt -- --check
 
@@ -66,6 +69,12 @@ jobs:
       - name: Run cargo check
         run: |
           cargo check --workspace --all-targets --no-default-features
+
+      - name: Run WASI compatibility checks
+        run: |
+          cargo check -p autoagents-core --target wasm32-wasip1
+          cargo check -p autoagents-core --features codeact --target wasm32-wasip1
+          cargo check -p autoagents-llm --target wasm32-wasip1
 
   python_bindings_py:
     name: Python Bindings (Python Coverage)

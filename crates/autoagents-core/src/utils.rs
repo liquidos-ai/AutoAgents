@@ -1,7 +1,11 @@
 use futures_core::Stream;
 #[cfg(target_arch = "wasm32")]
 use futures_util::stream::StreamExt;
+#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+use std::future::Future;
 use std::pin::Pin;
+#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+use std::task::{Context, Poll};
 
 // -----------------------------
 // Channel aliases
@@ -35,6 +39,30 @@ pub(crate) fn receiver_into_stream<T: 'static + Send>(rx: Receiver<T>) -> BoxEve
     rx.boxed()
 }
 
+#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+struct WasiDrivenStream<T> {
+    producer: Pin<Box<dyn Future<Output = ()> + Send>>,
+    receiver: BoxEventStream<T>,
+    producer_done: bool,
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+impl<T> Stream for WasiDrivenStream<T> {
+    type Item = T;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if !self.producer_done && self.producer.as_mut().poll(cx).is_ready() {
+            self.producer_done = true;
+        }
+
+        match self.receiver.as_mut().poll_next(cx) {
+            Poll::Ready(item) => Poll::Ready(item),
+            Poll::Pending if self.producer_done => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
 // Platform-specific spawn functions
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn spawn_future<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
@@ -45,10 +73,53 @@ where
     tokio::spawn(fut)
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
 pub(crate) fn spawn_future<F>(fut: F)
 where
     F: std::future::Future<Output = ()> + 'static,
 {
     wasm_bindgen_futures::spawn_local(fut)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn stream_from_producer<T, F>(rx: Receiver<T>, producer: F) -> BoxEventStream<T>
+where
+    T: 'static + Send,
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    spawn_future(producer);
+    receiver_into_stream(rx)
+}
+
+#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+pub(crate) fn stream_from_producer<T, F>(rx: Receiver<T>, producer: F) -> BoxEventStream<T>
+where
+    T: 'static + Send,
+    F: std::future::Future<Output = ()> + 'static,
+{
+    spawn_future(producer);
+    receiver_into_stream(rx)
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+pub(crate) fn stream_from_producer<T, F>(rx: Receiver<T>, producer: F) -> BoxEventStream<T>
+where
+    T: 'static + Send,
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    Box::pin(WasiDrivenStream {
+        producer: Box::pin(producer),
+        receiver: receiver_into_stream(rx),
+        producer_done: false,
+    })
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+pub fn block_on_local_executor<F>(future: F) -> F::Output
+where
+    F: std::future::Future,
+{
+    // Keep the public WASI entrypoint stable for downstream crates while the
+    // streaming internals run cooperatively instead of on a detached executor.
+    futures::executor::block_on(future)
 }
