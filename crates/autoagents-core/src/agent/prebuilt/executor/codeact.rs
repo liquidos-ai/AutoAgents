@@ -44,10 +44,16 @@ use deno_ast::{
     EmitOptions, MediaType, ModuleSpecifier, ParseParams, ParsedSource, ProgramRef, SourceRange,
     TranspileModuleOptions, TranspileOptions, parse_program,
 };
+#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+use rquickjs::function::Async;
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 use rquickjs::function::Func;
+#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+use rquickjs::{AsyncContext as JsAsyncContext, AsyncRuntime as JsAsyncRuntime};
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-use rquickjs::{CatchResultExt, Context as JsContext, Promise, Runtime as JsRuntime};
+use rquickjs::{CatchResultExt, Promise};
+#[cfg(not(target_arch = "wasm32"))]
+use rquickjs::{Context as JsContext, Runtime as JsRuntime};
 
 const CODEACT_TOOL_NAME: &str = "execute_typescript";
 const CODEACT_LANGUAGE: &str = "typescript";
@@ -1815,25 +1821,29 @@ where
         Arc::clone(&invocation_state),
     );
 
-    let runtime = match JsRuntime::new() {
+    let runtime = match JsAsyncRuntime::new() {
         Ok(runtime) => runtime,
         Err(error) => {
             return SandboxOutcome::failure(error.to_string(), Vec::new(), Vec::new());
         }
     };
-    runtime.set_memory_limit(request.limits.memory_limit_bytes);
-    runtime.set_max_stack_size(1024 * 1024);
-    runtime.set_interrupt_handler(Some(Box::new({
-        let deadline = Instant::now() + Duration::from_millis(request.limits.timeout_ms);
-        move || Instant::now() >= deadline
-    })));
+    runtime
+        .set_memory_limit(request.limits.memory_limit_bytes)
+        .await;
+    runtime.set_max_stack_size(1024 * 1024).await;
+    runtime
+        .set_interrupt_handler(Some(Box::new({
+            let deadline = Instant::now() + Duration::from_millis(request.limits.timeout_ms);
+            move || Instant::now() >= deadline
+        })))
+        .await;
 
-    let js_context = match JsContext::full(&runtime) {
+    let js_context = match JsAsyncContext::full(&runtime).await {
         Ok(js_context) => js_context,
         Err(error) => return SandboxOutcome::failure(error.to_string(), Vec::new(), Vec::new()),
     };
 
-    let execution_result = js_context.with(|ctx| -> Result<String, String> {
+    let execution_result = rquickjs::async_with!(js_context => |ctx| {
         let globals = ctx.globals();
 
         let console_capture = console_capture.clone();
@@ -1850,12 +1860,10 @@ where
         globals
             .set(
                 "__codeact_invoke",
-                Func::from(move |tool_name: String, args_json: String| -> String {
+                Func::from(Async(move |tool_name: String, args_json: String| {
                     let tool_invoker = tool_invoker.clone();
-                    futures::executor::block_on(async move {
-                        tool_invoker.invoke(tool_name, args_json).await
-                    })
-                }),
+                    async move { tool_invoker.invoke(tool_name, args_json).await }
+                })),
             )
             .map_err(|err| err.to_string())?;
 
@@ -1864,10 +1872,12 @@ where
             .catch(&ctx)
             .map_err(|err| err.to_string())?;
         promise
-            .finish::<String>()
+            .into_future::<String>()
+            .await
             .catch(&ctx)
             .map_err(|err| err.to_string())
-    });
+    })
+    .await;
 
     build_sandbox_outcome(
         execution_result,
