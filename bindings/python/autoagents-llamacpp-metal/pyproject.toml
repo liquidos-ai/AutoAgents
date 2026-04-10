@@ -13,5 +13,5 @@ dependencies = ["autoagents-py==0.3.7"]
 
 [tool.maturin]
 module-name = "autoagents_llamacpp_metal._autoagents_llamacpp_metal"
-features = ["metal"]
+features = ["extension-module", "metal"]
 python-source = "."

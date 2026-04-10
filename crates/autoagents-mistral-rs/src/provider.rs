@@ -1036,8 +1036,10 @@ impl LLMProvider for MistralRsProvider {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::stream;
     use mistralrs::{
-        Delta, RequestLike, ResponseMessage, ToolCallResponse, ToolCallType, Usage as MistralUsage,
+        ChatCompletionChunkResponse, ChatCompletionResponse, Choice, ChunkChoice, Delta,
+        RequestLike, ResponseMessage, ToolCallResponse, ToolCallType, Usage as MistralUsage,
     };
     use serde_json::json;
 
@@ -1052,6 +1054,45 @@ mod tests {
             total_time_sec: 0.0,
             total_prompt_time_sec: 0.0,
             total_completion_time_sec: 0.0,
+        }
+    }
+
+    fn sample_tool_call(index: usize, id: &str, name: &str, arguments: &str) -> ToolCallResponse {
+        ToolCallResponse {
+            index,
+            id: id.to_string(),
+            tp: ToolCallType::Function,
+            function: CalledFunction {
+                name: name.to_string(),
+                arguments: arguments.to_string(),
+            },
+        }
+    }
+
+    fn sample_chunk(
+        choices: Vec<ChunkChoice>,
+        usage: Option<MistralUsage>,
+    ) -> ChatCompletionChunkResponse {
+        ChatCompletionChunkResponse {
+            id: "id".to_string(),
+            choices,
+            created: 0,
+            model: "model".to_string(),
+            system_fingerprint: "local".to_string(),
+            object: "chat.completion.chunk".to_string(),
+            usage,
+        }
+    }
+
+    fn sample_done(choices: Vec<Choice>, usage: MistralUsage) -> ChatCompletionResponse {
+        ChatCompletionResponse {
+            id: "id".to_string(),
+            choices,
+            created: 0,
+            model: "model".to_string(),
+            system_fingerprint: "local".to_string(),
+            object: "chat.completion".to_string(),
+            usage,
         }
     }
 
@@ -1249,5 +1290,206 @@ mod tests {
         let done = MistralRsProvider::done_to_stream_response(response);
         assert_eq!(done.choices.len(), 1);
         assert_eq!(done.usage.unwrap().total_tokens, 3);
+    }
+
+    #[test]
+    fn test_chunk_to_stream_response_keeps_usage_without_non_empty_deltas() {
+        let chunk = sample_chunk(Vec::new(), Some(sample_usage()));
+        let response = MistralRsProvider::chunk_to_stream_response(chunk)
+            .expect("usage-only chunks should still emit a response");
+        assert!(response.choices.is_empty());
+        assert_eq!(response.usage.unwrap().total_tokens, 3);
+    }
+
+    #[test]
+    fn test_tool_stream_helper_functions_cover_updates_and_completion() {
+        assert_eq!(normalize_stop_reason(None, false), "end_turn");
+        assert_eq!(normalize_stop_reason(None, true), "tool_use");
+        assert_eq!(
+            normalize_stop_reason(Some("tool_calls".to_string()), false),
+            "tool_use"
+        );
+        assert_eq!(
+            normalize_stop_reason(Some("stop".to_string()), true),
+            "end_turn"
+        );
+        assert_eq!(
+            normalize_stop_reason(Some("length".to_string()), false),
+            "length"
+        );
+
+        let state = ToolStreamState::new(Box::pin(stream::empty()));
+        assert!(state.pending.is_empty());
+        assert!(state.tool_states.is_empty());
+        assert!(state.stop_reason.is_none());
+        assert!(!state.saw_tool_use);
+        assert!(!state.usage_emitted);
+        assert!(!state.done_sent);
+
+        let default_state = ToolUseState::default();
+        assert_eq!(default_state.call_type, "function");
+        assert!(!default_state.started);
+
+        let mut pending = VecDeque::new();
+        let mut tool_states = HashMap::new();
+        let mut saw_tool_use = false;
+        push_tool_call_updates(
+            vec![
+                sample_tool_call(0, "call_1", "lookup", "{\"q\":\""),
+                sample_tool_call(0, "", "", "rust\"}"),
+            ],
+            &mut tool_states,
+            &mut pending,
+            &mut saw_tool_use,
+        );
+
+        assert!(saw_tool_use);
+        assert_eq!(tool_states[&0].id, "call_1");
+        assert_eq!(tool_states[&0].name, "lookup");
+        assert_eq!(tool_states[&0].arguments, "{\"q\":\"rust\"}");
+        assert_eq!(tool_states[&0].call_type, "function");
+
+        let emitted = pending.into_iter().collect::<Vec<_>>();
+        assert_eq!(emitted.len(), 3);
+        assert!(matches!(
+            &emitted[0],
+            Ok(StreamChunk::ToolUseStart { index, id, name })
+                if *index == 0 && id == "call_1" && name == "lookup"
+        ));
+        assert!(matches!(
+            &emitted[1],
+            Ok(StreamChunk::ToolUseInputDelta { index, partial_json })
+                if *index == 0 && partial_json == "{\"q\":\""
+        ));
+        assert!(matches!(
+            &emitted[2],
+            Ok(StreamChunk::ToolUseInputDelta { index, partial_json })
+                if *index == 0 && partial_json == "rust\"}"
+        ));
+
+        let mut state = ToolStreamState::new(Box::pin(stream::empty()));
+        state.tool_states = tool_states;
+        push_tool_completions(&mut state);
+        assert!(state.tool_states.is_empty());
+        assert_eq!(state.pending.len(), 1);
+        assert!(matches!(
+            state.pending.pop_front(),
+            Some(Ok(StreamChunk::ToolUseComplete { index, tool_call }))
+                if index == 0
+                    && tool_call.id == "call_1"
+                    && tool_call.function.name == "lookup"
+                    && tool_call.function.arguments == "{\"q\":\"rust\"}"
+        ));
+    }
+
+    #[test]
+    fn test_handle_chunk_for_tool_stream_emits_text_reasoning_tools_and_usage() {
+        let mut state = ToolStreamState::new(Box::pin(stream::empty()));
+        let chunk = sample_chunk(
+            vec![ChunkChoice {
+                finish_reason: Some("tool_calls".to_string()),
+                index: 0,
+                delta: Delta {
+                    content: Some("answer".to_string()),
+                    role: "assistant".to_string(),
+                    tool_calls: Some(vec![sample_tool_call(
+                        0,
+                        "call_1",
+                        "lookup",
+                        "{\"q\":\"rust\"}",
+                    )]),
+                    reasoning_content: Some("plan".to_string()),
+                },
+                logprobs: None,
+            }],
+            Some(sample_usage()),
+        );
+
+        handle_chunk_for_tool_stream(&mut state, chunk);
+        assert_eq!(state.stop_reason.as_deref(), Some("tool_calls"));
+        assert!(state.saw_tool_use);
+        assert!(state.usage_emitted);
+
+        let emitted = state.pending.into_iter().collect::<Vec<_>>();
+        assert_eq!(emitted.len(), 5);
+        assert!(matches!(&emitted[0], Ok(StreamChunk::Text(text)) if text == "answer"));
+        assert!(matches!(
+            &emitted[1],
+            Ok(StreamChunk::ReasoningContent(text)) if text == "plan"
+        ));
+        assert!(matches!(
+            &emitted[2],
+            Ok(StreamChunk::ToolUseStart { index, id, name })
+                if *index == 0 && id == "call_1" && name == "lookup"
+        ));
+        assert!(matches!(
+            &emitted[3],
+            Ok(StreamChunk::ToolUseInputDelta { index, partial_json })
+                if *index == 0 && partial_json == "{\"q\":\"rust\"}"
+        ));
+        assert!(matches!(
+            &emitted[4],
+            Ok(StreamChunk::Usage(usage)) if usage.total_tokens == 3
+        ));
+    }
+
+    #[test]
+    fn test_handle_done_for_tool_stream_finalizes_usage_and_tool_calls() {
+        let mut state = ToolStreamState::new(Box::pin(stream::empty()));
+        state.tool_states.insert(
+            0,
+            ToolUseState {
+                id: "call_1".to_string(),
+                name: "lookup".to_string(),
+                arguments: "{\"q\":\"Par".to_string(),
+                call_type: "function".to_string(),
+                started: true,
+            },
+        );
+        state.saw_tool_use = true;
+
+        let done = sample_done(
+            vec![Choice {
+                finish_reason: "tool_calls".to_string(),
+                index: 0,
+                message: ResponseMessage {
+                    content: None,
+                    role: "assistant".to_string(),
+                    tool_calls: Some(vec![sample_tool_call(0, "", "", "is\"}")]),
+                    reasoning_content: None,
+                },
+                logprobs: None,
+            }],
+            sample_usage(),
+        );
+
+        handle_done_for_tool_stream(&mut state, done);
+        assert!(state.done_sent);
+        assert!(state.usage_emitted);
+        assert!(state.tool_states.is_empty());
+
+        let emitted = state.pending.into_iter().collect::<Vec<_>>();
+        assert_eq!(emitted.len(), 4);
+        assert!(matches!(
+            &emitted[0],
+            Ok(StreamChunk::ToolUseInputDelta { index, partial_json })
+                if *index == 0 && partial_json == "is\"}"
+        ));
+        assert!(matches!(
+            &emitted[1],
+            Ok(StreamChunk::ToolUseComplete { index, tool_call })
+                if *index == 0
+                    && tool_call.id == "call_1"
+                    && tool_call.function.name == "lookup"
+                    && tool_call.function.arguments == "{\"q\":\"Paris\"}"
+        ));
+        assert!(matches!(
+            &emitted[2],
+            Ok(StreamChunk::Usage(usage)) if usage.total_tokens == 3
+        ));
+        assert!(matches!(
+            &emitted[3],
+            Ok(StreamChunk::Done { stop_reason }) if stop_reason == "tool_use"
+        ));
     }
 }

@@ -396,3 +396,55 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn planning_extractors_parse_structured_text_variants() {
+        let planner = StrategicPlanner::new();
+        let executor = PlanExecutor::new();
+        assert_eq!(planner.plans_created.load(Ordering::SeqCst), 0);
+        assert_eq!(executor.steps_executed.load(Ordering::SeqCst), 0);
+
+        let plan = "GOAL: Ship feature\n\
+STEPS:\n\
+1. Gather requirements\n\
+2. Implement tests\n\
+3. Release build\n\
+EXPECTED_OUTPUTS:\n\
+- Step 1: Spec\n\
+- Step 2: Passing tests\n\
+SUCCESS_CRITERIA: Green CI";
+        assert_eq!(
+            extract_steps_from_plan(plan),
+            vec![
+                "Gather requirements".to_string(),
+                "Implement tests".to_string(),
+                "Release build".to_string()
+            ]
+        );
+
+        assert_eq!(
+            extract_status_from_result("STATUS: PARTIAL\nNOTES: waiting on review"),
+            "PARTIAL"
+        );
+        assert_eq!(extract_status_from_result("RESULTS: done"), "SUCCESS");
+
+        let task_prompt = "EXECUTE STEP 1 OF PLAN:\nDraft plan\n\nFULL PLAN CONTEXT:\n\
+STEPS:\n1. Draft plan\n2. Ship change\n\nExecute this step building on the previous results.";
+        assert_eq!(
+            extract_full_plan_from_task(task_prompt),
+            Some("STEPS:\n1. Draft plan\n2. Ship change".to_string())
+        );
+
+        let blocked_prompt = "REVISE PLAN due to execution roadblock:\n\nORIGINAL TASK: ship release\n\nBLOCKED AT STEP: 2\n\nISSUE: timeout";
+        assert_eq!(extract_original_task(blocked_prompt), "ship release");
+        assert_eq!(
+            extract_original_task("missing original marker"),
+            "Unknown task"
+        );
+    }
+}

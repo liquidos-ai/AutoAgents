@@ -413,8 +413,43 @@ impl ToolRuntime for PyTool {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_tool_args;
+    use super::*;
+    use autoagents_core::tool::{ToolRuntime, ToolT};
+    use pyo3::types::PyModule;
     use serde_json::json;
+    use std::ffi::CString;
+
+    fn init_runtime_bridge() {
+        Python::initialize();
+        let runtime = crate::runtime::get_runtime().expect("shared runtime should initialize");
+        let _ = pyo3_async_runtimes::tokio::init_with_runtime(runtime);
+    }
+
+    fn tool_module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
+        PyModule::from_code(
+            py,
+            &CString::new(
+                "def sync_sum(payload):\n\
+                 \treturn {\"sum\": payload[\"left\"] + payload[\"right\"], \"kind\": \"sync\"}\n\
+                 \n\
+                 async def async_echo(payload):\n\
+                 \treturn {\"echo\": payload[\"value\"], \"kind\": \"async\"}\n\
+                 \n\
+                 def passthrough(payload):\n\
+                 \treturn payload\n\
+                 \n\
+                 def failing_tool(payload):\n\
+                 \traise ValueError(f\"boom:{payload['value']}\")\n\
+                 \n\
+                 non_callable = 123\n",
+            )
+            .expect("python module source should be valid CString"),
+            &CString::new("autoagents_py/tests/py_tool.py")
+                .expect("filename should be a valid CString"),
+            &CString::new("autoagents_py_tool_tests")
+                .expect("module name should be a valid CString"),
+        )
+    }
 
     #[test]
     fn validate_tool_args_accepts_valid_payload() {
@@ -476,5 +511,244 @@ mod tests {
         )
         .expect_err("type mismatch should fail");
         assert!(error.to_string().contains("expected integer"));
+    }
+
+    #[test]
+    fn validate_tool_args_covers_any_of_and_nested_additional_properties() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "value": {
+                    "anyOf": [
+                        {"type": "string"},
+                        {"type": "integer"}
+                    ]
+                }
+            },
+            "required": ["value"],
+            "additionalProperties": {
+                "type": "integer"
+            }
+        });
+
+        assert!(
+            validate_tool_args(
+                &schema,
+                &json!({
+                    "value": "ok",
+                    "count": 2
+                }),
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_tool_args(
+                &schema,
+                &json!({
+                    "value": true
+                }),
+            )
+            .is_err()
+        );
+        assert!(
+            validate_tool_args(
+                &schema,
+                &json!({
+                    "value": 1,
+                    "count": "bad"
+                }),
+            )
+            .expect_err("additional property schema should validate")
+            .to_string()
+            .contains("expected integer")
+        );
+    }
+
+    #[test]
+    fn py_tool_new_validates_schema_output_schema_and_callable() {
+        init_runtime_bridge();
+        Python::attach(|py| {
+            let module = tool_module(py).expect("test module should load");
+            let sync_callable = module
+                .getattr("sync_sum")
+                .expect("sync callable should exist")
+                .unbind();
+            let non_callable = module
+                .getattr("non_callable")
+                .expect("non-callable value should exist")
+                .unbind();
+
+            let invalid_schema = PyTool::new(
+                "bad".to_string(),
+                "bad".to_string(),
+                "{".to_string(),
+                sync_callable.clone_ref(py),
+                None,
+            )
+            .expect_err("invalid schema json should fail");
+            assert!(invalid_schema.is_instance_of::<pyo3::exceptions::PyValueError>(py));
+
+            let non_object_schema = PyTool::new(
+                "bad".to_string(),
+                "bad".to_string(),
+                "[]".to_string(),
+                sync_callable.clone_ref(py),
+                None,
+            )
+            .expect_err("schema must be an object");
+            assert!(
+                non_object_schema
+                    .to_string()
+                    .contains("tool schema must be a JSON object")
+            );
+
+            let non_object_output_schema = PyTool::new(
+                "bad".to_string(),
+                "bad".to_string(),
+                r#"{"type":"object"}"#.to_string(),
+                sync_callable.clone_ref(py),
+                Some("[]".to_string()),
+            )
+            .expect_err("output schema must be an object");
+            assert!(
+                non_object_output_schema
+                    .to_string()
+                    .contains("tool output schema must be a JSON object")
+            );
+
+            let non_callable_error = PyTool::new(
+                "bad".to_string(),
+                "bad".to_string(),
+                r#"{"type":"object"}"#.to_string(),
+                non_callable,
+                None,
+            )
+            .expect_err("non-callable should fail");
+            assert!(
+                non_callable_error
+                    .to_string()
+                    .contains("tool callable must be callable")
+            );
+
+            let tool = PyTool::new(
+                "sum".to_string(),
+                "Adds values".to_string(),
+                r#"{"type":"object","properties":{"left":{"type":"integer"},"right":{"type":"integer"}},"required":["left","right"],"additionalProperties":false}"#.to_string(),
+                sync_callable,
+                Some(r#"{"type":"object","properties":{"sum":{"type":"integer"}},"required":["sum"]}"#.to_string()),
+            )
+            .expect("valid tool should construct");
+            assert_eq!(tool.name(), "sum");
+            assert_eq!(tool.description(), "Adds values");
+            assert_eq!(tool.__repr__(), "Tool(name='sum')");
+            assert!(tool.output_schema().is_some());
+        });
+    }
+
+    #[test]
+    fn py_tool_execute_supports_sync_and_async_callables() {
+        init_runtime_bridge();
+        Python::attach(|py| -> PyResult<()> {
+            let event_loop = py.import("asyncio")?.call_method0("new_event_loop")?;
+            pyo3_async_runtimes::tokio::run_until_complete(event_loop, async move {
+                let (sync_tool, async_tool) = Python::attach(|py| -> PyResult<_> {
+                    let module = tool_module(py)?;
+                    let sync_callable = module.getattr("sync_sum")?.unbind();
+                    let async_callable = module.getattr("async_echo")?.unbind();
+
+                    Ok((
+                        PyTool::new(
+                            "sum".to_string(),
+                            "Adds values".to_string(),
+                            r#"{"type":"object","properties":{"left":{"type":"integer"},"right":{"type":"integer"}},"required":["left","right"],"additionalProperties":false}"#.to_string(),
+                            sync_callable,
+                            None,
+                        )?,
+                        PyTool::new(
+                            "echo".to_string(),
+                            "Echoes values".to_string(),
+                            r#"{"type":"object","properties":{"value":{"type":"integer"}},"required":["value"],"additionalProperties":false}"#.to_string(),
+                            async_callable,
+                            None,
+                        )?,
+                    ))
+                })?;
+
+                let sync_result = sync_tool
+                    .execute(json!({"left": 20, "right": 22}))
+                    .await
+                    .expect("sync tool should succeed");
+                assert_eq!(sync_result, json!({"sum": 42, "kind": "sync"}));
+
+                let async_result = async_tool
+                    .execute(json!({"value": 7}))
+                    .await
+                    .expect("async tool should succeed");
+                assert_eq!(async_result, json!({"echo": 7, "kind": "async"}));
+                Ok(())
+            })
+        })
+        .expect("temporary Python event loop should run");
+    }
+
+    #[test]
+    fn py_tool_execute_reports_validation_and_python_runtime_errors() {
+        init_runtime_bridge();
+        Python::attach(|py| -> PyResult<()> {
+            let event_loop = py.import("asyncio")?.call_method0("new_event_loop")?;
+            pyo3_async_runtimes::tokio::run_until_complete(event_loop, async move {
+                let (passthrough_tool, failing_tool, none_tool) =
+                    Python::attach(|py| -> PyResult<_> {
+                        let module = tool_module(py)?;
+                        let passthrough = module.getattr("passthrough")?.unbind();
+                        let failing = module.getattr("failing_tool")?.unbind();
+                        let none_value = py.None();
+
+                        Ok((
+                            PyTool::new(
+                                "passthrough".to_string(),
+                                "Returns the payload".to_string(),
+                                r#"{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":{"type":"integer"}}"#.to_string(),
+                                passthrough,
+                                None,
+                            )?,
+                            PyTool::new(
+                                "failing".to_string(),
+                                "Raises an exception".to_string(),
+                                r#"{"type":"object","properties":{"value":{"type":"integer"}},"required":["value"],"additionalProperties":false}"#.to_string(),
+                                failing,
+                                None,
+                            )?,
+                            PyTool::new(
+                                "missing".to_string(),
+                                "Missing callable".to_string(),
+                                r#"{"type":"object","properties":{"value":{"type":"integer"}},"required":["value"],"additionalProperties":false}"#.to_string(),
+                                none_value,
+                                None,
+                            )?,
+                        ))
+                    })?;
+
+                let validation_error = passthrough_tool
+                    .execute(json!({"name": "alice", "count": "bad"}))
+                    .await
+                    .expect_err("invalid additional property type should fail");
+                assert!(validation_error.to_string().contains("expected integer"));
+
+                let python_error = failing_tool
+                    .execute(json!({"value": 7}))
+                    .await
+                    .expect_err("python exception should surface");
+                assert!(python_error.to_string().contains("boom:7"));
+
+                let missing_callable = none_tool
+                    .execute(json!({"value": 1}))
+                    .await
+                    .expect_err("missing callable should fail");
+                assert!(missing_callable.to_string().contains("not configured"));
+                Ok(())
+            })
+        })
+        .expect("temporary Python event loop should run");
     }
 }

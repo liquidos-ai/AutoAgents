@@ -405,6 +405,37 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::embeddings::{EmbedError, TextEmbedder};
+    use autoagents_llm::embedding::EmbeddingProvider;
+    use autoagents_llm::error::LLMError;
+    use std::sync::Arc;
+
+    #[derive(Debug, Clone, Serialize)]
+    struct IndexedDoc {
+        workspace_id: &'static str,
+        title: &'static str,
+        body: &'static str,
+    }
+
+    impl crate::embeddings::Embed for IndexedDoc {
+        fn embed(&self, embedder: &mut TextEmbedder) -> Result<(), EmbedError> {
+            embedder.embed(self.title);
+            embedder.embed(self.body);
+            Ok(())
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct DummyEmbeddingProvider {
+        vectors: Vec<Vec<f32>>,
+    }
+
+    #[async_trait::async_trait]
+    impl EmbeddingProvider for DummyEmbeddingProvider {
+        async fn embed(&self, _text: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
+            Ok(self.vectors.clone())
+        }
+    }
 
     #[test]
     fn test_mirrored_payload_fields_extracts_selected_root_keys() {
@@ -455,5 +486,198 @@ mod tests {
             Some(&serde_json::json!("proj-1"))
         );
         assert!(!mirrored.contains_key("body"));
+    }
+
+    #[test]
+    fn test_payload_document_builders_cover_manual_and_mirrored_fields() {
+        let doc = PayloadDocument::new(
+            "doc-1",
+            IndexedDoc {
+                workspace_id: "ws-1",
+                title: "Title",
+                body: "Body",
+            },
+        )
+        .with_payload_fields(HashMap::from([(
+            "workspace_id".to_string(),
+            serde_json::json!("manual"),
+        )]));
+        assert_eq!(doc.id, "doc-1");
+        assert_eq!(
+            doc.payload_fields["workspace_id"],
+            serde_json::json!("manual")
+        );
+
+        let mirrored = PayloadDocument::new(
+            "doc-2",
+            IndexedDoc {
+                workspace_id: "ws-2",
+                title: "Second",
+                body: "Document",
+            },
+        )
+        .with_mirrored_payload_fields(["workspace_id", "raw", "source_id", "workspace_id"])
+        .expect("mirrored payload should build");
+        assert_eq!(mirrored.payload_fields.len(), 1);
+        assert_eq!(
+            mirrored.payload_fields["workspace_id"],
+            serde_json::json!("ws-2")
+        );
+    }
+
+    #[test]
+    fn test_named_vector_payload_document_builders_cover_manual_and_mirrored_fields() {
+        let base = NamedVectorDocument {
+            id: "doc-1".to_string(),
+            raw: IndexedDoc {
+                workspace_id: "ws-1",
+                title: "Title",
+                body: "Body",
+            },
+            vectors: HashMap::from([
+                ("title".to_string(), "Title".to_string()),
+                ("body".to_string(), "Body".to_string()),
+            ]),
+        };
+        let payload_doc = base.clone().with_payload_fields(HashMap::from([(
+            "workspace_id".to_string(),
+            serde_json::json!("ws-1"),
+        )]));
+        assert_eq!(payload_doc.vectors.len(), 2);
+        assert_eq!(
+            payload_doc.payload_fields["workspace_id"],
+            serde_json::json!("ws-1")
+        );
+
+        let mirrored = NamedVectorPayloadDocument::new("doc-2", base.raw, base.vectors)
+            .with_mirrored_payload_fields(["workspace_id"])
+            .expect("mirrored payload should build");
+        assert_eq!(
+            mirrored.payload_fields["workspace_id"],
+            serde_json::json!("ws-1")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_embed_documents_with_payload_fields_success_and_short_vector_error() {
+        let provider: SharedEmbeddingProvider = Arc::new(DummyEmbeddingProvider {
+            vectors: vec![vec![0.1_f32], vec![0.2_f32]],
+        });
+        let docs = vec![(
+            "doc-1".to_string(),
+            IndexedDoc {
+                workspace_id: "ws-1",
+                title: "Title",
+                body: "Body",
+            },
+        )];
+
+        let prepared = embed_documents_with_payload_fields(&provider, docs, ["workspace_id"])
+            .await
+            .expect("documents should embed");
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].id, "doc-1");
+        assert_eq!(
+            prepared[0].payload_fields["workspace_id"],
+            serde_json::json!("ws-1")
+        );
+        assert_eq!(prepared[0].embeddings.len(), 2);
+
+        let short_provider: SharedEmbeddingProvider = Arc::new(DummyEmbeddingProvider {
+            vectors: vec![vec![0.1_f32]],
+        });
+        let err = embed_documents_with_payload_fields(
+            &short_provider,
+            vec![(
+                "doc-2".to_string(),
+                IndexedDoc {
+                    workspace_id: "ws-2",
+                    title: "Another",
+                    body: "Entry",
+                },
+            )],
+            ["workspace_id"],
+        )
+        .await
+        .expect_err("short embedding response should fail");
+        assert!(err.to_string().contains("fewer vectors"));
+    }
+
+    #[tokio::test]
+    async fn test_embed_payload_documents_and_named_payload_documents_cover_success_and_empty() {
+        let provider: SharedEmbeddingProvider = Arc::new(DummyEmbeddingProvider {
+            vectors: vec![vec![0.1_f32], vec![0.2_f32], vec![0.3_f32], vec![0.4_f32]],
+        });
+
+        let prepared = embed_payload_documents(
+            &provider,
+            vec![
+                PayloadDocument::new(
+                    "doc-1",
+                    IndexedDoc {
+                        workspace_id: "ws-1",
+                        title: "Title",
+                        body: "Body",
+                    },
+                )
+                .with_payload_fields(HashMap::from([(
+                    "workspace_id".to_string(),
+                    serde_json::json!("ws-1"),
+                )])),
+            ],
+        )
+        .await
+        .expect("payload documents should embed");
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(
+            prepared[0].payload_fields["workspace_id"],
+            serde_json::json!("ws-1")
+        );
+
+        let named = embed_named_payload_documents(
+            &provider,
+            vec![
+                NamedVectorPayloadDocument::new(
+                    "doc-2",
+                    IndexedDoc {
+                        workspace_id: "ws-2",
+                        title: "Named",
+                        body: "Vector",
+                    },
+                    HashMap::from([
+                        ("title".to_string(), "Named".to_string()),
+                        ("body".to_string(), "Vector".to_string()),
+                    ]),
+                )
+                .with_payload_fields(HashMap::from([(
+                    "workspace_id".to_string(),
+                    serde_json::json!("ws-2"),
+                )])),
+            ],
+        )
+        .await
+        .expect("named payload documents should embed");
+        assert_eq!(named.len(), 1);
+        assert_eq!(named[0].vectors.len(), 2);
+        assert_eq!(
+            named[0].payload_fields["workspace_id"],
+            serde_json::json!("ws-2")
+        );
+
+        let err = embed_named_payload_documents(
+            &provider,
+            vec![NamedVectorPayloadDocument::new(
+                "doc-3",
+                IndexedDoc {
+                    workspace_id: "ws-3",
+                    title: "Empty",
+                    body: "Vectors",
+                },
+                HashMap::new(),
+            )],
+        )
+        .await
+        .expect_err("empty named vectors should fail");
+        assert!(err.to_string().contains("No content to embed"));
     }
 }

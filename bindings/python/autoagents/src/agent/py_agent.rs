@@ -216,6 +216,96 @@ impl PyExecutionLLM {
     pub fn new(inner: Arc<dyn LLMProvider>) -> Self {
         Self { inner }
     }
+
+    async fn chat_value(
+        &self,
+        messages: Vec<ChatMessage>,
+        schema: Option<StructuredOutputFormat>,
+    ) -> PyResult<Value> {
+        let response = self
+            .inner
+            .chat(&messages, schema)
+            .await
+            .map_err(|e| PyRuntimeError::new_err(format!("llm.chat failed: {e}")))?;
+        Ok(chat_response_to_value(response.as_ref()))
+    }
+
+    async fn chat_with_tools_value(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+        schema: Option<StructuredOutputFormat>,
+    ) -> PyResult<Value> {
+        let response = self
+            .inner
+            .chat_with_tools(&messages, tools.as_deref(), schema)
+            .await
+            .map_err(|e| PyRuntimeError::new_err(format!("llm.chat_with_tools failed: {e}")))?;
+        Ok(chat_response_to_value(response.as_ref()))
+    }
+
+    async fn chat_with_web_search_value(&self, input: String) -> PyResult<Value> {
+        let response = self.inner.chat_with_web_search(input).await.map_err(|e| {
+            PyRuntimeError::new_err(format!("llm.chat_with_web_search failed: {e}"))
+        })?;
+        Ok(chat_response_to_value(response.as_ref()))
+    }
+
+    async fn build_string_stream(
+        &self,
+        messages: Vec<ChatMessage>,
+        schema: Option<StructuredOutputFormat>,
+    ) -> PyResult<PyExecutionStringStream> {
+        let stream = self
+            .inner
+            .chat_stream(&messages, schema)
+            .await
+            .map_err(|e| PyRuntimeError::new_err(format!("llm.chat_stream failed: {e}")))?;
+
+        Ok(PyExecutionStringStream {
+            stream: Arc::new(tokio::sync::Mutex::new(stream)),
+        })
+    }
+
+    async fn build_struct_stream(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+        schema: Option<StructuredOutputFormat>,
+        label: &'static str,
+        error_label: &'static str,
+    ) -> PyResult<PyExecutionJsonStream> {
+        let stream = self
+            .inner
+            .chat_stream_struct(&messages, tools.as_deref(), schema)
+            .await
+            .map_err(|e| PyRuntimeError::new_err(format!("{error_label} failed: {e}")))?;
+        let stream = map_json_stream(stream, label)?;
+
+        Ok(PyExecutionJsonStream {
+            stream: Arc::new(tokio::sync::Mutex::new(stream)),
+        })
+    }
+
+    async fn build_tool_stream(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<Tool>>,
+        schema: Option<StructuredOutputFormat>,
+        label: &'static str,
+        error_label: &'static str,
+    ) -> PyResult<PyExecutionJsonStream> {
+        let stream = self
+            .inner
+            .chat_stream_with_tools(&messages, tools.as_deref(), schema)
+            .await
+            .map_err(|e| PyRuntimeError::new_err(format!("{error_label} failed: {e}")))?;
+        let stream = map_json_stream(stream, label)?;
+
+        Ok(PyExecutionJsonStream {
+            stream: Arc::new(tokio::sync::Mutex::new(stream)),
+        })
+    }
 }
 
 #[pymethods]
@@ -239,14 +329,11 @@ impl PyExecutionLLM {
     ) -> PyResult<Bound<'py, PyAny>> {
         let messages = parse_chat_messages_from_any(messages)?;
         let schema = parse_structured_schema(schema)?;
-        let llm = Arc::clone(&self.inner);
+        let llm = self.clone();
 
         crate::async_bridge::future_into_py(py, async move {
-            let response = llm
-                .chat(&messages, schema)
-                .await
-                .map_err(|e| PyRuntimeError::new_err(format!("llm.chat failed: {e}")))?;
-            Python::attach(|py| json_value_to_py(py, &chat_response_to_value(response.as_ref())))
+            let value = llm.chat_value(messages, schema).await?;
+            Python::attach(|py| json_value_to_py(py, &value))
         })
     }
 
@@ -271,14 +358,11 @@ impl PyExecutionLLM {
         let messages = parse_chat_messages_from_any(messages)?;
         let tools = parse_tools_from_any(Some(tools))?;
         let schema = parse_structured_schema(schema)?;
-        let llm = Arc::clone(&self.inner);
+        let llm = self.clone();
 
         crate::async_bridge::future_into_py(py, async move {
-            let response = llm
-                .chat_with_tools(&messages, tools.as_deref(), schema)
-                .await
-                .map_err(|e| PyRuntimeError::new_err(format!("llm.chat_with_tools failed: {e}")))?;
-            Python::attach(|py| json_value_to_py(py, &chat_response_to_value(response.as_ref())))
+            let value = llm.chat_with_tools_value(messages, tools, schema).await?;
+            Python::attach(|py| json_value_to_py(py, &value))
         })
     }
 
@@ -298,13 +382,11 @@ impl PyExecutionLLM {
         py: Python<'py>,
         input: String,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let llm = Arc::clone(&self.inner);
+        let llm = self.clone();
 
         crate::async_bridge::future_into_py(py, async move {
-            let response = llm.chat_with_web_search(input).await.map_err(|e| {
-                PyRuntimeError::new_err(format!("llm.chat_with_web_search failed: {e}"))
-            })?;
-            Python::attach(|py| json_value_to_py(py, &chat_response_to_value(response.as_ref())))
+            let value = llm.chat_with_web_search_value(input).await?;
+            Python::attach(|py| json_value_to_py(py, &value))
         })
     }
 
@@ -317,20 +399,14 @@ impl PyExecutionLLM {
     ) -> PyResult<Bound<'py, PyAny>> {
         let messages = parse_chat_messages_from_any(messages)?;
         let schema = parse_structured_schema(schema)?;
-        let llm = Arc::clone(&self.inner);
+        let llm = self.clone();
 
         crate::async_bridge::future_into_py(py, async move {
-            let stream = llm
-                .chat_stream(&messages, schema)
-                .await
-                .map_err(|e| PyRuntimeError::new_err(format!("llm.chat_stream failed: {e}")))?;
-
+            let stream = llm.build_string_stream(messages, schema).await?;
             Python::attach(|py| {
-                PyExecutionStringStream {
-                    stream: Arc::new(tokio::sync::Mutex::new(stream)),
-                }
-                .into_pyobject(py)
-                .map(|bound| bound.into_any().unbind())
+                stream
+                    .into_pyobject(py)
+                    .map(|bound| bound.into_any().unbind())
             })
         })
     }
@@ -346,23 +422,22 @@ impl PyExecutionLLM {
         let messages = parse_chat_messages_from_any(messages)?;
         let tools = parse_tools_from_any(tools)?;
         let schema = parse_structured_schema(schema)?;
-        let llm = Arc::clone(&self.inner);
+        let llm = self.clone();
 
         crate::async_bridge::future_into_py(py, async move {
             let stream = llm
-                .chat_stream_struct(&messages, tools.as_deref(), schema)
-                .await
-                .map_err(|e| {
-                    PyRuntimeError::new_err(format!("llm.chat_stream_struct failed: {e}"))
-                })?;
-            let stream = map_json_stream(stream, "llm.chat_stream_struct")?;
-
+                .build_struct_stream(
+                    messages,
+                    tools,
+                    schema,
+                    "llm.chat_stream_struct",
+                    "llm.chat_stream_struct",
+                )
+                .await?;
             Python::attach(|py| {
-                PyExecutionJsonStream {
-                    stream: Arc::new(tokio::sync::Mutex::new(stream)),
-                }
-                .into_pyobject(py)
-                .map(|bound| bound.into_any().unbind())
+                stream
+                    .into_pyobject(py)
+                    .map(|bound| bound.into_any().unbind())
             })
         })
     }
@@ -378,23 +453,22 @@ impl PyExecutionLLM {
         let messages = parse_chat_messages_from_any(messages)?;
         let tools = parse_tools_from_any(Some(tools))?;
         let schema = parse_structured_schema(schema)?;
-        let llm = Arc::clone(&self.inner);
+        let llm = self.clone();
 
         crate::async_bridge::future_into_py(py, async move {
             let stream = llm
-                .chat_stream_with_tools(&messages, tools.as_deref(), schema)
-                .await
-                .map_err(|e| {
-                    PyRuntimeError::new_err(format!("llm.chat_stream_with_tools failed: {e}"))
-                })?;
-            let stream = map_json_stream(stream, "llm.chat_stream_with_tools")?;
-
+                .build_tool_stream(
+                    messages,
+                    tools,
+                    schema,
+                    "llm.chat_stream_with_tools",
+                    "llm.chat_stream_with_tools",
+                )
+                .await?;
             Python::attach(|py| {
-                PyExecutionJsonStream {
-                    stream: Arc::new(tokio::sync::Mutex::new(stream)),
-                }
-                .into_pyobject(py)
-                .map(|bound| bound.into_any().unbind())
+                stream
+                    .into_pyobject(py)
+                    .map(|bound| bound.into_any().unbind())
             })
         })
     }
@@ -409,6 +483,21 @@ pub struct PyExecutionStringStream {
     stream: Arc<tokio::sync::Mutex<LlmTextStream>>,
 }
 
+impl PyExecutionStringStream {
+    async fn next_chunk(&self) -> PyResult<Option<String>> {
+        let next = {
+            let mut guard = self.stream.lock().await;
+            guard.next().await
+        };
+
+        match next {
+            Some(Ok(chunk)) => Ok(Some(chunk)),
+            Some(Err(err)) => Err(PyRuntimeError::new_err(err.to_string())),
+            None => Ok(None),
+        }
+    }
+}
+
 #[pymethods]
 impl PyExecutionStringStream {
     fn __aiter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -416,17 +505,13 @@ impl PyExecutionStringStream {
     }
 
     fn __anext__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let stream = Arc::clone(&self.stream);
+        let stream = PyExecutionStringStream {
+            stream: Arc::clone(&self.stream),
+        };
 
         crate::async_bridge::future_into_py(py, async move {
-            let next = {
-                let mut guard = stream.lock().await;
-                guard.next().await
-            };
-
-            match next {
-                Some(Ok(chunk)) => Ok(chunk),
-                Some(Err(err)) => Err(PyRuntimeError::new_err(err.to_string())),
+            match stream.next_chunk().await? {
+                Some(chunk) => Ok(chunk),
                 None => Err(pyo3::exceptions::PyStopAsyncIteration::new_err(
                     "stream ended",
                 )),
@@ -444,6 +529,21 @@ pub struct PyExecutionJsonStream {
     stream: Arc<tokio::sync::Mutex<LlmJsonStream>>,
 }
 
+impl PyExecutionJsonStream {
+    async fn next_chunk(&self) -> PyResult<Option<Value>> {
+        let next = {
+            let mut guard = self.stream.lock().await;
+            guard.next().await
+        };
+
+        match next {
+            Some(Ok(chunk)) => Ok(Some(chunk)),
+            Some(Err(err)) => Err(PyRuntimeError::new_err(err.to_string())),
+            None => Ok(None),
+        }
+    }
+}
+
 #[pymethods]
 impl PyExecutionJsonStream {
     fn __aiter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -451,17 +551,13 @@ impl PyExecutionJsonStream {
     }
 
     fn __anext__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let stream = Arc::clone(&self.stream);
+        let stream = PyExecutionJsonStream {
+            stream: Arc::clone(&self.stream),
+        };
 
         crate::async_bridge::future_into_py(py, async move {
-            let next = {
-                let mut guard = stream.lock().await;
-                guard.next().await
-            };
-
-            match next {
-                Some(Ok(chunk)) => Python::attach(|py| json_value_to_py(py, &chunk)),
-                Some(Err(err)) => Err(PyRuntimeError::new_err(err.to_string())),
+            match stream.next_chunk().await? {
+                Some(chunk) => Python::attach(|py| json_value_to_py(py, &chunk)),
                 None => Err(pyo3::exceptions::PyStopAsyncIteration::new_err(
                     "stream ended",
                 )),
@@ -483,6 +579,47 @@ pub struct PyExecutionMemory {
 impl PyExecutionMemory {
     pub fn new(inner: Option<Arc<tokio::sync::Mutex<Box<dyn MemoryProvider>>>>) -> Self {
         Self { inner }
+    }
+
+    fn configured_memory(&self) -> PyResult<Arc<tokio::sync::Mutex<Box<dyn MemoryProvider>>>> {
+        self.inner
+            .clone()
+            .ok_or_else(|| PyRuntimeError::new_err("memory is not configured"))
+    }
+
+    async fn recall_messages(&self, query: String, limit: Option<usize>) -> PyResult<Value> {
+        let memory = self.configured_memory()?;
+        let guard = memory.lock().await;
+        let messages = guard
+            .recall(&query, limit)
+            .await
+            .map_err(|e| PyRuntimeError::new_err(format!("memory.recall failed: {e}")))?;
+        serde_json::to_value(messages)
+            .map_err(|e| PyRuntimeError::new_err(format!("serialize recall result: {e}")))
+    }
+
+    async fn remember_message(&self, message: ChatMessage) -> PyResult<()> {
+        let memory = self.configured_memory()?;
+        let mut guard = memory.lock().await;
+        guard
+            .remember(&message)
+            .await
+            .map_err(|e| PyRuntimeError::new_err(format!("memory.remember failed: {e}")))
+    }
+
+    async fn clear_messages(&self) -> PyResult<()> {
+        let memory = self.configured_memory()?;
+        let mut guard = memory.lock().await;
+        guard
+            .clear()
+            .await
+            .map_err(|e| PyRuntimeError::new_err(format!("memory.clear failed: {e}")))
+    }
+
+    async fn message_count(&self) -> PyResult<usize> {
+        let memory = self.configured_memory()?;
+        let guard = memory.lock().await;
+        Ok(guard.size())
     }
 }
 
@@ -506,18 +643,11 @@ impl PyExecutionMemory {
         query: String,
         limit: Option<usize>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let Some(memory) = self.inner.clone() else {
-            return Err(PyRuntimeError::new_err("memory is not configured"));
-        };
+        self.configured_memory()?;
+        let memory = self.clone();
 
         crate::async_bridge::future_into_py(py, async move {
-            let guard = memory.lock().await;
-            let messages = guard
-                .recall(&query, limit)
-                .await
-                .map_err(|e| PyRuntimeError::new_err(format!("memory.recall failed: {e}")))?;
-            let as_json = serde_json::to_value(messages)
-                .map_err(|e| PyRuntimeError::new_err(format!("serialize recall result: {e}")))?;
+            let as_json = memory.recall_messages(query, limit).await?;
             Python::attach(|py| json_value_to_py(py, &as_json))
         })
     }
@@ -527,46 +657,32 @@ impl PyExecutionMemory {
         py: Python<'py>,
         message: &Bound<'_, PyAny>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let Some(memory) = self.inner.clone() else {
-            return Err(PyRuntimeError::new_err("memory is not configured"));
-        };
+        self.configured_memory()?;
         let msg = parse_chat_message_from_any(message)
             .map_err(|e| PyRuntimeError::new_err(format!("invalid message: {e}")))?;
+        let memory = self.clone();
 
         crate::async_bridge::future_into_py(py, async move {
-            let mut guard = memory.lock().await;
-            guard
-                .remember(&msg)
-                .await
-                .map_err(|e| PyRuntimeError::new_err(format!("memory.remember failed: {e}")))?;
+            memory.remember_message(msg).await?;
             Python::attach(|py| Ok(py.None()))
         })
     }
 
     pub fn clear<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let Some(memory) = self.inner.clone() else {
-            return Err(PyRuntimeError::new_err("memory is not configured"));
-        };
+        self.configured_memory()?;
+        let memory = self.clone();
 
         crate::async_bridge::future_into_py(py, async move {
-            let mut guard = memory.lock().await;
-            guard
-                .clear()
-                .await
-                .map_err(|e| PyRuntimeError::new_err(format!("memory.clear failed: {e}")))?;
+            memory.clear_messages().await?;
             Python::attach(|py| Ok(py.None()))
         })
     }
 
     pub fn size<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let Some(memory) = self.inner.clone() else {
-            return Err(PyRuntimeError::new_err("memory is not configured"));
-        };
+        self.configured_memory()?;
+        let memory = self.clone();
 
-        crate::async_bridge::future_into_py(py, async move {
-            let guard = memory.lock().await;
-            Ok(guard.size())
-        })
+        crate::async_bridge::future_into_py(py, async move { memory.message_count().await })
     }
 }
 
@@ -1094,4 +1210,772 @@ pub trait PyExecutorBuildable: Send + Sync {
         runtime: Arc<dyn Runtime>,
         topics: Vec<String>,
     ) -> BuildActorResult;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use autoagents_core::agent::memory::SlidingWindowMemory;
+    use autoagents_llm::chat::{ChatProvider, Usage};
+    use autoagents_llm::completion::{CompletionProvider, CompletionRequest, CompletionResponse};
+    use autoagents_llm::embedding::EmbeddingProvider;
+    use autoagents_llm::models::ModelsProvider;
+    use autoagents_llm::{FunctionCall, async_trait};
+    use futures::stream;
+    use serde_json::json;
+    use std::ffi::CString;
+    use std::future::Future;
+
+    fn init_python() {
+        Python::initialize();
+    }
+
+    fn init_runtime_bridge() {
+        init_python();
+        let runtime = crate::runtime::get_runtime().expect("shared runtime should initialize");
+        let _ = pyo3_async_runtimes::tokio::init_with_runtime(runtime);
+    }
+
+    fn immediate_awaitable(py: Python<'_>, value: &str) -> PyResult<Py<PyAny>> {
+        let module = PyModule::from_code(
+            py,
+            &CString::new(
+                "class ImmediateAwaitable:\n\
+                 \n\
+                 \tdef __init__(self, value):\n\
+                 \t\tself.value = value\n\
+                 \n\
+                 \tdef __await__(self):\n\
+                 \t\tif False:\n\
+                 \t\t\tyield None\n\
+                 \t\treturn self.value\n",
+            )
+            .expect("python module source should be valid CString"),
+            &CString::new("autoagents_py/tests/py_agent.py")
+                .expect("filename should be a valid CString"),
+            &CString::new("autoagents_py_agent_tests")
+                .expect("module name should be a valid CString"),
+        )?;
+        let awaitable = module
+            .getattr("ImmediateAwaitable")?
+            .call1((value.to_string(),))?;
+        Ok(awaitable.unbind())
+    }
+
+    fn block_on_test<T>(future: impl Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build")
+            .block_on(future)
+    }
+
+    #[derive(Debug)]
+    struct MockChatResponse {
+        text: Option<String>,
+        tool_calls: Option<Vec<ToolCall>>,
+        thinking: Option<String>,
+        usage: Option<Usage>,
+    }
+
+    impl std::fmt::Display for MockChatResponse {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.text.as_deref().unwrap_or(""))
+        }
+    }
+
+    impl ChatResponse for MockChatResponse {
+        fn text(&self) -> Option<String> {
+            self.text.clone()
+        }
+
+        fn tool_calls(&self) -> Option<Vec<ToolCall>> {
+            self.tool_calls.clone()
+        }
+
+        fn thinking(&self) -> Option<String> {
+            self.thinking.clone()
+        }
+
+        fn usage(&self) -> Option<Usage> {
+            self.usage.clone()
+        }
+    }
+
+    struct MockLLMProvider;
+
+    #[async_trait]
+    impl ChatProvider for MockLLMProvider {
+        async fn chat_with_tools(
+            &self,
+            messages: &[ChatMessage],
+            tools: Option<&[Tool]>,
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            let tool_calls = tools.and_then(|tools| {
+                tools.first().map(|tool| {
+                    vec![ToolCall {
+                        id: "call_1".to_string(),
+                        call_type: "function".to_string(),
+                        function: FunctionCall {
+                            name: tool.function.name.clone(),
+                            arguments: "{\"city\":\"Bangalore\"}".to_string(),
+                        },
+                    }]
+                })
+            });
+
+            Ok(Box::new(MockChatResponse {
+                text: Some(format!("reply:{}", messages[0].content)),
+                tool_calls,
+                thinking: Some("reasoning".to_string()),
+                usage: Some(Usage {
+                    prompt_tokens: 3,
+                    completion_tokens: 5,
+                    total_tokens: 8,
+                    completion_tokens_details: None,
+                    prompt_tokens_details: None,
+                }),
+            }))
+        }
+
+        async fn chat_with_web_search(
+            &self,
+            input: String,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            Ok(Box::new(MockChatResponse {
+                text: Some(format!("web:{input}")),
+                tool_calls: None,
+                thinking: None,
+                usage: None,
+            }))
+        }
+
+        async fn chat_stream(
+            &self,
+            _messages: &[ChatMessage],
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
+        {
+            Ok(Box::pin(stream::iter(vec![
+                Ok("alpha".to_string()),
+                Ok("beta".to_string()),
+            ])))
+        }
+
+        async fn chat_stream_struct(
+            &self,
+            _messages: &[ChatMessage],
+            _tools: Option<&[Tool]>,
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<
+            std::pin::Pin<
+                Box<
+                    dyn Stream<Item = Result<autoagents_llm::chat::StreamResponse, LLMError>>
+                        + Send,
+                >,
+            >,
+            LLMError,
+        > {
+            Ok(Box::pin(stream::iter(vec![Ok(
+                autoagents_llm::chat::StreamResponse {
+                    choices: vec![autoagents_llm::chat::StreamChoice {
+                        delta: autoagents_llm::chat::StreamDelta {
+                            content: Some("json-chunk".to_string()),
+                            reasoning_content: None,
+                            tool_calls: None,
+                        },
+                    }],
+                    usage: None,
+                },
+            )])))
+        }
+
+        async fn chat_stream_with_tools(
+            &self,
+            _messages: &[ChatMessage],
+            _tools: Option<&[Tool]>,
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<
+            std::pin::Pin<
+                Box<dyn Stream<Item = Result<autoagents_llm::chat::StreamChunk, LLMError>> + Send>,
+            >,
+            LLMError,
+        > {
+            Ok(Box::pin(stream::iter(vec![
+                Ok(autoagents_llm::chat::StreamChunk::Text(
+                    "tool-chunk".to_string(),
+                )),
+                Ok(autoagents_llm::chat::StreamChunk::Done {
+                    stop_reason: "end_turn".to_string(),
+                }),
+            ])))
+        }
+    }
+
+    #[async_trait]
+    impl CompletionProvider for MockLLMProvider {
+        async fn complete(
+            &self,
+            _req: &CompletionRequest,
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<CompletionResponse, LLMError> {
+            Ok(CompletionResponse {
+                text: "completion".to_string(),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl EmbeddingProvider for MockLLMProvider {
+        async fn embed(&self, input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
+            Ok(input.into_iter().map(|_| vec![0.1, 0.2]).collect())
+        }
+    }
+
+    #[async_trait]
+    impl ModelsProvider for MockLLMProvider {}
+
+    impl LLMProvider for MockLLMProvider {}
+
+    #[pyclass]
+    struct HookObject;
+
+    #[pymethods]
+    impl HookObject {
+        fn sync_value(&self) -> &str {
+            "abort"
+        }
+
+        fn async_value(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+            immediate_awaitable(py, "abort")
+        }
+    }
+
+    #[test]
+    fn hook_and_message_helpers_cover_branching_cases() {
+        init_runtime_bridge();
+        let state = HookErrorState::default();
+        assert_eq!(state.take(), None);
+        state.record("first error");
+        state.record("second error");
+        assert_eq!(state.take(), Some("first error".to_string()));
+        state.clear();
+        assert_eq!(state.take(), None);
+
+        assert_eq!(
+            normalize_hook_error("ValueError: broken state"),
+            "broken state"
+        );
+        assert_eq!(normalize_hook_error("plain message"), "plain message");
+        assert!(matches!(
+            parse_hook_outcome_label("abort"),
+            HookOutcome::Abort
+        ));
+        assert!(matches!(
+            parse_hook_outcome_label("HookOutcome.Abort"),
+            HookOutcome::Abort
+        ));
+        assert!(matches!(
+            parse_hook_outcome_label("continue"),
+            HookOutcome::Continue
+        ));
+
+        Python::attach(|py| {
+            let string_message = "hello".into_pyobject(py).expect("string should convert");
+            let parsed = parse_chat_message_from_any(string_message.as_any())
+                .expect("string message should parse");
+            assert_eq!(parsed.role, ChatRole::User);
+            assert_eq!(parsed.content, "hello");
+
+            let tool_call = json!([{
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "weather", "arguments": "{\"city\":\"Bangalore\"}"}
+            }]);
+            let message_dict = json_value_to_py(
+                py,
+                &json!({
+                    "role": "assistant",
+                    "message_type": "tool_use",
+                    "content": "tool request",
+                    "tool_calls": tool_call,
+                }),
+            )
+            .expect("dict should convert");
+            let parsed = parse_chat_message_from_any(message_dict.bind(py))
+                .expect("tool message should parse");
+            assert_eq!(parsed.role, ChatRole::Assistant);
+            assert!(matches!(parsed.message_type, MessageType::ToolUse(_)));
+
+            let list = json_value_to_py(
+                py,
+                &json!([
+                    {"role": "system", "content": "setup"},
+                    {"role": "tool", "text": "done"}
+                ]),
+            )
+            .expect("list should convert");
+            let parsed =
+                parse_chat_messages_from_any(list.bind(py)).expect("message list should parse");
+            assert_eq!(parsed.len(), 2);
+            assert_eq!(parsed[0].role, ChatRole::System);
+            assert_eq!(parsed[1].role, ChatRole::Tool);
+
+            let bad_message = json_value_to_py(py, &json!({"message_type": "image"}))
+                .expect("dict should convert");
+            let err = parse_chat_message_from_any(bad_message.bind(py))
+                .expect_err("unsupported message type should fail");
+            assert!(err.to_string().contains("unsupported message_type"));
+
+            let tool = PyTool::new(
+                "weather".to_string(),
+                "Fetch weather".to_string(),
+                "{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}".to_string(),
+                py.None(),
+                None,
+            )
+            .expect("tool should build");
+            let tool = Py::new(py, tool).expect("tool pyclass should build");
+            let tools = PyList::empty(py);
+            tools.append(tool.bind(py)).expect("tool should append");
+            let parsed_tools = parse_tools_from_any(Some(tools.as_any()))
+                .expect("tool list should parse")
+                .expect("tool list should exist");
+            assert_eq!(parsed_tools.len(), 1);
+            assert_eq!(parsed_tools[0].function.name, "weather");
+
+            let schema = parse_structured_schema(Some(
+                json_value_to_py(py, &json!({"name": "Answer", "schema": {"type": "object"}}))
+                    .expect("schema dict should convert")
+                    .bind(py),
+            ))
+            .expect("schema dict should parse")
+            .expect("schema should exist");
+            assert_eq!(schema.name, "Answer");
+
+            let schema_text = json!({"name": "AnswerText", "schema": {"type": "object"}})
+                .to_string()
+                .into_pyobject(py)
+                .expect("schema text should convert");
+            let parsed = parse_structured_schema(Some(schema_text.as_any()))
+                .expect("schema text should parse")
+                .expect("schema should exist");
+            assert_eq!(parsed.name, "AnswerText");
+
+            let types = py.import("types").expect("types should import");
+            let value_ns = types
+                .getattr("SimpleNamespace")
+                .expect("SimpleNamespace should exist")
+                .call1(())
+                .expect("namespace should create");
+            value_ns
+                .setattr("value", "abort")
+                .expect("value should set");
+            assert!(matches!(
+                parse_hook_outcome(Some(value_ns.unbind())),
+                HookOutcome::Abort
+            ));
+
+            let name_ns = types
+                .getattr("SimpleNamespace")
+                .expect("SimpleNamespace should exist")
+                .call1(())
+                .expect("namespace should create");
+            name_ns.setattr("name", "Abort").expect("name should set");
+            assert!(matches!(
+                parse_hook_outcome(Some(name_ns.unbind())),
+                HookOutcome::Abort
+            ));
+            assert!(matches!(parse_hook_outcome(None), HookOutcome::Continue));
+        });
+    }
+
+    #[test]
+    fn call_hook_helpers_support_sync_and_async_values() {
+        init_runtime_bridge();
+        Python::attach(|py| {
+            let hooks = Py::new(py, HookObject)
+                .expect("hooks should create")
+                .into_any();
+
+            let sync = call_hook_method_sync(&hooks, "sync_value", |_py, obj| {
+                obj.call_method0("sync_value")
+            })
+            .expect("sync hook should succeed")
+            .expect("sync hook should exist");
+            assert_eq!(
+                sync.bind(py)
+                    .extract::<String>()
+                    .expect("sync value should be a string"),
+                "abort"
+            );
+
+            let missing = call_hook_method_sync(&hooks, "missing_method", |_py, obj| {
+                obj.call_method0("missing_method")
+            })
+            .expect("missing sync hook should not fail");
+            assert!(missing.is_none());
+
+            let err = call_hook_method_sync(&hooks, "async_value", |py, obj| {
+                let awaitable = obj.call_method0("async_value")?;
+                let _ = py;
+                Ok(awaitable)
+            })
+            .expect_err("async hook should be rejected at sync call site");
+            assert!(err.contains("cannot be async"));
+        });
+
+        Python::attach(|py| -> PyResult<()> {
+            let event_loop = py.import("asyncio")?.call_method0("new_event_loop")?;
+            let hooks = Py::new(py, HookObject)?.into_any();
+            let locals = TaskLocals::new(event_loop.clone()).copy_context(py)?;
+            pyo3_async_runtimes::tokio::run_until_complete(event_loop, async move {
+                let async_value =
+                    call_hook_method_async(&hooks, Some(&locals), "async_value", |_py, obj| {
+                        obj.call_method0("async_value")
+                    })
+                    .await
+                    .expect("async hook should resolve")
+                    .expect("async hook should exist");
+                Python::attach(|py| {
+                    assert_eq!(
+                        async_value
+                            .bind(py)
+                            .extract::<String>()
+                            .expect("async hook result should be a string"),
+                        "abort"
+                    );
+                });
+
+                let missing =
+                    call_hook_method_async(&hooks, Some(&locals), "missing_method", |_py, obj| {
+                        obj.call_method0("missing_method")
+                    })
+                    .await
+                    .expect("missing async hook should not fail");
+                assert!(missing.is_none());
+                Ok(())
+            })
+        })
+        .expect("temporary event loop should run");
+    }
+
+    #[test]
+    fn execution_llm_methods_cover_provider_helpers_and_streams() {
+        init_python();
+        let llm = PyExecutionLLM::new(Arc::new(MockLLMProvider));
+        assert_eq!(llm.__repr__(), "ExecutionLLM(<context>)");
+
+        let chat =
+            block_on_test(llm.chat_value(vec![ChatMessage::user().content("hello").build()], None))
+                .expect("chat should succeed");
+        assert_eq!(chat["text"], json!("reply:hello"));
+        assert_eq!(chat["thinking"], json!("reasoning"));
+        assert_eq!(chat["usage"]["total_tokens"], json!(8));
+
+        let schema = serde_json::from_value::<StructuredOutputFormat>(json!({
+            "name": "Answer",
+            "schema": {"type": "object"}
+        }))
+        .expect("schema should parse");
+        let chat_struct = block_on_test(llm.chat_value(
+            vec![ChatMessage::user().content("schema").build()],
+            Some(schema),
+        ))
+        .expect("structured chat should succeed");
+        assert_eq!(chat_struct["text"], json!("reply:schema"));
+
+        let weather_tool = Tool {
+            tool_type: "function".to_string(),
+            function: autoagents_llm::chat::FunctionTool {
+                name: "weather".to_string(),
+                description: "Fetch weather".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "city": {"type": "string"}
+                    },
+                    "required": ["city"]
+                }),
+            },
+        };
+        let tools = Some(vec![weather_tool.clone()]);
+        let tool_chat = block_on_test(llm.chat_with_tools_value(
+            vec![ChatMessage::user().content("tool").build()],
+            tools.clone(),
+            None,
+        ))
+        .expect("tool chat should succeed");
+        assert_eq!(
+            tool_chat["tool_calls"][0]["function"]["name"],
+            json!("weather")
+        );
+
+        let web = block_on_test(llm.chat_with_web_search_value("current news".to_string()))
+            .expect("web search chat should succeed");
+        assert_eq!(web["text"], json!("web:current news"));
+
+        let string_stream = block_on_test(
+            llm.build_string_stream(vec![ChatMessage::user().content("stream").build()], None),
+        )
+        .expect("string stream should build");
+        assert_eq!(
+            block_on_test(string_stream.next_chunk()).expect("first string chunk should succeed"),
+            Some("alpha".to_string())
+        );
+        assert_eq!(
+            block_on_test(string_stream.next_chunk()).expect("second string chunk should succeed"),
+            Some("beta".to_string())
+        );
+        assert!(
+            block_on_test(string_stream.next_chunk())
+                .expect("string stream should end cleanly")
+                .is_none()
+        );
+
+        let json_stream = block_on_test(llm.build_struct_stream(
+            vec![ChatMessage::user().content("json").build()],
+            None,
+            None,
+            "llm.chat_stream_struct",
+            "llm.chat_stream_struct",
+        ))
+        .expect("json stream should build");
+        let json_chunk = block_on_test(json_stream.next_chunk())
+            .expect("json stream chunk should succeed")
+            .expect("json stream should yield a chunk");
+        assert_eq!(
+            json_chunk["choices"][0]["delta"]["content"],
+            json!("json-chunk")
+        );
+
+        let tool_stream = block_on_test(llm.build_tool_stream(
+            vec![ChatMessage::user().content("tool-stream").build()],
+            tools,
+            None,
+            "llm.chat_stream_with_tools",
+            "llm.chat_stream_with_tools",
+        ))
+        .expect("tool stream should build");
+        let tool_chunk = block_on_test(tool_stream.next_chunk())
+            .expect("tool stream chunk should succeed")
+            .expect("tool stream should yield a chunk");
+        assert_eq!(tool_chunk["Text"], json!("tool-chunk"));
+    }
+
+    #[test]
+    fn execution_memory_methods_cover_provider_and_validate_configuration() {
+        init_python();
+
+        let unconfigured = PyExecutionMemory::new(None);
+        assert_eq!(unconfigured.__repr__(), "ExecutionMemory(<none>)");
+        assert!(!unconfigured.is_configured());
+
+        Python::attach(|py| {
+            let err = unconfigured
+                .size(py)
+                .expect_err("size should fail when memory is not configured");
+            assert!(err.to_string().contains("memory is not configured"));
+        });
+
+        let memory = PyExecutionMemory::new(Some(Arc::new(tokio::sync::Mutex::new(Box::new(
+            SlidingWindowMemory::new(8),
+        )
+            as Box<dyn MemoryProvider>))));
+        assert_eq!(memory.__repr__(), "ExecutionMemory(<configured>)");
+        assert!(memory.is_configured());
+
+        block_on_test(memory.remember_message(ChatMessage::user().content("hello memory").build()))
+            .expect("remember should succeed");
+        assert_eq!(
+            block_on_test(memory.message_count()).expect("size should succeed"),
+            1
+        );
+
+        let recall = block_on_test(memory.recall_messages("hello".to_string(), Some(10)))
+            .expect("recall should succeed");
+        assert_eq!(recall[0]["content"], json!("hello memory"));
+
+        block_on_test(memory.clear_messages()).expect("clear should succeed");
+        assert_eq!(
+            block_on_test(memory.message_count()).expect("size should succeed"),
+            0
+        );
+    }
+
+    #[test]
+    fn serialization_helpers_convert_expected_values() {
+        init_python();
+        Python::attach(|py| {
+            let task = Task::new("inspect me").with_system_prompt("system prompt");
+            let task_value = task_to_py(&task, py).expect("task should convert");
+            let task_json =
+                py_any_to_json_value(task_value.bind(py)).expect("task json should convert");
+            assert_eq!(task_json["prompt"], json!("inspect me"));
+            assert_eq!(task_json["system_prompt"], json!("system prompt"));
+
+            let tool_call = ToolCall {
+                id: "call_1".to_string(),
+                call_type: "function".to_string(),
+                function: FunctionCall {
+                    name: "weather".to_string(),
+                    arguments: "{\"city\":\"Bangalore\"}".to_string(),
+                },
+            };
+            let tool_result = ToolCallResult {
+                tool_name: "weather".to_string(),
+                success: true,
+                arguments: json!({"city": "Bangalore"}),
+                result: json!({"temp_c": 28}),
+            };
+            let output = PyAgentOutput {
+                response: "done".to_string(),
+                tool_calls: vec![tool_result.clone()],
+                executions: vec![json!({"id": "exec_1"})],
+                done: true,
+            };
+
+            let tool_call_json = py_any_to_json_value(
+                tool_call_to_py(&tool_call, py)
+                    .expect("tool call should convert")
+                    .bind(py),
+            )
+            .expect("tool call json should convert");
+            assert_eq!(tool_call_json["function"]["name"], json!("weather"));
+
+            let tool_result_json = py_any_to_json_value(
+                tool_result_to_py(&tool_result, py)
+                    .expect("tool result should convert")
+                    .bind(py),
+            )
+            .expect("tool result json should convert");
+            assert_eq!(tool_result_json["result"]["temp_c"], json!(28));
+
+            let output_json = py_any_to_json_value(
+                agent_output_to_py(&output, py)
+                    .expect("agent output should convert")
+                    .bind(py),
+            )
+            .expect("agent output json should convert");
+            assert_eq!(output_json["response"], json!("done"));
+
+            let response_value = chat_response_to_value(&MockChatResponse {
+                text: Some("text".to_string()),
+                tool_calls: None,
+                thinking: Some("think".to_string()),
+                usage: None,
+            });
+            assert_eq!(response_value["text"], json!("text"));
+            assert_eq!(response_value["thinking"], json!("think"));
+        });
+
+        let stream_item = parse_stream_item(json!({"ok": true}), "stream item")
+            .expect("stream item should serialize");
+        assert_eq!(stream_item["ok"], json!(true));
+
+        let runtime = crate::runtime::get_runtime().expect("shared runtime should initialize");
+        let stream = map_json_stream(
+            stream::iter(vec![
+                Ok(json!({"kind": "first"})),
+                Err(LLMError::Generic("boom".to_string())),
+            ]),
+            "mapped stream",
+        )
+        .expect("stream should map");
+        let mut collected = runtime.block_on(async { stream.collect::<Vec<_>>().await });
+        assert_eq!(
+            collected.remove(0).expect("first item should succeed")["kind"],
+            json!("first")
+        );
+        assert!(
+            collected
+                .remove(0)
+                .expect_err("second item should fail")
+                .to_string()
+                .contains("boom")
+        );
+    }
+
+    #[test]
+    fn agent_output_and_agent_def_helpers_cover_conversions_and_metadata() {
+        init_python();
+        let tool_call = ToolCallResult {
+            tool_name: "lookup".to_string(),
+            success: true,
+            arguments: json!({"q": "rust"}),
+            result: json!({"matches": 1}),
+        };
+        let execution = CodeActExecutionRecord {
+            execution_id: "exec_1".to_string(),
+            source: "return 1;".to_string(),
+            console: vec!["ok".to_string()],
+            tool_calls: vec![tool_call.clone()],
+            result: Some(json!(1)),
+            success: true,
+            error: None,
+            duration_ms: 5,
+        };
+
+        assert_eq!(PyAgentOutput::output_schema(), "{}");
+        assert_eq!(PyAgentOutput::structured_output_format(), Value::Null);
+        assert_eq!(
+            collect_codeact_tool_calls(std::slice::from_ref(&execution)).len(),
+            1
+        );
+
+        let react = PyAgentOutput::from(ReActAgentOutput {
+            response: "react".to_string(),
+            tool_calls: vec![tool_call.clone()],
+            done: false,
+        });
+        assert_eq!(react.response, "react");
+        assert_eq!(react.tool_calls.len(), 1);
+        assert!(react.executions.is_empty());
+        assert!(!react.done);
+
+        let codeact = PyAgentOutput::from(CodeActAgentOutput {
+            response: "codeact".to_string(),
+            executions: vec![execution.clone()],
+            done: true,
+        });
+        assert_eq!(codeact.response, "codeact");
+        assert_eq!(codeact.tool_calls.len(), 1);
+        assert_eq!(codeact.executions.len(), 1);
+        assert!(codeact.done);
+
+        let basic = PyAgentOutput::from(BasicAgentOutput {
+            response: "basic".to_string(),
+            done: true,
+        });
+        assert_eq!(basic.response, "basic");
+        assert!(basic.tool_calls.is_empty());
+        assert!(basic.executions.is_empty());
+        assert!(basic.done);
+
+        let value = Value::from(PyAgentOutput {
+            response: "serialized".to_string(),
+            tool_calls: vec![tool_call],
+            executions: vec![json!({"id": "exec_1"})],
+            done: true,
+        });
+        assert_eq!(value["response"], json!("serialized"));
+        assert_eq!(value["executions"][0]["id"], json!("exec_1"));
+
+        let agent_def = PyAgentDef {
+            name: "planner".to_string(),
+            description: "Plans work".to_string(),
+            tools: Vec::new(),
+            output_schema: Some(json!({"type": "object"})),
+            hooks: None,
+            task_locals: None,
+            hook_errors: HookErrorState::default(),
+        };
+        let cloned = agent_def.clone();
+        assert!(format!("{cloned:?}").contains("planner"));
+        assert_eq!(cloned.name(), "planner");
+        assert_eq!(cloned.description(), "Plans work");
+        assert_eq!(cloned.output_schema(), Some(json!({"type": "object"})));
+        assert!(cloned.tools().is_empty());
+    }
 }

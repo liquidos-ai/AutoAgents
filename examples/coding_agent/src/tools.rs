@@ -199,3 +199,187 @@ fn analyze_dependencies(_path: &Path) -> Result<String, ToolCallError> {
             .to_string(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_fixture_dir(label: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "autoagents-coding-agent-{label}-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).expect("temp dir should create");
+        dir
+    }
+
+    fn write(path: &Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("parent directory should create");
+        }
+        fs::write(path, content).expect("fixture file should write");
+    }
+
+    #[tokio::test]
+    async fn grep_tool_finds_matches_with_expected_glob_filter() {
+        let dir = temp_fixture_dir("grep");
+        write(
+            &dir.join("src/lib.rs"),
+            "fn needle() {}\nlet ignored = 1;\n",
+        );
+        write(
+            &dir.join("README.md"),
+            "needle should not match this glob\n",
+        );
+
+        let result = GrepTool {}
+            .execute(json!({
+                "pattern": "needle",
+                "file_pattern": "src/*.rs",
+                "base_dir": dir.to_string_lossy(),
+            }))
+            .await
+            .expect("grep should succeed");
+
+        let output = result.as_str().expect("grep output should be a string");
+        assert!(output.contains("Found 1 matches"));
+        assert!(output.contains("src/lib.rs:1: fn needle() {}"));
+        assert!(!output.contains("README.md"));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn grep_tool_reports_invalid_inputs_and_no_matches() {
+        let dir = temp_fixture_dir("grep-errors");
+        write(&dir.join("src/lib.rs"), "fn present() {}\n");
+
+        let no_match = GrepTool {}
+            .execute(json!({
+                "pattern": "missing",
+                "file_pattern": "src/*.rs",
+                "base_dir": dir.to_string_lossy(),
+            }))
+            .await
+            .expect("grep should succeed even when there are no matches");
+        assert_eq!(no_match, json!("No matches found."));
+
+        let invalid_regex = GrepTool {}
+            .execute(json!({
+                "pattern": "(",
+                "file_pattern": "src/*.rs",
+                "base_dir": dir.to_string_lossy(),
+            }))
+            .await
+            .expect_err("invalid regex should fail");
+        assert!(invalid_regex.to_string().contains("Invalid regex"));
+
+        let invalid_glob = GrepTool {}
+            .execute(json!({
+                "pattern": "present",
+                "file_pattern": "[*.rs",
+                "base_dir": dir.to_string_lossy(),
+            }))
+            .await
+            .expect_err("invalid glob should fail");
+        assert!(invalid_glob.to_string().contains("Invalid file pattern"));
+
+        let missing_dir = GrepTool {}
+            .execute(json!({
+                "pattern": "present",
+                "file_pattern": "*.rs",
+                "base_dir": dir.join("missing").to_string_lossy(),
+            }))
+            .await
+            .expect_err("missing directory should fail");
+        assert!(missing_dir.to_string().contains("does not exist"));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn analyze_code_tool_covers_all_supported_analysis_modes() {
+        let dir = temp_fixture_dir("analyze");
+        write(
+            &dir.join("src/lib.rs"),
+            "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n",
+        );
+        write(
+            &dir.join("src/nested/mod.py"),
+            "def greet(name):\n    return name\n",
+        );
+
+        let structure = AnalyzeCodeTool {}
+            .execute(json!({
+                "path": dir.to_string_lossy(),
+                "analysis_type": "structure",
+            }))
+            .await
+            .expect("structure analysis should succeed");
+        let summary = structure.as_str().expect("summary should be a string");
+        assert!(summary.contains("Code Structure Analysis"));
+        assert!(summary.contains("- Files: 2"));
+        assert!(summary.contains(".rs: 1 files"));
+        assert!(summary.contains(".py: 1 files"));
+
+        let single_file_summary = analyze_structure(&dir.join("src/lib.rs"))
+            .expect("single-file structure analysis should succeed");
+        assert!(single_file_summary.contains("- Files: 1"));
+        assert!(single_file_summary.contains(".rs: 1 files"));
+
+        let complexity = AnalyzeCodeTool {}
+            .execute(json!({
+                "path": dir.to_string_lossy(),
+                "analysis_type": "complexity",
+            }))
+            .await
+            .expect("complexity analysis should succeed");
+        assert!(
+            complexity
+                .as_str()
+                .expect("complexity output should be a string")
+                .contains("cyclomatic complexity")
+        );
+
+        let dependencies = AnalyzeCodeTool {}
+            .execute(json!({
+                "path": dir.to_string_lossy(),
+                "analysis_type": "dependencies",
+            }))
+            .await
+            .expect("dependency analysis should succeed");
+        assert!(
+            dependencies
+                .as_str()
+                .expect("dependency output should be a string")
+                .contains("Dependency analysis")
+        );
+
+        let invalid_type = AnalyzeCodeTool {}
+            .execute(json!({
+                "path": dir.to_string_lossy(),
+                "analysis_type": "unknown",
+            }))
+            .await
+            .expect_err("unknown analysis type should fail");
+        assert!(invalid_type.to_string().contains("Invalid analysis type"));
+
+        let missing_path = AnalyzeCodeTool {}
+            .execute(json!({
+                "path": dir.join("missing").to_string_lossy(),
+                "analysis_type": "structure",
+            }))
+            .await
+            .expect_err("missing path should fail");
+        assert!(missing_path.to_string().contains("does not exist"));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+}

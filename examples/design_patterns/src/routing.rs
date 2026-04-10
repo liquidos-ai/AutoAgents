@@ -146,3 +146,28 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn routing_handlers_and_dispatch_cover_all_modes() {
+        let booking = booking_handler("Book me a flight".to_string());
+        assert!(booking.contains("Booking Handler processed request"));
+
+        let info = info_handler("What is the capital of Italy?".to_string());
+        assert!(info.contains("Info Handler processed request"));
+
+        let unclear = unclear_handler("Do the thing".to_string());
+        assert!(unclear.contains("Please clarify"));
+
+        assert!(handle_routing("booker".to_string(), "Trip".to_string()).contains("Booking"));
+        assert!(handle_routing("info".to_string(), "City".to_string()).contains("Info"));
+        assert!(handle_routing("unclear".to_string(), "Unknown".to_string()).contains("clarify"));
+        assert_eq!(
+            handle_routing("unexpected".to_string(), "Ignored".to_string()),
+            "Unknown routing mode"
+        );
+    }
+}

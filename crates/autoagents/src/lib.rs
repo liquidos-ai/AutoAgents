@@ -14,3 +14,14 @@ pub fn init_logging() {
         let _ = env_logger::try_init();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::init_logging;
+
+    #[test]
+    fn init_logging_is_safe_to_call_multiple_times() {
+        init_logging();
+        init_logging();
+    }
+}

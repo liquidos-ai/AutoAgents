@@ -94,3 +94,35 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     println!("\n✅ Streaming example completed!");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn streaming_addition_tool_executes_expected_result() {
+        let result = Addition {}
+            .execute(json!({"left": 8, "right": 9}))
+            .await
+            .expect("addition should succeed");
+        assert_eq!(result, json!(17));
+    }
+
+    #[test]
+    fn streaming_output_parses_json_and_falls_back_to_raw_response() {
+        let parsed = AgentOutput::from(ReActAgentOutput {
+            response: r#"{"response":"streaming complete"}"#.to_string(),
+            tool_calls: Vec::new(),
+            done: true,
+        });
+        assert_eq!(parsed.response, "streaming complete");
+
+        let fallback = AgentOutput::from(ReActAgentOutput {
+            response: "partial text".to_string(),
+            tool_calls: Vec::new(),
+            done: false,
+        });
+        assert_eq!(fallback.response, "partial text");
+    }
+}

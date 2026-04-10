@@ -222,3 +222,132 @@ fn _autoagents_guardrails(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyGuardrailsBuilder>()?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn init_python() {
+        Python::initialize();
+    }
+
+    #[test]
+    fn guard_types_expose_expected_repr_and_extractors() {
+        init_python();
+        Python::attach(|py| {
+            let prompt = Py::new(py, PyPromptInjectionGuard::new()).expect("guard should create");
+            let pii = Py::new(py, PyRegexPiiRedactionGuard::new()).expect("guard should create");
+            let toxicity = Py::new(py, PyToxicityGuard::new()).expect("guard should create");
+
+            assert_eq!(prompt.borrow(py).__repr__(), "PromptInjectionGuard()");
+            assert_eq!(pii.borrow(py).__repr__(), "RegexPiiRedactionGuard()");
+            assert_eq!(toxicity.borrow(py).__repr__(), "ToxicityGuard()");
+
+            assert!(matches!(
+                extract_input_guard(prompt.bind(py).as_any()).expect("prompt guard should extract"),
+                InputGuardKind::PromptInjection(_)
+            ));
+            assert!(matches!(
+                extract_input_guard(pii.bind(py).as_any()).expect("pii guard should extract"),
+                InputGuardKind::RegexPiiRedaction(_)
+            ));
+            assert!(matches!(
+                extract_output_guard(toxicity.bind(py).as_any())
+                    .expect("toxicity guard should extract"),
+                OutputGuardKind::Toxicity(_)
+            ));
+        });
+    }
+
+    #[test]
+    fn policies_and_builder_paths_validate_inputs() {
+        init_python();
+        Python::attach(|py| {
+            assert_eq!(
+                parse_policy_value("BLOCK").expect("block should parse"),
+                EnforcementPolicy::Block
+            );
+            assert_eq!(
+                parse_policy_value("sanitize").expect("sanitize should parse"),
+                EnforcementPolicy::Sanitize
+            );
+            assert_eq!(
+                parse_policy_value("audit").expect("audit should parse"),
+                EnforcementPolicy::Audit
+            );
+            assert!(
+                parse_policy_value("bogus")
+                    .expect_err("invalid policy should fail")
+                    .to_string()
+                    .contains("invalid enforcement policy")
+            );
+
+            let text = "sanitize".into_pyobject(py).expect("string should convert");
+            assert_eq!(
+                parse_policy(text.as_any()).expect("string policy should parse"),
+                EnforcementPolicy::Sanitize
+            );
+
+            let types = py.import("types").expect("types should import");
+            let namespace = types
+                .getattr("SimpleNamespace")
+                .expect("SimpleNamespace should exist")
+                .call1(())
+                .expect("namespace should create");
+            namespace
+                .setattr("value", "audit")
+                .expect("value should set");
+            assert_eq!(
+                parse_policy(namespace.as_any()).expect("enum-like policy should parse"),
+                EnforcementPolicy::Audit
+            );
+
+            let builder = Py::new(py, PyGuardrailsBuilder::new()).expect("builder should create");
+            let prompt = Py::new(py, PyPromptInjectionGuard::new()).expect("guard should create");
+            let pii = Py::new(py, PyRegexPiiRedactionGuard::new()).expect("guard should create");
+            let toxicity = Py::new(py, PyToxicityGuard::new()).expect("guard should create");
+
+            {
+                let mut builder_ref = builder.borrow_mut(py);
+                builder_ref =
+                    PyGuardrailsBuilder::input_guard(builder_ref, prompt.bind(py).as_any())
+                        .expect("prompt guard should add");
+                builder_ref = PyGuardrailsBuilder::input_guard(builder_ref, pii.bind(py).as_any())
+                    .expect("pii guard should add");
+                builder_ref =
+                    PyGuardrailsBuilder::output_guard(builder_ref, toxicity.bind(py).as_any())
+                        .expect("toxicity guard should add");
+                let _builder_ref =
+                    PyGuardrailsBuilder::enforcement_policy(builder_ref, namespace.as_any())
+                        .expect("policy should set");
+            }
+
+            let builder_ref = builder.borrow(py);
+            assert_eq!(builder_ref.input_guards.len(), 2);
+            assert_eq!(builder_ref.output_guards.len(), 1);
+            assert_eq!(builder_ref.policy, EnforcementPolicy::Audit);
+
+            let guardrails = builder_ref.build();
+            assert_eq!(guardrails.__repr__(), "Guardrails(<configured>)");
+
+            let err = match extract_input_guard(toxicity.bind(py).as_any()) {
+                Ok(_) => panic!("output guard should not parse as input guard"),
+                Err(err) => err,
+            };
+            assert!(
+                err.to_string().contains(
+                    "input_guard() expects PromptInjectionGuard or RegexPiiRedactionGuard"
+                )
+            );
+
+            let err = match extract_output_guard(prompt.bind(py).as_any()) {
+                Ok(_) => panic!("input guard should not parse as output guard"),
+                Err(err) => err,
+            };
+            assert!(
+                err.to_string()
+                    .contains("output_guard() expects ToxicityGuard")
+            );
+        });
+    }
+}

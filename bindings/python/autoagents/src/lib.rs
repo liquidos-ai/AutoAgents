@@ -88,3 +88,58 @@ fn register_runtime_api(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTopic>()?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pyo3::types::PyModule;
+
+    fn init_python() {
+        Python::initialize();
+    }
+
+    #[test]
+    fn register_api_helpers_populate_module_exports() {
+        init_python();
+        Python::attach(|py| {
+            let module =
+                PyModule::new(py, "_autoagents_py_tests").expect("test module should be created");
+
+            register_llm_api(&module).expect("llm api should register");
+            register_memory_api(&module).expect("memory api should register");
+            register_tool_api(&module).expect("tool api should register");
+            register_agent_api(&module).expect("agent api should register");
+            register_event_api(&module).expect("event api should register");
+            register_runtime_api(&module).expect("runtime api should register");
+
+            for name in [
+                "LLMBuilder",
+                "LLMProvider",
+                "sliding_window_memory",
+                "memory_provider_from_impl",
+                "Tool",
+                "AgentBuilder",
+                "AgentHandle",
+                "ActorAgentHandle",
+                "RunStream",
+                "EventStream",
+                "Runtime",
+                "Environment",
+                "Topic",
+            ] {
+                assert!(module.getattr(name).is_ok(), "module should export {name}");
+            }
+        });
+    }
+
+    #[test]
+    fn init_runtime_bridge_reports_duplicate_initialization() {
+        init_python();
+        let _ = init_runtime_bridge();
+        let err = init_runtime_bridge().expect_err("runtime bridge should only initialize once");
+        assert!(
+            err.to_string().contains("already initialized"),
+            "unexpected error: {err}"
+        );
+    }
+}

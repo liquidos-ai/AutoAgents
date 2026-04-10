@@ -7,16 +7,18 @@ on:
     paths:
       - "crates/**"
       - "Cargo.toml"
+      - "Makefile"
       - ".github/workflows/coverage.yml"
-  # pull_request:
-  #   paths:
-  #     - "crates/**"
-  #     - "Cargo.toml"
-  #     - ".github/workflows/coverage.yml"
+  pull_request:
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Makefile"
+      - ".github/workflows/coverage.yml"
 
 jobs:
   coverage:
-    name: Coverage
+    name: Rust Coverage
     permissions:
       contents: read
       pull-requests: write
@@ -25,18 +27,16 @@ jobs:
       RUSTFLAGS: "-C target-cpu=native"
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev pkg-config
 
-      - name: Install Rust (via rustup)
-        uses: actions-rs/toolchain@v1
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          override: true
           components: llvm-tools-preview
 
       - name: Show CPU info
@@ -45,16 +45,8 @@ jobs:
       - name: Install Tarpaulin
         run: cargo install cargo-tarpaulin
 
-      - name: Generate code coverage
-        run: |
-          cargo tarpaulin \
-            --features="full" \
-            --verbose \
-            --workspace \
-            --timeout 220 \
-            --out Xml \
-            --engine llvm \
-            --ignore-panics
+      - name: Generate Rust coverage
+        run: make coverage-rust
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
@@ -62,6 +54,6 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: true
           fail_ci_if_error: true
-          files: ./cobertura.xml
+          files: ./target/tarpaulin-workspace/cobertura.xml
           branch: ${{ github.ref_name }} # branch name
           pr: ${{ github.event.pull_request.number || '' }} # PR number if exists

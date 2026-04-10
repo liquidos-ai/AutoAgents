@@ -13,5 +13,5 @@ dependencies = ["autoagents-py==0.3.7"]
 
 [tool.maturin]
 module-name = "autoagents_mistral_rs_cuda._autoagents_mistral_rs_cuda"
-features = ["cuda"]
+features = ["extension-module", "cuda"]
 python-source = "."

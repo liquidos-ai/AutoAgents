@@ -53,3 +53,50 @@ impl TelemetryHandle {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::oneshot;
+
+    #[tokio::test]
+    async fn shutdown_signals_task_and_closes_providers() {
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let (seen_tx, seen_rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            shutdown_rx.changed().await.expect("shutdown signal sent");
+            let _ = seen_tx.send(*shutdown_rx.borrow());
+        });
+
+        let handle = TelemetryHandle {
+            task: Some(task),
+            tracer_provider: SdkTracerProvider::builder().build(),
+            meter_provider: Some(SdkMeterProvider::builder().build()),
+            shutdown_tx: Some(shutdown_tx),
+        };
+
+        handle.shutdown().await;
+
+        assert!(seen_rx.await.expect("task observed shutdown"));
+    }
+
+    #[tokio::test]
+    async fn shutdown_aborts_stuck_task_after_timeout() {
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let task = tokio::spawn(async move {
+            shutdown_rx.changed().await.expect("shutdown signal sent");
+            std::future::pending::<()>().await;
+        });
+
+        let handle = TelemetryHandle {
+            task: Some(task),
+            tracer_provider: SdkTracerProvider::builder().build(),
+            meter_provider: None,
+            shutdown_tx: Some(shutdown_tx),
+        };
+
+        timeout(Duration::from_secs(5), handle.shutdown())
+            .await
+            .expect("shutdown completes");
+    }
+}

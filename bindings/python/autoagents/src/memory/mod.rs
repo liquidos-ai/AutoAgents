@@ -245,3 +245,165 @@ pub fn memory_provider_from_impl(memory: &Bound<'_, PyAny>) -> PyResult<PyMemory
         repr,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+    use serde_json::json;
+    use std::sync::Mutex;
+
+    fn init_python() {
+        Python::initialize();
+    }
+
+    #[pyclass]
+    struct TestMemory {
+        items: Mutex<Vec<Value>>,
+    }
+
+    #[pymethods]
+    impl TestMemory {
+        #[new]
+        fn new() -> Self {
+            Self {
+                items: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn __repr__(&self) -> &str {
+            "TestMemory()"
+        }
+
+        fn size(&self) -> usize {
+            self.items.lock().expect("items mutex should lock").len()
+        }
+
+        fn remember(&self, message: &Bound<'_, PyAny>) -> PyResult<()> {
+            let value = py_any_to_json_value(message)?;
+            self.items
+                .lock()
+                .expect("items mutex should lock")
+                .push(value);
+            Ok(())
+        }
+
+        fn recall(
+            &self,
+            py: Python<'_>,
+            _query: &str,
+            limit: Option<usize>,
+        ) -> PyResult<Py<PyAny>> {
+            let messages = self.items.lock().expect("items mutex should lock");
+            let values = messages
+                .iter()
+                .take(limit.unwrap_or(messages.len()))
+                .cloned()
+                .collect::<Vec<_>>();
+            json_value_to_py(py, &Value::Array(values))
+        }
+
+        fn clear(&self) {
+            self.items.lock().expect("items mutex should lock").clear();
+        }
+    }
+
+    #[test]
+    fn parse_helpers_accept_text_and_object_messages() {
+        init_python();
+        Python::attach(|py| {
+            let text_error = parse_chat_message_value(json!("hello"))
+                .expect_err("raw string should be rejected");
+            assert!(
+                text_error
+                    .to_string()
+                    .contains("memory message must be a string or object")
+            );
+
+            let typed = serde_json::to_value(ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: "hello".to_string(),
+            })
+            .expect("typed message should serialize");
+            let typed_message =
+                parse_chat_message_value(typed).expect("typed message should parse");
+            assert_eq!(typed_message.role, ChatRole::User);
+            assert_eq!(typed_message.content, "hello");
+
+            let dict = json!({"role": "assistant", "content": "world"});
+            let dict_message =
+                parse_chat_message_value(dict).expect("dict message should fall back");
+            assert_eq!(dict_message.role, ChatRole::Assistant);
+            assert_eq!(dict_message.content, "world");
+
+            let py_messages = json_value_to_py(
+                py,
+                &json!([
+                    {"role": "system", "content": "setup"},
+                    {"role": "tool", "text": "result"}
+                ]),
+            )
+            .expect("messages should convert to python");
+            let parsed =
+                parse_chat_messages_from_py(py_messages.bind(py)).expect("messages should parse");
+
+            assert_eq!(parsed.len(), 2);
+            assert_eq!(parsed[0].role, ChatRole::System);
+            assert_eq!(parsed[1].role, ChatRole::Tool);
+        });
+    }
+
+    #[test]
+    fn injected_memory_wraps_custom_python_implementations() {
+        init_python();
+        let runtime = crate::runtime::get_runtime().expect("runtime should initialize");
+
+        Python::attach(|py| {
+            let inner = Py::new(py, TestMemory::new())
+                .expect("test memory should create")
+                .into_any();
+            let mut memory = PyInjectedMemory {
+                inner,
+                size_cache: Arc::new(AtomicUsize::new(0)),
+            };
+
+            memory.refresh_size().expect("initial size should refresh");
+            assert_eq!(memory.size(), 0);
+
+            runtime
+                .block_on(memory.remember(&ChatMessage {
+                    role: ChatRole::User,
+                    message_type: MessageType::Text,
+                    content: "hello".to_string(),
+                }))
+                .expect("remember should succeed");
+            assert_eq!(memory.size(), 1);
+
+            let recalled = runtime
+                .block_on(memory.recall("hello", Some(5)))
+                .expect("recall should succeed");
+            assert_eq!(recalled.len(), 1);
+            assert_eq!(recalled[0].content, "hello");
+
+            runtime
+                .block_on(memory.clear())
+                .expect("clear should succeed");
+            assert_eq!(memory.size(), 0);
+        });
+    }
+
+    #[test]
+    fn memory_provider_helpers_build_expected_wrappers() {
+        init_python();
+        Python::attach(|py| {
+            let sliding = sliding_window_memory(8);
+            assert_eq!(sliding.__repr__(), "SlidingWindowMemory(window_size=8)");
+
+            let custom = Py::new(py, TestMemory::new()).expect("test memory should create");
+            let provider =
+                memory_provider_from_impl(custom.bind(py)).expect("custom memory should wrap");
+            assert_eq!(provider.__repr__(), "TestMemory()");
+        });
+    }
+}

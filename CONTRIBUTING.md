@@ -71,7 +71,8 @@ cargo test --all-features
 
 # Run with coverage
 cargo install cargo-tarpaulin
-cargo tarpaulin --all-features --out html
+rustup component add llvm-tools-preview
+make coverage-rust
 ```
 
 ## Pull Request Process

@@ -295,6 +295,8 @@ mod tests {
         let source = ModelSource::from_file("model.onnx");
         assert_eq!(source.local_path(), Some(Path::new("model.onnx")));
         assert!(source.repo_id().is_none());
+        assert!(source.filename().is_none());
+        assert!(source.directory().is_none());
     }
 
     #[test]
@@ -333,6 +335,21 @@ mod tests {
         assert_eq!(source.repo_id(), Some("org/model"));
         assert_eq!(source.directory(), Some("weights"));
         assert!(source.filename().is_none());
+    }
+
+    #[test]
+    fn with_revision_updates_hf_sources_only() {
+        let file = ModelSource::from_file("model.onnx").with_revision("rev-1");
+        assert_eq!(file.local_path(), Some(Path::new("model.onnx")));
+        assert!(file.repo_id().is_none());
+
+        let hf = ModelSource::from_hf("org/model", "weights.onnx").with_revision("rev-2");
+        assert_eq!(hf.repo_id(), Some("org/model"));
+        assert_eq!(hf.filename(), Some("weights.onnx"));
+
+        let hf_dir = ModelSource::from_hf_dir("org/model", "weights").with_revision("rev-3");
+        assert_eq!(hf_dir.repo_id(), Some("org/model"));
+        assert_eq!(hf_dir.directory(), Some("weights"));
     }
 
     #[test]

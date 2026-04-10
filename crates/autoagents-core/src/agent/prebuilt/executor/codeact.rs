@@ -2028,10 +2028,21 @@ fn record_nested_tool_calls_state(context: &Context, tool_results: &[ToolCallRes
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::memory::{MemoryProvider, SlidingWindowMemory};
     use crate::agent::{AgentConfig, Context};
-    use crate::tests::{MockAgentImpl, MockLLMProvider};
+    use crate::tests::{MockAgentImpl, MockLLMProvider, StaticChatResponse};
     use async_trait::async_trait;
+    use autoagents_llm::completion::{CompletionProvider, CompletionRequest, CompletionResponse};
+    use autoagents_llm::embedding::EmbeddingProvider;
+    use autoagents_llm::error::LLMError;
+    use autoagents_llm::models::{
+        ModelListRequest, ModelListResponse, ModelsProvider, StandardModelEntry,
+        StandardModelListResponse, StandardModelListResponseInner,
+    };
     use autoagents_protocol::ActorID;
+    use futures::{Stream, stream};
+    use std::collections::VecDeque;
+    use std::pin::Pin;
     use std::sync::Arc;
 
     #[derive(Debug)]
@@ -2091,6 +2102,131 @@ mod tests {
         }
     }
 
+    struct SequenceLLMProvider {
+        chat_responses: tokio::sync::Mutex<VecDeque<StaticChatResponse>>,
+        stream_responses: tokio::sync::Mutex<VecDeque<Vec<StreamChunk>>>,
+        observed_messages: tokio::sync::Mutex<Vec<Vec<ChatMessage>>>,
+    }
+
+    impl SequenceLLMProvider {
+        fn new(
+            chat_responses: Vec<StaticChatResponse>,
+            stream_responses: Vec<Vec<StreamChunk>>,
+        ) -> Self {
+            Self {
+                chat_responses: tokio::sync::Mutex::new(chat_responses.into()),
+                stream_responses: tokio::sync::Mutex::new(stream_responses.into()),
+                observed_messages: tokio::sync::Mutex::new(Vec::new()),
+            }
+        }
+
+        async fn observed_messages(&self) -> Vec<Vec<ChatMessage>> {
+            self.observed_messages.lock().await.clone()
+        }
+    }
+
+    #[async_trait]
+    impl autoagents_llm::chat::ChatProvider for SequenceLLMProvider {
+        async fn chat(
+            &self,
+            messages: &[ChatMessage],
+            _json_schema: Option<autoagents_llm::chat::StructuredOutputFormat>,
+        ) -> Result<Box<dyn autoagents_llm::chat::ChatResponse>, LLMError> {
+            self.observed_messages.lock().await.push(messages.to_vec());
+            let response = self
+                .chat_responses
+                .lock()
+                .await
+                .pop_front()
+                .expect("chat response should be queued");
+            Ok(Box::new(response))
+        }
+
+        async fn chat_with_tools(
+            &self,
+            messages: &[ChatMessage],
+            _tools: Option<&[Tool]>,
+            _json_schema: Option<autoagents_llm::chat::StructuredOutputFormat>,
+        ) -> Result<Box<dyn autoagents_llm::chat::ChatResponse>, LLMError> {
+            self.observed_messages.lock().await.push(messages.to_vec());
+            let response = self
+                .chat_responses
+                .lock()
+                .await
+                .pop_front()
+                .expect("chat response should be queued");
+            Ok(Box::new(response))
+        }
+
+        async fn chat_stream(
+            &self,
+            messages: &[ChatMessage],
+            _json_schema: Option<autoagents_llm::chat::StructuredOutputFormat>,
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
+        {
+            self.observed_messages.lock().await.push(messages.to_vec());
+            Ok(Box::pin(stream::empty()))
+        }
+
+        async fn chat_stream_with_tools(
+            &self,
+            messages: &[ChatMessage],
+            _tools: Option<&[Tool]>,
+            _json_schema: Option<autoagents_llm::chat::StructuredOutputFormat>,
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError>
+        {
+            self.observed_messages.lock().await.push(messages.to_vec());
+            let chunks = self
+                .stream_responses
+                .lock()
+                .await
+                .pop_front()
+                .expect("stream response should be queued");
+            Ok(Box::pin(stream::iter(chunks.into_iter().map(Ok))))
+        }
+    }
+
+    #[async_trait]
+    impl CompletionProvider for SequenceLLMProvider {
+        async fn complete(
+            &self,
+            _req: &CompletionRequest,
+            _json_schema: Option<autoagents_llm::chat::StructuredOutputFormat>,
+        ) -> Result<CompletionResponse, LLMError> {
+            Ok(CompletionResponse {
+                text: "unused".to_string(),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl EmbeddingProvider for SequenceLLMProvider {
+        async fn embed(&self, text: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
+            Ok(text.into_iter().map(|_| vec![0.1, 0.2]).collect())
+        }
+    }
+
+    #[async_trait]
+    impl ModelsProvider for SequenceLLMProvider {
+        async fn list_models(
+            &self,
+            _request: Option<&ModelListRequest>,
+        ) -> Result<Box<dyn ModelListResponse>, LLMError> {
+            Ok(Box::new(StandardModelListResponse {
+                inner: StandardModelListResponseInner {
+                    data: vec![StandardModelEntry {
+                        id: "test-model".to_string(),
+                        created: None,
+                        extra: Value::Null,
+                    }],
+                },
+                backend: autoagents_llm::builder::LLMBackend::OpenAI,
+            }))
+        }
+    }
+
+    impl autoagents_llm::LLMProvider for SequenceLLMProvider {}
+
     #[cfg(not(target_arch = "wasm32"))]
     fn test_context_with_tools(tools: Vec<Box<dyn crate::tool::ToolT>>) -> Arc<Context> {
         let llm = Arc::new(MockLLMProvider {});
@@ -2105,6 +2241,29 @@ mod tests {
                 .with_config(config)
                 .with_tools(tools),
         )
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_context_with_llm(
+        llm: Arc<dyn autoagents_llm::LLMProvider>,
+        tools: Vec<Box<dyn crate::tool::ToolT>>,
+        with_memory: bool,
+    ) -> Arc<Context> {
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "codeact_test".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+
+        let mut context = Context::new(llm, None)
+            .with_config(config)
+            .with_tools(tools);
+        if with_memory {
+            let memory: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(16));
+            context = context.with_memory(Some(Arc::new(tokio::sync::Mutex::new(memory))));
+        }
+        Arc::new(context)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -2135,6 +2294,17 @@ mod tests {
             .build()
             .expect("codeact test runtime should build")
             .block_on(future);
+    }
+
+    fn execute_typescript_tool_call(id: &str, code: &str) -> ToolCall {
+        ToolCall {
+            id: id.to_string(),
+            call_type: "function".to_string(),
+            function: autoagents_llm::FunctionCall {
+                name: CODEACT_TOOL_NAME.to_string(),
+                arguments: serde_json::json!({ "code": code }).to_string(),
+            },
+        }
     }
 
     #[test]
@@ -2533,5 +2703,267 @@ throw new Error("boom");
         let bindings = build_tool_bindings(&tools).expect("bindings should build");
         assert_eq!(bindings[0].result_type_alias, "typed_toolResult");
         assert_eq!(bindings[0].result_type, "{ value: number; }");
+    }
+
+    #[test]
+    fn test_codeact_execute_tool_schema_and_argument_parsing() {
+        let tool = codeact_execute_tool();
+        assert_eq!(tool.function.name, CODEACT_TOOL_NAME);
+        assert_eq!(tool.function.parameters["required"], json!(["code"]));
+        assert_eq!(
+            tool.function.parameters["additionalProperties"],
+            json!(false)
+        );
+
+        let parsed = parse_execute_args(r#"{"code":"return 1;"}"#).expect("args should parse");
+        assert_eq!(parsed.code, "return 1;");
+        assert!(parse_execute_args("{bad").is_err());
+    }
+
+    #[test]
+    fn test_schema_to_typescript_handles_composition_and_records() {
+        let union = schema_to_typescript(&json!({
+            "oneOf": [{ "type": "string" }, { "type": "integer" }]
+        }));
+        assert_eq!(union, "string | number");
+
+        let intersection = schema_to_typescript(&json!({
+            "allOf": [
+                { "type": "object", "properties": { "left": { "type": "string" } }, "required": ["left"] },
+                { "type": "object", "properties": { "right": { "type": "boolean" } }, "required": ["right"] }
+            ]
+        }));
+        assert!(intersection.contains("left: string;"));
+        assert!(intersection.contains("right: boolean;"));
+
+        let record = schema_to_typescript(&json!({
+            "type": "object",
+            "additionalProperties": { "type": "array", "items": { "enum": ["a", "b"] } }
+        }));
+        assert_eq!(record, "Record<string, Array<\"a\" | \"b\">>");
+    }
+
+    #[test]
+    fn test_format_helpers_and_validation_cover_remaining_branches() {
+        assert_eq!(format_union(vec![String::new()]), "unknown");
+        assert_eq!(format_intersection(vec![String::new()]), "unknown");
+        assert_eq!(format_typescript_property_key("class"), "\"class\"");
+        assert_eq!(format_typescript_property_key("safe_name"), "safe_name");
+
+        let limits = CodeActSandboxLimits::default();
+        let require_error = validate_typescript_source("const mod = require('fs');", &[], &limits)
+            .expect_err("require should be rejected");
+        assert!(require_error.to_string().contains("require()"));
+
+        let member_error = validate_typescript_source("return require.cache;", &[], &limits)
+            .expect_err("require.* should be rejected");
+        assert!(member_error.to_string().contains("require.*"));
+
+        let import_meta_error = validate_typescript_source("return import.meta.url;", &[], &limits)
+            .expect_err("import.meta should be rejected");
+        assert!(import_meta_error.to_string().contains("import.meta"));
+
+        let binding = CodeActToolBinding {
+            original_name: "tool_a".to_string(),
+            js_name: "external_tool_a".to_string(),
+            args_type_alias: "ToolAArgs".to_string(),
+            args_type: "{ value: string; }".to_string(),
+            result_type_alias: "ToolAResult".to_string(),
+            result_type: "number".to_string(),
+            description: "desc".to_string(),
+        };
+        let with_prelude = build_typescript_program("return 1;", &[binding]);
+        assert!(with_prelude.contains("async function external_tool_a"));
+        let without_prelude = build_typescript_program("return 1;", &[]);
+        assert_eq!(without_prelude, wrap_typescript_source("return 1;"));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_execute_runs_tool_turn_then_final_turn_with_memory() {
+        run_async_test(async {
+            let provider = Arc::new(SequenceLLMProvider::new(
+                vec![
+                    StaticChatResponse {
+                        text: Some("Inspecting".to_string()),
+                        tool_calls: Some(vec![execute_typescript_tool_call(
+                            "exec_call_1",
+                            "return await external_lookup({});",
+                        )]),
+                        usage: None,
+                        thinking: None,
+                    },
+                    StaticChatResponse {
+                        text: Some(r#"{"result":"complete"}"#.to_string()),
+                        tool_calls: None,
+                        usage: None,
+                        thinking: None,
+                    },
+                ],
+                Vec::new(),
+            ));
+            let context = test_context_with_llm(
+                provider.clone(),
+                vec![Box::new(LocalTool::new("lookup", json!({"status": "ok"})))],
+                true,
+            );
+            let agent = CodeActAgent::with_max_turns(MockAgentImpl::new("codeact", "desc"), 2);
+            let task = Task::new("Find status");
+
+            let output = agent
+                .execute(&task, Arc::clone(&context))
+                .await
+                .expect("execute should complete");
+
+            assert_eq!(output.response, r#"{"result":"complete"}"#);
+            assert!(output.done);
+            assert_eq!(output.executions.len(), 1);
+            assert!(output.executions[0].success);
+            assert_eq!(output.executions[0].result, Some(json!({"status": "ok"})));
+
+            let state_handle = context.state();
+            let state = state_handle.lock().await;
+            assert_eq!(state.tool_calls.len(), 1);
+            assert_eq!(state.tool_calls[0].tool_name, "lookup");
+            drop(state);
+
+            let observed = provider.observed_messages().await;
+            assert_eq!(observed.len(), 2);
+            assert_eq!(observed[0][0].role, ChatRole::System);
+            assert!(
+                observed[0]
+                    .iter()
+                    .any(|message| message.role == ChatRole::User
+                        && message.content == "Find status")
+            );
+            let second_turn_user_messages = observed[1]
+                .iter()
+                .filter(|message| message.role == ChatRole::User)
+                .count();
+            assert_eq!(second_turn_user_messages, 1);
+        });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_execute_uses_failed_execution_record_for_invalid_tool_args() {
+        run_async_test(async {
+            let provider = Arc::new(SequenceLLMProvider::new(
+                vec![
+                    StaticChatResponse {
+                        text: Some("Bad call".to_string()),
+                        tool_calls: Some(vec![ToolCall {
+                            id: "bad_call".to_string(),
+                            call_type: "function".to_string(),
+                            function: autoagents_llm::FunctionCall {
+                                name: CODEACT_TOOL_NAME.to_string(),
+                                arguments: "{bad".to_string(),
+                            },
+                        }]),
+                        usage: None,
+                        thinking: None,
+                    },
+                    StaticChatResponse {
+                        text: Some("final".to_string()),
+                        tool_calls: None,
+                        usage: None,
+                        thinking: None,
+                    },
+                ],
+                Vec::new(),
+            ));
+            let context = test_context_with_llm(provider, Vec::new(), false);
+            let agent = CodeActAgent::with_max_turns(MockAgentImpl::new("codeact", "desc"), 2);
+
+            let output = agent
+                .execute(&Task::new("Broken tool call"), context)
+                .await
+                .expect("execute should recover after failed record");
+
+            assert_eq!(output.response, "final");
+            assert_eq!(output.executions.len(), 1);
+            assert!(!output.executions[0].success);
+            assert_eq!(output.executions[0].source, "");
+            assert!(output.executions[0]
+                .error
+                .as_deref()
+                .is_some_and(|message| message.contains("invalid execute_typescript arguments")));
+        });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_execute_stream_emits_partial_execution_and_final_outputs() {
+        run_async_test(async {
+            let provider = Arc::new(SequenceLLMProvider::new(
+                Vec::new(),
+                vec![
+                    vec![
+                        StreamChunk::Text("Working".to_string()),
+                        StreamChunk::ToolUseComplete {
+                            index: 0,
+                            tool_call: execute_typescript_tool_call(
+                                "exec_stream_1",
+                                "return await external_lookup({});",
+                            ),
+                        },
+                        StreamChunk::Done {
+                            stop_reason: "tool_use".to_string(),
+                        },
+                    ],
+                    vec![
+                        StreamChunk::Text("All done".to_string()),
+                        StreamChunk::Done {
+                            stop_reason: "end_turn".to_string(),
+                        },
+                    ],
+                ],
+            ));
+            let context = test_context_with_llm(
+                provider,
+                vec![Box::new(LocalTool::new("lookup", json!({"answer": 42})))],
+                true,
+            );
+            let agent = CodeActAgent::with_max_turns(MockAgentImpl::new("codeact", "desc"), 2);
+            let mut stream = agent
+                .execute_stream(&Task::new("Need streaming"), context)
+                .await
+                .expect("stream should start");
+
+            let first = stream
+                .next()
+                .await
+                .expect("text chunk should exist")
+                .expect("text chunk should succeed");
+            assert_eq!(first.response, "Working");
+            assert!(!first.done);
+
+            let second = stream
+                .next()
+                .await
+                .expect("execution chunk should exist")
+                .expect("execution chunk should succeed");
+            assert!(second.response.is_empty());
+            assert_eq!(second.executions.len(), 1);
+            assert!(!second.done);
+
+            let third = stream
+                .next()
+                .await
+                .expect("second turn text chunk should exist")
+                .expect("second turn text chunk should succeed");
+            assert_eq!(third.response, "All done");
+            assert!(third.executions.is_empty());
+            assert!(!third.done);
+
+            let final_output = stream
+                .next()
+                .await
+                .expect("final output should exist")
+                .expect("final output should succeed");
+            assert_eq!(final_output.response, "All done");
+            assert_eq!(final_output.executions.len(), 1);
+            assert!(final_output.done);
+        });
     }
 }

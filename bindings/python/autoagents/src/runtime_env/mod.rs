@@ -126,3 +126,89 @@ impl PyEnvironment {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime_env::topic::PyTopic;
+    use pyo3_async_runtimes::TaskLocals;
+
+    fn init_runtime_bridge() {
+        Python::initialize();
+        let runtime = crate::runtime::get_runtime().expect("shared runtime should initialize");
+        let _ = pyo3_async_runtimes::tokio::init_with_runtime(runtime);
+    }
+
+    async fn await_py_any(
+        value: Py<PyAny>,
+        task_locals: Option<&TaskLocals>,
+    ) -> PyResult<Py<PyAny>> {
+        let future = Python::attach(|py| {
+            crate::async_bridge::into_future(value.bind(py).clone(), task_locals)
+        })?;
+        future.await
+    }
+
+    #[test]
+    fn runtime_and_environment_methods_bridge_async_operations() {
+        init_runtime_bridge();
+
+        let (runtime, topic, env_stream_obj) = Python::attach(|py| {
+            let runtime = PySingleThreadedRuntime::new();
+            let topic = PyTopic::new("jobs".to_string());
+
+            let mut env = PyEnvironment::new();
+            env.register_runtime(py, &runtime)?;
+            env.run(py)?;
+            let env_stream = Py::new(py, env.event_stream(py)?)?.into_any();
+
+            Ok::<_, PyErr>((runtime, topic, env_stream))
+        })
+        .expect("runtime api should construct environment wrappers");
+
+        Python::attach(|py| -> PyResult<()> {
+            let event_loop = py.import("asyncio")?.call_method0("new_event_loop")?;
+            let task_locals = TaskLocals::new(event_loop.clone()).copy_context(py)?;
+            pyo3_async_runtimes::tokio::run_until_complete(event_loop, async move {
+                let (publish_coro, runtime_stream_coro) = Python::attach(|py| {
+                    let publish_coro = runtime
+                        .publish(py, &topic, "run this task".to_string())?
+                        .unbind();
+                    let runtime_stream_coro = runtime.event_stream(py)?.unbind();
+                    Ok::<_, PyErr>((publish_coro, runtime_stream_coro))
+                })?;
+
+                let publish_result = await_py_any(publish_coro, Some(&task_locals))
+                    .await
+                    .expect("publish coroutine should resolve");
+                let runtime_stream = await_py_any(runtime_stream_coro, Some(&task_locals))
+                    .await
+                    .expect("event_stream coroutine should resolve");
+
+                Python::attach(|py| {
+                    assert!(publish_result.bind(py).is_none());
+                    assert!(
+                        runtime_stream
+                            .bind(py)
+                            .hasattr("__anext__")
+                            .unwrap_or(false)
+                    );
+                    assert!(
+                        env_stream_obj
+                            .bind(py)
+                            .hasattr("__anext__")
+                            .unwrap_or(false)
+                    );
+                });
+                Ok(())
+            })
+        })
+        .expect("temporary Python event loop should run");
+    }
+
+    #[test]
+    fn to_py_runtime_error_preserves_display_text() {
+        let err = to_py_runtime_error("runtime failed");
+        assert_eq!(err.to_string(), "RuntimeError: runtime failed");
+    }
+}

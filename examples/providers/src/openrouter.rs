@@ -72,3 +72,26 @@ pub async fn run() -> Result<(), Error> {
     println!("Result: {:?}", result);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn openrouter_output_parses_when_complete_and_falls_back_otherwise() {
+        let parsed = MathAgentOutput::from(BasicAgentOutput {
+            response: r#"{"value":30,"explanation":"ok","generic":null}"#.to_string(),
+            done: true,
+        });
+        assert_eq!(parsed.value, 30);
+        assert_eq!(parsed.explanation, "ok");
+
+        let fallback = MathAgentOutput::from(BasicAgentOutput {
+            response: "stream chunk".to_string(),
+            done: false,
+        });
+        assert_eq!(fallback.value, 0);
+        assert_eq!(fallback.explanation, "stream chunk");
+        assert!(fallback.generic.is_none());
+    }
+}

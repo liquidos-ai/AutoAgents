@@ -13,5 +13,6 @@ dependencies = ["autoagents-py==0.3.7"]
 
 [tool.maturin]
 module-name = "autoagents_mistral_rs._autoagents_mistral_rs"
+features = ["extension-module"]
 python-source = "."
 compatibility = "manylinux_2_28"

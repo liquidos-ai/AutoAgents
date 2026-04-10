@@ -45,9 +45,11 @@ PYTHON_BINDINGS_TEST_PATHS := \
 	$(MISTRALRS_DIR)/tests
 
 PYTHON_BINDINGS_PYTHONPATH := $(AUTOAGENTS_DIR):$(GUARDRAILS_DIR):$(LLAMACPP_DIR):$(MISTRALRS_DIR)
+RUST_COVERAGE_OUTPUT_DIR := $(CURDIR)/target/tarpaulin-workspace
 
 .PHONY: \
 	help \
+	coverage-rust \
 	python-bindings-clean \
 	python-bindings-check-tools \
 	python-bindings-install-test-deps \
@@ -69,6 +71,7 @@ PYTHON_BINDINGS_PYTHONPATH := $(AUTOAGENTS_DIR):$(GUARDRAILS_DIR):$(LLAMACPP_DIR
 help:
 	@printf '%s\n' \
 		'Available targets:' \
+		'  coverage-rust              Run the workspace-wide Rust Tarpaulin coverage report' \
 		'  python-bindings-build-base        Build and install the core Python binding' \
 		'  python-bindings-build-guardrails  Build and install the guardrails Python binding' \
 		'  python-bindings-build-llamacpp    Build and install the llama.cpp Python binding' \
@@ -83,6 +86,18 @@ help:
 		'  python-bindings-build-vulkan Clean, build CPU bindings, then llama.cpp Vulkan variant' \
 		'  python-bindings-test         Incrementally build CPU bindings, then run Python binding tests' \
 		'  python-bindings-test-clean   Clean, build CPU bindings, then run Python binding tests'
+
+coverage-rust:
+	cargo tarpaulin \
+		--engine llvm \
+		--timeout 220 \
+		--ignore-panics \
+		--workspace \
+		--features full \
+		--out Xml \
+		--out Html \
+		--output-dir "$(RUST_COVERAGE_OUTPUT_DIR)" \
+		--exclude-files "examples/*"
 
 python-bindings-clean:
 	rm -rf "$(CURDIR)/target/python-bindings" \

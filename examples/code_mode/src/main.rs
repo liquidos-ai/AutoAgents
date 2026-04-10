@@ -140,3 +140,57 @@ fn print_execution_trace(executions: &[CodeActExecutionRecord]) {
 fn format_json_value(value: &Value) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "<invalid json>".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use autoagents::protocol::ToolCallResult;
+    use serde_json::json;
+
+    fn sample_execution() -> CodeActExecutionRecord {
+        CodeActExecutionRecord {
+            execution_id: "exec-1".to_string(),
+            source: "return 42;".to_string(),
+            console: vec!["starting".to_string(), "finished".to_string()],
+            tool_calls: vec![ToolCallResult {
+                tool_name: "AddNumbers".to_string(),
+                success: true,
+                arguments: json!({"left": 20, "right": 22}),
+                result: json!(42),
+            }],
+            result: Some(json!(42)),
+            success: true,
+            error: Some("handled warning".to_string()),
+            duration_ms: 13,
+        }
+    }
+
+    #[test]
+    fn code_mode_output_preserves_executor_response_and_trace() {
+        let executions = vec![sample_execution()];
+        let output = CodeModeOutput::from(CodeActAgentOutput {
+            response: "42".to_string(),
+            executions: executions.clone(),
+            done: true,
+        });
+
+        assert_eq!(output.result, "42");
+        assert_eq!(output.executions.len(), 1);
+        assert_eq!(
+            output.executions[0].execution_id,
+            executions[0].execution_id
+        );
+    }
+
+    #[test]
+    fn execution_trace_formatting_handles_all_optional_sections() {
+        let execution = sample_execution();
+        assert_eq!(
+            format_json_value(&json!({"answer": 42})),
+            r#"{"answer":42}"#
+        );
+        assert_eq!(format_json_value(&json!("done")), r#""done""#);
+
+        print_execution_trace(&[execution]);
+    }
+}

@@ -46,3 +46,24 @@ impl ToolRuntime for MultiplyNumbers {
         Ok(Value::from(args.left * args.right))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn binary_math_tools_execute_expected_results() {
+        let sum = AddNumbers
+            .execute(json!({"left": 7, "right": 5}))
+            .await
+            .expect("addition should succeed");
+        assert_eq!(sum, json!(12));
+
+        let product = MultiplyNumbers
+            .execute(json!({"left": 7, "right": 5}))
+            .await
+            .expect("multiplication should succeed");
+        assert_eq!(product, json!(35));
+    }
+}

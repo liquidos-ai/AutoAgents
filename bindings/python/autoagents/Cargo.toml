@@ -11,7 +11,7 @@ name = "_autoagents_py"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["extension-module"]
+default = []
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]

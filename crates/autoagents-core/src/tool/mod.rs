@@ -123,6 +123,7 @@ mod tests {
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
     use serde_json::json;
+    use std::sync::Arc;
 
     #[derive(Debug, Serialize, Deserialize)]
     struct TestInput {
@@ -407,6 +408,39 @@ mod tests {
         assert_eq!(tool.function.name, "convert_tool");
         assert_eq!(tool.function.description, "Conversion test");
         assert_eq!(tool.function.parameters["type"], "object");
+    }
+
+    #[tokio::test]
+    async fn test_shared_tool_delegates_execution_and_metadata() {
+        let shared = SharedTool::new(Arc::new(MockTool::new("shared_tool", "Shared tool")));
+
+        assert_eq!(shared.name(), "shared_tool");
+        assert_eq!(shared.description(), "Shared tool");
+
+        let result = shared
+            .execute(json!({
+                "name": "shared",
+                "value": 21
+            }))
+            .await
+            .expect("shared tool executes");
+
+        assert_eq!(result["processed_name"], "shared");
+        assert_eq!(result["doubled_value"], 42);
+    }
+
+    #[test]
+    fn test_shared_tools_to_boxes_preserves_tool_metadata() {
+        let tools: Vec<Arc<dyn ToolT>> = vec![
+            Arc::new(MockTool::new("tool1", "First tool")),
+            Arc::new(MockTool::new("tool2", "Second tool")),
+        ];
+
+        let boxed_tools = shared_tools_to_boxes(&tools);
+
+        assert_eq!(boxed_tools.len(), 2);
+        assert_eq!(boxed_tools[0].name(), "tool1");
+        assert_eq!(boxed_tools[1].description(), "Second tool");
     }
 
     #[test]
