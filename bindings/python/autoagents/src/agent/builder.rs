@@ -1056,7 +1056,7 @@ mod tests {
             Box::new(BuildableStub {
                 runnable: Arc::new(StubRunnable {
                     run_output: PyAgentOutput {
-                        response: String::new(),
+                        response: String::default(),
                         tool_calls: Vec::new(),
                         executions: Vec::new(),
                         done: true,

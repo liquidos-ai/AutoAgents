@@ -599,7 +599,7 @@ mod tests {
     fn payload_helpers_merge_extra_fields() {
         let payload = task_payload("task_started", "sub", "actor", json!({"extra": true}));
         assert_eq!(payload["kind"], "task_started");
-        assert_eq!(payload["extra"], true);
+        assert!(payload["extra"].as_bool().unwrap_or(false));
 
         let tool_payload = tool_payload(
             "tool_call_requested",

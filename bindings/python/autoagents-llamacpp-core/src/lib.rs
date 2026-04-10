@@ -531,6 +531,9 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    const TEST_GGUF_MODEL_PATH: &str = "fixtures/model.gguf";
+    const TEST_MODEL_DIR: &str = "fixtures/models";
+
     fn init_python() {
         Python::initialize();
     }
@@ -539,17 +542,17 @@ mod tests {
     fn builder_setters_store_configuration_values() {
         init_python();
         Python::attach(|py| {
-            let builder = Py::new(py, PyLlamaCppBuilder::new()).expect("builder should create");
+            let builder = Py::new(py, PyLlamaCppBuilder::default()).expect("builder should create");
             {
                 let mut builder_ref = builder.borrow_mut(py);
                 builder_ref =
-                    PyLlamaCppBuilder::model_path(builder_ref, "/tmp/model.gguf".to_string());
+                    PyLlamaCppBuilder::model_path(builder_ref, TEST_GGUF_MODEL_PATH.to_string());
                 builder_ref = PyLlamaCppBuilder::repo_id(builder_ref, "repo/model".to_string());
                 builder_ref = PyLlamaCppBuilder::hf_filename(builder_ref, "model.gguf".to_string());
                 builder_ref =
                     PyLlamaCppBuilder::mmproj_filename(builder_ref, "mmproj.gguf".to_string());
                 builder_ref = PyLlamaCppBuilder::hf_revision(builder_ref, "main".to_string());
-                builder_ref = PyLlamaCppBuilder::model_dir(builder_ref, "/tmp/models".to_string());
+                builder_ref = PyLlamaCppBuilder::model_dir(builder_ref, TEST_MODEL_DIR.to_string());
                 builder_ref =
                     PyLlamaCppBuilder::chat_template(builder_ref, "chat template".to_string());
                 builder_ref = PyLlamaCppBuilder::force_json_grammar(builder_ref, true);
@@ -584,12 +587,15 @@ mod tests {
             }
 
             let builder_ref = builder.borrow(py);
-            assert_eq!(builder_ref.model_path.as_deref(), Some("/tmp/model.gguf"));
+            assert_eq!(
+                builder_ref.model_path.as_deref(),
+                Some(TEST_GGUF_MODEL_PATH)
+            );
             assert_eq!(builder_ref.repo_id.as_deref(), Some("repo/model"));
             assert_eq!(builder_ref.hf_filename.as_deref(), Some("model.gguf"));
             assert_eq!(builder_ref.mmproj_filename.as_deref(), Some("mmproj.gguf"));
             assert_eq!(builder_ref.hf_revision.as_deref(), Some("main"));
-            assert_eq!(builder_ref.model_dir.as_deref(), Some("/tmp/models"));
+            assert_eq!(builder_ref.model_dir.as_deref(), Some(TEST_MODEL_DIR));
             assert_eq!(builder_ref.chat_template.as_deref(), Some("chat template"));
             assert_eq!(builder_ref.force_json_grammar, Some(true));
             assert_eq!(builder_ref.reasoning_format.as_deref(), Some("deepseek"));
@@ -621,7 +627,7 @@ mod tests {
 
     #[test]
     fn parsing_helpers_cover_supported_sources_and_errors() {
-        let gguf = parse_model_source(Some("/tmp/model.gguf".to_string()), None, None, None)
+        let gguf = parse_model_source(Some(TEST_GGUF_MODEL_PATH.to_string()), None, None, None)
             .expect("gguf source should parse");
         assert!(matches!(gguf, LlamaModelSource::Gguf { .. }));
 
@@ -639,7 +645,7 @@ mod tests {
         assert!(err.to_string().contains("either model_path"));
 
         let err = parse_model_source(
-            Some("/tmp/model.gguf".to_string()),
+            Some(TEST_GGUF_MODEL_PATH.to_string()),
             Some("repo/model".to_string()),
             None,
             None,

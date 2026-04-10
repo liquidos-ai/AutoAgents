@@ -2114,7 +2114,7 @@ fn generate_mtmd_text(
     let mut batch = LlamaBatch::new(n_ctx as usize, 1);
     let mut n_cur = n_past;
     let max_tokens_total = n_cur + max_tokens as i32;
-    let mut generated_text = String::new();
+    let mut generated_text = String::default();
     let mut completion_tokens = 0u32;
     let mut decoder = encoding_rs::UTF_8.new_decoder();
     let mut finish_reason = "stop".to_string();
@@ -2212,7 +2212,7 @@ fn generate_text(
     }
 
     let mut sampler = build_sampler(model, config, use_json_grammar, temperature, None)?;
-    let mut generated_text = String::new();
+    let mut generated_text = String::default();
     let mut completion_tokens = 0_u32;
     let mut decoder = encoding_rs::UTF_8.new_decoder();
 
@@ -2421,6 +2421,7 @@ fn extract_first_json_object(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const TEST_GGUF_MODEL_PATH: &str = "fixtures/model.gguf";
     use autoagents_llm::chat::ImageMime;
     use serde_json::json;
 
@@ -2823,7 +2824,7 @@ mod tests {
             Some("{\"value\":7}".to_string())
         );
         assert_eq!(
-            StringOrJson::String(String::new()).into_non_empty_string(),
+            StringOrJson::String(String::default()).into_non_empty_string(),
             None
         );
         assert_eq!(
@@ -2895,8 +2896,8 @@ mod tests {
 
         let mut empty_outputs = Vec::new();
         push_struct_content_and_reasoning(
-            Some(String::new()),
-            Some(String::new()),
+            Some(String::default()),
+            Some(String::default()),
             &mut empty_outputs,
         );
         assert!(empty_outputs.is_empty());
@@ -2957,7 +2958,7 @@ mod tests {
     fn test_map_struct_stream_event_handles_tokens_usage_and_errors() {
         let mut tool_states = HashMap::new();
         assert!(
-            map_struct_stream_event(Ok(StreamEvent::Token(String::new())), &mut tool_states,)
+            map_struct_stream_event(Ok(StreamEvent::Token(String::default())), &mut tool_states,)
                 .is_empty()
         );
 
@@ -3108,8 +3109,11 @@ mod tests {
         assert!(tool_states.is_empty());
 
         assert!(
-            map_tool_stream_event(Ok(StreamEvent::Token(String::new())), &mut HashMap::new(),)
-                .is_empty()
+            map_tool_stream_event(
+                Ok(StreamEvent::Token(String::default())),
+                &mut HashMap::new(),
+            )
+            .is_empty()
         );
         let invalid = map_tool_stream_event(
             Ok(StreamEvent::Delta("{bad".to_string())),
@@ -3156,11 +3160,11 @@ mod tests {
 
         let model_path = resolve_model_path(
             &ModelSource::Gguf {
-                model_path: "/tmp/model.gguf".to_string(),
+                model_path: TEST_GGUF_MODEL_PATH.to_string(),
             },
             &LlamaCppConfig::default(),
         )
         .expect("non-empty model path should resolve");
-        assert_eq!(model_path, "/tmp/model.gguf");
+        assert_eq!(model_path, TEST_GGUF_MODEL_PATH);
     }
 }

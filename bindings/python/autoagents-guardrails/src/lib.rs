@@ -235,9 +235,11 @@ mod tests {
     fn guard_types_expose_expected_repr_and_extractors() {
         init_python();
         Python::attach(|py| {
-            let prompt = Py::new(py, PyPromptInjectionGuard::new()).expect("guard should create");
-            let pii = Py::new(py, PyRegexPiiRedactionGuard::new()).expect("guard should create");
-            let toxicity = Py::new(py, PyToxicityGuard::new()).expect("guard should create");
+            let prompt =
+                Py::new(py, PyPromptInjectionGuard::default()).expect("guard should create");
+            let pii =
+                Py::new(py, PyRegexPiiRedactionGuard::default()).expect("guard should create");
+            let toxicity = Py::new(py, PyToxicityGuard::default()).expect("guard should create");
 
             assert_eq!(prompt.borrow(py).__repr__(), "PromptInjectionGuard()");
             assert_eq!(pii.borrow(py).__repr__(), "RegexPiiRedactionGuard()");
@@ -302,10 +304,13 @@ mod tests {
                 EnforcementPolicy::Audit
             );
 
-            let builder = Py::new(py, PyGuardrailsBuilder::new()).expect("builder should create");
-            let prompt = Py::new(py, PyPromptInjectionGuard::new()).expect("guard should create");
-            let pii = Py::new(py, PyRegexPiiRedactionGuard::new()).expect("guard should create");
-            let toxicity = Py::new(py, PyToxicityGuard::new()).expect("guard should create");
+            let builder =
+                Py::new(py, PyGuardrailsBuilder::default()).expect("builder should create");
+            let prompt =
+                Py::new(py, PyPromptInjectionGuard::default()).expect("guard should create");
+            let pii =
+                Py::new(py, PyRegexPiiRedactionGuard::default()).expect("guard should create");
+            let toxicity = Py::new(py, PyToxicityGuard::default()).expect("guard should create");
 
             {
                 let mut builder_ref = builder.borrow_mut(py);

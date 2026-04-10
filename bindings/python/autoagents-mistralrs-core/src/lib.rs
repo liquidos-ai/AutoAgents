@@ -252,6 +252,8 @@ pub fn register_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
 mod tests {
     use super::*;
 
+    const TEST_MODEL_DIR: &str = "fixtures/models";
+
     fn init_python() {
         Python::initialize();
     }
@@ -260,13 +262,15 @@ mod tests {
     fn builder_setters_store_configuration_values() {
         init_python();
         Python::attach(|py| {
-            let builder = Py::new(py, PyMistralRsBuilder::new()).expect("builder should create");
+            let builder =
+                Py::new(py, PyMistralRsBuilder::default()).expect("builder should create");
             {
                 let mut builder_ref = builder.borrow_mut(py);
                 builder_ref = PyMistralRsBuilder::repo_id(builder_ref, "mistral/model".to_string());
                 builder_ref = PyMistralRsBuilder::revision(builder_ref, "main".to_string());
                 builder_ref = PyMistralRsBuilder::model_type(builder_ref, "vision".to_string());
-                builder_ref = PyMistralRsBuilder::model_dir(builder_ref, "/tmp/models".to_string());
+                builder_ref =
+                    PyMistralRsBuilder::model_dir(builder_ref, TEST_MODEL_DIR.to_string());
                 builder_ref =
                     PyMistralRsBuilder::gguf_files(builder_ref, vec!["part-1.gguf".to_string()]);
                 builder_ref =
@@ -287,7 +291,7 @@ mod tests {
             assert_eq!(builder_ref.repo_id.as_deref(), Some("mistral/model"));
             assert_eq!(builder_ref.revision.as_deref(), Some("main"));
             assert_eq!(builder_ref.model_type.as_deref(), Some("vision"));
-            assert_eq!(builder_ref.model_dir.as_deref(), Some("/tmp/models"));
+            assert_eq!(builder_ref.model_dir.as_deref(), Some(TEST_MODEL_DIR));
             assert_eq!(
                 builder_ref.gguf_files.as_deref(),
                 Some(&["part-1.gguf".to_string()][..])
@@ -323,7 +327,7 @@ mod tests {
         );
 
         let gguf = parse_model_source(
-            Some("/tmp/models".to_string()),
+            Some(TEST_MODEL_DIR.to_string()),
             Some(vec!["part-1.gguf".to_string()]),
             Some("tokenizer.json".to_string()),
             Some("chat template".to_string()),
@@ -347,7 +351,7 @@ mod tests {
         assert!(matches!(hf, MistralModelSource::HuggingFace { .. }));
 
         let err = parse_model_source(
-            Some("/tmp/models".to_string()),
+            Some(TEST_MODEL_DIR.to_string()),
             None,
             None,
             None,

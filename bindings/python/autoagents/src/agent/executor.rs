@@ -532,6 +532,68 @@ mod tests {
         Ok(Py::new(py, tool)?.into_any())
     }
 
+    fn custom_executor_impl(py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let module = module_from_code(
+            py,
+            "class CustomImpl:\n\
+             \tdef config(self):\n\
+             \t\treturn {\"max_turns\": 2}\n\
+             \n\
+             \tdef execute(self, task, ctx):\n\
+             \t\treturn {\"response\": task[\"prompt\"], \"done\": True}\n\
+             \n\
+             \tdef execute_stream(self, task, ctx):\n\
+             \t\treturn self\n\
+             \n\
+             \tdef __anext__(self):\n\
+             \t\traise StopAsyncIteration\n",
+            "autoagents_py/tests/executor_specs.py",
+            "autoagents_executor_specs",
+        )?;
+
+        module
+            .getattr("CustomImpl")?
+            .call0()
+            .map(|value| value.unbind())
+    }
+
+    fn make_executor_spec(
+        py: Python<'_>,
+        kind: &str,
+        tool: &Py<PyAny>,
+        executor_impl: Option<&Py<PyAny>>,
+        sandbox_limits: Option<Value>,
+    ) -> PyResult<Py<PyAny>> {
+        let namespace = py.import("types")?.getattr("SimpleNamespace")?;
+        let spec = namespace.call0()?;
+        let tools = PyList::empty(py);
+        tools.append(tool.bind(py))?;
+
+        spec.setattr("_binding_kind", kind)?;
+        spec.setattr("_name", format!("{kind}-agent"))?;
+        spec.setattr("_description", "executor description")?;
+        spec.setattr("_tools", tools)?;
+        spec.setattr(
+            "_output_schema_json",
+            "{\"type\":\"object\",\"properties\":{\"answer\":{\"type\":\"string\"}}}",
+        )?;
+        spec.setattr("_hooks", py.None())?;
+        spec.setattr("_max_turns", 0)?;
+        if let Some(value) = executor_impl {
+            spec.setattr("_executor_impl", value.bind(py))?;
+        } else {
+            spec.setattr("_executor_impl", py.None())?;
+        }
+        if let Some(limits) = sandbox_limits {
+            let value = crate::convert::json_value_to_py(py, &limits)?;
+            spec.setattr("_sandbox_limits", value.bind(py))?;
+        } else {
+            spec.setattr("_sandbox_limits", py.None())?;
+        }
+
+        Ok(spec.unbind())
+    }
+
     fn runtime_executor_module(py: Python<'_>) -> PyResult<Py<PyModule>> {
         module_from_code(
             py,
@@ -1136,29 +1198,12 @@ mod tests {
     }
 
     #[test]
-    fn builder_methods_and_parse_executor_spec_cover_supported_kinds() {
+    fn builder_methods_cover_supported_kinds() {
         init_runtime_bridge();
         Python::attach(|py| -> PyResult<()> {
             let tool = sample_tool(py)?;
             let hooks = PyModule::new(py, "_executor_hooks")?.into_any().unbind();
-            let module = module_from_code(
-                py,
-                "class CustomImpl:\n\
-                 \tdef config(self):\n\
-                 \t\treturn {\"max_turns\": 2}\n\
-                 \n\
-                 \tdef execute(self, task, ctx):\n\
-                 \t\treturn {\"response\": task[\"prompt\"], \"done\": True}\n\
-                 \n\
-                 \tdef execute_stream(self, task, ctx):\n\
-                 \t\treturn self\n\
-                 \n\
-                 \tdef __anext__(self):\n\
-                 \t\traise StopAsyncIteration\n",
-                "autoagents_py/tests/executor_specs.py",
-                "autoagents_executor_specs",
-            )?;
-            let custom_impl = module.getattr("CustomImpl")?.call0()?.unbind();
+            let custom_impl = custom_executor_impl(py)?;
 
             let react = Py::new(
                 py,
@@ -1227,38 +1272,17 @@ mod tests {
             );
             assert_eq!(custom.bind(py).borrow().max_turns_override, Some(1));
 
-            let namespace = py.import("types")?.getattr("SimpleNamespace")?;
-            let tools = PyList::empty(py);
-            tools.append(tool.bind(py))?;
+            Ok(())
+        })
+        .expect("python builders should be configured");
+    }
 
-            let make_spec = |kind: &str,
-                             executor_impl: Option<&Py<PyAny>>,
-                             sandbox_limits: Option<Value>|
-             -> PyResult<Py<PyAny>> {
-                let spec = namespace.call0()?;
-                spec.setattr("_binding_kind", kind)?;
-                spec.setattr("_name", format!("{kind}-agent"))?;
-                spec.setattr("_description", "executor description")?;
-                spec.setattr("_tools", tools.clone())?;
-                spec.setattr(
-                    "_output_schema_json",
-                    "{\"type\":\"object\",\"properties\":{\"answer\":{\"type\":\"string\"}}}",
-                )?;
-                spec.setattr("_hooks", py.None())?;
-                spec.setattr("_max_turns", 0)?;
-                if let Some(value) = executor_impl {
-                    spec.setattr("_executor_impl", value.bind(py))?;
-                } else {
-                    spec.setattr("_executor_impl", py.None())?;
-                }
-                if let Some(limits) = sandbox_limits {
-                    let value = crate::convert::json_value_to_py(py, &limits)?;
-                    spec.setattr("_sandbox_limits", value.bind(py))?;
-                } else {
-                    spec.setattr("_sandbox_limits", py.None())?;
-                }
-                Ok(spec.unbind())
-            };
+    #[test]
+    fn parse_executor_spec_supports_supported_kinds_and_validation() {
+        init_runtime_bridge();
+        Python::attach(|py| -> PyResult<()> {
+            let tool = sample_tool(py)?;
+            let custom_impl = custom_executor_impl(py)?;
 
             let valid_sandbox = json!({
                 "timeout_ms": 10,
@@ -1270,29 +1294,32 @@ mod tests {
             });
 
             for kind in ["react", "basic"] {
-                let spec = make_spec(kind, None, None)?;
+                let spec = make_executor_spec(py, kind, &tool, None, None)?;
                 let (_executor, agent_def) = parse_executor_spec(spec.bind(py))?;
                 assert_eq!(agent_def.name, format!("{kind}-agent"));
                 assert_eq!(agent_def.tools.len(), 1);
                 assert!(agent_def.output_schema.is_some());
             }
 
-            let codeact_spec = make_spec("codeact", None, Some(valid_sandbox.clone()))?;
+            let codeact_spec =
+                make_executor_spec(py, "codeact", &tool, None, Some(valid_sandbox.clone()))?;
             let (_executor, codeact_def) = parse_executor_spec(codeact_spec.bind(py))?;
             assert_eq!(codeact_def.name, "codeact-agent");
 
-            let custom_spec = make_spec("custom", Some(&custom_impl), None)?;
+            let custom_spec = make_executor_spec(py, "custom", &tool, Some(&custom_impl), None)?;
             let (_executor, custom_def) = parse_executor_spec(custom_spec.bind(py))?;
             assert_eq!(custom_def.name, "custom-agent");
 
-            let unsupported = make_spec("mystery", None, None)?;
+            let unsupported = make_executor_spec(py, "mystery", &tool, None, None)?;
             match parse_executor_spec(unsupported.bind(py)) {
                 Ok(_) => panic!("unsupported executor kinds should fail"),
                 Err(err) => assert!(err.to_string().contains("unsupported executor kind")),
             }
 
-            let invalid_codeact = make_spec(
+            let invalid_codeact = make_executor_spec(
+                py,
                 "codeact",
+                &tool,
                 None,
                 Some(json!({
                     "timeout_ms": 0,
