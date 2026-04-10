@@ -84,7 +84,7 @@ regex = "1.12.3"
 glob = "0.3.3"
 walkdir = "2.5"
 ignore = "0.4.25"
-wasmtime = "43.0.0"
+wasmtime = "43.0.1"
 tokenizers = { version = "0.22.2", default-features = false, features = [] }
 rand = "0.10.0"
 minijinja = "2.18.0"
