@@ -19,3 +19,16 @@ pub fn get_runtime() -> Result<&'static Runtime, &'static str> {
         Err(message) => Err(message.as_str()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::get_runtime;
+
+    #[test]
+    fn get_runtime_returns_a_singleton_runtime() {
+        let first = get_runtime().expect("first runtime access should succeed");
+        let second = get_runtime().expect("second runtime access should succeed");
+
+        assert!(std::ptr::eq(first, second));
+    }
+}

@@ -801,6 +801,7 @@ impl EmbeddingBuilder<Ollama> {
 mod tests {
     use super::*;
     use crate::chat::{FunctionTool, Tool};
+    use httpmock::{Method::POST, MockServer};
     use serde_json::json;
 
     #[test]
@@ -900,5 +901,213 @@ mod tests {
         let format = OllamaResponseFormat(OllamaResponseType::Json);
         let serialized = serde_json::to_value(&format).unwrap();
         assert_eq!(serialized, json!("json"));
+    }
+
+    #[tokio::test]
+    async fn test_ollama_chat_complete_and_embed_use_mock_server() {
+        let server = MockServer::start();
+        let provider = Ollama::new(
+            server.base_url(),
+            None,
+            Some("llama3.2".to_string()),
+            Some(128),
+            Some(0.3),
+            Some(5),
+            Some(0.9),
+            Some(20),
+            Some("10m".to_string()),
+            Some("system prompt".to_string()),
+            Some(true),
+            Some(vec!["STOP".to_string()]),
+            Some(7),
+            Some(0.1),
+            Some(0.2),
+            Some(2048),
+            Some(1.1),
+            Some(32),
+            Some(0.05),
+        );
+
+        let chat_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/api/chat")
+                .body_includes("\"keep_alive\":\"10m\"")
+                .body_includes("\"system\":\"system prompt\"")
+                .body_includes("\"think\":true")
+                .body_includes("\"tools\"")
+                .body_includes("\"format\"");
+            then.status(200).json_body(json!({
+                "message": {
+                    "content": "ollama reply",
+                    "tool_calls": [{
+                        "function": {
+                            "name": "lookup",
+                            "arguments": { "q": "value" }
+                        }
+                    }]
+                }
+            }));
+        });
+
+        let messages = vec![ChatMessage::user().content("hello").build()];
+        let response = provider
+            .chat_with_tools(
+                &messages,
+                Some(&[Tool {
+                    tool_type: "function".to_string(),
+                    function: FunctionTool {
+                        name: "lookup".to_string(),
+                        description: "desc".to_string(),
+                        parameters: json!({
+                            "type": "object",
+                            "properties": {
+                                "q": { "type": "string" }
+                            }
+                        }),
+                    },
+                }]),
+                Some(StructuredOutputFormat {
+                    name: "Answer".to_string(),
+                    description: None,
+                    schema: Some(json!({
+                        "type": "object",
+                        "properties": {
+                            "answer": { "type": "string" }
+                        }
+                    })),
+                    strict: Some(true),
+                }),
+            )
+            .await
+            .expect("chat should succeed");
+        assert_eq!(response.text().as_deref(), Some("ollama reply"));
+        assert_eq!(
+            response.tool_calls().expect("tool calls should exist")[0]
+                .function
+                .name,
+            "lookup"
+        );
+        chat_mock.assert();
+
+        let complete_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/api/generate")
+                .body_includes("\"prompt\":\"finish this\"");
+            then.status(200).json_body(json!({
+                "response": "generated answer"
+            }));
+        });
+
+        let completion = provider
+            .complete(
+                &CompletionRequest {
+                    prompt: "finish this".to_string(),
+                    max_tokens: None,
+                    temperature: None,
+                },
+                None,
+            )
+            .await
+            .expect("completion should succeed");
+        assert_eq!(completion.text, "generated answer");
+        complete_mock.assert();
+
+        let embed_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/api/embed")
+                .body_includes("\"model\":\"llama3.2\"");
+            then.status(200).json_body(json!({
+                "embeddings": [
+                    [0.1, 0.2, 0.3],
+                    [0.4, 0.5, 0.6]
+                ]
+            }));
+        });
+
+        let embeddings = provider
+            .embed(vec!["a".to_string(), "b".to_string()])
+            .await
+            .expect("embedding should succeed");
+        assert_eq!(embeddings[0], vec![0.1, 0.2, 0.3]);
+        assert_eq!(embeddings[1], vec![0.4, 0.5, 0.6]);
+        embed_mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_ollama_missing_base_url_and_empty_completion_response_error() {
+        let provider = Ollama::new(
+            "", None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None,
+        );
+        let messages = vec![ChatMessage::user().content("hello").build()];
+        assert!(matches!(
+            provider.chat_with_tools(&messages, None, None).await,
+            Err(LLMError::InvalidRequest(message)) if message == "Missing base_url"
+        ));
+        assert!(matches!(
+            provider
+                .complete(
+                    &CompletionRequest {
+                        prompt: "prompt".to_string(),
+                        max_tokens: None,
+                        temperature: None,
+                    },
+                    None
+                )
+                .await,
+            Err(LLMError::InvalidRequest(message)) if message == "Missing base_url"
+        ));
+        assert!(matches!(
+            provider.embed(vec!["hello".to_string()]).await,
+            Err(LLMError::InvalidRequest(message)) if message == "Missing base_url"
+        ));
+
+        let server = MockServer::start();
+        let provider = Ollama::new(
+            server.base_url(),
+            None,
+            Some("llama3.2".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/api/generate");
+            then.status(200).json_body(json!({
+                "message": {
+                    "content": "",
+                    "tool_calls": null
+                }
+            }));
+        });
+
+        let err = provider
+            .complete(
+                &CompletionRequest {
+                    prompt: "prompt".to_string(),
+                    max_tokens: None,
+                    temperature: None,
+                },
+                None,
+            )
+            .await
+            .expect_err("missing response text should fail");
+        assert!(
+            matches!(err, LLMError::ProviderError(message) if message == "No answer returned by Ollama")
+        );
+        mock.assert();
     }
 }

@@ -292,3 +292,78 @@ fn handle_events(label: &str, mut event_stream: BoxEventStream<Event>) {
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{LazyLock, Mutex};
+
+    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    fn sample_args(region: &str) -> Args {
+        Args {
+            mode: Mode::Direct,
+            prompt: "What is (10 + 5) * 3?".to_string(),
+            stdout: true,
+            langfuse_region: region.to_string(),
+            otlp_debug: true,
+            service_name: "autoagents-test".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn telemetry_tools_and_output_conversion_cover_success_paths() {
+        let sum = Addition {}
+            .execute(serde_json::json!({"left": 10, "right": 5}))
+            .await
+            .expect("addition should succeed");
+        assert_eq!(sum, serde_json::json!(15));
+
+        let product = Multiplication {}
+            .execute(serde_json::json!({"left": 10, "right": 5}))
+            .await
+            .expect("multiplication should succeed");
+        assert_eq!(product, serde_json::json!(50));
+
+        let parsed = MathAgentOutput::from(ReActAgentOutput {
+            response: r#"{"value":45,"explanation":"computed","generic":null}"#.to_string(),
+            tool_calls: Vec::new(),
+            done: true,
+        });
+        assert_eq!(parsed.value, 45);
+        assert_eq!(parsed.explanation, "computed");
+
+        let fallback = MathAgentOutput::from(ReActAgentOutput {
+            response: "plain answer".to_string(),
+            tool_calls: Vec::new(),
+            done: true,
+        });
+        assert_eq!(fallback.value, 0);
+        assert_eq!(fallback.explanation, "plain answer");
+        assert!(fallback.generic.is_none());
+    }
+
+    #[test]
+    fn telemetry_provider_requires_keys_and_accepts_region_variants() {
+        let _guard = ENV_LOCK.lock().expect("env mutex should lock");
+
+        unsafe {
+            std::env::remove_var("LANGFUSE_PUBLIC_KEY");
+            std::env::remove_var("LANGFUSE_SECRET_KEY");
+        }
+        assert!(telemetry_provider(&sample_args("us")).is_err());
+
+        unsafe {
+            std::env::set_var("LANGFUSE_PUBLIC_KEY", "pk_test");
+            std::env::set_var("LANGFUSE_SECRET_KEY", "sk_test");
+        }
+        assert!(telemetry_provider(&sample_args("eu")).is_ok());
+        assert!(telemetry_provider(&sample_args("us")).is_ok());
+        assert!(telemetry_provider(&sample_args("ap-south")).is_ok());
+
+        unsafe {
+            std::env::remove_var("LANGFUSE_PUBLIC_KEY");
+            std::env::remove_var("LANGFUSE_SECRET_KEY");
+        }
+    }
+}

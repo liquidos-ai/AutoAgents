@@ -24,6 +24,7 @@ mistralrs-cuda = ["autoagents-mistral-rs-cuda==0.3.7"]
 [tool.maturin]
 module-name = "autoagents_py._autoagents_py"
 compatibility = "manylinux_2_28"
+features = ["extension-module"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

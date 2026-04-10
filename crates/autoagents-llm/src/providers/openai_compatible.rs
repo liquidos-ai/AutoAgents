@@ -1223,6 +1223,10 @@ pub fn create_sse_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chat::FunctionTool;
+    use futures::StreamExt;
+    use httpmock::{Method::POST, MockServer};
+    use serde_json::json;
 
     struct TestConfig;
 
@@ -1230,6 +1234,75 @@ mod tests {
         const PROVIDER_NAME: &'static str = "Test";
         const DEFAULT_BASE_URL: &'static str = "https://example.com/v1/";
         const DEFAULT_MODEL: &'static str = "test-model";
+    }
+
+    struct FullSupportConfig;
+
+    impl OpenAIProviderConfig for FullSupportConfig {
+        const PROVIDER_NAME: &'static str = "FullTest";
+        const DEFAULT_BASE_URL: &'static str = "https://example.com/v1/";
+        const DEFAULT_MODEL: &'static str = "full-model";
+        const SUPPORTS_REASONING_EFFORT: bool = true;
+        const SUPPORTS_STRUCTURED_OUTPUT: bool = true;
+        const SUPPORTS_PARALLEL_TOOL_CALLS: bool = true;
+        const SUPPORTS_STREAM_OPTIONS: bool = true;
+
+        fn custom_headers() -> Option<Vec<(String, String)>> {
+            Some(vec![("x-provider".to_string(), "enabled".to_string())])
+        }
+    }
+
+    fn sample_function_tool() -> Tool {
+        Tool {
+            tool_type: "function".to_string(),
+            function: FunctionTool {
+                name: "lookup".to_string(),
+                description: "Lookup data".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "q": { "type": "string" }
+                    },
+                    "required": ["q"]
+                }),
+            },
+        }
+    }
+
+    fn sample_schema() -> StructuredOutputFormat {
+        StructuredOutputFormat {
+            name: "Answer".to_string(),
+            description: Some("Structured answer".to_string()),
+            schema: Some(json!({
+                "type": "object",
+                "properties": {
+                    "answer": { "type": "string" }
+                },
+                "required": ["answer"]
+            })),
+            strict: Some(true),
+        }
+    }
+
+    fn full_support_provider(base_url: String) -> OpenAICompatibleProvider<FullSupportConfig> {
+        OpenAICompatibleProvider::<FullSupportConfig>::new(
+            "key",
+            Some(base_url),
+            Some("full-model".to_string()),
+            Some(128),
+            Some(0.2),
+            Some(5),
+            Some(0.9),
+            Some(10),
+            Some(ToolChoice::Auto),
+            Some("high".to_string()),
+            None,
+            Some(json!({"seed": 7})),
+            Some(true),
+            Some(false),
+            None,
+            None,
+        )
     }
 
     #[test]
@@ -1919,5 +1992,179 @@ mod tests {
         assert_eq!(calls[0].function.name, "lookup");
         assert_eq!(calls[0].function.arguments, "{\"q\":1}");
         assert_eq!(calls[0].id, "call_1");
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_tools_sends_supported_fields_and_decodes_response() {
+        let server = MockServer::start();
+        let response_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/chat/completions")
+                .header("authorization", "Bearer key")
+                .header("x-provider", "enabled")
+                .body_includes("\"reasoning_effort\":\"high\"")
+                .body_includes("\"parallel_tool_calls\":true")
+                .body_includes("\"tool_choice\":\"auto\"")
+                .body_includes("\"response_format\"")
+                .body_includes("\"seed\":7");
+            then.status(200).json_body(json!({
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "hello from mock"
+                    }
+                }],
+                "usage": {
+                    "prompt_tokens": 2,
+                    "completion_tokens": 3,
+                    "total_tokens": 5
+                }
+            }));
+        });
+
+        let provider = full_support_provider(format!("{}/v1", server.base_url()));
+        let messages = vec![ChatMessage::user().content("hello").build()];
+        let tools = vec![sample_function_tool()];
+        let response = provider
+            .chat_with_tools(&messages, Some(&tools), Some(sample_schema()))
+            .await
+            .expect("chat_with_tools should succeed");
+
+        assert_eq!(response.text().as_deref(), Some("hello from mock"));
+        assert_eq!(response.usage().map(|usage| usage.total_tokens), Some(5));
+        response_mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_tools_returns_error_for_status_and_invalid_json() {
+        let server = MockServer::start();
+        let status_mock = server.mock(|when, then| {
+            when.method(POST).path("/v1/chat/completions");
+            then.status(500).body("provider exploded");
+        });
+
+        let provider = full_support_provider(format!("{}/v1", server.base_url()));
+        let messages = vec![ChatMessage::user().content("hello").build()];
+        let err = provider
+            .chat_with_tools(&messages, None, None)
+            .await
+            .expect_err("non-success status should fail");
+
+        match err {
+            LLMError::ResponseFormatError {
+                message,
+                raw_response,
+            } => {
+                assert!(message.contains("returned error status"));
+                assert_eq!(raw_response, "provider exploded");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        status_mock.assert();
+
+        let server = MockServer::start();
+        let invalid_json_mock = server.mock(|when, then| {
+            when.method(POST).path("/v1/chat/completions");
+            then.status(200).body("not-json");
+        });
+
+        let provider = full_support_provider(format!("{}/v1", server.base_url()));
+        let err = provider
+            .chat_with_tools(&messages, None, None)
+            .await
+            .expect_err("invalid json should fail");
+        match err {
+            LLMError::ResponseFormatError {
+                message,
+                raw_response,
+            } => {
+                assert!(message.contains("Failed to decode"));
+                assert_eq!(raw_response, "not-json");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        invalid_json_mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_chat_stream_struct_and_chat_stream_with_tools_parse_mocked_sse() {
+        let server = MockServer::start();
+        let struct_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/chat/completions")
+                .body_includes("\"stream\":true")
+                .body_includes("\"include_usage\":true");
+            then.status(200)
+                .header("content-type", "text/event-stream")
+                .body(
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n\
+                     data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":2,\"total_tokens\":3}}\n\n\
+                     data: [DONE]\n\n",
+                );
+        });
+
+        let provider = full_support_provider(format!("{}/v1", server.base_url()));
+        let messages = vec![ChatMessage::user().content("stream").build()];
+        let mut stream = provider
+            .chat_stream_struct(&messages, None, None)
+            .await
+            .expect("structured stream should build");
+
+        let first = stream
+            .next()
+            .await
+            .expect("first item should exist")
+            .expect("first item should be ok");
+        assert_eq!(first.choices[0].delta.content.as_deref(), Some("hello"));
+        let rest: Vec<_> = stream.collect().await;
+        assert!(rest.into_iter().all(|item| item.is_ok()));
+        struct_mock.assert();
+
+        let server = MockServer::start();
+        let tool_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/chat/completions")
+                .body_includes("\"stream\":true")
+                .body_includes("\"tools\":[");
+            then.status(200)
+                .header("content-type", "text/event-stream")
+                .body(
+                    "data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n\
+                     data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"q\\\":\\\"value\\\"}\"}}]},\"finish_reason\":null}]}\n\n\
+                     data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+                );
+        });
+
+        let provider = full_support_provider(format!("{}/v1", server.base_url()));
+        let tools = vec![sample_function_tool()];
+        let mut stream = provider
+            .chat_stream_with_tools(&messages, Some(&tools), None)
+            .await
+            .expect("tool stream should build");
+        let items = [
+            stream.next().await.expect("tool start"),
+            stream.next().await.expect("tool delta"),
+            stream.next().await.expect("tool complete"),
+            stream.next().await.expect("done"),
+        ];
+
+        assert!(matches!(
+            &items[0],
+            Ok(ChatStreamChunk::ToolUseStart { id, name, .. }) if id == "call_1" && name == "lookup"
+        ));
+        assert!(matches!(
+            &items[1],
+            Ok(ChatStreamChunk::ToolUseInputDelta { partial_json, .. }) if partial_json == "{\"q\":\"value\"}"
+        ));
+        assert!(matches!(
+            &items[2],
+            Ok(ChatStreamChunk::ToolUseComplete { tool_call, .. })
+                if tool_call.function.arguments == "{\"q\":\"value\"}"
+        ));
+        assert!(matches!(
+            &items[3],
+            Ok(ChatStreamChunk::Done { stop_reason }) if stop_reason == "tool_use"
+        ));
+        tool_mock.assert();
     }
 }

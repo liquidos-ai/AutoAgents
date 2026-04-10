@@ -396,3 +396,289 @@ impl PyEventStream {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use autoagents_protocol::{
+        ActorID, FunctionCall, StreamChunk, SubmissionId, Task, ToolCall, Usage,
+    };
+    use serde_json::json;
+    use std::any::TypeId;
+    use tokio_stream::wrappers::UnboundedReceiverStream;
+
+    fn sample_ids() -> (SubmissionId, ActorID) {
+        (SubmissionId::from_u128(1), ActorID::from_u128(2))
+    }
+
+    fn init_python() {
+        Python::initialize();
+    }
+
+    #[test]
+    fn event_payloads_cover_protocol_variants() {
+        let (sub_id, actor_id) = sample_ids();
+        let tool_call = ToolCall {
+            id: "call_1".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "search".to_string(),
+                arguments: "{\"q\":\"rust\"}".to_string(),
+            },
+        };
+        let usage = Usage {
+            prompt_tokens: 3,
+            completion_tokens: 2,
+            total_tokens: 5,
+            prompt_tokens_details: None,
+            completion_tokens_details: None,
+        };
+
+        let cases = vec![
+            (
+                Event::NewTask {
+                    actor_id,
+                    task: Task::new("plan".to_string()),
+                },
+                "new_task",
+            ),
+            (
+                Event::TaskStarted {
+                    sub_id,
+                    actor_id,
+                    actor_name: "planner".to_string(),
+                    task_description: "plan".to_string(),
+                },
+                "task_started",
+            ),
+            (
+                Event::TaskComplete {
+                    sub_id,
+                    actor_id,
+                    actor_name: "planner".to_string(),
+                    result: "done".to_string(),
+                },
+                "task_complete",
+            ),
+            (
+                Event::TaskError {
+                    sub_id,
+                    actor_id,
+                    error: "boom".to_string(),
+                },
+                "task_error",
+            ),
+            (
+                Event::SendMessage {
+                    message: "hello".to_string(),
+                    actor_id,
+                },
+                "send_message",
+            ),
+            (
+                Event::ToolCallRequested {
+                    sub_id,
+                    actor_id,
+                    id: "tool_1".to_string(),
+                    tool_name: "search".to_string(),
+                    arguments: "{\"q\":\"rust\"}".to_string(),
+                },
+                "tool_call_requested",
+            ),
+            (
+                Event::ToolCallCompleted {
+                    sub_id,
+                    actor_id,
+                    id: "tool_1".to_string(),
+                    tool_name: "search".to_string(),
+                    result: json!({"matches": 2}),
+                },
+                "tool_call_completed",
+            ),
+            (
+                Event::ToolCallFailed {
+                    sub_id,
+                    actor_id,
+                    id: "tool_1".to_string(),
+                    tool_name: "search".to_string(),
+                    error: "unavailable".to_string(),
+                },
+                "tool_call_failed",
+            ),
+            (
+                Event::CodeExecutionStarted {
+                    sub_id,
+                    actor_id,
+                    execution_id: "exec_1".to_string(),
+                    language: "typescript".to_string(),
+                    source: "1 + 1".to_string(),
+                },
+                "code_execution_started",
+            ),
+            (
+                Event::CodeExecutionConsole {
+                    sub_id,
+                    actor_id,
+                    execution_id: "exec_1".to_string(),
+                    message: "stdout".to_string(),
+                },
+                "code_execution_console",
+            ),
+            (
+                Event::CodeExecutionCompleted {
+                    sub_id,
+                    actor_id,
+                    execution_id: "exec_1".to_string(),
+                    result: json!({"value": 2}),
+                    duration_ms: 5,
+                },
+                "code_execution_completed",
+            ),
+            (
+                Event::CodeExecutionFailed {
+                    sub_id,
+                    actor_id,
+                    execution_id: "exec_1".to_string(),
+                    error: "syntax".to_string(),
+                    duration_ms: 7,
+                },
+                "code_execution_failed",
+            ),
+            (
+                Event::TurnStarted {
+                    sub_id,
+                    actor_id,
+                    turn_number: 1,
+                    max_turns: 3,
+                },
+                "turn_started",
+            ),
+            (
+                Event::TurnCompleted {
+                    sub_id,
+                    actor_id,
+                    turn_number: 1,
+                    final_turn: false,
+                },
+                "turn_completed",
+            ),
+            (
+                Event::StreamChunk {
+                    sub_id,
+                    chunk: StreamChunk::ToolUseComplete {
+                        index: 0,
+                        tool_call: tool_call.clone(),
+                    },
+                },
+                "stream_chunk",
+            ),
+            (
+                Event::StreamToolCall {
+                    sub_id,
+                    tool_call: json!({"name": "search"}),
+                },
+                "stream_tool_call",
+            ),
+            (Event::StreamComplete { sub_id }, "stream_complete"),
+            (
+                Event::StreamChunk {
+                    sub_id,
+                    chunk: StreamChunk::Usage(usage),
+                },
+                "stream_chunk",
+            ),
+        ];
+
+        for (event, expected_kind) in cases {
+            let payload = event_to_payload(event).expect("event payload should serialize");
+            assert_eq!(payload["kind"], expected_kind);
+        }
+    }
+
+    #[test]
+    fn payload_helpers_merge_extra_fields() {
+        let payload = task_payload("task_started", "sub", "actor", json!({"extra": true}));
+        assert_eq!(payload["kind"], "task_started");
+        assert!(payload["extra"].as_bool().unwrap_or(false));
+
+        let tool_payload = tool_payload(
+            "tool_call_requested",
+            "sub",
+            "actor",
+            "call_1".to_string(),
+            "search".to_string(),
+            json!({"arguments": "{}"}),
+        );
+        assert_eq!(tool_payload["tool_name"], "search");
+        assert_eq!(tool_payload["arguments"], "{}");
+    }
+
+    #[test]
+    fn events_to_py_list_skips_publish_messages() {
+        let (_, actor_id) = sample_ids();
+        init_python();
+        Python::attach(|py| {
+            let events = vec![
+                Event::PublishMessage {
+                    topic_name: "tasks".to_string(),
+                    topic_type: TypeId::of::<String>(),
+                    message: Arc::new("ignored".to_string()),
+                },
+                Event::SendMessage {
+                    message: "hello".to_string(),
+                    actor_id,
+                },
+            ];
+
+            let py_events = events_to_py_list(py, events).expect("events should convert");
+            let list = py_events
+                .bind(py)
+                .cast::<PyList>()
+                .expect("events should be a python list");
+
+            assert_eq!(list.len(), 1);
+            assert_eq!(
+                list.get_item(0)
+                    .expect("first event should exist")
+                    .get_item("kind")
+                    .expect("kind should exist")
+                    .extract::<String>()
+                    .expect("kind should be a string"),
+                "send_message"
+            );
+        });
+    }
+
+    #[tokio::test]
+    async fn shared_event_stream_flushes_forwarded_events() {
+        let (sub_id, actor_id) = sample_ids();
+        let (tx, rx) = mpsc::unbounded_channel();
+        let shared = PySharedEventStream::new(Box::pin(UnboundedReceiverStream::new(rx)));
+        let mut receiver = shared.subscribe_receiver();
+
+        tx.send(Event::TaskStarted {
+            sub_id,
+            actor_id,
+            actor_name: "planner".to_string(),
+            task_description: "plan".to_string(),
+        })
+        .expect("first event should send");
+        tx.send(Event::StreamComplete { sub_id })
+            .expect("second event should send");
+        drop(tx);
+
+        shared.flush().await;
+
+        assert!(matches!(
+            receiver.recv().await.expect("task started should arrive"),
+            Event::TaskStarted { .. }
+        ));
+        assert!(matches!(
+            receiver
+                .recv()
+                .await
+                .expect("stream complete should arrive"),
+            Event::StreamComplete { .. }
+        ));
+    }
+}

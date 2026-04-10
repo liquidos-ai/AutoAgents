@@ -436,3 +436,230 @@ fn build_provider(b: &PyLLMBuilder) -> PyResult<Arc<dyn LLMProvider>> {
         ))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use autoagents_llm::chat::{
+        ChatMessage, ChatProvider, ChatResponse, StructuredOutputFormat, Tool,
+    };
+    use autoagents_llm::completion::{CompletionProvider, CompletionRequest, CompletionResponse};
+    use autoagents_llm::embedding::EmbeddingProvider;
+    use autoagents_llm::error::LLMError;
+    use autoagents_llm::models::ModelsProvider;
+    use autoagents_llm::{HasConfig, NoConfig, ToolCall, async_trait};
+    use std::fmt;
+
+    fn init_python() {
+        Python::initialize();
+    }
+
+    struct MockLLMProvider;
+
+    #[async_trait]
+    impl ChatProvider for MockLLMProvider {
+        async fn chat_with_tools(
+            &self,
+            _messages: &[ChatMessage],
+            _tools: Option<&[Tool]>,
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            Ok(Box::new(MockChatResponse("mock".to_string())))
+        }
+    }
+
+    #[async_trait]
+    impl CompletionProvider for MockLLMProvider {
+        async fn complete(
+            &self,
+            _req: &CompletionRequest,
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<CompletionResponse, LLMError> {
+            Ok(CompletionResponse {
+                text: "mock".to_string(),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl EmbeddingProvider for MockLLMProvider {
+        async fn embed(&self, input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
+            Ok(input.into_iter().map(|_| vec![1.0, 2.0]).collect())
+        }
+    }
+
+    #[async_trait]
+    impl ModelsProvider for MockLLMProvider {}
+
+    impl LLMProvider for MockLLMProvider {}
+
+    impl HasConfig for MockLLMProvider {
+        type Config = NoConfig;
+    }
+
+    #[derive(Debug)]
+    struct MockChatResponse(String);
+
+    impl fmt::Display for MockChatResponse {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+
+    impl ChatResponse for MockChatResponse {
+        fn text(&self) -> Option<String> {
+            Some(self.0.clone())
+        }
+
+        fn tool_calls(&self) -> Option<Vec<ToolCall>> {
+            None
+        }
+    }
+
+    #[test]
+    fn builder_setters_store_configuration() {
+        init_python();
+        Python::attach(|py| {
+            let builder = Py::new(py, PyLLMBuilder::new("openai".to_string()))
+                .expect("builder should create");
+
+            {
+                let mut builder_ref = builder.borrow_mut(py);
+                builder_ref = PyLLMBuilder::api_key(builder_ref, "sk-test".to_string());
+                builder_ref =
+                    PyLLMBuilder::base_url(builder_ref, "https://example.test".to_string());
+                builder_ref = PyLLMBuilder::model(builder_ref, "gpt-4.1-mini".to_string());
+                builder_ref = PyLLMBuilder::max_tokens(builder_ref, 128);
+                builder_ref = PyLLMBuilder::temperature(builder_ref, 0.5);
+                builder_ref = PyLLMBuilder::top_p(builder_ref, 0.8);
+                builder_ref = PyLLMBuilder::top_k(builder_ref, 16);
+                builder_ref = PyLLMBuilder::timeout_seconds(builder_ref, 45);
+                builder_ref = PyLLMBuilder::reasoning(builder_ref, true);
+                builder_ref = PyLLMBuilder::reasoning_effort(builder_ref, "high".to_string());
+                builder_ref = PyLLMBuilder::reasoning_budget_tokens(builder_ref, 256);
+                builder_ref = PyLLMBuilder::normalize_response(builder_ref, false);
+                builder_ref = PyLLMBuilder::enable_parallel_tool_use(builder_ref, true);
+                builder_ref = PyLLMBuilder::api_version(builder_ref, "2025-01-01".to_string());
+                builder_ref = PyLLMBuilder::deployment_id(builder_ref, "dep-123".to_string());
+                builder_ref =
+                    PyLLMBuilder::extra_body_json(builder_ref, "{\"seed\":7}".to_string())
+                        .expect("extra body should parse");
+                assert_eq!(builder_ref.backend, "openai");
+            }
+
+            let builder_ref = builder.borrow(py);
+            assert_eq!(builder_ref.api_key.as_deref(), Some("sk-test"));
+            assert_eq!(
+                builder_ref.base_url.as_deref(),
+                Some("https://example.test")
+            );
+            assert_eq!(builder_ref.model.as_deref(), Some("gpt-4.1-mini"));
+            assert_eq!(builder_ref.max_tokens, Some(128));
+            assert_eq!(builder_ref.temperature, Some(0.5));
+            assert_eq!(builder_ref.top_p, Some(0.8));
+            assert_eq!(builder_ref.top_k, Some(16));
+            assert_eq!(builder_ref.timeout_seconds, Some(45));
+            assert_eq!(builder_ref.reasoning, Some(true));
+            assert_eq!(builder_ref.reasoning_effort.as_deref(), Some("high"));
+            assert_eq!(builder_ref.reasoning_budget_tokens, Some(256));
+            assert_eq!(builder_ref.normalize_response, Some(false));
+            assert_eq!(builder_ref.enable_parallel_tool_use, Some(true));
+            assert_eq!(builder_ref.api_version.as_deref(), Some("2025-01-01"));
+            assert_eq!(builder_ref.deployment_id.as_deref(), Some("dep-123"));
+            assert_eq!(builder_ref.extra_body, Some(serde_json::json!({"seed": 7})));
+        });
+    }
+
+    #[test]
+    fn parse_reasoning_effort_and_extra_body_validate_inputs() {
+        assert!(matches!(
+            parse_reasoning_effort("LOW"),
+            Some(ReasoningEffort::Low)
+        ));
+        assert!(matches!(
+            parse_reasoning_effort("medium"),
+            Some(ReasoningEffort::Medium)
+        ));
+        assert!(matches!(
+            parse_reasoning_effort("High"),
+            Some(ReasoningEffort::High)
+        ));
+        assert!(parse_reasoning_effort("unsupported").is_none());
+
+        init_python();
+        Python::attach(|py| {
+            let builder = Py::new(py, PyLLMBuilder::new("openai".to_string()))
+                .expect("builder should create");
+            let err = match PyLLMBuilder::extra_body_json(
+                builder.borrow_mut(py),
+                "{not-json}".to_string(),
+            ) {
+                Ok(_) => panic!("invalid json should fail"),
+                Err(err) => err,
+            };
+            assert!(err.to_string().contains("invalid extra_body_json"));
+        });
+    }
+
+    #[test]
+    fn provider_capsules_round_trip_and_extract() {
+        init_python();
+        Python::attach(|py| {
+            let provider = Arc::new(MockLLMProvider) as Arc<dyn LLMProvider>;
+            let capsule =
+                llm_provider_to_capsule(py, Arc::clone(&provider)).expect("capsule should build");
+            let extracted = llm_provider_from_capsule(&capsule).expect("capsule should unwrap");
+            assert!(Arc::ptr_eq(&provider, &extracted));
+
+            let wrapper = PyLLMProvider::new(Arc::clone(&provider));
+            let wrapper_any = Py::new(py, wrapper)
+                .expect("wrapper should create")
+                .into_any();
+            let extracted =
+                extract_llm_provider(wrapper_any.bind(py)).expect("wrapper should extract");
+            assert!(Arc::ptr_eq(&provider, &extracted));
+
+            let module =
+                PyModule::new(py, "provider_capsule_module").expect("module should create");
+            module
+                .add_class::<PyLLMProvider>()
+                .expect("class should register");
+            let helper = module.getattr("LLMProvider").expect("class should exist");
+            assert!(helper.is_truthy().expect("class should be truthy"));
+        });
+    }
+
+    #[test]
+    fn capsule_helpers_validate_foreign_inputs_and_unknown_backends() {
+        init_python();
+        Python::attach(|py| {
+            let module = PyModule::new(py, "foreign_capsule_mod").expect("module should create");
+            let capsule = PyCapsule::new(py, 42_u32, None).expect("foreign capsule should build");
+            let err = match _llm_provider_from_capsule(&capsule) {
+                Ok(_) => panic!("foreign capsule should fail"),
+                Err(err) => err,
+            };
+            assert!(err.is_instance_of::<PyRuntimeError>(py));
+
+            module
+                .add("bogus", "value")
+                .and_then(|_| module.getattr("bogus").map(|_| ()))
+                .expect("module attribute should register");
+            let bogus = module.getattr("bogus").expect("bogus attr should exist");
+            let err = match extract_llm_provider(&bogus) {
+                Ok(_) => panic!("plain string should fail"),
+                Err(err) => err,
+            };
+            assert!(
+                err.to_string()
+                    .contains("expected an AutoAgents LLMProvider")
+            );
+
+            let err = match build_provider(&PyLLMBuilder::new("unknown-backend".to_string())) {
+                Ok(_) => panic!("unknown backend should fail"),
+                Err(err) => err,
+            };
+            assert!(err.to_string().contains("Unknown LLM backend"));
+        });
+    }
+}

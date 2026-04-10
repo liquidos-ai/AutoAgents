@@ -59,3 +59,17 @@ pub async fn run() -> Result<(), Error> {
     println!("Result: {:?}", result);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn minimax_output_preserves_response_text() {
+        let output = ChatAgentOutput::from(BasicAgentOutput {
+            response: "hello".to_string(),
+            done: true,
+        });
+        assert_eq!(output.response, "hello");
+    }
+}

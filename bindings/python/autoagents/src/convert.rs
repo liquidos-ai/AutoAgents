@@ -150,3 +150,78 @@ fn non_serializable_type_error(value: &Bound<'_, PyAny>) -> PyErr {
         "value of type '{type_name}' is not JSON serializable by the AutoAgents binding"
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn init_python() {
+        Python::initialize();
+    }
+
+    #[pyclass]
+    struct Dumpable;
+
+    #[pymethods]
+    impl Dumpable {
+        fn dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+            let dict = PyDict::new(py);
+            dict.set_item("kind", "dumpable")?;
+            dict.set_item("count", 2)?;
+            Ok(dict.into_any().unbind())
+        }
+    }
+
+    #[pyclass]
+    struct Opaque;
+
+    #[test]
+    fn json_value_to_py_round_trips_nested_values() {
+        init_python();
+        Python::attach(|py| {
+            let value = json!({
+                "name": "autoagents",
+                "enabled": true,
+                "count": 3,
+                "items": [1, 2, {"nested": "ok"}],
+                "none": null
+            });
+
+            let py_value = json_value_to_py(py, &value).expect("json should convert to python");
+            let round_trip =
+                py_any_to_json_value(py_value.bind(py)).expect("python value should convert back");
+
+            assert_eq!(round_trip, value);
+        });
+    }
+
+    #[test]
+    fn py_any_to_json_value_handles_sequences_custom_objects_and_errors() {
+        init_python();
+        Python::attach(|py| {
+            let tuple = (1, "two", true)
+                .into_pyobject(py)
+                .expect("tuple should convert");
+            let tuple_json = py_any_to_json_value(tuple.as_any()).expect("tuple should convert");
+            assert_eq!(tuple_json, json!([1, "two", true]));
+
+            let dumpable = Py::new(py, Dumpable).expect("dumpable object should create");
+            let dumpable_json =
+                py_any_to_json_value(dumpable.bind(py)).expect("custom dump should be used");
+            assert_eq!(dumpable_json, json!({"kind": "dumpable", "count": 2}));
+
+            let nan = f64::NAN.into_pyobject(py).expect("nan should create");
+            let nan_err = py_any_to_json_value(nan.as_any()).expect_err("nan should be rejected");
+            assert!(
+                nan_err
+                    .to_string()
+                    .contains("cannot convert NaN or infinity")
+            );
+
+            let opaque = Py::new(py, Opaque).expect("opaque object should create");
+            let err = py_any_to_json_value(opaque.bind(py)).expect_err("opaque object should fail");
+            assert!(err.to_string().contains("is not JSON serializable"));
+        });
+    }
+}

@@ -8,10 +8,14 @@ publish = false
 
 [lib]
 name = "_autoagents_guardrails"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+extension-module = ["pyo3/extension-module"]
 
 [dependencies]
 autoagents-py = { path = "../autoagents", default-features = false }
 autoagents-guardrails = { workspace = true }
 autoagents-llm = { workspace = true }
-pyo3 = { version = "0.28.2", features = ["extension-module", "abi3-py39"] }
+pyo3 = { version = "0.28.2", features = ["abi3-py39"] }

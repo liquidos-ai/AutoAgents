@@ -25,3 +25,15 @@ impl PyTopic {
         &self.name
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::PyTopic;
+
+    #[test]
+    fn topic_exposes_name_and_repr() {
+        let topic = PyTopic::new("planner".to_string());
+        assert_eq!(topic.name(), "planner");
+        assert_eq!(topic.__repr__(), "Topic('planner')");
+    }
+}

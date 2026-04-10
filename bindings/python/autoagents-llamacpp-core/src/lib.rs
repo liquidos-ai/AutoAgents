@@ -525,3 +525,186 @@ pub fn register_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(backend_build_info, m)?)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const TEST_GGUF_MODEL_PATH: &str = "fixtures/model.gguf";
+    const TEST_MODEL_DIR: &str = "fixtures/models";
+
+    fn init_python() {
+        Python::initialize();
+    }
+
+    #[test]
+    fn builder_setters_store_configuration_values() {
+        init_python();
+        Python::attach(|py| {
+            let builder = Py::new(py, PyLlamaCppBuilder::default()).expect("builder should create");
+            {
+                let mut builder_ref = builder.borrow_mut(py);
+                builder_ref =
+                    PyLlamaCppBuilder::model_path(builder_ref, TEST_GGUF_MODEL_PATH.to_string());
+                builder_ref = PyLlamaCppBuilder::repo_id(builder_ref, "repo/model".to_string());
+                builder_ref = PyLlamaCppBuilder::hf_filename(builder_ref, "model.gguf".to_string());
+                builder_ref =
+                    PyLlamaCppBuilder::mmproj_filename(builder_ref, "mmproj.gguf".to_string());
+                builder_ref = PyLlamaCppBuilder::hf_revision(builder_ref, "main".to_string());
+                builder_ref = PyLlamaCppBuilder::model_dir(builder_ref, TEST_MODEL_DIR.to_string());
+                builder_ref =
+                    PyLlamaCppBuilder::chat_template(builder_ref, "chat template".to_string());
+                builder_ref = PyLlamaCppBuilder::force_json_grammar(builder_ref, true);
+                builder_ref =
+                    PyLlamaCppBuilder::reasoning_format(builder_ref, "deepseek".to_string());
+                builder_ref =
+                    PyLlamaCppBuilder::extra_body_json(builder_ref, "{\"seed\":99}".to_string())
+                        .expect("extra body should parse");
+                builder_ref = PyLlamaCppBuilder::mmproj_use_gpu(builder_ref, false);
+                builder_ref = PyLlamaCppBuilder::media_marker(builder_ref, "<image>".to_string());
+                builder_ref = PyLlamaCppBuilder::max_tokens(builder_ref, 256);
+                builder_ref = PyLlamaCppBuilder::temperature(builder_ref, 0.4);
+                builder_ref = PyLlamaCppBuilder::top_p(builder_ref, 0.9);
+                builder_ref = PyLlamaCppBuilder::top_k(builder_ref, 30);
+                builder_ref = PyLlamaCppBuilder::repeat_penalty(builder_ref, 1.1);
+                builder_ref = PyLlamaCppBuilder::frequency_penalty(builder_ref, 0.2);
+                builder_ref = PyLlamaCppBuilder::presence_penalty(builder_ref, 0.3);
+                builder_ref = PyLlamaCppBuilder::repeat_last_n(builder_ref, 64);
+                builder_ref = PyLlamaCppBuilder::seed(builder_ref, 7);
+                builder_ref = PyLlamaCppBuilder::n_ctx(builder_ref, 4096);
+                builder_ref = PyLlamaCppBuilder::n_batch(builder_ref, 128);
+                builder_ref = PyLlamaCppBuilder::n_ubatch(builder_ref, 32);
+                builder_ref = PyLlamaCppBuilder::n_threads(builder_ref, 8);
+                builder_ref = PyLlamaCppBuilder::n_threads_batch(builder_ref, 4);
+                builder_ref = PyLlamaCppBuilder::n_gpu_layers(builder_ref, 20);
+                builder_ref = PyLlamaCppBuilder::main_gpu(builder_ref, 0);
+                builder_ref = PyLlamaCppBuilder::split_mode(builder_ref, "layer".to_string());
+                builder_ref = PyLlamaCppBuilder::use_mlock(builder_ref, true);
+                builder_ref = PyLlamaCppBuilder::devices(builder_ref, vec![0, 2]);
+                let _builder_ref =
+                    PyLlamaCppBuilder::system_prompt(builder_ref, "system".to_string());
+            }
+
+            let builder_ref = builder.borrow(py);
+            assert_eq!(
+                builder_ref.model_path.as_deref(),
+                Some(TEST_GGUF_MODEL_PATH)
+            );
+            assert_eq!(builder_ref.repo_id.as_deref(), Some("repo/model"));
+            assert_eq!(builder_ref.hf_filename.as_deref(), Some("model.gguf"));
+            assert_eq!(builder_ref.mmproj_filename.as_deref(), Some("mmproj.gguf"));
+            assert_eq!(builder_ref.hf_revision.as_deref(), Some("main"));
+            assert_eq!(builder_ref.model_dir.as_deref(), Some(TEST_MODEL_DIR));
+            assert_eq!(builder_ref.chat_template.as_deref(), Some("chat template"));
+            assert_eq!(builder_ref.force_json_grammar, Some(true));
+            assert_eq!(builder_ref.reasoning_format.as_deref(), Some("deepseek"));
+            assert_eq!(builder_ref.extra_body, Some(json!({"seed": 99})));
+            assert_eq!(builder_ref.mmproj_use_gpu, Some(false));
+            assert_eq!(builder_ref.media_marker.as_deref(), Some("<image>"));
+            assert_eq!(builder_ref.max_tokens, Some(256));
+            assert_eq!(builder_ref.temperature, Some(0.4));
+            assert_eq!(builder_ref.top_p, Some(0.9));
+            assert_eq!(builder_ref.top_k, Some(30));
+            assert_eq!(builder_ref.repeat_penalty, Some(1.1));
+            assert_eq!(builder_ref.frequency_penalty, Some(0.2));
+            assert_eq!(builder_ref.presence_penalty, Some(0.3));
+            assert_eq!(builder_ref.repeat_last_n, Some(64));
+            assert_eq!(builder_ref.seed, Some(7));
+            assert_eq!(builder_ref.n_ctx, Some(4096));
+            assert_eq!(builder_ref.n_batch, Some(128));
+            assert_eq!(builder_ref.n_ubatch, Some(32));
+            assert_eq!(builder_ref.n_threads, Some(8));
+            assert_eq!(builder_ref.n_threads_batch, Some(4));
+            assert_eq!(builder_ref.n_gpu_layers, Some(20));
+            assert_eq!(builder_ref.main_gpu, Some(0));
+            assert_eq!(builder_ref.split_mode.as_deref(), Some("layer"));
+            assert_eq!(builder_ref.use_mlock, Some(true));
+            assert_eq!(builder_ref.devices.as_deref(), Some(&[0, 2][..]));
+            assert_eq!(builder_ref.system_prompt.as_deref(), Some("system"));
+        });
+    }
+
+    #[test]
+    fn parsing_helpers_cover_supported_sources_and_errors() {
+        let gguf = parse_model_source(Some(TEST_GGUF_MODEL_PATH.to_string()), None, None, None)
+            .expect("gguf source should parse");
+        assert!(matches!(gguf, LlamaModelSource::Gguf { .. }));
+
+        let huggingface = parse_model_source(
+            None,
+            Some("repo/model".to_string()),
+            Some("model.gguf".to_string()),
+            Some("mmproj.gguf".to_string()),
+        )
+        .expect("huggingface source should parse");
+        assert!(matches!(huggingface, LlamaModelSource::HuggingFace { .. }));
+
+        let err =
+            parse_model_source(None, None, None, None).expect_err("missing source should fail");
+        assert!(err.to_string().contains("either model_path"));
+
+        let err = parse_model_source(
+            Some(TEST_GGUF_MODEL_PATH.to_string()),
+            Some("repo/model".to_string()),
+            None,
+            None,
+        )
+        .expect_err("multiple sources should fail");
+        assert!(err.to_string().contains("set only one source"));
+
+        assert!(matches!(
+            parse_reasoning_format("auto").expect("auto should parse"),
+            autoagents_llamacpp::config::LlamaCppReasoningFormat::Auto
+        ));
+        assert!(matches!(
+            parse_reasoning_format("deepseek_legacy").expect("legacy should parse"),
+            autoagents_llamacpp::config::LlamaCppReasoningFormat::DeepseekLegacy
+        ));
+        assert!(
+            parse_reasoning_format("bogus")
+                .expect_err("invalid reasoning format should fail")
+                .to_string()
+                .contains("invalid reasoning_format")
+        );
+
+        assert!(matches!(
+            parse_split_mode("none").expect("none should parse"),
+            autoagents_llamacpp::config::LlamaCppSplitMode::None
+        ));
+        assert!(matches!(
+            parse_split_mode("ROW").expect("row should parse"),
+            autoagents_llamacpp::config::LlamaCppSplitMode::Row
+        ));
+        assert!(
+            parse_split_mode("bogus")
+                .expect_err("invalid split mode should fail")
+                .to_string()
+                .contains("invalid split_mode")
+        );
+    }
+
+    #[test]
+    fn backend_build_info_reports_current_backend_flags() {
+        init_python();
+        Python::attach(|py| {
+            let info = backend_build_info(py).expect("build info should succeed");
+            let info = info.bind(py);
+            assert_eq!(
+                info.get_item("backend")
+                    .expect("backend key should exist")
+                    .expect("backend value should exist")
+                    .extract::<String>()
+                    .expect("backend should be a string"),
+                "llamacpp"
+            );
+            assert!(
+                info.get_item("mtmd")
+                    .expect("mtmd key should exist")
+                    .expect("mtmd value should exist")
+                    .extract::<bool>()
+                    .expect("mtmd should be bool")
+            );
+        });
+    }
+}

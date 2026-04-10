@@ -247,3 +247,152 @@ pub fn register_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(backend_build_info, m)?)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_MODEL_DIR: &str = "fixtures/models";
+
+    fn init_python() {
+        Python::initialize();
+    }
+
+    #[test]
+    fn builder_setters_store_configuration_values() {
+        init_python();
+        Python::attach(|py| {
+            let builder =
+                Py::new(py, PyMistralRsBuilder::default()).expect("builder should create");
+            {
+                let mut builder_ref = builder.borrow_mut(py);
+                builder_ref = PyMistralRsBuilder::repo_id(builder_ref, "mistral/model".to_string());
+                builder_ref = PyMistralRsBuilder::revision(builder_ref, "main".to_string());
+                builder_ref = PyMistralRsBuilder::model_type(builder_ref, "vision".to_string());
+                builder_ref =
+                    PyMistralRsBuilder::model_dir(builder_ref, TEST_MODEL_DIR.to_string());
+                builder_ref =
+                    PyMistralRsBuilder::gguf_files(builder_ref, vec!["part-1.gguf".to_string()]);
+                builder_ref =
+                    PyMistralRsBuilder::tokenizer(builder_ref, "tokenizer.json".to_string());
+                builder_ref =
+                    PyMistralRsBuilder::chat_template(builder_ref, "chat template".to_string());
+                builder_ref = PyMistralRsBuilder::max_tokens(builder_ref, 128);
+                builder_ref = PyMistralRsBuilder::temperature(builder_ref, 0.6);
+                builder_ref = PyMistralRsBuilder::top_p(builder_ref, 0.95);
+                builder_ref = PyMistralRsBuilder::top_k(builder_ref, 40);
+                builder_ref = PyMistralRsBuilder::system_prompt(builder_ref, "system".to_string());
+                builder_ref = PyMistralRsBuilder::isq_type(builder_ref, "q4k".to_string());
+                builder_ref = PyMistralRsBuilder::paged_attention(builder_ref, true);
+                let _builder_ref = PyMistralRsBuilder::logging(builder_ref, true);
+            }
+
+            let builder_ref = builder.borrow(py);
+            assert_eq!(builder_ref.repo_id.as_deref(), Some("mistral/model"));
+            assert_eq!(builder_ref.revision.as_deref(), Some("main"));
+            assert_eq!(builder_ref.model_type.as_deref(), Some("vision"));
+            assert_eq!(builder_ref.model_dir.as_deref(), Some(TEST_MODEL_DIR));
+            assert_eq!(
+                builder_ref.gguf_files.as_deref(),
+                Some(&["part-1.gguf".to_string()][..])
+            );
+            assert_eq!(builder_ref.tokenizer.as_deref(), Some("tokenizer.json"));
+            assert_eq!(builder_ref.chat_template.as_deref(), Some("chat template"));
+            assert_eq!(builder_ref.max_tokens, Some(128));
+            assert_eq!(builder_ref.temperature, Some(0.6));
+            assert_eq!(builder_ref.top_p, Some(0.95));
+            assert_eq!(builder_ref.top_k, Some(40));
+            assert_eq!(builder_ref.system_prompt.as_deref(), Some("system"));
+            assert_eq!(builder_ref.isq_type.as_deref(), Some("q4k"));
+            assert_eq!(builder_ref.paged_attention, Some(true));
+            assert_eq!(builder_ref.logging, Some(true));
+        });
+    }
+
+    #[test]
+    fn parsing_helpers_cover_supported_sources_and_errors() {
+        assert!(matches!(
+            parse_model_type(None).expect("default model type should parse"),
+            ModelType::Auto
+        ));
+        assert!(matches!(
+            parse_model_type(Some("text")).expect("text should parse"),
+            ModelType::Text
+        ));
+        assert!(
+            parse_model_type(Some("bad"))
+                .expect_err("invalid model type should fail")
+                .to_string()
+                .contains("invalid model_type")
+        );
+
+        let gguf = parse_model_source(
+            Some(TEST_MODEL_DIR.to_string()),
+            Some(vec!["part-1.gguf".to_string()]),
+            Some("tokenizer.json".to_string()),
+            Some("chat template".to_string()),
+            None,
+            None,
+            None,
+        )
+        .expect("gguf source should parse");
+        assert!(matches!(gguf, MistralModelSource::Gguf { .. }));
+
+        let hf = parse_model_source(
+            None,
+            None,
+            None,
+            None,
+            Some("mistral/model".to_string()),
+            Some("main".to_string()),
+            Some("vision".to_string()),
+        )
+        .expect("huggingface source should parse");
+        assert!(matches!(hf, MistralModelSource::HuggingFace { .. }));
+
+        let err = parse_model_source(
+            Some(TEST_MODEL_DIR.to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect_err("incomplete gguf config should fail");
+        assert!(err.to_string().contains("for GGUF source"));
+
+        assert!(parse_isq_type("q4k").is_ok());
+        assert!(
+            parse_isq_type("invalid")
+                .expect_err("invalid isq type should fail")
+                .to_string()
+                .contains("invalid isq_type")
+        );
+    }
+
+    #[test]
+    fn backend_build_info_reports_current_backend_flags() {
+        init_python();
+        Python::attach(|py| {
+            let info = backend_build_info(py).expect("build info should succeed");
+            let info = info.bind(py);
+            assert_eq!(
+                info.get_item("backend")
+                    .expect("backend key should exist")
+                    .expect("backend value should exist")
+                    .extract::<String>()
+                    .expect("backend should be a string"),
+                "mistral-rs"
+            );
+            assert!(
+                info.get_item("cuda")
+                    .expect("cuda key should exist")
+                    .expect("cuda value should exist")
+                    .extract::<bool>()
+                    .expect("cuda should be bool")
+                    == cfg!(feature = "cuda")
+            );
+        });
+    }
+}

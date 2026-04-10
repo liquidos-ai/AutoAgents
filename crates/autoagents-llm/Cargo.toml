@@ -76,3 +76,4 @@ bytes = { workspace = true }
 http = "1.2"
 http-body-util = "0.1"
 hyper = "1.5"
+httpmock = { workspace = true }

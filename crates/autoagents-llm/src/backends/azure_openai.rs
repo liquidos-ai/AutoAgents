@@ -655,6 +655,24 @@ mod tests {
     use super::*;
     use crate::chat::{ChatMessage, ChatRole, MessageType, Tool};
     use crate::{FunctionCall, ToolCall};
+    use httpmock::{Method::POST, MockServer};
+    use serde_json::json;
+
+    fn sample_tool() -> Tool {
+        Tool {
+            tool_type: "function".to_string(),
+            function: crate::chat::FunctionTool {
+                name: "lookup".to_string(),
+                description: "desc".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "q": { "type": "string" }
+                    }
+                }),
+            },
+        }
+    }
 
     #[test]
     fn test_azure_chat_message_from_text() {
@@ -756,5 +774,174 @@ mod tests {
         };
         let serialized = serde_json::to_value(&tool).unwrap();
         assert_eq!(serialized.get("type"), Some(&serde_json::json!("function")));
+    }
+
+    #[tokio::test]
+    async fn test_azure_chat_with_tools_and_embed_use_mock_server() {
+        let server = MockServer::start();
+        let endpoint = server.base_url();
+        let provider = AzureOpenAI::new(
+            "key",
+            "2024-01-01",
+            "dep-123",
+            endpoint.clone(),
+            Some("gpt-4o-mini".to_string()),
+            Some(128),
+            Some(0.2),
+            Some(5),
+            Some(0.9),
+            Some(16),
+            Some("float".to_string()),
+            Some(3),
+            Some(ToolChoice::Auto),
+            Some("medium".to_string()),
+        );
+
+        let chat_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/openai/deployments/dep-123/chat/completions")
+                .header("api-key", "key")
+                .body_includes("\"reasoning_effort\":\"medium\"")
+                .body_includes("\"tool_choice\":\"auto\"")
+                .body_includes("\"response_format\"");
+            then.status(200).json_body(json!({
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "azure reply"
+                    }
+                }],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 2,
+                    "total_tokens": 3
+                }
+            }));
+        });
+
+        let messages = vec![ChatMessage::user().content("hello").build()];
+        let response = provider
+            .chat_with_tools(
+                &messages,
+                Some(&[sample_tool()]),
+                Some(StructuredOutputFormat {
+                    name: "Answer".to_string(),
+                    description: None,
+                    schema: Some(json!({
+                        "type": "object",
+                        "properties": {
+                            "answer": { "type": "string" }
+                        }
+                    })),
+                    strict: Some(true),
+                }),
+            )
+            .await
+            .expect("azure chat should succeed");
+        assert_eq!(response.text().as_deref(), Some("azure reply"));
+        chat_mock.assert();
+
+        let embed_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/openai/deployments/dep-123/embeddings")
+                .header("api-key", "key")
+                .body_includes("\"encoding_format\":\"float\"")
+                .body_includes("\"dimensions\":3");
+            then.status(200).json_body(json!({
+                "data": [
+                    { "embedding": [0.1, 0.2, 0.3] }
+                ]
+            }));
+        });
+
+        let embeddings = provider
+            .embed(vec!["hello".to_string()])
+            .await
+            .expect("embeddings should succeed");
+        assert_eq!(embeddings, vec![vec![0.1, 0.2, 0.3]]);
+        embed_mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_azure_chat_returns_error_for_status_and_invalid_json() {
+        let server = MockServer::start();
+        let provider = AzureOpenAI::new(
+            "key",
+            "2024-01-01",
+            "dep-123",
+            server.base_url(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let messages = vec![ChatMessage::user().content("hello").build()];
+
+        let error_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/openai/deployments/dep-123/chat/completions");
+            then.status(500).body("azure down");
+        });
+
+        let err = provider
+            .chat_with_tools(&messages, None, None)
+            .await
+            .expect_err("error status should fail");
+        match err {
+            LLMError::ResponseFormatError {
+                message,
+                raw_response,
+            } => {
+                assert!(message.contains("returned error status"));
+                assert_eq!(raw_response, "azure down");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        error_mock.assert();
+
+        let server = MockServer::start();
+        let provider = AzureOpenAI::new(
+            "key",
+            "2024-01-01",
+            "dep-123",
+            server.base_url(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let invalid_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/openai/deployments/dep-123/chat/completions");
+            then.status(200).body("not-json");
+        });
+
+        let err = provider
+            .chat_with_tools(&messages, None, None)
+            .await
+            .expect_err("invalid json should fail");
+        match err {
+            LLMError::ResponseFormatError {
+                message,
+                raw_response,
+            } => {
+                assert!(message.contains("Failed to decode"));
+                assert_eq!(raw_response, "not-json");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        invalid_mock.assert();
     }
 }

@@ -12,8 +12,9 @@ crate-type = ["cdylib"]
 
 [features]
 default = []
+extension-module = ["pyo3/extension-module"]
 metal = ["autoagents-llamacpp-py-core/metal"]
 
 [dependencies]
 autoagents-llamacpp-py-core = { path = "../autoagents-llamacpp-core" }
-pyo3 = { version = "0.28.2", features = ["extension-module", "abi3-py39"] }
+pyo3 = { version = "0.28.2", features = ["abi3-py39"] }

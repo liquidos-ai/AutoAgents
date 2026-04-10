@@ -2114,7 +2114,7 @@ fn generate_mtmd_text(
     let mut batch = LlamaBatch::new(n_ctx as usize, 1);
     let mut n_cur = n_past;
     let max_tokens_total = n_cur + max_tokens as i32;
-    let mut generated_text = String::new();
+    let mut generated_text = String::default();
     let mut completion_tokens = 0u32;
     let mut decoder = encoding_rs::UTF_8.new_decoder();
     let mut finish_reason = "stop".to_string();
@@ -2212,7 +2212,7 @@ fn generate_text(
     }
 
     let mut sampler = build_sampler(model, config, use_json_grammar, temperature, None)?;
-    let mut generated_text = String::new();
+    let mut generated_text = String::default();
     let mut completion_tokens = 0_u32;
     let mut decoder = encoding_rs::UTF_8.new_decoder();
 
@@ -2421,7 +2421,9 @@ fn extract_first_json_object(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const TEST_GGUF_MODEL_PATH: &str = "fixtures/model.gguf";
     use autoagents_llm::chat::ImageMime;
+    use serde_json::json;
 
     fn chunk_count(total: usize, batch: usize) -> usize {
         if batch == 0 {
@@ -2811,5 +2813,358 @@ mod tests {
             err.to_string()
                 .contains("does not support image URL or PDF inputs")
         );
+    }
+
+    #[test]
+    fn test_string_or_json_and_single_stream_response_helpers() {
+        assert_eq!(StringOrJson::default().into_string(), "");
+        assert_eq!(StringOrJson::Json(Value::Null).into_string(), "");
+        assert_eq!(
+            StringOrJson::Json(json!({"value": 7})).into_non_empty_string(),
+            Some("{\"value\":7}".to_string())
+        );
+        assert_eq!(
+            StringOrJson::String(String::default()).into_non_empty_string(),
+            None
+        );
+        assert_eq!(
+            default_call_type_value().into_string(),
+            autoagents_llm::default_call_type()
+        );
+
+        let usage = LlamaCppProvider::build_usage(2, 3);
+        assert_eq!(usage.prompt_tokens, 2);
+        assert_eq!(usage.completion_tokens, 3);
+        assert_eq!(usage.total_tokens, 5);
+
+        let response = single_stream_response(
+            Some("answer".to_string()),
+            Some("plan".to_string()),
+            Some(vec![ToolCall {
+                id: "call_1".to_string(),
+                call_type: "function".to_string(),
+                function: FunctionCall {
+                    name: "lookup".to_string(),
+                    arguments: "{}".to_string(),
+                },
+            }]),
+            Some(usage),
+        );
+        assert_eq!(response.choices.len(), 1);
+        assert_eq!(response.choices[0].delta.content.as_deref(), Some("answer"));
+        assert_eq!(
+            response.choices[0].delta.reasoning_content.as_deref(),
+            Some("plan")
+        );
+        let tool_calls = response.choices[0]
+            .delta
+            .tool_calls
+            .as_ref()
+            .expect("tool calls should be present");
+        assert_eq!(tool_calls[0].id, "call_1");
+        assert_eq!(tool_calls[0].function.name, "lookup");
+        assert_eq!(
+            response
+                .usage
+                .expect("usage should be present")
+                .total_tokens,
+            5
+        );
+    }
+
+    #[test]
+    fn test_struct_stream_helpers_cover_content_and_tool_updates() {
+        let mut outputs = Vec::new();
+        push_struct_content_and_reasoning(
+            Some("answer".to_string()),
+            Some("plan".to_string()),
+            &mut outputs,
+        );
+        assert_eq!(outputs.len(), 2);
+        assert!(matches!(
+            &outputs[0],
+            Ok(response)
+                if response.choices[0].delta.content.as_deref() == Some("answer")
+                    && response.choices[0].delta.reasoning_content.is_none()
+        ));
+        assert!(matches!(
+            &outputs[1],
+            Ok(response)
+                if response.choices[0].delta.content.is_none()
+                    && response.choices[0].delta.reasoning_content.as_deref() == Some("plan")
+        ));
+
+        let mut empty_outputs = Vec::new();
+        push_struct_content_and_reasoning(
+            Some(String::default()),
+            Some(String::default()),
+            &mut empty_outputs,
+        );
+        assert!(empty_outputs.is_empty());
+
+        let mut tool_states = HashMap::new();
+        let mut tool_outputs = Vec::new();
+        push_struct_tool_call_updates(
+            vec![
+                OpenAIToolCallDelta {
+                    index: Some(0),
+                    id: Some("call_1".to_string()),
+                    call_type: None,
+                    function: Some(OpenAIFunctionDelta {
+                        name: Some("lookup".to_string()),
+                        arguments: StringOrJson::String("{\"q\":\"".to_string()),
+                    }),
+                },
+                OpenAIToolCallDelta {
+                    index: Some(0),
+                    id: None,
+                    call_type: Some("function".to_string()),
+                    function: Some(OpenAIFunctionDelta {
+                        name: None,
+                        arguments: StringOrJson::String("rust\"}".to_string()),
+                    }),
+                },
+                OpenAIToolCallDelta {
+                    index: Some(1),
+                    id: None,
+                    call_type: None,
+                    function: None,
+                },
+            ],
+            &mut tool_states,
+            &mut tool_outputs,
+        );
+
+        assert_eq!(tool_outputs.len(), 1);
+        let tool_calls = tool_outputs[0]
+            .as_ref()
+            .expect("tool update should succeed")
+            .choices[0]
+            .delta
+            .tool_calls
+            .as_ref()
+            .expect("tool calls should be present");
+        assert_eq!(tool_calls.len(), 2);
+        assert_eq!(tool_calls[0].id, "call_1");
+        assert_eq!(tool_calls[0].function.name, "lookup");
+        assert_eq!(tool_calls[0].function.arguments, "{\"q\":\"");
+        assert_eq!(tool_calls[1].id, "call_1");
+        assert_eq!(tool_calls[1].function.name, "lookup");
+        assert_eq!(tool_calls[1].function.arguments, "{\"q\":\"rust\"}");
+        assert_eq!(tool_states[&0].arguments, "{\"q\":\"rust\"}");
+    }
+
+    #[test]
+    fn test_map_struct_stream_event_handles_tokens_usage_and_errors() {
+        let mut tool_states = HashMap::new();
+        assert!(
+            map_struct_stream_event(Ok(StreamEvent::Token(String::default())), &mut tool_states,)
+                .is_empty()
+        );
+
+        let token_outputs = map_struct_stream_event(
+            Ok(StreamEvent::Token("alpha".to_string())),
+            &mut tool_states,
+        );
+        assert_eq!(token_outputs.len(), 1);
+        assert!(matches!(
+            &token_outputs[0],
+            Ok(response) if response.choices[0].delta.content.as_deref() == Some("alpha")
+        ));
+
+        let delta = json!({
+            "content": "beta",
+            "reasoning_content": "think",
+            "tool_calls": [{
+                "index": 0,
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "lookup",
+                    "arguments": "{\"q\":\"rust\"}"
+                }
+            }]
+        })
+        .to_string();
+        let delta_outputs =
+            map_struct_stream_event(Ok(StreamEvent::Delta(delta)), &mut tool_states);
+        assert_eq!(delta_outputs.len(), 3);
+        assert!(matches!(
+            &delta_outputs[0],
+            Ok(response) if response.choices[0].delta.content.as_deref() == Some("beta")
+        ));
+        assert!(matches!(
+            &delta_outputs[1],
+            Ok(response)
+                if response.choices[0].delta.reasoning_content.as_deref() == Some("think")
+        ));
+        let struct_tool_calls = delta_outputs[2]
+            .as_ref()
+            .expect("tool call update should succeed")
+            .choices[0]
+            .delta
+            .tool_calls
+            .as_ref()
+            .expect("tool calls should be present");
+        assert_eq!(struct_tool_calls[0].function.name, "lookup");
+
+        let usage_outputs = map_struct_stream_event(
+            Ok(StreamEvent::Usage(LlamaCppProvider::build_usage(1, 2))),
+            &mut tool_states,
+        );
+        assert_eq!(usage_outputs.len(), 1);
+        assert_eq!(
+            usage_outputs[0]
+                .as_ref()
+                .expect("usage event should succeed")
+                .usage
+                .as_ref()
+                .expect("usage should be present")
+                .total_tokens,
+            3
+        );
+        assert!(
+            map_struct_stream_event(
+                Ok(StreamEvent::Done {
+                    stop_reason: "end_turn".to_string(),
+                }),
+                &mut tool_states,
+            )
+            .is_empty()
+        );
+
+        let invalid =
+            map_struct_stream_event(Ok(StreamEvent::Delta("{bad".to_string())), &mut tool_states);
+        assert!(matches!(invalid.as_slice(), [Err(LLMError::JsonError(_))]));
+        let generic =
+            map_struct_stream_event(Err(LLMError::Generic("boom".to_string())), &mut tool_states);
+        assert!(
+            matches!(generic.as_slice(), [Err(LLMError::Generic(message))] if message == "boom")
+        );
+    }
+
+    #[test]
+    fn test_tool_stream_mapping_covers_deltas_usage_done_and_completions() {
+        let mut tool_states = HashMap::new();
+        let delta = json!({
+            "content": "answer",
+            "reasoning_content": "plan",
+            "tool_calls": [{
+                "index": 0,
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "lookup",
+                    "arguments": "{\"q\":\"rust\"}"
+                }
+            }]
+        })
+        .to_string();
+        let outputs = map_tool_stream_event(Ok(StreamEvent::Delta(delta)), &mut tool_states);
+        assert_eq!(outputs.len(), 4);
+        assert!(matches!(&outputs[0], Ok(StreamChunk::Text(text)) if text == "answer"));
+        assert!(matches!(
+            &outputs[1],
+            Ok(StreamChunk::ReasoningContent(text)) if text == "plan"
+        ));
+        assert!(matches!(
+            &outputs[2],
+            Ok(StreamChunk::ToolUseStart { index, id, name })
+                if *index == 0 && id == "call_1" && name == "lookup"
+        ));
+        assert!(matches!(
+            &outputs[3],
+            Ok(StreamChunk::ToolUseInputDelta { index, partial_json })
+                if *index == 0 && partial_json == "{\"q\":\"rust\"}"
+        ));
+
+        let usage_outputs = map_tool_stream_event(
+            Ok(StreamEvent::Usage(LlamaCppProvider::build_usage(1, 2))),
+            &mut tool_states,
+        );
+        assert!(matches!(
+            usage_outputs.as_slice(),
+            [Ok(StreamChunk::Usage(usage))] if usage.total_tokens == 3
+        ));
+
+        let done_outputs = map_tool_stream_event(
+            Ok(StreamEvent::Done {
+                stop_reason: "tool_use".to_string(),
+            }),
+            &mut tool_states,
+        );
+        assert_eq!(done_outputs.len(), 2);
+        assert!(matches!(
+            &done_outputs[0],
+            Ok(StreamChunk::ToolUseComplete { index, tool_call })
+                if *index == 0
+                    && tool_call.id == "call_1"
+                    && tool_call.function.name == "lookup"
+                    && tool_call.function.arguments == "{\"q\":\"rust\"}"
+        ));
+        assert!(matches!(
+            &done_outputs[1],
+            Ok(StreamChunk::Done { stop_reason }) if stop_reason == "tool_use"
+        ));
+        assert!(tool_states.is_empty());
+
+        assert!(
+            map_tool_stream_event(
+                Ok(StreamEvent::Token(String::default())),
+                &mut HashMap::new(),
+            )
+            .is_empty()
+        );
+        let invalid = map_tool_stream_event(
+            Ok(StreamEvent::Delta("{bad".to_string())),
+            &mut HashMap::new(),
+        );
+        assert!(matches!(invalid.as_slice(), [Err(LLMError::JsonError(_))]));
+    }
+
+    #[test]
+    fn test_json_extraction_and_grammar_helpers_cover_edge_cases() {
+        assert!(extract_json_payload("").is_none());
+        assert_eq!(
+            extract_from_code_fence("```json\n{\"answer\":1}\n```"),
+            Some("{\"answer\":1}".to_string())
+        );
+        assert!(extract_from_code_fence("```text\n{\"answer\":1}\n```").is_none());
+        assert_eq!(
+            extract_first_json_object("prefix {\"outer\":{\"text\":\"brace } inside\"}} suffix"),
+            Some("{\"outer\":{\"text\":\"brace } inside\"}}".to_string())
+        );
+        assert_eq!(
+            extract_json_payload("leading text {\"answer\": true} trailing text"),
+            Some("{\"answer\": true}".to_string())
+        );
+
+        let (json_schema, grammar) = select_template_schema_and_grammar(false, None, true);
+        assert!(json_schema.is_none());
+        assert_eq!(grammar.as_deref(), Some(JSON_GRAMMAR));
+
+        let schema = StructuredOutputFormat {
+            name: "Answer".to_string(),
+            description: None,
+            schema: Some(json!({
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                    "answer": { "type": "string" }
+                }
+            })),
+            strict: Some(true),
+        };
+        let sanitized = sanitize_chat_template_schema(&schema).expect("schema should exist");
+        assert_eq!(sanitized["additionalProperties"], Value::Bool(true));
+
+        let model_path = resolve_model_path(
+            &ModelSource::Gguf {
+                model_path: TEST_GGUF_MODEL_PATH.to_string(),
+            },
+            &LlamaCppConfig::default(),
+        )
+        .expect("non-empty model path should resolve");
+        assert_eq!(model_path, TEST_GGUF_MODEL_PATH);
     }
 }

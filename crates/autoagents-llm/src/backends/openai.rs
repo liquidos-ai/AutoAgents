@@ -1796,6 +1796,11 @@ mod tests {
     use crate::builder::LLMBuilder;
     use crate::chat::{FunctionTool, ToolChoice};
     use either::Either::Right;
+    use futures::StreamExt;
+    use httpmock::{
+        Method::{GET, POST},
+        MockServer,
+    };
     use serde_json::json;
 
     fn sample_function_tool() -> Tool {
@@ -1813,6 +1818,49 @@ mod tests {
                 }),
             },
         }
+    }
+
+    fn sample_schema() -> StructuredOutputFormat {
+        StructuredOutputFormat {
+            name: "Answer".to_string(),
+            description: Some("Structured answer".to_string()),
+            schema: Some(json!({
+                "type": "object",
+                "properties": {
+                    "answer": { "type": "string" }
+                },
+                "required": ["answer"]
+            })),
+            strict: Some(true),
+        }
+    }
+
+    fn openai_provider(base_url: String, api_mode: OpenAIApiMode) -> OpenAI {
+        OpenAI::new(
+            "key",
+            Some(base_url),
+            Some("gpt-5".to_string()),
+            Some(256),
+            Some(0.2),
+            Some(5),
+            Some(0.8),
+            Some(16),
+            Some("float".to_string()),
+            Some(3),
+            Some(ToolChoice::Auto),
+            Some(true),
+            Some("medium".to_string()),
+            None,
+            api_mode,
+            Some(json!({"seed": 7})),
+            Some(true),
+            Some("high".to_string()),
+            Some("approximate".to_string()),
+            Some("US".to_string()),
+            Some("SF".to_string()),
+            Some("CA".to_string()),
+        )
+        .expect("openai provider should build")
     }
 
     #[test]
@@ -2371,5 +2419,402 @@ mod tests {
         };
 
         assert!(response.tool_calls().is_none());
+    }
+
+    #[test]
+    fn test_build_responses_input_items_support_images_and_reject_pdf() {
+        use crate::chat::ImageMime;
+
+        let provider = openai_provider(
+            "https://example.com/v1".to_string(),
+            OpenAIApiMode::Responses,
+        );
+        let tool_call = ToolCall {
+            id: "call_1".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "lookup".to_string(),
+                arguments: "{\"q\":\"value\"}".to_string(),
+            },
+        };
+        let messages = vec![
+            ChatMessage {
+                role: ChatRole::System,
+                message_type: MessageType::Text,
+                content: "Be precise".to_string(),
+            },
+            ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Image((ImageMime::PNG, vec![1, 2, 3])),
+                content: "caption".to_string(),
+            },
+            ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::ImageURL("https://example.com/image.png".to_string()),
+                content: "describe".to_string(),
+            },
+            ChatMessage {
+                role: ChatRole::Assistant,
+                message_type: MessageType::ToolUse(vec![tool_call.clone()]),
+                content: "calling tool".to_string(),
+            },
+            ChatMessage {
+                role: ChatRole::Tool,
+                message_type: MessageType::ToolResult(vec![tool_call]),
+                content: String::new(),
+            },
+        ];
+
+        let (instructions, input) = provider
+            .build_responses_input_items(&messages)
+            .expect("responses input should build");
+        let serialized = serde_json::to_value(&input).expect("input should serialize");
+        let input = serialized.as_array().expect("input should be array");
+
+        assert_eq!(instructions.as_deref(), Some("Be precise"));
+        assert_eq!(input.len(), 5);
+        assert_eq!(input[0]["role"], json!("user"));
+        assert_eq!(input[0]["content"][0]["text"], json!("caption"));
+        assert!(
+            input[0]["content"][1]["image_url"]
+                .as_str()
+                .expect("inline image should exist")
+                .starts_with("data:image/png;base64,")
+        );
+        assert_eq!(input[1]["content"][0]["text"], json!("describe"));
+        assert_eq!(
+            input[1]["content"][1]["image_url"],
+            json!("https://example.com/image.png")
+        );
+        assert_eq!(input[2]["content"], json!("calling tool"));
+        assert_eq!(input[3]["type"], json!("function_call"));
+        assert_eq!(input[4]["type"], json!("function_call_output"));
+
+        let pdf_messages = vec![ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Pdf(vec![1, 2, 3]),
+            content: "doc".to_string(),
+        }];
+        let err = provider
+            .build_responses_input_items(&pdf_messages)
+            .expect_err("pdf input should be rejected");
+        assert!(
+            err.to_string()
+                .contains("PDF input is not supported by the OpenAI Responses backend")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_responses_chat_stream_and_web_search_use_mock_server() {
+        let server = MockServer::start();
+        let base_url = format!("{}/v1", server.base_url());
+
+        let chat_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/responses")
+                .body_includes("\"stream\":false")
+                .body_includes("\"tools\"")
+                .body_includes("\"tool_choice\":\"auto\"")
+                .body_includes("\"seed\":7");
+            then.status(200).json_body(json!({
+                "output": [
+                    {
+                        "type": "reasoning",
+                        "summary": [{ "text": "plan" }]
+                    },
+                    {
+                        "type": "function_call",
+                        "name": "lookup",
+                        "arguments": "{\"q\":\"value\"}",
+                        "call_id": "call_1"
+                    },
+                    {
+                        "type": "message",
+                        "content": [{ "type": "output_text", "text": "hello responses" }]
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 2,
+                    "completion_tokens": 3,
+                    "total_tokens": 5
+                }
+            }));
+        });
+
+        let provider = openai_provider(base_url.clone(), OpenAIApiMode::Responses);
+        let messages = vec![ChatMessage::user().content("hello").build()];
+        let tools = vec![sample_function_tool()];
+        let response = provider
+            .chat_with_tools(&messages, Some(&tools), Some(sample_schema()))
+            .await
+            .expect("responses chat should succeed");
+        assert_eq!(response.text().as_deref(), Some("hello responses"));
+        assert_eq!(response.thinking().as_deref(), Some("plan"));
+        assert_eq!(
+            response.tool_calls().expect("tool calls should exist")[0]
+                .function
+                .name,
+            "lookup"
+        );
+        chat_mock.assert();
+
+        let stream_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/responses")
+                .body_includes("\"stream\":true");
+            then.status(200)
+                .header("content-type", "text/event-stream")
+                .body(
+                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello \"}\n\n\
+                     data: {\"type\":\"response.reasoning_text.delta\",\"delta\":\"think\"}\n\n\
+                     data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"lookup\",\"arguments\":\"\"}}\n\n\
+                     data: {\"type\":\"response.function_call_arguments.done\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\\\"value\\\"}\"}}\n\n\
+                     data: {\"type\":\"response.done\",\"response\":{\"usage\":{\"input_tokens\":2,\"output_tokens\":3,\"total_tokens\":5}}}\n\n\
+                     data: [DONE]\n\n",
+                );
+        });
+
+        let mut stream = provider
+            .chat_stream_struct(&messages, Some(&tools), Some(sample_schema()))
+            .await
+            .expect("responses stream should build");
+
+        let first = stream
+            .next()
+            .await
+            .expect("text delta should exist")
+            .expect("text delta should be ok");
+        assert_eq!(first.choices[0].delta.content.as_deref(), Some("hello "));
+
+        let second = stream
+            .next()
+            .await
+            .expect("reasoning delta should exist")
+            .expect("reasoning delta should be ok");
+        assert_eq!(
+            second.choices[0].delta.reasoning_content.as_deref(),
+            Some("think")
+        );
+
+        let third = stream
+            .next()
+            .await
+            .expect("tool completion should exist")
+            .expect("tool completion should be ok");
+        assert_eq!(
+            third.choices[0]
+                .delta
+                .tool_calls
+                .as_ref()
+                .expect("tool call")[0]
+                .function
+                .name,
+            "lookup"
+        );
+
+        let fourth = stream
+            .next()
+            .await
+            .expect("usage chunk should exist")
+            .expect("usage chunk should be ok");
+        assert_eq!(
+            fourth.usage.as_ref().map(|usage| usage.total_tokens),
+            Some(5)
+        );
+        assert!(stream.next().await.is_none());
+        stream_mock.assert();
+
+        let web_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/responses")
+                .body_includes("\"web_search_preview\"")
+                .body_includes("\"country\":\"US\"")
+                .body_includes("\"city\":\"SF\"");
+            then.status(200).json_body(json!({
+                "output": [{
+                    "type": "message",
+                    "content": [{ "type": "output_text", "text": "web answer" }]
+                }]
+            }));
+        });
+
+        let response = provider
+            .chat_with_web_search("current news".to_string())
+            .await
+            .expect("web search request should succeed");
+        assert_eq!(response.text().as_deref(), Some("web answer"));
+        web_mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_responses_error_status_invalid_json_list_models_and_embed() {
+        let server = MockServer::start();
+        let base_url = format!("{}/v1", server.base_url());
+        let provider = openai_provider(base_url.clone(), OpenAIApiMode::Responses);
+        let messages = vec![ChatMessage::user().content("hello").build()];
+
+        let error_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/responses")
+                .body_includes("\"stream\":false");
+            then.status(502).body("bad gateway");
+        });
+        let err = provider
+            .chat_with_tools(&messages, None, None)
+            .await
+            .expect_err("error status should fail");
+        match err {
+            LLMError::ResponseFormatError {
+                message,
+                raw_response,
+            } => {
+                assert!(message.contains("returned error status"));
+                assert_eq!(raw_response, "bad gateway");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        error_mock.assert();
+
+        let server = MockServer::start();
+        let base_url = format!("{}/v1", server.base_url());
+        let provider = openai_provider(base_url.clone(), OpenAIApiMode::Responses);
+        let invalid_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/responses")
+                .body_includes("\"stream\":false");
+            then.status(200).body("not-json");
+        });
+        let err = provider
+            .chat_with_tools(&messages, None, None)
+            .await
+            .expect_err("invalid json should fail");
+        match err {
+            LLMError::ResponseFormatError {
+                message,
+                raw_response,
+            } => {
+                assert!(message.contains("Failed to decode"));
+                assert_eq!(raw_response, "not-json");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        invalid_mock.assert();
+
+        let models_mock = server.mock(|when, then| {
+            when.method(GET).path("/v1/models");
+            then.status(200).json_body(json!({
+                "data": [
+                    { "id": "gpt-4.1", "created": 1 },
+                    { "id": "gpt-4o-mini", "created": 2 }
+                ]
+            }));
+        });
+        let models = provider
+            .list_models(None)
+            .await
+            .expect("model list should succeed");
+        assert_eq!(
+            models.get_models(),
+            vec!["gpt-4.1".to_string(), "gpt-4o-mini".to_string()]
+        );
+        models_mock.assert();
+
+        let embed_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/embeddings")
+                .body_includes("\"encoding_format\":\"float\"")
+                .body_includes("\"dimensions\":3");
+            then.status(200).json_body(json!({
+                "data": [
+                    { "embedding": [0.1, 0.2, 0.3] },
+                    { "embedding": [0.4, 0.5, 0.6] }
+                ]
+            }));
+        });
+        let embeddings = provider
+            .embed(vec!["alpha".to_string(), "beta".to_string()])
+            .await
+            .expect("embeddings should succeed");
+        assert_eq!(embeddings.len(), 2);
+        assert_eq!(embeddings[0], vec![0.1, 0.2, 0.3]);
+        embed_mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_legacy_chat_and_stream_use_mock_server() {
+        let server = MockServer::start();
+        let base_url = format!("{}/v1", server.base_url());
+        let provider = openai_provider(base_url.clone(), OpenAIApiMode::ChatCompletions);
+        let messages = vec![ChatMessage::user().content("hello").build()];
+        let tools = vec![sample_function_tool()];
+
+        let chat_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/chat/completions")
+                .body_includes("\"stream\":false")
+                .body_includes("\"response_format\"");
+            then.status(200).json_body(json!({
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "legacy reply",
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "lookup",
+                                "arguments": "{\"q\":\"value\"}"
+                            }
+                        }]
+                    }
+                }],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 2,
+                    "total_tokens": 3
+                }
+            }));
+        });
+
+        let response = provider
+            .chat_with_tools(&messages, Some(&tools), Some(sample_schema()))
+            .await
+            .expect("legacy chat should succeed");
+        assert_eq!(response.text().as_deref(), Some("legacy reply"));
+        assert_eq!(
+            response.tool_calls().expect("legacy tool calls")[0]
+                .function
+                .name,
+            "lookup"
+        );
+        chat_mock.assert();
+
+        let stream_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/chat/completions")
+                .body_includes("\"stream\":true");
+            then.status(200)
+                .header("content-type", "text/event-stream")
+                .body(
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"legacy stream\"}}]}\n\n\
+                     data: [DONE]\n\n",
+                );
+        });
+
+        let mut stream = provider
+            .chat_stream_struct(&messages, Some(&tools), Some(sample_schema()))
+            .await
+            .expect("legacy stream should build");
+        let first = stream
+            .next()
+            .await
+            .expect("legacy stream chunk should exist")
+            .expect("legacy stream chunk should be ok");
+        assert_eq!(
+            first.choices[0].delta.content.as_deref(),
+            Some("legacy stream")
+        );
+        assert!(stream.next().await.is_none());
+        stream_mock.assert();
     }
 }

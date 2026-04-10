@@ -318,3 +318,170 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use autoagents::llm::chat::{ChatProvider, ChatResponse, StructuredOutputFormat, Tool, Usage};
+    use autoagents::llm::completion::{CompletionProvider, CompletionRequest, CompletionResponse};
+    use autoagents::llm::embedding::EmbeddingProvider;
+    use autoagents::llm::error::LLMError;
+    use autoagents::llm::models::ModelsProvider;
+    use autoagents::llm::{ToolCall, async_trait};
+    use autoagents::protocol::ToolCallResult;
+    use serde_json::json;
+    use std::fmt;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Debug)]
+    struct MockChatResponse {
+        text: String,
+    }
+
+    impl fmt::Display for MockChatResponse {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(&self.text)
+        }
+    }
+
+    impl ChatResponse for MockChatResponse {
+        fn text(&self) -> Option<String> {
+            Some(self.text.clone())
+        }
+
+        fn tool_calls(&self) -> Option<Vec<ToolCall>> {
+            None
+        }
+
+        fn usage(&self) -> Option<Usage> {
+            None
+        }
+    }
+
+    struct CountingLLM {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl ChatProvider for CountingLLM {
+        async fn chat_with_tools(
+            &self,
+            messages: &[autoagents::llm::chat::ChatMessage],
+            _tools: Option<&[Tool]>,
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<Box<dyn ChatResponse>, LLMError> {
+            let call_number = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+            let prompt = messages
+                .last()
+                .map(|message| message.content.clone())
+                .unwrap_or_default();
+            Ok(Box::new(MockChatResponse {
+                text: format!("response-{call_number}:{prompt}"),
+            }))
+        }
+    }
+
+    #[async_trait]
+    impl CompletionProvider for CountingLLM {
+        async fn complete(
+            &self,
+            _req: &CompletionRequest,
+            _json_schema: Option<StructuredOutputFormat>,
+        ) -> Result<CompletionResponse, LLMError> {
+            Ok(CompletionResponse {
+                text: "completion".to_string(),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl EmbeddingProvider for CountingLLM {
+        async fn embed(&self, input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
+            Ok(input.into_iter().map(|_| vec![1.0, 0.0]).collect())
+        }
+    }
+
+    #[async_trait]
+    impl ModelsProvider for CountingLLM {}
+
+    impl LLMProvider for CountingLLM {}
+
+    fn cached_pipeline(counter: Arc<AtomicUsize>) -> Arc<dyn LLMProvider> {
+        let base: Arc<dyn LLMProvider> = Arc::new(CountingLLM { calls: counter });
+        PipelineBuilder::new(base)
+            .add_layer(CacheLayer::new(CacheConfig {
+                chat_key_mode: ChatCacheKeyMode::UserPromptOnly,
+                ttl: Some(Duration::from_secs(3600)),
+                max_size: Some(64),
+                cache_completions: true,
+                cache_embeddings: true,
+                cache_streaming: true,
+            }))
+            .add_layer(RetryLayer::new(RetryConfig {
+                max_attempts: 2,
+                initial_backoff: Duration::from_millis(1),
+                ..RetryConfig::default()
+            }))
+            .build()
+    }
+
+    #[tokio::test]
+    async fn pipeline_cache_scenarios_hit_cache_and_expire_after_ttl() {
+        let cached_calls = Arc::new(AtomicUsize::new(0));
+        let llm = cached_pipeline(Arc::clone(&cached_calls));
+
+        scenario_cache_hit_miss(Arc::clone(&llm))
+            .await
+            .expect("cache hit/miss scenario should succeed");
+        assert_eq!(cached_calls.load(Ordering::SeqCst), 1);
+
+        scenario_independent_entries(Arc::clone(&llm))
+            .await
+            .expect("independent entries scenario should succeed");
+        assert_eq!(cached_calls.load(Ordering::SeqCst), 4);
+
+        scenario_cache_hit_miss(Arc::clone(&llm))
+            .await
+            .expect("replaying the same query should succeed");
+        assert_eq!(cached_calls.load(Ordering::SeqCst), 4);
+
+        let ttl_calls = Arc::new(AtomicUsize::new(0));
+        let ttl_base: Arc<dyn LLMProvider> = Arc::new(CountingLLM {
+            calls: Arc::clone(&ttl_calls),
+        });
+        scenario_ttl_expiry(ttl_base)
+            .await
+            .expect("ttl scenario should succeed");
+        assert_eq!(ttl_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn pipeline_tool_and_output_helpers_cover_success_and_fallback_paths() {
+        let result = Add
+            .execute(json!({"left": 17, "right": 25}))
+            .await
+            .expect("add tool should succeed");
+        assert_eq!(result, json!(42));
+
+        let parsed = CalcOutput::from(ReActAgentOutput {
+            response: r#"{"result":42,"explanation":"used tool"}"#.to_string(),
+            tool_calls: Vec::new(),
+            done: true,
+        });
+        assert_eq!(parsed.result, 42);
+        assert_eq!(parsed.explanation, "used tool");
+
+        let fallback = CalcOutput::from(ReActAgentOutput {
+            response: "plain answer".to_string(),
+            tool_calls: vec![ToolCallResult {
+                tool_name: "Add".to_string(),
+                success: true,
+                arguments: json!({"left": 17, "right": 25}),
+                result: json!(42),
+            }],
+            done: true,
+        });
+        assert_eq!(fallback.result, 42);
+        assert_eq!(fallback.explanation, "plain answer");
+    }
+}

@@ -129,3 +129,40 @@ where
     // streaming internals run cooperatively instead of on a detached executor.
     futures::executor::block_on(future)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::StreamExt;
+
+    #[tokio::test]
+    async fn receiver_into_stream_yields_messages_in_order() {
+        let (tx, rx) = channel(2);
+        tx.send(1).await.expect("send first message");
+        tx.send(2).await.expect("send second message");
+        drop(tx);
+
+        let values: Vec<_> = receiver_into_stream(rx).collect().await;
+        assert_eq!(values, vec![1, 2]);
+    }
+
+    #[tokio::test]
+    async fn spawn_future_returns_joinhandle_output() {
+        let handle = spawn_future(async { 7usize });
+
+        assert_eq!(handle.await.expect("task joins"), 7);
+    }
+
+    #[tokio::test]
+    async fn stream_from_producer_forwards_background_values() {
+        let (tx, rx) = channel(3);
+        let stream = stream_from_producer(rx, async move {
+            for value in [1, 2, 3] {
+                tx.send(value).await.expect("send produced value");
+            }
+        });
+
+        let values: Vec<_> = stream.collect().await;
+        assert_eq!(values, vec![1, 2, 3]);
+    }
+}

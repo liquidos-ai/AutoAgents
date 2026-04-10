@@ -127,3 +127,68 @@ pub struct RedactionConfig {
     pub redact_tool_arguments: bool,
     pub redact_tool_results: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn telemetry_config_new_uses_expected_defaults() {
+        let config = TelemetryConfig::new("autoagents-test");
+
+        assert_eq!(config.service_name, "autoagents-test");
+        assert!(config.service_version.is_none());
+        assert!(config.environment.is_none());
+        assert!(config.runtime_id.is_none());
+        assert!(config.metrics_enabled);
+        assert!(config.install_tracing_subscriber);
+        assert!(!config.exporter.stdout);
+        assert!(config.exporter.otlp.is_none());
+    }
+
+    #[test]
+    fn telemetry_config_default_uses_autoagents_service_name() {
+        let config = TelemetryConfig::default();
+
+        assert_eq!(config.service_name, "autoagents");
+        assert!(config.runtime_id.is_none());
+    }
+
+    #[test]
+    fn telemetry_config_with_runtime_id_sets_runtime_id() {
+        let runtime_id = RuntimeID::new_v4();
+        let config = TelemetryConfig::new("autoagents-test").with_runtime_id(runtime_id);
+
+        assert_eq!(config.runtime_id, Some(runtime_id));
+    }
+
+    #[test]
+    fn supporting_config_defaults_are_stable() {
+        let batch = SpanBatchConfig::default();
+        let exporter = ExporterConfig::default();
+        let redaction = RedactionConfig::default();
+        let otlp = OtlpConfig::new("https://otel.example/v1/traces");
+
+        assert_eq!(batch.max_queue_size, 2048);
+        assert_eq!(batch.max_export_batch_size, 512);
+        assert_eq!(batch.scheduled_delay, std::time::Duration::from_secs(5));
+        assert_eq!(batch.max_export_timeout, std::time::Duration::from_secs(30));
+        assert_eq!(batch.max_concurrent_exports, 1);
+
+        assert!(exporter.otlp.is_none());
+        assert!(!exporter.stdout);
+
+        assert!(!redaction.redact_task_inputs);
+        assert!(!redaction.redact_task_outputs);
+        assert!(!redaction.redact_tool_arguments);
+        assert!(!redaction.redact_tool_results);
+
+        assert_eq!(
+            otlp.endpoint.as_deref(),
+            Some("https://otel.example/v1/traces")
+        );
+        assert!(matches!(otlp.protocol, OtlpProtocol::HttpBinary));
+        assert!(otlp.headers.is_empty());
+        assert!(!otlp.debug_http);
+    }
+}

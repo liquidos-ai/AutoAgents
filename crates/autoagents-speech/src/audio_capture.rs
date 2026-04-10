@@ -568,3 +568,219 @@ fn normalize_audio(samples: &mut [f32]) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hound::{SampleFormat, WavSpec, WavWriter};
+    use tempfile::tempdir;
+
+    fn write_i16_wav(
+        path: &Path,
+        sample_rate: u32,
+        channels: u16,
+        samples: &[i16],
+    ) -> Result<(), hound::Error> {
+        let spec = WavSpec {
+            channels,
+            sample_rate,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+        let mut writer = WavWriter::create(path, spec)?;
+        for sample in samples {
+            writer.write_sample(*sample)?;
+        }
+        writer.finalize()
+    }
+
+    fn write_i32_wav(
+        path: &Path,
+        sample_rate: u32,
+        channels: u16,
+        samples: &[i32],
+    ) -> Result<(), hound::Error> {
+        let spec = WavSpec {
+            channels,
+            sample_rate,
+            bits_per_sample: 32,
+            sample_format: SampleFormat::Int,
+        };
+        let mut writer = WavWriter::create(path, spec)?;
+        for sample in samples {
+            writer.write_sample(*sample)?;
+        }
+        writer.finalize()
+    }
+
+    fn write_f32_wav(
+        path: &Path,
+        sample_rate: u32,
+        channels: u16,
+        samples: &[f32],
+    ) -> Result<(), hound::Error> {
+        let spec = WavSpec {
+            channels,
+            sample_rate,
+            bits_per_sample: 32,
+            sample_format: SampleFormat::Float,
+        };
+        let mut writer = WavWriter::create(path, spec)?;
+        for sample in samples {
+            writer.write_sample(*sample)?;
+        }
+        writer.finalize()
+    }
+
+    #[test]
+    fn audio_capture_config_helpers_round_trip() {
+        let config = AudioCaptureConfig::new(22_050, 2).with_normalize(false);
+        assert_eq!(config.target_sample_rate(), 22_050);
+        assert_eq!(config.target_channels(), 2);
+        assert!(!config.normalize());
+
+        let default = AudioCaptureConfig::default();
+        assert_eq!(default.target_sample_rate(), 16_000);
+        assert_eq!(default.target_channels(), 1);
+        assert!(default.normalize());
+    }
+
+    #[test]
+    fn read_wav_and_read_audio_dispatch_for_i16() {
+        let dir = tempdir().expect("tempdir should build");
+        let path = dir.path().join("stereo.wav");
+        write_i16_wav(
+            &path,
+            8_000,
+            2,
+            &[i16::MIN / 2, i16::MAX / 2, 0, i16::MAX / 4],
+        )
+        .expect("wav should write");
+
+        let wav = AudioCapture::read_wav(&path).expect("wav should decode");
+        assert_eq!(wav.sample_rate, 8_000);
+        assert_eq!(wav.channels, 2);
+        assert_eq!(wav.samples.len(), 4);
+        assert!(wav.samples[0] < 0.0);
+        assert!(wav.samples[1] > 0.0);
+
+        let audio = AudioCapture::read_audio(&path).expect("wav dispatch should work");
+        assert_eq!(audio.sample_rate, wav.sample_rate);
+        assert_eq!(audio.channels, wav.channels);
+        assert_eq!(audio.samples.len(), wav.samples.len());
+    }
+
+    #[test]
+    fn read_wav_supports_i32_and_f32_formats() {
+        let dir = tempdir().expect("tempdir should build");
+        let int_path = dir.path().join("int32.wav");
+        let float_path = dir.path().join("float.wav");
+
+        write_i32_wav(&int_path, 16_000, 1, &[i32::MIN / 4, i32::MAX / 4, 0])
+            .expect("int32 wav should write");
+        write_f32_wav(&float_path, 16_000, 1, &[0.25, -0.5, 0.75]).expect("float wav should write");
+
+        let int_audio = AudioCapture::read_wav(&int_path).expect("int32 wav should decode");
+        assert_eq!(int_audio.sample_rate, 16_000);
+        assert_eq!(int_audio.channels, 1);
+        assert_eq!(int_audio.samples.len(), 3);
+        assert!(int_audio.samples[0] < 0.0);
+        assert!(int_audio.samples[1] > 0.0);
+
+        let float_audio = AudioCapture::read_wav(&float_path).expect("float wav should decode");
+        assert_eq!(float_audio.samples, vec![0.25, -0.5, 0.75]);
+    }
+
+    #[test]
+    fn read_wav_with_config_downmixes_resamples_and_normalizes() {
+        let dir = tempdir().expect("tempdir should build");
+        let path = dir.path().join("convert.wav");
+        write_i16_wav(&path, 8_000, 2, &[0, 0, i16::MAX / 2, i16::MAX]).expect("wav should write");
+
+        let target = AudioCaptureConfig::new(16_000, 1);
+        let audio =
+            AudioCapture::read_wav_with_config(&path, target).expect("wav should be converted");
+
+        assert_eq!(audio.sample_rate, 16_000);
+        assert_eq!(audio.channels, 1);
+        assert_eq!(audio.samples.len(), 4);
+        let max = audio
+            .samples
+            .iter()
+            .fold(0.0_f32, |acc, sample| acc.max(sample.abs()));
+        assert!(max > 0.99 && max <= 1.0);
+        assert!(audio.samples[0].abs() < audio.samples[1].abs());
+    }
+
+    #[test]
+    fn read_wav_rejects_unsupported_bit_depth() {
+        let dir = tempdir().expect("tempdir should build");
+        let path = dir.path().join("unsupported.wav");
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 8,
+            sample_format: SampleFormat::Int,
+        };
+        let mut writer = WavWriter::create(&path, spec).expect("wav should create");
+        writer.write_sample(7_i8).expect("sample should write");
+        writer.finalize().expect("wav should finalize");
+
+        let err = AudioCapture::read_wav(&path).expect_err("8-bit wav should be rejected");
+        assert!(matches!(
+            err,
+            AudioCaptureError::UnsupportedWavFormat(message)
+            if message.contains("unsupported bit depth")
+        ));
+    }
+
+    #[test]
+    fn read_audio_non_wav_missing_file_bubbles_io_error() {
+        let err = AudioCapture::read_audio(Path::new("definitely_missing.mp3"))
+            .expect_err("missing file");
+        assert!(matches!(err, AudioCaptureError::Io(_)));
+    }
+
+    #[test]
+    fn apply_target_config_rejects_unsupported_channel_layout() {
+        let target = AudioCaptureConfig::new(16_000, 2);
+        let err = apply_target_config(vec![0.1, 0.2, 0.3], 16_000, 1, &target).expect_err("layout");
+
+        assert!(matches!(
+            err,
+            AudioCaptureError::UnsupportedChannelLayout {
+                input: 1,
+                target: 2
+            }
+        ));
+    }
+
+    #[test]
+    fn downmix_and_resample_helpers_cover_edge_cases() {
+        let mono = downmix_to_mono(&[1.0, 3.0, 2.0, 4.0], 2);
+        assert_eq!(mono, vec![2.0, 3.0]);
+
+        let same_rate = resample_interleaved(&[0.0, 1.0, 2.0, 3.0], 2, 16_000, 16_000);
+        assert_eq!(same_rate, vec![0.0, 1.0, 2.0, 3.0]);
+
+        let empty = resample_interleaved(&[], 1, 8_000, 16_000);
+        assert!(empty.is_empty());
+
+        let resampled = resample_interleaved(&[0.0, 1.0], 1, 8_000, 16_000);
+        assert_eq!(resampled.len(), 4);
+        assert!(resampled[1] > 0.0 && resampled[1] < 1.0);
+        assert_eq!(resampled[3], 1.0);
+    }
+
+    #[test]
+    fn normalize_audio_scales_and_ignores_near_zero_inputs() {
+        let mut silent = vec![1e-6, -5e-6];
+        normalize_audio(&mut silent);
+        assert_eq!(silent, vec![1e-6, -5e-6]);
+
+        let mut loud = vec![0.25, -0.5];
+        normalize_audio(&mut loud);
+        assert!(loud[0] > 0.49);
+        assert!(loud[1] < -0.99);
+    }
+}

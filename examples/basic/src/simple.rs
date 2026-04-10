@@ -126,3 +126,44 @@ pub async fn simple_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     println!("Result: {:?}\n", result);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn simple_math_tools_execute_expected_results() {
+        let sum = Addition {}
+            .execute(json!({"left": 2, "right": 3}))
+            .await
+            .expect("addition should succeed");
+        assert_eq!(sum, json!(5));
+
+        let product = Multiplication {}
+            .execute(json!({"left": 4, "right": 6}))
+            .await
+            .expect("multiplication should succeed");
+        assert_eq!(product, json!(24));
+    }
+
+    #[test]
+    fn simple_math_agent_output_parses_json_and_falls_back_to_plain_text() {
+        let parsed = MathAgentOutput::from(ReActAgentOutput {
+            response: r#"{"value":30,"explanation":"tool result","generic":null}"#.to_string(),
+            tool_calls: Vec::new(),
+            done: true,
+        });
+        assert_eq!(parsed.value, 30);
+        assert_eq!(parsed.explanation, "tool result");
+
+        let fallback = MathAgentOutput::from(ReActAgentOutput {
+            response: "plain answer".to_string(),
+            tool_calls: Vec::new(),
+            done: true,
+        });
+        assert_eq!(fallback.value, 0);
+        assert_eq!(fallback.explanation, "plain answer");
+        assert!(fallback.generic.is_none());
+    }
+}

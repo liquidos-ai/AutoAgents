@@ -22,7 +22,8 @@ cargo clippy --all-features --all-targets -- -D warnings
 
 ```bash
 cargo install cargo-tarpaulin
-cargo tarpaulin --all-features --out html
+rustup component add llvm-tools-preview
+make coverage-rust
 ```
 
 Keep tests focused and avoid unrelated changes. Match the style and structure used in existing tests across crates.

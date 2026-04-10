@@ -193,3 +193,66 @@ pub async fn run_agent(llm: Arc<dyn LLMProvider>, mode: &str) -> Result<(), Erro
     println!("Result: {:?}", result.out);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn manual_tools_execute_expected_math_and_report_schema() {
+        let addition = AdditionTool {}
+            .execute(json!({"left": 10, "right": 4}))
+            .await
+            .expect("addition tool should succeed");
+        assert_eq!(addition, json!(14));
+
+        let subtraction = SubtractTool {}
+            .execute(json!({"left": 10, "right": 4}))
+            .await
+            .expect("subtract tool should succeed");
+        assert_eq!(subtraction, json!(6));
+
+        let addition_schema = AdditionTool {}.args_schema();
+        assert_eq!(addition_schema["required"], json!(["left", "right"]));
+        assert_eq!(AdditionTool {}.name(), "AdditionTool");
+        assert_eq!(
+            SubtractTool {}.description(),
+            "Use this tool for Subtracting two numbers"
+        );
+    }
+
+    #[test]
+    fn manual_agent_output_and_definition_cover_parse_and_fallback_paths() {
+        let parsed = AgentOut::from(ReActAgentOutput {
+            response: r#"{"out":"ok"}"#.to_string(),
+            tool_calls: Vec::new(),
+            done: true,
+        });
+        assert_eq!(parsed.out, "ok");
+
+        let fallback = AgentOut::from(ReActAgentOutput {
+            response: "not json".to_string(),
+            tool_calls: Vec::new(),
+            done: true,
+        });
+        assert_eq!(fallback.out, "Error");
+
+        assert!(AgentOut::output_schema().contains("\"out\""));
+        assert_eq!(
+            AgentOut::structured_output_format()["name"],
+            json!("AgentOut")
+        );
+
+        let agent = Agent {
+            tools: vec![Arc::new(AdditionTool {}), Arc::new(SubtractTool {})],
+        };
+        assert_eq!(agent.name(), "Agent");
+        assert_eq!(agent.description(), "You are an helpful assistant");
+        assert!(agent.output_schema().is_some());
+        let tools = agent.tools();
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0].name(), "AdditionTool");
+        assert_eq!(tools[1].name(), "SubtractTool");
+    }
+}

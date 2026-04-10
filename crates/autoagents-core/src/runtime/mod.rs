@@ -41,6 +41,9 @@ pub enum RuntimeError {
     #[error("Join Error: {0}")]
     JoinError(JoinError),
 
+    #[error("Runtime operation failed: {0}")]
+    OperationFailed(String),
+
     #[error("Event error: {0}")]
     EventError(#[from] SendError<Event>),
 }

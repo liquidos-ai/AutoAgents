@@ -202,29 +202,22 @@ struct AnthropicDelta {
 
 impl std::fmt::Display for AnthropicCompleteResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for content in self.content.iter() {
-            match content.content_type {
-                Some(ref t) if t == "tool_use" => write!(
-                    f,
+        let rendered = self
+            .content
+            .iter()
+            .map(|content| match content.content_type.as_deref() {
+                Some("tool_use") => format!(
                     "{{\n \"name\": {}, \"input\": {}\n}}",
                     content.name.clone().unwrap_or_default(),
                     content.input.clone().unwrap_or(serde_json::Value::Null)
-                )?,
-                Some(ref t) if t == "thinking" => {
-                    write!(f, "{}", content.thinking.clone().unwrap_or_default())?
-                }
-                _ => write!(
-                    f,
-                    "{}",
-                    self.content
-                        .iter()
-                        .map(|c| c.text.clone().unwrap_or_default())
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                )?,
-            }
-        }
-        Ok(())
+                ),
+                Some("thinking") => content.thinking.clone().unwrap_or_default(),
+                _ => content.text.clone().unwrap_or_default(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        write!(f, "{rendered}")
     }
 }
 
@@ -1577,5 +1570,229 @@ data: {"type": "ping"}
     fn test_anthropic_builder_requires_api_key() {
         let err = LLMBuilder::<Anthropic>::new().build().unwrap_err();
         assert!(err.to_string().contains("No API key provided"));
+    }
+
+    #[test]
+    fn test_complete_response_helpers_cover_text_thinking_tools_and_usage() {
+        let text_response = AnthropicCompleteResponse {
+            content: vec![
+                AnthropicContent {
+                    text: Some("answer".to_string()),
+                    content_type: Some("text".to_string()),
+                    thinking: None,
+                    name: None,
+                    input: None,
+                    id: None,
+                },
+                AnthropicContent {
+                    text: Some("follow-up".to_string()),
+                    content_type: None,
+                    thinking: None,
+                    name: None,
+                    input: None,
+                    id: None,
+                },
+            ],
+            usage: Some(AnthropicUsage {
+                input_tokens: 3,
+                output_tokens: 5,
+                cache_creation_input_tokens: Some(2),
+                cache_read_input_tokens: Some(1),
+            }),
+        };
+        assert_eq!(text_response.text().as_deref(), Some("answer\nfollow-up"));
+        assert_eq!(text_response.thinking(), None);
+        assert_eq!(text_response.tool_calls(), None);
+        let usage = text_response.usage().expect("usage should be present");
+        assert_eq!(usage.total_tokens, 8);
+        assert_eq!(
+            usage
+                .prompt_tokens_details
+                .as_ref()
+                .and_then(|details| details.cached_tokens),
+            Some(3)
+        );
+        assert_eq!(text_response.to_string(), "answer\nfollow-up");
+
+        let thinking_response = AnthropicCompleteResponse {
+            content: vec![AnthropicContent {
+                text: None,
+                content_type: Some("thinking".to_string()),
+                thinking: Some("reasoning".to_string()),
+                name: None,
+                input: None,
+                id: None,
+            }],
+            usage: None,
+        };
+        assert_eq!(thinking_response.thinking().as_deref(), Some("reasoning"));
+        assert_eq!(thinking_response.to_string(), "reasoning");
+
+        let tool_response = AnthropicCompleteResponse {
+            content: vec![AnthropicContent {
+                text: None,
+                content_type: Some("tool_use".to_string()),
+                thinking: None,
+                name: Some("lookup".to_string()),
+                input: Some(serde_json::json!({"q": "value"})),
+                id: Some("tool_1".to_string()),
+            }],
+            usage: None,
+        };
+        let tool_calls = tool_response
+            .tool_calls()
+            .expect("tool calls should be present");
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_calls[0].id, "tool_1");
+        assert_eq!(tool_calls[0].function.name, "lookup");
+        assert_eq!(tool_calls[0].function.arguments, "{\"q\":\"value\"}");
+        assert!(tool_response.to_string().contains("\"name\": lookup"));
+    }
+
+    #[test]
+    fn test_convert_messages_to_anthropic_filters_system_and_covers_url_and_invalid_tool_json() {
+        let messages = vec![
+            ChatMessage {
+                role: ChatRole::System,
+                message_type: MessageType::Text,
+                content: "system".to_string(),
+            },
+            ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::ImageURL("https://example.com/image.png".to_string()),
+                content: "remote image".to_string(),
+            },
+            ChatMessage {
+                role: ChatRole::Assistant,
+                message_type: MessageType::ToolUse(vec![ToolCall {
+                    id: "tool_1".to_string(),
+                    call_type: "function".to_string(),
+                    function: FunctionCall {
+                        name: "lookup".to_string(),
+                        arguments: "not-json".to_string(),
+                    },
+                }]),
+                content: "tool call".to_string(),
+            },
+        ];
+
+        let converted = Anthropic::convert_messages_to_anthropic(&messages);
+        assert_eq!(converted.len(), 2, "system messages should be filtered");
+        assert_eq!(converted[0].role, "user");
+        assert_eq!(converted[0].content[0].message_type, Some("image_url"));
+        assert_eq!(
+            converted[0].content[0]
+                .image_url
+                .as_ref()
+                .expect("image url content should exist")
+                .url,
+            "https://example.com/image.png"
+        );
+
+        let tool_use = &converted[1].content[0];
+        assert_eq!(tool_use.message_type, Some("tool_use"));
+        assert_eq!(tool_use.tool_use_id.as_deref(), Some("tool_1"));
+        assert_eq!(tool_use.tool_name.as_deref(), Some("lookup"));
+        assert_eq!(
+            tool_use.tool_input,
+            Some(Value::String("not-json".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_prepare_tools_and_choice_and_constructor_cover_remaining_variants() {
+        let tool = Tool {
+            tool_type: "function".to_string(),
+            function: FunctionTool {
+                name: "lookup".to_string(),
+                description: "desc".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+            },
+        };
+        let tools_list = [tool];
+
+        let (_tools, any_choice) =
+            Anthropic::prepare_tools_and_choice(Some(&tools_list), &Some(ToolChoice::Any));
+        assert_eq!(any_choice.unwrap().get("type"), Some(&"any".to_string()));
+
+        let (_tools, none_choice) =
+            Anthropic::prepare_tools_and_choice(Some(&tools_list), &Some(ToolChoice::None));
+        assert_eq!(none_choice.unwrap().get("type"), Some(&"none".to_string()));
+
+        let provider = Anthropic::new(
+            "key",
+            Some("claude-test".to_string()),
+            Some(64),
+            Some(0.2),
+            Some(7),
+            Some(0.9),
+            Some(5),
+            Some(ToolChoice::Any),
+            Some(true),
+            Some(2048),
+        );
+        assert_eq!(provider.api_key, "key");
+        assert_eq!(provider.model, "claude-test");
+        assert_eq!(provider.max_tokens, 64);
+        assert_eq!(provider.temperature, 0.2);
+        assert_eq!(provider.timeout_seconds, 7);
+        assert_eq!(provider.top_p, Some(0.9));
+        assert_eq!(provider.top_k, Some(5));
+        assert!(matches!(provider.tool_choice, Some(ToolChoice::Any)));
+        assert!(provider.reasoning);
+        assert_eq!(provider.thinking_budget_tokens, Some(2048));
+    }
+
+    #[tokio::test]
+    async fn test_chat_validation_rejects_missing_api_key_and_system_only_messages() {
+        let auth_err = Anthropic::new("", None, None, None, None, None, None, None, None, None)
+            .chat_with_tools(&[ChatMessage::user().content("hello").build()], None, None)
+            .await
+            .expect_err("missing api key should fail");
+        assert!(matches!(auth_err, LLMError::AuthError(_)));
+
+        let invalid = Anthropic::new("key", None, None, None, None, None, None, None, None, None)
+            .chat_with_tools(
+                &[ChatMessage {
+                    role: ChatRole::System,
+                    message_type: MessageType::Text,
+                    content: "system only".to_string(),
+                }],
+                None,
+                None,
+            )
+            .await
+            .expect_err("system-only messages should be rejected");
+        assert!(matches!(invalid, LLMError::InvalidRequest(_)));
+
+        let stream_auth_err =
+            match Anthropic::new("", None, None, None, None, None, None, None, None, None)
+                .chat_stream(&[ChatMessage::user().content("hello").build()], None)
+                .await
+            {
+                Ok(_) => panic!("missing api key should fail for chat_stream"),
+                Err(err) => err,
+            };
+        assert!(matches!(stream_auth_err, LLMError::AuthError(_)));
+
+        let stream_invalid =
+            match Anthropic::new("key", None, None, None, None, None, None, None, None, None)
+                .chat_stream(
+                    &[ChatMessage {
+                        role: ChatRole::System,
+                        message_type: MessageType::Text,
+                        content: "system only".to_string(),
+                    }],
+                    None,
+                )
+                .await
+            {
+                Ok(_) => panic!("system-only streaming messages should be rejected"),
+                Err(err) => err,
+            };
+        assert!(matches!(stream_invalid, LLMError::InvalidRequest(_)));
     }
 }

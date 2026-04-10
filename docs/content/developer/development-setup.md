@@ -151,9 +151,10 @@ The project uses LeftHook to manage Git hooks that ensure code quality:
 ```bash
 # Install tarpaulin if not already installed
 cargo install cargo-tarpaulin
+rustup component add llvm-tools-preview
 
 # Run tests with coverage
-cargo tarpaulin --all-features --out html
+make coverage-rust
 ```
 
 

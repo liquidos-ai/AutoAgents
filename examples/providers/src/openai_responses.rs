@@ -73,3 +73,18 @@ pub async fn run() -> Result<(), Error> {
     println!("Result: {:?}", result);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn openai_responses_addition_tool_executes_expected_result() {
+        let result = Addition {}
+            .execute(json!({"left": 20, "right": 10}))
+            .await
+            .expect("addition should succeed");
+        assert_eq!(result, json!(30));
+    }
+}
