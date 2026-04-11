@@ -675,11 +675,13 @@ mod tests {
             if let Some(error) = &self.stream_error {
                 return Err(error.clone());
             }
-            let items = self
-                .stream_outputs
-                .clone()
-                .into_iter()
-                .map(|item| item.map_err(CoreError::CustomError));
+            let mut items = Vec::with_capacity(self.stream_outputs.len());
+            for item in self.stream_outputs.clone() {
+                match item {
+                    Ok(output) => items.push(Ok(output)),
+                    Err(error) => items.push(Err(CoreError::CustomError(error))),
+                }
+            }
             Ok(Box::pin(stream::iter(items)))
         }
     }
