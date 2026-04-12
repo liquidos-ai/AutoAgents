@@ -16,7 +16,7 @@ vulkan = ["llama-cpp-2/vulkan"]
 mtmd = ["llama-cpp-2/mtmd"]
 
 [dependencies]
-llama-cpp-2 = { version = "0.1.133", default-features = false }
+llama-cpp-2 = { version = "0.1.143", default-features = false }
 autoagents-llm = { workspace = true }
 async-trait = { workspace = true }
 hf-hub = { workspace = true, default-features = false, features = ["ureq"] }
