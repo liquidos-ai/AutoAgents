@@ -28,7 +28,7 @@
 
 ## Visão geral
 
-AutoAgents é um framework modular multiagente para construir sistemas inteligentes em Rust. Ele combina um modelo de agentes com segurança de tipos, chamadas de ferramentas estruturadas, memória configurável e backends de LLM plugáveis. A arquitetura é projetada para desempenho, segurança e composabilidade em servidores e edge.
+AutoAgents é um framework modular multiagente para construir sistemas inteligentes em Rust. Ele combina um modelo de agentes com segurança de tipos, chamadas de ferramentas estruturadas, memória configurável e backends de LLM plugáveis. A arquitetura é projetada para desempenho, segurança e composabilidade em servidores e edge, e serve como base para uma infraestrutura de agentes de alto nível.
 
 ---
 
