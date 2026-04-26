@@ -115,10 +115,15 @@ pub(crate) struct SessionState {
     cached_tokens: Vec<LlamaToken>,
     /// The KV-cache position of the *next* token to be written.
     next_pos: i32,
+    /// The context window size this session was created with.
+    n_ctx: u32,
 }
 
 // SAFETY: LlamaModel: Send + Sync (declared in llama-cpp-2).
 // LlamaContext wraps a raw pointer guarded by a Mutex — no concurrent access.
+// Sync is intentionally NOT implemented: SessionState must never be shared
+// across threads without the Mutex wrapper. Moving it out of Arc<Mutex<..>>
+// into Arc<SessionState> would be unsound (LlamaContext is not thread-safe).
 unsafe impl Send for SessionState {}
 
 impl SessionState {
@@ -146,6 +151,7 @@ impl SessionState {
             _backend: backend,
             cached_tokens: Vec::new(),
             next_pos: 0,
+            n_ctx,
         })
     }
 
@@ -2154,8 +2160,9 @@ fn acquire_context<'a>(
         {
             let state = guard.as_mut().expect("session just initialised");
 
-            if state.next_pos as u32 + required_tokens > n_ctx {
-                // Overflow: reset and decode full prompt.
+            if required_tokens > state.n_ctx {
+                // New prompt + generation headroom exceeds session context
+                // window. Reset with a fresh, correctly-sized context.
                 let _ = state;
                 *guard = Some(SessionState::new(
                     Arc::clone(backend),
