@@ -69,6 +69,23 @@ const JSON_GRAMMAR: &str = include_str!("grammars/json.gbnf");
 const DEFAULT_N_BATCH: u32 = 64;
 
 // ---------------------------------------------------------------------------
+// Prefix comparison — extracted for testability
+// ---------------------------------------------------------------------------
+
+/// Count how many leading tokens are identical between `cached` and `new`.
+///
+/// Used by [`SessionState`] to determine how much of the KV-cache can be
+/// reused: tokens `0..prefix_len` are already decoded, only
+/// `new[prefix_len..]` needs processing.
+fn common_prefix_len(cached: &[LlamaToken], new: &[LlamaToken]) -> usize {
+    cached
+        .iter()
+        .zip(new.iter())
+        .position(|(a, b)| a != b)
+        .unwrap_or_else(|| cached.len().min(new.len()))
+}
+
+// ---------------------------------------------------------------------------
 // SessionState — persistent KV-cache for prefix reuse
 // ---------------------------------------------------------------------------
 
@@ -139,11 +156,7 @@ impl SessionState {
 
     /// Find the common prefix length between cached tokens and new tokens.
     fn prefix_len(&self, new_tokens: &[LlamaToken]) -> usize {
-        self.cached_tokens
-            .iter()
-            .zip(new_tokens.iter())
-            .position(|(cached, new)| cached != new)
-            .unwrap_or_else(|| self.cached_tokens.len().min(new_tokens.len()))
+        common_prefix_len(&self.cached_tokens, new_tokens)
     }
 
     /// Evict stale KV-cache entries beyond `keep` and update tracking.
@@ -2086,7 +2099,7 @@ fn generate_chat_text(
         mut on_delta,
     } = params;
 
-    let prompt_tokens = model
+    let mut prompt_tokens = model
         .str_to_token(&template_result.prompt, AddBos::Always)
         .map_err(|err| LlamaCppProviderError::Tokenization(err.to_string()))?;
 
@@ -2276,15 +2289,17 @@ fn generate_chat_text(
         if let Some(state) = guard.as_mut() {
             // Reset cached_tokens to just the prompt — generation tokens are
             // ephemeral and won't be part of the next prompt's prefix.
-            state.cached_tokens = prompt_tokens.clone();
-            state.next_pos = prompt_tokens.len() as i32;
+            std::mem::swap(&mut state.cached_tokens, &mut prompt_tokens);
+            state.next_pos = state.cached_tokens.len() as i32;
             // Evict the generation tokens from KV-cache so next call starts
             // clean after the prompt prefix.
-            let _ = state.ctx.clear_kv_cache_seq(
+            state.ctx.clear_kv_cache_seq(
                 Some(0),
-                Some(prompt_tokens.len() as u32),
+                Some(state.cached_tokens.len() as u32),
                 None,
-            );
+            ).map_err(|e| LlamaCppProviderError::Inference(
+                format!("post-generation KV evict: {e}"),
+            ))?;
         }
     }
 
@@ -3427,62 +3442,47 @@ mod tests {
         assert_eq!(model_path, TEST_GGUF_MODEL_PATH);
     }
 
-    // ── SessionState unit tests ────────────────────────────────────────────
+    // ── common_prefix_len tests ──────────────────────────────────────────
 
     #[test]
-    fn test_session_state_prefix_len_identical() {
-        // When both slices match, prefix_len should be the full length.
+    fn test_common_prefix_len_identical() {
         let tokens: Vec<LlamaToken> = (0..5).map(LlamaToken::new).collect();
-        // Simulate a SessionState with cached_tokens (no real context needed).
-        // We test the prefix_len method in isolation.
-        assert_eq!(
-            tokens
-                .iter()
-                .zip(tokens.iter())
-                .position(|(a, b)| a != b)
-                .unwrap_or(tokens.len()),
-            5,
-        );
+        assert_eq!(common_prefix_len(&tokens, &tokens), 5);
     }
 
     #[test]
-    fn test_session_state_prefix_len_diverges() {
+    fn test_common_prefix_len_diverges_at_3() {
         let cached: Vec<LlamaToken> = (0..5).map(LlamaToken::new).collect();
         let mut new_tokens = cached.clone();
         new_tokens[3] = LlamaToken::new(99);
-
-        let prefix = cached
-            .iter()
-            .zip(new_tokens.iter())
-            .position(|(a, b)| a != b)
-            .unwrap_or(cached.len().min(new_tokens.len()));
-        assert_eq!(prefix, 3);
+        assert_eq!(common_prefix_len(&cached, &new_tokens), 3);
     }
 
     #[test]
-    fn test_session_state_prefix_len_shorter_new() {
+    fn test_common_prefix_len_shorter_new() {
         let cached: Vec<LlamaToken> = (0..5).map(LlamaToken::new).collect();
         let new_tokens: Vec<LlamaToken> = (0..3).map(LlamaToken::new).collect();
-
-        let prefix = cached
-            .iter()
-            .zip(new_tokens.iter())
-            .position(|(a, b)| a != b)
-            .unwrap_or(cached.len().min(new_tokens.len()));
-        assert_eq!(prefix, 3);
+        assert_eq!(common_prefix_len(&cached, &new_tokens), 3);
     }
 
     #[test]
-    fn test_session_state_prefix_len_empty_cache() {
+    fn test_common_prefix_len_empty_cache() {
         let cached: Vec<LlamaToken> = vec![];
         let new_tokens: Vec<LlamaToken> = (0..5).map(LlamaToken::new).collect();
+        assert_eq!(common_prefix_len(&cached, &new_tokens), 0);
+    }
 
-        let prefix = cached
-            .iter()
-            .zip(new_tokens.iter())
-            .position(|(a, b)| a != b)
-            .unwrap_or(cached.len().min(new_tokens.len()));
-        assert_eq!(prefix, 0);
+    #[test]
+    fn test_common_prefix_len_both_empty() {
+        let empty: Vec<LlamaToken> = vec![];
+        assert_eq!(common_prefix_len(&empty, &empty), 0);
+    }
+
+    #[test]
+    fn test_common_prefix_len_completely_different() {
+        let a: Vec<LlamaToken> = (0..5).map(LlamaToken::new).collect();
+        let b: Vec<LlamaToken> = (10..15).map(LlamaToken::new).collect();
+        assert_eq!(common_prefix_len(&a, &b), 0);
     }
 
     // ── Config tests ───────────────────────────────────────────────────────
@@ -3534,10 +3534,11 @@ mod tests {
     }
 
     #[test]
-    fn test_reset_session_clears_state() {
-        // Simulate: session_state is Some(Arc<Mutex<None>>)
+    fn test_shared_session_mutex_clear_no_panic() {
+        // Verifies the Mutex<Option<SessionState>> pattern works correctly.
+        // reset_session() and cached_prefix_len() cannot be unit-tested
+        // without a loaded model — integration test needed.
         let shared: SharedSessionState = Arc::new(std::sync::Mutex::new(None));
-        // Reset should not panic even when inner is None.
         *shared.lock().unwrap() = None;
         assert!(shared.lock().unwrap().is_none());
     }
