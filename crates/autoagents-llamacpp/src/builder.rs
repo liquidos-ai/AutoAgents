@@ -206,6 +206,12 @@ impl LlamaCppProviderBuilder {
         self
     }
 
+    /// Enable or disable thinking/reasoning tokens in chat template.
+    pub fn enable_thinking(mut self, enable: bool) -> Self {
+        self.config_builder = self.config_builder.enable_thinking(enable);
+        self
+    }
+
     /// Build the provider.
     pub async fn build(self) -> Result<LlamaCppProvider, LLMError> {
         let config = self.config_builder.build();

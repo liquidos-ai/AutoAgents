@@ -149,6 +149,15 @@ pub struct LlamaCppConfig {
 
     /// Explicit device indices for offload.
     pub devices: Option<Vec<usize>>,
+
+    /// Enable thinking/reasoning tokens in chat template.
+    ///
+    /// When `true`, the model's Jinja template is told to emit thinking tokens
+    /// (e.g. Qwen3's `<think>` blocks). Pair with `reasoning_format` to extract
+    /// the thinking content into `reasoning_content`.
+    ///
+    /// Defaults to `false` for backward compatibility and lower latency.
+    pub enable_thinking: Option<bool>,
 }
 
 impl Default for LlamaCppConfig {
@@ -187,6 +196,7 @@ impl Default for LlamaCppConfig {
             split_mode: None,
             use_mlock: None,
             devices: None,
+            enable_thinking: None,
         }
     }
 }
@@ -392,6 +402,12 @@ impl LlamaCppConfigBuilder {
     /// Set explicit device indices for offload.
     pub fn devices(mut self, devices: Vec<usize>) -> Self {
         self.config.devices = Some(devices);
+        self
+    }
+
+    /// Enable or disable thinking/reasoning tokens in chat template.
+    pub fn enable_thinking(mut self, enable: bool) -> Self {
+        self.config.enable_thinking = Some(enable);
         self
     }
 

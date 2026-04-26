@@ -340,7 +340,7 @@ impl LlamaCppProvider {
                 add_generation_prompt: true,
                 use_jinja: true,
                 parallel_tool_calls: false,
-                enable_thinking: true,
+                enable_thinking: self.config.enable_thinking.unwrap_or(false),
                 add_bos: false,
                 add_eos: false,
                 parse_tool_calls,
