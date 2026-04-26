@@ -2237,7 +2237,8 @@ fn generate_chat_text(
         ));
     }
 
-    let required_tokens = prompt_tokens.len() as u32 + max_tokens;
+    let prompt_len = prompt_tokens.len();
+    let required_tokens = prompt_len as u32 + max_tokens;
     let n_ctx = resolve_context_size(model, config, required_tokens)?;
     let n_batch = resolve_n_batch(config, n_ctx);
 
@@ -2352,7 +2353,7 @@ fn generate_chat_text(
 
     Ok(GenerationResult {
         text,
-        prompt_tokens: prompt_tokens.len() as u32,
+        prompt_tokens: prompt_len as u32,
         completion_tokens,
         finish_reason,
     })
