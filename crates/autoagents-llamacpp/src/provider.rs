@@ -126,16 +126,11 @@ impl SessionState {
     fn new(
         backend: Arc<LlamaBackend>,
         model: Arc<LlamaModel>,
+        config: &LlamaCppConfig,
         n_ctx: u32,
         n_batch: u32,
     ) -> Result<Self, LlamaCppProviderError> {
-        let ctx_params = LlamaContextParams::default()
-            .with_n_ctx(Some(
-                NonZeroU32::new(n_ctx).ok_or_else(|| {
-                    LlamaCppProviderError::ContextLoad("n_ctx must be > 0".into())
-                })?,
-            ))
-            .with_n_batch(n_batch);
+        let ctx_params = build_context_params(config, false, Some(n_ctx), Some(n_batch))?;
 
         let ctx_real = model
             .new_context(&backend, ctx_params)
@@ -2150,6 +2145,7 @@ fn acquire_context<'a>(
             *guard = Some(SessionState::new(
                 Arc::clone(backend),
                 Arc::clone(model),
+                config,
                 n_ctx,
                 n_batch,
             )?);
@@ -2164,6 +2160,7 @@ fn acquire_context<'a>(
                 *guard = Some(SessionState::new(
                     Arc::clone(backend),
                     Arc::clone(model),
+                    config,
                     n_ctx,
                     n_batch,
                 )?);
