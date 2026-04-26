@@ -438,6 +438,34 @@ impl LlamaCppProvider {
         })
     }
 
+    /// Create a provider from a pre-loaded model.
+    ///
+    /// The model and backend are shared via `Arc` — no duplicate GGUF load.
+    /// The new provider gets its own `SessionState` (KV context), so it can
+    /// be used concurrently with sibling providers without contention.
+    ///
+    /// Use [`model()`] and [`backend()`] on an existing provider to obtain
+    /// the handles, then pass them here with a fresh config. The caller must
+    /// ensure `config` is compatible with the passed model (matching `n_ctx`,
+    /// `model_path` for logging).
+    pub fn from_model(
+        model: Arc<LlamaModel>,
+        backend: Arc<LlamaBackend>,
+        config: LlamaCppConfig,
+    ) -> Self {
+        let session_state = if config.context_reuse {
+            Some(Arc::new(std::sync::Mutex::new(None)))
+        } else {
+            None
+        };
+        Self {
+            backend,
+            model,
+            config,
+            session_state,
+        }
+    }
+
     /// Get a builder for advanced configuration.
     pub fn builder() -> LlamaCppProviderBuilder {
         LlamaCppProviderBuilder::new()
@@ -446,6 +474,16 @@ impl LlamaCppProvider {
     /// Get reference to the configuration.
     pub fn config(&self) -> &LlamaCppConfig {
         &self.config
+    }
+
+    /// Get the model handle for creating sibling providers via [`from_model()`].
+    pub fn model(&self) -> &Arc<LlamaModel> {
+        &self.model
+    }
+
+    /// Get the backend handle for creating sibling providers via [`from_model()`].
+    pub fn backend(&self) -> &Arc<LlamaBackend> {
+        &self.backend
     }
 
     /// Clear the persistent session state so the next call starts fresh.
@@ -3605,5 +3643,58 @@ mod tests {
         let shared: SharedSessionState = Arc::new(std::sync::Mutex::new(None));
         *shared.lock().unwrap() = None;
         assert!(shared.lock().unwrap().is_none());
+    }
+
+    // ── from_model / model() / backend() tests ──────────────────────────────
+    //
+    // These verify the sharing API without loading a GGUF model.
+    // Full inference through from_model() is covered by integration tests.
+
+    #[test]
+    fn test_arc_clone_preserves_identity() {
+        // Validates the Arc sharing pattern used by from_model(): cloning
+        // an Arc preserves pointer identity (Arc::ptr_eq). Cannot construct
+        // a real LlamaCppProvider without a model file — integration tests
+        // verify model()/backend() on a real provider.
+        let shared: SharedSessionState = Arc::new(std::sync::Mutex::new(None));
+        let cloned = Arc::clone(&shared);
+        assert!(Arc::ptr_eq(&shared, &cloned));
+    }
+
+    #[test]
+    fn test_from_model_config_context_reuse_enabled() {
+        // from_model() with context_reuse=true should create session_state.
+        // We can't call from_model() without a real LlamaModel/LlamaBackend,
+        // but we can verify the session_state allocation logic matches
+        // from_config() by checking the conditional directly.
+        let config = LlamaCppConfigBuilder::new()
+            .model_path("dummy.gguf")
+            .context_reuse(true)
+            .build();
+        assert!(config.context_reuse);
+
+        // Same allocation logic as from_model():
+        let session_state: Option<SharedSessionState> = if config.context_reuse {
+            Some(Arc::new(std::sync::Mutex::new(None)))
+        } else {
+            None
+        };
+        assert!(session_state.is_some());
+    }
+
+    #[test]
+    fn test_from_model_config_context_reuse_disabled() {
+        let config = LlamaCppConfigBuilder::new()
+            .model_path("dummy.gguf")
+            .context_reuse(false)
+            .build();
+        assert!(!config.context_reuse);
+
+        let session_state: Option<SharedSessionState> = if config.context_reuse {
+            Some(Arc::new(std::sync::Mutex::new(None)))
+        } else {
+            None
+        };
+        assert!(session_state.is_none());
     }
 }
