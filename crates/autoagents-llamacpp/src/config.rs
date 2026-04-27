@@ -158,6 +158,22 @@ pub struct LlamaCppConfig {
     ///
     /// Defaults to `false` for backward compatibility and lower latency.
     pub enable_thinking: Option<bool>,
+
+    /// Enable KV-cache prefix reuse across inference calls.
+    ///
+    /// When `true`, the provider persists the `LlamaContext` between calls and
+    /// reuses the KV-cache for any common token prefix. Subsequent calls that
+    /// share a prefix (e.g. same system prompt) skip re-decoding the cached
+    /// tokens, reducing time-to-first-token significantly.
+    ///
+    /// Defaults to `false`. Enable for workloads with repeated system prompts
+    /// or multi-turn conversations on a single provider instance.
+    ///
+    /// **Note:** When enabled, inference calls on the same provider are
+    /// serialized through a mutex for the duration of token generation.
+    /// Concurrent callers will block until the active call completes.
+    /// This is expected — `LlamaContext` is not thread-safe.
+    pub context_reuse: bool,
 }
 
 impl Default for LlamaCppConfig {
@@ -197,6 +213,7 @@ impl Default for LlamaCppConfig {
             use_mlock: None,
             devices: None,
             enable_thinking: None,
+            context_reuse: false,
         }
     }
 }
@@ -408,6 +425,12 @@ impl LlamaCppConfigBuilder {
     /// Enable or disable thinking/reasoning tokens in chat template.
     pub fn enable_thinking(mut self, enable: bool) -> Self {
         self.config.enable_thinking = Some(enable);
+        self
+    }
+
+    /// Enable KV-cache prefix reuse across inference calls.
+    pub fn context_reuse(mut self, enable: bool) -> Self {
+        self.config.context_reuse = enable;
         self
     }
 

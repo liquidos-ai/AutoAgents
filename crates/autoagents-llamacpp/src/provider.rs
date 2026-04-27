@@ -68,11 +68,187 @@ fn get_rt() -> &'static tokio::runtime::Runtime {
 const JSON_GRAMMAR: &str = include_str!("grammars/json.gbnf");
 const DEFAULT_N_BATCH: u32 = 64;
 
+// ---------------------------------------------------------------------------
+// Prefix comparison — extracted for testability
+// ---------------------------------------------------------------------------
+
+/// Count how many leading tokens are identical between `cached` and `new`.
+///
+/// Used by [`SessionState`] to determine how much of the KV-cache can be
+/// reused: tokens `0..prefix_len` are already decoded, only
+/// `new[prefix_len..]` needs processing.
+fn common_prefix_len(cached: &[LlamaToken], new: &[LlamaToken]) -> usize {
+    cached
+        .iter()
+        .zip(new.iter())
+        .position(|(a, b)| a != b)
+        .unwrap_or_else(|| cached.len().min(new.len()))
+}
+
+// ---------------------------------------------------------------------------
+// SessionState — persistent KV-cache for prefix reuse
+// ---------------------------------------------------------------------------
+
+/// Persistent inference context with KV-cache tracking.
+///
+/// When `LlamaCppConfig::context_reuse` is enabled, the provider holds a
+/// `SessionState` across calls. On each inference request, the new prompt
+/// tokens are compared against `cached_tokens`; only the suffix that differs
+/// is decoded, and the stale KV-cache tail is evicted via
+/// `clear_kv_cache_seq`.
+///
+/// # Safety
+///
+/// `LlamaContext<'a>` has a lifetime parameter tied to `&'a LlamaModel`.
+/// We transmute that to `LlamaContext<'static>` and keep the model alive via
+/// `_model: Arc<LlamaModel>`. Rust's struct drop order guarantees that `ctx`
+/// is dropped **before** `_model` and `_backend` (fields drop in declaration
+/// order). The wrapping `Mutex` prevents concurrent access.
+pub(crate) struct SessionState {
+    /// The live context. SAFETY: `'static` is a lie — see doc above.
+    ctx: llama_cpp_2::context::LlamaContext<'static>,
+    /// Keeps the model alive for the context's FFI pointer.
+    _model: Arc<LlamaModel>,
+    /// Keeps the backend alive for the model.
+    _backend: Arc<LlamaBackend>,
+    /// Tokens currently in KV-cache slot 0, positions 0..len.
+    cached_tokens: Vec<LlamaToken>,
+    /// The KV-cache position of the *next* token to be written.
+    next_pos: i32,
+    /// The context window size this session was created with.
+    n_ctx: u32,
+}
+
+// SAFETY: LlamaModel: Send + Sync (declared in llama-cpp-2).
+// LlamaContext wraps a raw pointer guarded by a Mutex — no concurrent access.
+// Sync is intentionally NOT implemented: SessionState must never be shared
+// across threads without the Mutex wrapper. Moving it out of Arc<Mutex<..>>
+// into Arc<SessionState> would be unsound (LlamaContext is not thread-safe).
+unsafe impl Send for SessionState {}
+
+impl SessionState {
+    /// Build a new session: create a context with the given parameters.
+    fn new(
+        backend: Arc<LlamaBackend>,
+        model: Arc<LlamaModel>,
+        config: &LlamaCppConfig,
+        n_ctx: u32,
+        n_batch: u32,
+    ) -> Result<Self, LlamaCppProviderError> {
+        let ctx_params = build_context_params(config, false, Some(n_ctx), Some(n_batch))?;
+
+        let ctx_real = model
+            .new_context(&backend, ctx_params)
+            .map_err(|e| LlamaCppProviderError::ContextLoad(e.to_string()))?;
+
+        // SAFETY: see SessionState doc. model is kept alive in the same struct.
+        let ctx: llama_cpp_2::context::LlamaContext<'static> =
+            unsafe { std::mem::transmute(ctx_real) };
+
+        Ok(Self {
+            ctx,
+            _model: model,
+            _backend: backend,
+            cached_tokens: Vec::new(),
+            next_pos: 0,
+            n_ctx,
+        })
+    }
+
+    /// Find the common prefix length between cached tokens and new tokens.
+    fn prefix_len(&self, new_tokens: &[LlamaToken]) -> usize {
+        common_prefix_len(&self.cached_tokens, new_tokens)
+    }
+
+    /// Evict stale KV-cache entries beyond `keep` and update tracking.
+    fn evict_after(&mut self, keep: usize) -> Result<(), LlamaCppProviderError> {
+        if keep < self.cached_tokens.len() {
+            self.ctx
+                .clear_kv_cache_seq(Some(0), Some(keep as u32), None)
+                .map_err(|e| LlamaCppProviderError::Inference(format!("KV evict: {e}")))?;
+            self.cached_tokens.truncate(keep);
+            self.next_pos = keep as i32;
+        }
+        Ok(())
+    }
+
+    /// Decode new tokens into the KV-cache, chunked by batch size.
+    fn decode_tokens(
+        &mut self,
+        tokens: &[LlamaToken],
+        batch_limit: usize,
+    ) -> Result<(), LlamaCppProviderError> {
+        for chunk in tokens.chunks(batch_limit.max(1)) {
+            let mut batch = LlamaBatch::new(chunk.len().max(64), 1);
+            for (i, &tok) in chunk.iter().enumerate() {
+                let pos = self.next_pos + i as i32;
+                let is_last = i == chunk.len() - 1;
+                batch
+                    .add(tok, pos, &[0], is_last)
+                    .map_err(|e| LlamaCppProviderError::Inference(format!("batch add: {e}")))?;
+            }
+            self.ctx
+                .decode(&mut batch)
+                .map_err(|e| LlamaCppProviderError::Inference(format!("decode: {e}")))?;
+            // Update tracking per-chunk so next_pos and cached_tokens stay
+            // consistent even if a subsequent chunk's decode fails.
+            self.cached_tokens.extend_from_slice(chunk);
+            self.next_pos += chunk.len() as i32;
+        }
+        Ok(())
+    }
+}
+
+/// Shared session state type used by the provider.
+type SharedSessionState = Arc<std::sync::Mutex<Option<SessionState>>>;
+
+/// Active inference context — either a fresh owned context or a persistent
+/// session context behind a MutexGuard.
+///
+/// Used during token generation to abstract over the two context acquisition
+/// paths. The `with_ctx` method provides type-safe access to the underlying
+/// `LlamaContext` regardless of which variant is active.
+enum ActiveContext<'a> {
+    /// Fresh context created for this call (no prefix reuse).
+    Owned(llama_cpp_2::context::LlamaContext<'a>),
+    /// Persistent session context with KV-cache prefix reuse.
+    Session(std::sync::MutexGuard<'a, Option<SessionState>>),
+}
+
+impl ActiveContext<'_> {
+    /// Run a closure with mutable access to the underlying LlamaContext.
+    ///
+    /// Abstracts over owned vs session contexts — the closure receives a
+    /// `&mut LlamaContext` regardless of which variant is active.
+    fn with_ctx<R>(&mut self, f: impl FnOnce(&mut llama_cpp_2::context::LlamaContext<'_>) -> R) -> R {
+        match self {
+            ActiveContext::Owned(ctx) => f(ctx),
+            ActiveContext::Session(guard) => {
+                let state = guard.as_mut().expect("session must exist during generation");
+                f(&mut state.ctx)
+            }
+        }
+    }
+
+    /// Get mutable access to the session state (for post-generation cleanup).
+    /// Returns `None` for owned contexts or if no session is initialized.
+    fn session_state_mut(&mut self) -> Option<&mut SessionState> {
+        match self {
+            ActiveContext::Owned(_) => None,
+            ActiveContext::Session(guard) => guard.as_mut(),
+        }
+    }
+}
+
 /// Llama.cpp provider for local LLM inference.
 pub struct LlamaCppProvider {
     backend: Arc<LlamaBackend>,
     model: Arc<LlamaModel>,
     config: LlamaCppConfig,
+    /// Persistent session state for KV-cache prefix reuse.
+    /// `None` (inner Option) until the first inference call.
+    /// The outer Arc<Mutex> is only allocated when `config.context_reuse` is true.
+    session_state: Option<SharedSessionState>,
 }
 
 struct GenerationResult {
@@ -249,11 +425,45 @@ impl LlamaCppProvider {
 
         let backend = initialize_backend()?;
         let model = load_model(backend.clone(), &config).await?;
+        let session_state = if config.context_reuse {
+            Some(Arc::new(std::sync::Mutex::new(None)))
+        } else {
+            None
+        };
         Ok(Self {
             backend,
             model,
             config,
+            session_state,
         })
+    }
+
+    /// Create a provider from a pre-loaded model.
+    ///
+    /// The model and backend are shared via `Arc` — no duplicate GGUF load.
+    /// The new provider gets its own `SessionState` (KV context), so it can
+    /// be used concurrently with sibling providers without contention.
+    ///
+    /// Use [`model()`] and [`backend()`] on an existing provider to obtain
+    /// the handles, then pass them here with a fresh config. The caller must
+    /// ensure `config` is compatible with the passed model (matching `n_ctx`,
+    /// `model_path` for logging).
+    pub fn from_model(
+        model: Arc<LlamaModel>,
+        backend: Arc<LlamaBackend>,
+        config: LlamaCppConfig,
+    ) -> Self {
+        let session_state = if config.context_reuse {
+            Some(Arc::new(std::sync::Mutex::new(None)))
+        } else {
+            None
+        };
+        Self {
+            backend,
+            model,
+            config,
+            session_state,
+        }
     }
 
     /// Get a builder for advanced configuration.
@@ -264,6 +474,40 @@ impl LlamaCppProvider {
     /// Get reference to the configuration.
     pub fn config(&self) -> &LlamaCppConfig {
         &self.config
+    }
+
+    /// Get the model handle for creating sibling providers via [`from_model()`].
+    pub fn model(&self) -> &Arc<LlamaModel> {
+        &self.model
+    }
+
+    /// Get the backend handle for creating sibling providers via [`from_model()`].
+    pub fn backend(&self) -> &Arc<LlamaBackend> {
+        &self.backend
+    }
+
+    /// Clear the persistent session state so the next call starts fresh.
+    ///
+    /// No-op when `context_reuse` is disabled.
+    pub fn reset_session(&self) {
+        if let Some(ref state) = self.session_state {
+            *state.lock().expect("session mutex poisoned") = None;
+        }
+    }
+
+    /// Number of tokens currently cached in the persistent KV-cache.
+    ///
+    /// Returns 0 when `context_reuse` is disabled or no session exists yet.
+    pub fn cached_prefix_len(&self) -> usize {
+        match self.session_state.as_ref() {
+            Some(s) => s
+                .lock()
+                .expect("session mutex poisoned")
+                .as_ref()
+                .map(|s| s.cached_tokens.len())
+                .unwrap_or(0),
+            None => 0,
+        }
     }
 
     fn prepare_messages(&self, messages: &[ChatMessage]) -> Vec<ChatMessage> {
@@ -492,6 +736,7 @@ impl LlamaCppProvider {
         let backend = self.backend.clone();
         let max_tokens = self.resolve_max_tokens(max_tokens_override);
         let temperature = self.resolve_temperature(temperature_override);
+        let session = self.session_state.clone();
 
         let mut result = Self::run_blocking_task("Generation", move || {
             generate_text(
@@ -505,6 +750,7 @@ impl LlamaCppProvider {
                     temperature,
                     on_token: None,
                 },
+                session.as_ref(),
             )
         })
         .await?;
@@ -527,6 +773,7 @@ impl LlamaCppProvider {
         let backend = self.backend.clone();
         let max_tokens = self.resolve_max_tokens(max_tokens_override);
         let temperature = self.resolve_temperature(temperature_override);
+        let session = self.session_state.clone();
 
         Self::run_blocking_task("Generation", move || {
             generate_chat_text(
@@ -539,6 +786,7 @@ impl LlamaCppProvider {
                     temperature,
                     on_delta: None,
                 },
+                session.as_ref(),
             )
         })
         .await
@@ -557,6 +805,7 @@ impl LlamaCppProvider {
         let backend = self.backend.clone();
         let max_tokens = self.resolve_max_tokens(max_tokens_override);
         let temperature = self.resolve_temperature(temperature_override);
+        let session = self.session_state.clone();
         let emitted_any = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let tx_tokens = tx.clone();
 
@@ -608,6 +857,7 @@ impl LlamaCppProvider {
                             temperature,
                             on_token,
                         },
+                        session.as_ref(),
                     )
                 },
             )
@@ -742,6 +992,7 @@ impl LlamaCppProvider {
         let backend = self.backend.clone();
         let max_tokens = self.resolve_max_tokens(max_tokens_override);
         let temperature = self.resolve_temperature(temperature_override);
+        let session = self.session_state.clone();
         let tx_deltas = tx.clone();
 
         get_rt().spawn(async move {
@@ -768,6 +1019,7 @@ impl LlamaCppProvider {
                             temperature,
                             on_delta,
                         },
+                        session.as_ref(),
                     )?;
 
                     let message_json = template_result
@@ -1920,11 +2172,115 @@ fn build_chat_sampler(
     Ok((LlamaSampler::chain_simple(samplers), preserved))
 }
 
+/// Acquire an inference context: either from persistent session state (with
+/// prefix reuse) or by creating a fresh context.
+///
+/// Returns `(ActiveContext, start_position)` where `start_position` is the
+/// KV-cache position after the prompt has been decoded.
+fn acquire_context<'a>(
+    model: &'a Arc<LlamaModel>,
+    backend: &'a Arc<LlamaBackend>,
+    config: &LlamaCppConfig,
+    session_state: Option<&'a SharedSessionState>,
+    prompt_tokens: &[LlamaToken],
+    n_ctx: u32,
+    n_batch: u32,
+    required_tokens: u32,
+) -> Result<(ActiveContext<'a>, i32), LlamaCppProviderError> {
+    if let Some(shared) = session_state {
+        let mut guard = shared.lock().expect("session mutex poisoned");
+
+        // Lazily create the session on first call.
+        if guard.is_none() {
+            *guard = Some(SessionState::new(
+                Arc::clone(backend),
+                Arc::clone(model),
+                config,
+                n_ctx,
+                n_batch,
+            )?);
+        }
+
+        {
+            let state = guard.as_mut().expect("session just initialised");
+
+            if required_tokens > state.n_ctx {
+                // New prompt + generation headroom exceeds session context
+                // window. Reset with a fresh, correctly-sized context.
+                let _ = state;
+                *guard = Some(SessionState::new(
+                    Arc::clone(backend),
+                    Arc::clone(model),
+                    config,
+                    n_ctx,
+                    n_batch,
+                )?);
+                let state = guard.as_mut().unwrap();
+                state.decode_tokens(prompt_tokens, n_batch as usize)?;
+            } else {
+                // Prefix reuse: evict stale tail, decode only new tokens.
+                let prefix_len = state.prefix_len(prompt_tokens);
+                state.evict_after(prefix_len)?;
+                let new_tokens = &prompt_tokens[prefix_len..];
+                if !new_tokens.is_empty() {
+                    state.decode_tokens(new_tokens, n_batch as usize)?;
+                } else {
+                    // 100% prefix match — no new tokens to decode.
+                    // Re-decode the last prompt token to refresh the logits
+                    // buffer. Without this, the sampler reads stale logits
+                    // from the previous call's last generated token.
+                    let last_pos = state.next_pos - 1;
+                    let last_tok = prompt_tokens[prefix_len - 1];
+                    let mut batch = LlamaBatch::new(1, 1);
+                    batch
+                        .add(last_tok, last_pos, &[0], true)
+                        .map_err(|e| LlamaCppProviderError::Inference(
+                            format!("logits refresh batch add: {e}"),
+                        ))?;
+                    state.ctx.decode(&mut batch).map_err(|e| {
+                        LlamaCppProviderError::Inference(
+                            format!("logits refresh decode: {e}"),
+                        )
+                    })?;
+                }
+            }
+        }
+
+        let pos = guard.as_ref().expect("session exists").next_pos;
+        Ok((ActiveContext::Session(guard), pos))
+    } else {
+        // No session state — fresh context (original behavior).
+        let ctx_params = build_context_params(config, false, Some(n_ctx), Some(n_batch))?;
+        let mut ctx = model
+            .new_context(backend, ctx_params)
+            .map_err(|err| LlamaCppProviderError::ContextLoad(err.to_string()))?;
+
+        let mut batch = LlamaBatch::new(n_ctx as usize, 1);
+        let batch_limit = n_batch as usize;
+        let mut position = 0_i32;
+        for chunk in prompt_tokens.chunks(batch_limit.max(1)) {
+            batch.clear();
+            let last_index = (chunk.len().saturating_sub(1)) as i32;
+            for (idx, token) in (0_i32..).zip(chunk.iter().copied()) {
+                let is_last = idx == last_index;
+                batch
+                    .add(token, position + idx, &[0], is_last)
+                    .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
+            }
+            ctx.decode(&mut batch)
+                .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
+            position += chunk.len() as i32;
+        }
+        Ok((ActiveContext::Owned(ctx), position))
+    }
+}
+
 fn generate_chat_text(
-    model: &LlamaModel,
-    backend: &LlamaBackend,
+    model: &Arc<LlamaModel>,
+    backend: &Arc<LlamaBackend>,
     config: &LlamaCppConfig,
     params: ChatGenerationParams<'_>,
+    session_state: Option<&SharedSessionState>,
 ) -> Result<GenerationResult, LlamaCppProviderError> {
     let ChatGenerationParams {
         template_result,
@@ -1933,7 +2289,7 @@ fn generate_chat_text(
         mut on_delta,
     } = params;
 
-    let prompt_tokens = model
+    let mut prompt_tokens = model
         .str_to_token(&template_result.prompt, AddBos::Always)
         .map_err(|err| LlamaCppProviderError::Tokenization(err.to_string()))?;
 
@@ -1943,33 +2299,20 @@ fn generate_chat_text(
         ));
     }
 
-    let required_tokens = prompt_tokens.len() as u32 + max_tokens;
+    let prompt_len = prompt_tokens.len();
+    let required_tokens = prompt_len as u32 + max_tokens;
     let n_ctx = resolve_context_size(model, config, required_tokens)?;
     let n_batch = resolve_n_batch(config, n_ctx);
-    let ctx_params = build_context_params(config, false, Some(n_ctx), Some(n_batch))?;
-    let mut ctx = model
-        .new_context(backend, ctx_params)
-        .map_err(|err| LlamaCppProviderError::ContextLoad(err.to_string()))?;
 
-    let mut batch = LlamaBatch::new(n_ctx as usize, 1);
-    let batch_limit = n_batch as usize;
-    let mut position = 0_i32;
-    for chunk in prompt_tokens.chunks(batch_limit.max(1)) {
-        batch.clear();
-        let last_index = (chunk.len().saturating_sub(1)) as i32;
-        for (idx, token) in (0_i32..).zip(chunk.iter().copied()) {
-            let is_last = idx == last_index;
-            batch
-                .add(token, position + idx, &[0], is_last)
-                .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
-        }
+    // -----------------------------------------------------------------------
+    // Context acquisition: prefix-reuse path vs fresh-context path
+    // -----------------------------------------------------------------------
+    let (mut active_ctx, batch_start_pos) = acquire_context(
+        model, backend, config, session_state, &prompt_tokens,
+        n_ctx, n_batch, required_tokens,
+    )?;
 
-        ctx.decode(&mut batch)
-            .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
-        position += chunk.len() as i32;
-    }
-
-    let mut n_cur = prompt_tokens.len() as i32;
+    let mut n_cur = batch_start_pos;
     let max_tokens_total = n_cur + max_tokens as i32;
     let mut generated_text = String::default();
     let mut completion_tokens = 0u32;
@@ -1985,9 +2328,25 @@ fn generate_chat_text(
         None
     };
 
+    // We need a LlamaBatch for generation steps. Size 1 per step.
+    let mut gen_batch = LlamaBatch::new(1, 1);
+
+    // Sample first token using the last logits from prefill.
+    // The prefill left logits at the last batch position.
     let mut finish_reason = "stop".to_string();
+    let mut first_sample = true;
+
     while n_cur < max_tokens_total {
-        let token = sampler.sample(&ctx, batch.n_tokens() - 1);
+        let token = if first_sample {
+            first_sample = false;
+            // After prefill, logits are at batch.n_tokens() - 1.
+            // For session path, last decode set logits at position -1 of the batch.
+            // Use index -1 (last) which maps to batch.n_tokens() - 1 internally.
+            active_ctx.with_ctx(|ctx| sampler.sample(ctx, -1))
+        } else {
+            active_ctx.with_ctx(|ctx| sampler.sample(ctx, gen_batch.n_tokens() - 1))
+        };
+
         if model.is_eog_token(token) {
             break;
         }
@@ -2016,17 +2375,33 @@ fn generate_chat_text(
             break;
         }
 
-        batch.clear();
-        batch
+        gen_batch.clear();
+        gen_batch
             .add(token, n_cur, &[0], true)
             .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
         n_cur += 1;
-        ctx.decode(&mut batch)
-            .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
+        active_ctx.with_ctx(|ctx| {
+            ctx.decode(&mut gen_batch)
+                .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))
+        })?;
     }
 
     if n_cur >= max_tokens_total {
         finish_reason = "length".to_string();
+    }
+
+    // Update session state: reset to prompt-only so next call's prefix
+    // comparison works correctly. Generated tokens are ephemeral.
+    if let Some(state) = active_ctx.session_state_mut() {
+        std::mem::swap(&mut state.cached_tokens, &mut prompt_tokens);
+        state.next_pos = state.cached_tokens.len() as i32;
+        state.ctx.clear_kv_cache_seq(
+            Some(0),
+            Some(state.cached_tokens.len() as u32),
+            None,
+        ).map_err(|e| LlamaCppProviderError::Inference(
+            format!("post-generation KV evict: {e}"),
+        ))?;
     }
 
     let mut text = generated_text;
@@ -2040,7 +2415,7 @@ fn generate_chat_text(
 
     Ok(GenerationResult {
         text,
-        prompt_tokens: prompt_tokens.len() as u32,
+        prompt_tokens: prompt_len as u32,
         completion_tokens,
         finish_reason,
     })
@@ -2159,10 +2534,11 @@ fn generate_mtmd_text(
 }
 
 fn generate_text(
-    model: &LlamaModel,
-    backend: &LlamaBackend,
+    model: &Arc<LlamaModel>,
+    backend: &Arc<LlamaBackend>,
     config: &LlamaCppConfig,
     params: GenerationParams<'_>,
+    session_state: Option<&SharedSessionState>,
 ) -> Result<GenerationResult, LlamaCppProviderError> {
     let GenerationParams {
         prompt,
@@ -2172,7 +2548,7 @@ fn generate_text(
         mut on_token,
     } = params;
 
-    let prompt_tokens = model
+    let mut prompt_tokens = model
         .str_to_token(&prompt.prompt, prompt.add_bos)
         .map_err(|err| LlamaCppProviderError::Tokenization(err.to_string()))?;
 
@@ -2182,42 +2558,27 @@ fn generate_text(
         ));
     }
 
-    let required_tokens = prompt_tokens.len() as u32 + max_tokens;
+    let prompt_len = prompt_tokens.len();
+    let required_tokens = prompt_len as u32 + max_tokens;
     let n_ctx = resolve_context_size(model, config, required_tokens)?;
     let n_batch = resolve_n_batch(config, n_ctx);
-    let ctx_params = build_context_params(config, false, Some(n_ctx), Some(n_batch))?;
-    let mut ctx = model
-        .new_context(backend, ctx_params)
-        .map_err(|err| LlamaCppProviderError::ContextLoad(err.to_string()))?;
 
-    let prompt_len = prompt_tokens.len();
-    let mut batch = LlamaBatch::new(n_ctx as usize, 1);
-    let mut position = 0;
-    let mut last_logits_index = 0_i32;
-
-    for chunk in prompt_tokens.chunks(n_batch as usize) {
-        batch.clear();
-        for (idx, token) in chunk.iter().enumerate() {
-            let is_last = position + idx + 1 == prompt_len;
-            if is_last {
-                last_logits_index = idx as i32;
-            }
-            batch
-                .add(*token, (position + idx) as i32, &[0], is_last)
-                .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
-        }
-        ctx.decode(&mut batch)
-            .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
-        position += chunk.len();
-    }
+    let (mut active_ctx, batch_start_pos) = acquire_context(
+        model, backend, config, session_state, &prompt_tokens,
+        n_ctx, n_batch, required_tokens,
+    )?;
 
     let mut sampler = build_sampler(model, config, use_json_grammar, temperature, None)?;
     let mut generated_text = String::default();
     let mut completion_tokens = 0_u32;
     let mut decoder = encoding_rs::UTF_8.new_decoder();
 
-    let mut next_token = sampler.sample(&ctx, last_logits_index);
+    // First token: sample from last logits position after prefill.
+    let mut next_token = active_ctx.with_ctx(|ctx| sampler.sample(ctx, -1));
     sampler.accept(next_token);
+
+    let mut position = batch_start_pos as usize;
+    let mut gen_batch = LlamaBatch::new(1, 1);
 
     while completion_tokens < max_tokens {
         if model.is_eog_token(next_token) {
@@ -2236,20 +2597,35 @@ fn generate_text(
             on_token(&token_str)?;
         }
 
-        batch.clear();
-        batch
+        gen_batch.clear();
+        gen_batch
             .add(next_token, position as i32, &[0], true)
             .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
-        ctx.decode(&mut batch)
-            .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
+        active_ctx.with_ctx(|ctx| {
+            ctx.decode(&mut gen_batch)
+                .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))
+        })?;
         position += 1;
 
         if position >= n_ctx as usize {
             break;
         }
 
-        next_token = sampler.sample(&ctx, 0);
+        next_token = active_ctx.with_ctx(|ctx| sampler.sample(ctx, gen_batch.n_tokens() - 1));
         sampler.accept(next_token);
+    }
+
+    // Session cleanup: reset to prompt tokens only.
+    if let Some(state) = active_ctx.session_state_mut() {
+        std::mem::swap(&mut state.cached_tokens, &mut prompt_tokens);
+        state.next_pos = state.cached_tokens.len() as i32;
+        state.ctx.clear_kv_cache_seq(
+            Some(0),
+            Some(state.cached_tokens.len() as u32),
+            None,
+        ).map_err(|e| LlamaCppProviderError::Inference(
+            format!("post-generation KV evict: {e}"),
+        ))?;
     }
 
     let finish_reason = if completion_tokens >= max_tokens || position >= n_ctx as usize {
@@ -3164,5 +3540,159 @@ mod tests {
         )
         .expect("non-empty model path should resolve");
         assert_eq!(model_path, TEST_GGUF_MODEL_PATH);
+    }
+
+    // ── common_prefix_len tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_common_prefix_len_identical() {
+        let tokens: Vec<LlamaToken> = (0..5).map(LlamaToken::new).collect();
+        assert_eq!(common_prefix_len(&tokens, &tokens), 5);
+    }
+
+    #[test]
+    fn test_common_prefix_len_diverges_at_3() {
+        let cached: Vec<LlamaToken> = (0..5).map(LlamaToken::new).collect();
+        let mut new_tokens = cached.clone();
+        new_tokens[3] = LlamaToken::new(99);
+        assert_eq!(common_prefix_len(&cached, &new_tokens), 3);
+    }
+
+    #[test]
+    fn test_common_prefix_len_shorter_new() {
+        let cached: Vec<LlamaToken> = (0..5).map(LlamaToken::new).collect();
+        let new_tokens: Vec<LlamaToken> = (0..3).map(LlamaToken::new).collect();
+        assert_eq!(common_prefix_len(&cached, &new_tokens), 3);
+    }
+
+    #[test]
+    fn test_common_prefix_len_empty_cache() {
+        let cached: Vec<LlamaToken> = vec![];
+        let new_tokens: Vec<LlamaToken> = (0..5).map(LlamaToken::new).collect();
+        assert_eq!(common_prefix_len(&cached, &new_tokens), 0);
+    }
+
+    #[test]
+    fn test_common_prefix_len_both_empty() {
+        let empty: Vec<LlamaToken> = vec![];
+        assert_eq!(common_prefix_len(&empty, &empty), 0);
+    }
+
+    #[test]
+    fn test_common_prefix_len_completely_different() {
+        let a: Vec<LlamaToken> = (0..5).map(LlamaToken::new).collect();
+        let b: Vec<LlamaToken> = (10..15).map(LlamaToken::new).collect();
+        assert_eq!(common_prefix_len(&a, &b), 0);
+    }
+
+    // ── Config tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_config_enable_thinking_defaults_to_none() {
+        let config = LlamaCppConfig::default();
+        assert_eq!(config.enable_thinking, None);
+    }
+
+    #[test]
+    fn test_config_context_reuse_defaults_to_false() {
+        let config = LlamaCppConfig::default();
+        assert!(!config.context_reuse);
+    }
+
+    #[test]
+    fn test_config_builder_enable_thinking() {
+        let config = LlamaCppConfigBuilder::new()
+            .model_path("test.gguf")
+            .enable_thinking(true)
+            .build();
+        assert_eq!(config.enable_thinking, Some(true));
+    }
+
+    #[test]
+    fn test_config_builder_context_reuse() {
+        let config = LlamaCppConfigBuilder::new()
+            .model_path("test.gguf")
+            .context_reuse(true)
+            .build();
+        assert!(config.context_reuse);
+    }
+
+    #[test]
+    fn test_config_builder_context_reuse_off_by_default() {
+        let config = LlamaCppConfigBuilder::new()
+            .model_path("test.gguf")
+            .build();
+        assert!(!config.context_reuse);
+    }
+
+    // ── SharedSessionState tests (no model needed) ─────────────────────────
+
+    #[test]
+    fn test_shared_session_state_initially_none() {
+        let shared: SharedSessionState = Arc::new(std::sync::Mutex::new(None));
+        assert!(shared.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_shared_session_mutex_clear_no_panic() {
+        // Verifies the Mutex<Option<SessionState>> pattern works correctly.
+        // reset_session() and cached_prefix_len() cannot be unit-tested
+        // without a loaded model — integration test needed.
+        let shared: SharedSessionState = Arc::new(std::sync::Mutex::new(None));
+        *shared.lock().unwrap() = None;
+        assert!(shared.lock().unwrap().is_none());
+    }
+
+    // ── from_model / model() / backend() tests ──────────────────────────────
+    //
+    // These verify the sharing API without loading a GGUF model.
+    // Full inference through from_model() is covered by integration tests.
+
+    #[test]
+    fn test_arc_clone_preserves_identity() {
+        // Validates the Arc sharing pattern used by from_model(): cloning
+        // an Arc preserves pointer identity (Arc::ptr_eq). Cannot construct
+        // a real LlamaCppProvider without a model file — integration tests
+        // verify model()/backend() on a real provider.
+        let shared: SharedSessionState = Arc::new(std::sync::Mutex::new(None));
+        let cloned = Arc::clone(&shared);
+        assert!(Arc::ptr_eq(&shared, &cloned));
+    }
+
+    #[test]
+    fn test_from_model_config_context_reuse_enabled() {
+        // from_model() with context_reuse=true should create session_state.
+        // We can't call from_model() without a real LlamaModel/LlamaBackend,
+        // but we can verify the session_state allocation logic matches
+        // from_config() by checking the conditional directly.
+        let config = LlamaCppConfigBuilder::new()
+            .model_path("dummy.gguf")
+            .context_reuse(true)
+            .build();
+        assert!(config.context_reuse);
+
+        // Same allocation logic as from_model():
+        let session_state: Option<SharedSessionState> = if config.context_reuse {
+            Some(Arc::new(std::sync::Mutex::new(None)))
+        } else {
+            None
+        };
+        assert!(session_state.is_some());
+    }
+
+    #[test]
+    fn test_from_model_config_context_reuse_disabled() {
+        let config = LlamaCppConfigBuilder::new()
+            .model_path("dummy.gguf")
+            .context_reuse(false)
+            .build();
+        assert!(!config.context_reuse);
+
+        let session_state: Option<SharedSessionState> = if config.context_reuse {
+            Some(Arc::new(std::sync::Mutex::new(None)))
+        } else {
+            None
+        };
+        assert!(session_state.is_none());
     }
 }
