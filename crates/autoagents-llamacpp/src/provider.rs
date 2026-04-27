@@ -2180,6 +2180,24 @@ fn acquire_context<'a>(
                 let new_tokens = &prompt_tokens[prefix_len..];
                 if !new_tokens.is_empty() {
                     state.decode_tokens(new_tokens, n_batch as usize)?;
+                } else {
+                    // 100% prefix match — no new tokens to decode.
+                    // Re-decode the last prompt token to refresh the logits
+                    // buffer. Without this, the sampler reads stale logits
+                    // from the previous call's last generated token.
+                    let last_pos = state.next_pos - 1;
+                    let last_tok = prompt_tokens[prefix_len - 1];
+                    let mut batch = LlamaBatch::new(1, 1);
+                    batch
+                        .add(last_tok, last_pos, &[0], true)
+                        .map_err(|e| LlamaCppProviderError::Inference(
+                            format!("logits refresh batch add: {e}"),
+                        ))?;
+                    state.ctx.decode(&mut batch).map_err(|e| {
+                        LlamaCppProviderError::Inference(
+                            format!("logits refresh decode: {e}"),
+                        )
+                    })?;
                 }
             }
         }
