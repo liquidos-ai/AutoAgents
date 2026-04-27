@@ -145,7 +145,7 @@ where
 
         let mut cursor = 0usize;
         let mut results = Vec::with_capacity(self.documents.len());
-        for (doc, (start, len)) in self.documents.into_iter().zip(ranges.into_iter()) {
+        for (doc, (start, len)) in self.documents.into_iter().zip(ranges) {
             let slice = &vectors[start..start + len];
             let embeddings: Vec<Embedding> = slice
                 .iter()

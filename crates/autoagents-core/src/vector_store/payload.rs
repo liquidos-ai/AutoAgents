@@ -202,11 +202,8 @@ where
     let mut prepared = Vec::with_capacity(ids.len());
     let mut vectors_iter = vectors.into_iter();
     let mut expected_start = 0usize;
-    for (((id, raw), payload_fields), (start, count)) in ids
-        .into_iter()
-        .zip(raws)
-        .zip(mirrored_payloads)
-        .zip(ranges.into_iter())
+    for (((id, raw), payload_fields), (start, count)) in
+        ids.into_iter().zip(raws).zip(mirrored_payloads).zip(ranges)
     {
         if start != expected_start {
             return Err(VectorStoreError::EmbeddingError(
@@ -282,11 +279,8 @@ where
     let mut prepared = Vec::with_capacity(ids.len());
     let mut vectors_iter = vectors.into_iter();
     let mut expected_start = 0usize;
-    for (((id, raw), payload_fields), (start, count)) in ids
-        .into_iter()
-        .zip(raws)
-        .zip(mirrored_payloads)
-        .zip(ranges.into_iter())
+    for (((id, raw), payload_fields), (start, count)) in
+        ids.into_iter().zip(raws).zip(mirrored_payloads).zip(ranges)
     {
         if start != expected_start {
             return Err(VectorStoreError::EmbeddingError(
@@ -369,8 +363,8 @@ where
         .into_iter()
         .zip(raws)
         .zip(mirrored_payloads)
-        .zip(ranges.into_iter())
-        .zip(names_by_doc.into_iter())
+        .zip(ranges)
+        .zip(names_by_doc)
     {
         if start != expected_start {
             return Err(VectorStoreError::EmbeddingError(
