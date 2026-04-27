@@ -190,9 +190,11 @@ impl SessionState {
             self.ctx
                 .decode(&mut batch)
                 .map_err(|e| LlamaCppProviderError::Inference(format!("decode: {e}")))?;
+            // Update tracking per-chunk so next_pos and cached_tokens stay
+            // consistent even if a subsequent chunk's decode fails.
+            self.cached_tokens.extend_from_slice(chunk);
             self.next_pos += chunk.len() as i32;
         }
-        self.cached_tokens.extend_from_slice(tokens);
         Ok(())
     }
 }
@@ -459,11 +461,15 @@ impl LlamaCppProvider {
     ///
     /// Returns 0 when `context_reuse` is disabled or no session exists yet.
     pub fn cached_prefix_len(&self) -> usize {
-        self.session_state
-            .as_ref()
-            .and_then(|s| s.lock().ok())
-            .and_then(|guard| guard.as_ref().map(|s| s.cached_tokens.len()))
-            .unwrap_or(0)
+        match self.session_state.as_ref() {
+            Some(s) => s
+                .lock()
+                .expect("session mutex poisoned")
+                .as_ref()
+                .map(|s| s.cached_tokens.len())
+                .unwrap_or(0),
+            None => 0,
+        }
     }
 
     fn prepare_messages(&self, messages: &[ChatMessage]) -> Vec<ChatMessage> {
