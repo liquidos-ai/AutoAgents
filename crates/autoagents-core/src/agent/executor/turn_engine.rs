@@ -446,17 +446,17 @@ impl TurnEngine {
                     reasoning_content.push_str(&content);
                     let _ = tx.send(Ok(TurnDelta::ReasoningContent(content))).await;
                 }
-                StreamChunk::ToolUseComplete { tool_call, .. } => {
-                    if tool_call_ids.insert(tool_call.id.clone()) {
-                        tool_calls.push(tool_call.clone());
-                        let tx_event = context.tx().ok();
-                        EventHelper::send_stream_tool_call(
-                            &tx_event,
-                            task.submission_id,
-                            serde_json::to_value(tool_call).unwrap_or(Value::Null),
-                        )
-                        .await;
-                    }
+                StreamChunk::ToolUseComplete { tool_call, .. }
+                    if tool_call_ids.insert(tool_call.id.clone()) =>
+                {
+                    tool_calls.push(tool_call.clone());
+                    let tx_event = context.tx().ok();
+                    EventHelper::send_stream_tool_call(
+                        &tx_event,
+                        task.submission_id,
+                        serde_json::to_value(tool_call).unwrap_or(Value::Null),
+                    )
+                    .await;
                 }
                 StreamChunk::Usage(_) => {}
                 _ => {}

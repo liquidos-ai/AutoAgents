@@ -2397,18 +2397,16 @@ fn extract_first_json_object(text: &str) -> Option<String> {
                 }
                 depth += 1;
             }
-            '}' => {
-                if depth > 0 {
-                    depth -= 1;
-                    if depth == 0 {
-                        if let Some(start_idx) = start {
-                            let candidate = text[start_idx..=idx].trim();
-                            if !candidate.is_empty() && is_valid_json(candidate) {
-                                return Some(candidate.to_string());
-                            }
+            '}' if depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    if let Some(start_idx) = start {
+                        let candidate = text[start_idx..=idx].trim();
+                        if !candidate.is_empty() && is_valid_json(candidate) {
+                            return Some(candidate.to_string());
                         }
-                        start = None;
                     }
+                    start = None;
                 }
             }
             _ => {}

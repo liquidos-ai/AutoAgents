@@ -100,16 +100,12 @@ pub async fn run_example(llm: Arc<MistralRsProvider>) -> Result<(), Error> {
             event = event_stream.next(), if !events_done => {
                 match event {
                     Some(Event::StreamChunk { chunk, .. }) => match chunk {
-                        StreamChunk::ReasoningContent(content) => {
-                            if !content.is_empty() {
-                                saw_reasoning_event = true;
-                                println!("\nreasoning event: {}", content);
-                            }
+                        StreamChunk::ReasoningContent(content) if !content.is_empty() => {
+                            saw_reasoning_event = true;
+                            println!("\nreasoning event: {}", content);
                         }
-                        StreamChunk::Text(content) => {
-                            if !content.is_empty() {
-                                println!("\ntext event: {}", content);
-                            }
+                        StreamChunk::Text(content) if !content.is_empty() => {
+                            println!("\ntext event: {}", content);
                         }
                         _ => {}
                     },

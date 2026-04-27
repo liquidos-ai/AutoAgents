@@ -73,16 +73,12 @@ pub async fn agent_with_thinking() -> Result<(), Error> {
             event = event_stream.next(), if !events_done => {
                 match event {
                     Some(Event::StreamChunk { chunk, .. }) => match chunk {
-                        StreamChunk::ReasoningContent(content) => {
-                            if !content.is_empty() {
-                                saw_reasoning_event = true;
-                                println!("reasoning event: {}", content);
-                            }
+                        StreamChunk::ReasoningContent(content) if !content.is_empty() => {
+                            saw_reasoning_event = true;
+                            println!("reasoning event: {}", content);
                         }
-                        StreamChunk::Text(content) => {
-                            if !content.is_empty() {
-                                println!("text event: {}", content);
-                            }
+                        StreamChunk::Text(content) if !content.is_empty() => {
+                            println!("text event: {}", content);
                         }
                         _ => {}
                     },
