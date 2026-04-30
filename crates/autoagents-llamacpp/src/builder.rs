@@ -212,6 +212,16 @@ impl LlamaCppProviderBuilder {
         self
     }
 
+    /// Enable KV-cache prefix reuse across inference calls.
+    ///
+    /// When enabled, the provider persists the `LlamaContext` between calls and
+    /// only decodes tokens that differ from the cached prefix. This significantly
+    /// reduces time-to-first-token for workloads with repeated system prompts.
+    pub fn context_reuse(mut self, enable: bool) -> Self {
+        self.config_builder = self.config_builder.context_reuse(enable);
+        self
+    }
+
     /// Build the provider.
     pub async fn build(self) -> Result<LlamaCppProvider, LLMError> {
         let config = self.config_builder.build();
