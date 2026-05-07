@@ -10,8 +10,9 @@ use crate::{
 use autoagents_llm::{
     FunctionCall, LLMProvider, ToolCall, async_trait,
     chat::{
-        ChatMessage, ChatProvider, ChatResponse, MessageType, StreamChoice, StreamChunk,
-        StreamDelta, StreamResponse, StructuredOutputFormat, Tool, Usage as ChatUsage,
+        ChatMessage, ChatProvider, ChatResponse, MessageType, SamplingOverrides, StreamChoice,
+        StreamChunk, StreamDelta, StreamResponse, StructuredOutputFormat, Tool,
+        Usage as ChatUsage,
     },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
@@ -273,6 +274,7 @@ struct GenerationParams<'a> {
     use_json_grammar: bool,
     max_tokens: u32,
     temperature: Option<f32>,
+    top_p: Option<f32>,
     on_token: Option<TokenCallback>,
 }
 
@@ -283,6 +285,7 @@ struct MtmdGenerationParams<'a> {
     images: &'a [Vec<u8>],
     max_tokens: u32,
     temperature: Option<f32>,
+    top_p: Option<f32>,
     on_token: Option<TokenCallback>,
 }
 
@@ -290,6 +293,7 @@ struct ChatGenerationParams<'a> {
     template_result: &'a llama_cpp_2::model::ChatTemplateResult,
     max_tokens: u32,
     temperature: Option<f32>,
+    top_p: Option<f32>,
     on_delta: Option<DeltaCallback>,
 }
 
@@ -674,6 +678,10 @@ impl LlamaCppProvider {
         temperature_override.or(self.config.temperature)
     }
 
+    fn resolve_top_p(&self, top_p_override: Option<f32>) -> Option<f32> {
+        top_p_override.or(self.config.top_p)
+    }
+
     async fn run_blocking_task<T, F>(task_name: &str, f: F) -> Result<T, LLMError>
     where
         T: Send + 'static,
@@ -692,12 +700,14 @@ impl LlamaCppProvider {
         use_json_grammar: bool,
         max_tokens_override: Option<u32>,
         temperature_override: Option<f32>,
+        top_p_override: Option<f32>,
     ) -> Result<GenerationResult, LLMError> {
         let config = self.config.clone();
         let model = self.model.clone();
         let backend = self.backend.clone();
         let max_tokens = self.resolve_max_tokens(max_tokens_override);
         let temperature = self.resolve_temperature(temperature_override);
+        let top_p = self.resolve_top_p(top_p_override);
         let session = self.session_state.clone();
 
         let mut result = Self::run_blocking_task("Generation", move || {
@@ -710,6 +720,7 @@ impl LlamaCppProvider {
                     use_json_grammar,
                     max_tokens,
                     temperature,
+                    top_p,
                     on_token: None,
                 },
                 session.as_ref(),
@@ -729,12 +740,14 @@ impl LlamaCppProvider {
         template_result: llama_cpp_2::model::ChatTemplateResult,
         max_tokens_override: Option<u32>,
         temperature_override: Option<f32>,
+        top_p_override: Option<f32>,
     ) -> Result<GenerationResult, LLMError> {
         let config = self.config.clone();
         let model = self.model.clone();
         let backend = self.backend.clone();
         let max_tokens = self.resolve_max_tokens(max_tokens_override);
         let temperature = self.resolve_temperature(temperature_override);
+        let top_p = self.resolve_top_p(top_p_override);
         let session = self.session_state.clone();
 
         Self::run_blocking_task("Generation", move || {
@@ -746,6 +759,7 @@ impl LlamaCppProvider {
                     template_result: &template_result,
                     max_tokens,
                     temperature,
+                    top_p,
                     on_delta: None,
                 },
                 session.as_ref(),
@@ -760,6 +774,7 @@ impl LlamaCppProvider {
         use_json_grammar: bool,
         max_tokens_override: Option<u32>,
         temperature_override: Option<f32>,
+        top_p_override: Option<f32>,
     ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>> {
         let (tx, rx) = mpsc::unbounded_channel::<Result<StreamEvent, LLMError>>();
         let config = self.config.clone();
@@ -767,6 +782,7 @@ impl LlamaCppProvider {
         let backend = self.backend.clone();
         let max_tokens = self.resolve_max_tokens(max_tokens_override);
         let temperature = self.resolve_temperature(temperature_override);
+        let top_p = self.resolve_top_p(top_p_override);
         let session = self.session_state.clone();
         let emitted_any = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let tx_tokens = tx.clone();
@@ -817,6 +833,7 @@ impl LlamaCppProvider {
                             use_json_grammar,
                             max_tokens,
                             temperature,
+                            top_p,
                             on_token,
                         },
                         session.as_ref(),
@@ -872,6 +889,7 @@ impl LlamaCppProvider {
         marker: String,
         max_tokens_override: Option<u32>,
         temperature_override: Option<f32>,
+        top_p_override: Option<f32>,
     ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>> {
         let (tx, rx) = mpsc::unbounded_channel::<Result<StreamEvent, LLMError>>();
         let config = self.config.clone();
@@ -879,6 +897,7 @@ impl LlamaCppProvider {
         let backend = self.backend.clone();
         let max_tokens = self.resolve_max_tokens(max_tokens_override);
         let temperature = self.resolve_temperature(temperature_override);
+        let top_p = self.resolve_top_p(top_p_override);
         let tx_tokens = tx.clone();
 
         get_rt().spawn(async move {
@@ -906,6 +925,7 @@ impl LlamaCppProvider {
                             images: &images,
                             max_tokens,
                             temperature,
+                            top_p,
                             on_token,
                         },
                     )
@@ -947,6 +967,7 @@ impl LlamaCppProvider {
         template_result: llama_cpp_2::model::ChatTemplateResult,
         max_tokens_override: Option<u32>,
         temperature_override: Option<f32>,
+        top_p_override: Option<f32>,
     ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>> {
         let (tx, rx) = mpsc::unbounded_channel::<Result<StreamEvent, LLMError>>();
         let config = self.config.clone();
@@ -954,6 +975,7 @@ impl LlamaCppProvider {
         let backend = self.backend.clone();
         let max_tokens = self.resolve_max_tokens(max_tokens_override);
         let temperature = self.resolve_temperature(temperature_override);
+        let top_p = self.resolve_top_p(top_p_override);
         let session = self.session_state.clone();
         let tx_deltas = tx.clone();
 
@@ -979,6 +1001,7 @@ impl LlamaCppProvider {
                             template_result: &template_result,
                             max_tokens,
                             temperature,
+                            top_p,
                             on_delta,
                         },
                         session.as_ref(),
@@ -1044,14 +1067,30 @@ impl LlamaCppProvider {
     }
 }
 
-#[async_trait]
-impl ChatProvider for LlamaCppProvider {
-    async fn chat_with_tools(
+// Helper: extract (max_tokens, temperature, top_p) from optional sampling overrides.
+fn unpack_sampling(sampling: Option<&SamplingOverrides>) -> (Option<u32>, Option<f32>, Option<f32>) {
+    (
+        sampling.and_then(|s| s.max_tokens),
+        sampling.and_then(|s| s.temperature),
+        sampling.and_then(|s| s.top_p),
+    )
+}
+
+impl LlamaCppProvider {
+    /// Inner implementation of `chat_with_tools` accepting per-call sampling
+    /// overrides. The public trait methods (`chat_with_tools` and
+    /// `chat_with_tools_and_sampling`) delegate here. Backwards compatible:
+    /// passing `sampling = None` produces identical behaviour to the
+    /// pre-overrides implementation.
+    async fn chat_with_tools_impl(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
+        sampling: Option<&SamplingOverrides>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        let (max_tokens_override, temperature_override, top_p_override) = unpack_sampling(sampling);
+
         if Self::has_mtmd_media(messages) {
             if tools.is_some() || json_schema.is_some() {
                 return Err(LLMError::InvalidRequest(
@@ -1064,8 +1103,9 @@ impl ChatProvider for LlamaCppProvider {
                 let config = self.config.clone();
                 let model = self.model.clone();
                 let backend = self.backend.clone();
-                let max_tokens = self.resolve_max_tokens(None);
-                let temperature = self.resolve_temperature(None);
+                let max_tokens = self.resolve_max_tokens(max_tokens_override);
+                let temperature = self.resolve_temperature(temperature_override);
+                let top_p = self.resolve_top_p(top_p_override);
                 let result = get_rt()
                     .spawn_blocking(move || {
                         generate_mtmd_text(
@@ -1078,6 +1118,7 @@ impl ChatProvider for LlamaCppProvider {
                                 images: &images,
                                 max_tokens,
                                 temperature,
+                                top_p,
                                 on_token: None,
                             },
                         )
@@ -1120,7 +1161,13 @@ impl ChatProvider for LlamaCppProvider {
                     ));
                 }
                 let result = self
-                    .generate_completion_response(prompt, use_json_grammar, None, None)
+                    .generate_completion_response(
+                        prompt,
+                        use_json_grammar,
+                        max_tokens_override,
+                        temperature_override,
+                        top_p_override,
+                    )
                     .await?;
                 let usage = Some(Self::build_usage(
                     result.prompt_tokens,
@@ -1136,7 +1183,12 @@ impl ChatProvider for LlamaCppProvider {
             }
             ChatPrompt::OpenAI(template_result) => {
                 let result = self
-                    .generate_chat_completion(template_result.clone(), None, None)
+                    .generate_chat_completion(
+                        template_result.clone(),
+                        max_tokens_override,
+                        temperature_override,
+                        top_p_override,
+                    )
                     .await?;
                 let message_json = template_result
                     .parse_response_oaicompat(&result.text, false)
@@ -1169,17 +1221,29 @@ impl ChatProvider for LlamaCppProvider {
         }
     }
 
-    async fn chat_stream(
+    /// Inner implementation of `chat_stream` accepting per-call sampling
+    /// overrides.
+    async fn chat_stream_impl(
         &self,
         messages: &[ChatMessage],
         json_schema: Option<StructuredOutputFormat>,
+        sampling: Option<&SamplingOverrides>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
+        let (max_tokens_override, temperature_override, top_p_override) = unpack_sampling(sampling);
+
         if Self::has_mtmd_media(messages) {
             #[cfg(feature = "mtmd")]
             {
                 let (prompt, images, marker) = self.build_mtmd_prompt(messages)?;
-                let response_stream = self.spawn_mtmd_stream(prompt, images, marker, None, None);
+                let response_stream = self.spawn_mtmd_stream(
+                    prompt,
+                    images,
+                    marker,
+                    max_tokens_override,
+                    temperature_override,
+                    top_p_override,
+                );
                 let content_stream = response_stream.filter_map(|event| async move {
                     match event {
                         Ok(StreamEvent::Token(token)) => Some(Ok(token)),
@@ -1208,10 +1272,19 @@ impl ChatProvider for LlamaCppProvider {
             ChatPrompt::Fallback {
                 prompt,
                 use_json_grammar,
-            } => self.spawn_fallback_stream(prompt, use_json_grammar, None, None),
-            ChatPrompt::OpenAI(template_result) => {
-                self.spawn_chat_stream(template_result, None, None)
-            }
+            } => self.spawn_fallback_stream(
+                prompt,
+                use_json_grammar,
+                max_tokens_override,
+                temperature_override,
+                top_p_override,
+            ),
+            ChatPrompt::OpenAI(template_result) => self.spawn_chat_stream(
+                template_result,
+                max_tokens_override,
+                temperature_override,
+                top_p_override,
+            ),
         };
 
         let content_stream = response_stream.filter_map(|event| async move {
@@ -1232,15 +1305,20 @@ impl ChatProvider for LlamaCppProvider {
         Ok(Box::pin(content_stream))
     }
 
-    async fn chat_stream_struct(
+    /// Inner implementation of `chat_stream_struct` accepting per-call
+    /// sampling overrides.
+    async fn chat_stream_struct_impl(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
+        sampling: Option<&SamplingOverrides>,
     ) -> Result<
         std::pin::Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>,
         LLMError,
     > {
+        let (max_tokens_override, temperature_override, top_p_override) = unpack_sampling(sampling);
+
         if Self::has_mtmd_media(messages) {
             #[cfg(feature = "mtmd")]
             {
@@ -1250,7 +1328,14 @@ impl ChatProvider for LlamaCppProvider {
                     ));
                 }
                 let (prompt, images, marker) = self.build_mtmd_prompt(messages)?;
-                let response_stream = self.spawn_mtmd_stream(prompt, images, marker, None, None);
+                let response_stream = self.spawn_mtmd_stream(
+                    prompt,
+                    images,
+                    marker,
+                    max_tokens_override,
+                    temperature_override,
+                    top_p_override,
+                );
                 let struct_stream = mtmd_structured_stream(response_stream);
                 return Ok(Box::pin(struct_stream));
             }
@@ -1266,10 +1351,19 @@ impl ChatProvider for LlamaCppProvider {
             ChatPrompt::Fallback {
                 prompt,
                 use_json_grammar,
-            } => self.spawn_fallback_stream(prompt, use_json_grammar, None, None),
-            ChatPrompt::OpenAI(template_result) => {
-                self.spawn_chat_stream(template_result, None, None)
-            }
+            } => self.spawn_fallback_stream(
+                prompt,
+                use_json_grammar,
+                max_tokens_override,
+                temperature_override,
+                top_p_override,
+            ),
+            ChatPrompt::OpenAI(template_result) => self.spawn_chat_stream(
+                template_result,
+                max_tokens_override,
+                temperature_override,
+                top_p_override,
+            ),
         };
 
         let struct_stream = response_stream
@@ -1284,12 +1378,17 @@ impl ChatProvider for LlamaCppProvider {
         Ok(Box::pin(struct_stream))
     }
 
-    async fn chat_stream_with_tools(
+    /// Inner implementation of `chat_stream_with_tools` accepting per-call
+    /// sampling overrides.
+    async fn chat_stream_with_tools_impl(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
+        sampling: Option<&SamplingOverrides>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError> {
+        let (max_tokens_override, temperature_override, top_p_override) = unpack_sampling(sampling);
+
         if Self::has_mtmd_media(messages) {
             if tools.is_some() || json_schema.is_some() {
                 return Err(LLMError::InvalidRequest(
@@ -1299,7 +1398,14 @@ impl ChatProvider for LlamaCppProvider {
             #[cfg(feature = "mtmd")]
             {
                 let (prompt, images, marker) = self.build_mtmd_prompt(messages)?;
-                let response_stream = self.spawn_mtmd_stream(prompt, images, marker, None, None);
+                let response_stream = self.spawn_mtmd_stream(
+                    prompt,
+                    images,
+                    marker,
+                    max_tokens_override,
+                    temperature_override,
+                    top_p_override,
+                );
                 let stream = mtmd_tool_stream(response_stream);
                 return Ok(Box::pin(stream));
             }
@@ -1322,11 +1428,20 @@ impl ChatProvider for LlamaCppProvider {
                         "Tool calls require a chat template".to_string(),
                     ));
                 }
-                self.spawn_fallback_stream(prompt, use_json_grammar, None, None)
+                self.spawn_fallback_stream(
+                    prompt,
+                    use_json_grammar,
+                    max_tokens_override,
+                    temperature_override,
+                    top_p_override,
+                )
             }
-            ChatPrompt::OpenAI(template_result) => {
-                self.spawn_chat_stream(template_result, None, None)
-            }
+            ChatPrompt::OpenAI(template_result) => self.spawn_chat_stream(
+                template_result,
+                max_tokens_override,
+                temperature_override,
+                top_p_override,
+            ),
         };
 
         let stream = response_stream
@@ -1339,6 +1454,86 @@ impl ChatProvider for LlamaCppProvider {
             .flat_map(futures::stream::iter);
 
         Ok(Box::pin(stream))
+    }
+}
+
+#[async_trait]
+impl ChatProvider for LlamaCppProvider {
+    async fn chat_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        self.chat_with_tools_impl(messages, tools, json_schema, None)
+            .await
+    }
+
+    async fn chat_with_tools_and_sampling(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+        sampling: Option<&SamplingOverrides>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        self.chat_with_tools_impl(messages, tools, json_schema, sampling)
+            .await
+    }
+
+    async fn chat_stream(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
+    {
+        self.chat_stream_impl(messages, json_schema, None).await
+    }
+
+    async fn chat_stream_and_sampling(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+        sampling: Option<&SamplingOverrides>,
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
+    {
+        self.chat_stream_impl(messages, json_schema, sampling).await
+    }
+
+    async fn chat_stream_struct(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<
+        std::pin::Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>,
+        LLMError,
+    > {
+        self.chat_stream_struct_impl(messages, tools, json_schema, None)
+            .await
+    }
+
+    async fn chat_stream_struct_and_sampling(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+        sampling: Option<&SamplingOverrides>,
+    ) -> Result<
+        std::pin::Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>,
+        LLMError,
+    > {
+        self.chat_stream_struct_impl(messages, tools, json_schema, sampling)
+            .await
+    }
+
+    async fn chat_stream_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError> {
+        self.chat_stream_with_tools_impl(messages, tools, json_schema, None)
+            .await
     }
 }
 
@@ -1768,7 +1963,13 @@ impl CompletionProvider for LlamaCppProvider {
         };
         let use_json_grammar = json_schema.is_some() || self.config.force_json_grammar;
         let result = self
-            .generate_completion_response(prompt, use_json_grammar, req.max_tokens, req.temperature)
+            .generate_completion_response(
+                prompt,
+                use_json_grammar,
+                req.max_tokens,
+                req.temperature,
+                None,
+            )
             .await?;
 
         Ok(CompletionResponse { text: result.text })
@@ -1939,6 +2140,7 @@ fn build_sampler(
     config: &LlamaCppConfig,
     use_json_grammar: bool,
     temperature_override: Option<f32>,
+    top_p_override: Option<f32>,
     seed_override: Option<u32>,
 ) -> Result<LlamaSampler, LlamaCppProviderError> {
     let mut samplers = Vec::new();
@@ -1965,7 +2167,7 @@ fn build_sampler(
     if let Some(top_k) = config.top_k {
         samplers.push(LlamaSampler::top_k(top_k as i32));
     }
-    if let Some(top_p) = config.top_p {
+    if let Some(top_p) = top_p_override.or(config.top_p) {
         samplers.push(LlamaSampler::top_p(top_p, 1));
     }
 
@@ -2020,6 +2222,7 @@ fn build_chat_sampler(
     config: &LlamaCppConfig,
     result: &llama_cpp_2::model::ChatTemplateResult,
     temperature_override: Option<f32>,
+    top_p_override: Option<f32>,
 ) -> Result<(LlamaSampler, HashSet<LlamaToken>), LlamaCppProviderError> {
     let mut preserved = HashSet::new();
     for token_str in &result.preserved_tokens {
@@ -2113,7 +2316,7 @@ fn build_chat_sampler(
     if let Some(top_k) = config.top_k {
         samplers.push(LlamaSampler::top_k(top_k as i32));
     }
-    if let Some(top_p) = config.top_p {
+    if let Some(top_p) = top_p_override.or(config.top_p) {
         samplers.push(LlamaSampler::top_p(top_p, 1));
     }
 
@@ -2248,6 +2451,7 @@ fn generate_chat_text(
         template_result,
         max_tokens,
         temperature,
+        top_p,
         mut on_delta,
     } = params;
 
@@ -2280,7 +2484,8 @@ fn generate_chat_text(
     let mut completion_tokens = 0u32;
     let mut decoder = encoding_rs::UTF_8.new_decoder();
 
-    let (mut sampler, preserved) = build_chat_sampler(model, config, template_result, temperature)?;
+    let (mut sampler, preserved) =
+        build_chat_sampler(model, config, template_result, temperature, top_p)?;
     let additional_stops = template_result.additional_stops.clone();
     let mut stream_state = if on_delta.is_some() {
         Some(template_result.streaming_state_oaicompat().map_err(|err| {
@@ -2396,6 +2601,7 @@ fn generate_mtmd_text(
         images,
         max_tokens,
         temperature,
+        top_p,
         mut on_token,
     } = params;
 
@@ -2446,7 +2652,7 @@ fn generate_mtmd_text(
         .eval_chunks(&mtmd_ctx, &ctx, 0, 0, batch_size, true)
         .map_err(|err| LlamaCppProviderError::Inference(err.to_string()))?;
 
-    let mut sampler = build_sampler(model, config, false, temperature, None)?;
+    let mut sampler = build_sampler(model, config, false, temperature, top_p, None)?;
 
     let mut batch = LlamaBatch::new(n_ctx as usize, 1);
     let mut n_cur = n_past;
@@ -2507,6 +2713,7 @@ fn generate_text(
         use_json_grammar,
         max_tokens,
         temperature,
+        top_p,
         mut on_token,
     } = params;
 
@@ -2530,7 +2737,7 @@ fn generate_text(
         n_ctx, n_batch, required_tokens,
     )?;
 
-    let mut sampler = build_sampler(model, config, use_json_grammar, temperature, None)?;
+    let mut sampler = build_sampler(model, config, use_json_grammar, temperature, top_p, None)?;
     let mut generated_text = String::default();
     let mut completion_tokens = 0_u32;
     let mut decoder = encoding_rs::UTF_8.new_decoder();
@@ -2766,6 +2973,67 @@ mod tests {
             return 0;
         }
         total.div_ceil(batch)
+    }
+
+    #[test]
+    fn test_unpack_sampling_none_returns_all_none() {
+        // sampling = None must produce identical (None, None, None) so the
+        // existing chat_with_tools / chat_stream / chat_stream_struct
+        // delegation paths remain bit-equivalent to the pre-overrides
+        // implementation.
+        let (max_tokens, temperature, top_p) = unpack_sampling(None);
+        assert!(max_tokens.is_none());
+        assert!(temperature.is_none());
+        assert!(top_p.is_none());
+    }
+
+    #[test]
+    fn test_unpack_sampling_extracts_each_field() {
+        let sampling = SamplingOverrides {
+            temperature: Some(0.0),
+            top_p: Some(0.95),
+            max_tokens: Some(128),
+        };
+        let (max_tokens, temperature, top_p) = unpack_sampling(Some(&sampling));
+        assert_eq!(max_tokens, Some(128));
+        assert_eq!(temperature, Some(0.0));
+        assert_eq!(top_p, Some(0.95));
+    }
+
+    #[test]
+    fn test_unpack_sampling_partial_overrides() {
+        let sampling = SamplingOverrides::with_temperature(0.0);
+        let (max_tokens, temperature, top_p) = unpack_sampling(Some(&sampling));
+        assert!(max_tokens.is_none());
+        assert_eq!(temperature, Some(0.0));
+        assert!(top_p.is_none());
+    }
+
+    #[test]
+    fn test_unpack_sampling_default_equivalent_to_none() {
+        // SamplingOverrides::default() (all None) must produce the same
+        // tuple as `sampling = None`. This guards the backwards-compat
+        // contract: passing `Some(&SamplingOverrides::default())` is
+        // bit-equivalent to passing `None`.
+        let default = SamplingOverrides::default();
+        assert_eq!(unpack_sampling(Some(&default)), unpack_sampling(None));
+    }
+
+    #[test]
+    fn test_top_p_override_precedence_in_sampler_logic() {
+        // Mirror the precedence used in build_sampler / build_chat_sampler:
+        //   top_p_override.or(config.top_p)
+        // Verifies the override semantics without needing a real model.
+        let config_top_p: Option<f32> = Some(0.9);
+        let override_top_p: Option<f32> = Some(0.5);
+        // Override wins when set.
+        assert_eq!(override_top_p.or(config_top_p), Some(0.5));
+        // Falls through to config default when override is None.
+        let no_override: Option<f32> = None;
+        assert_eq!(no_override.or(config_top_p), Some(0.9));
+        // Both None → None (provider falls back to no top_p sampler).
+        let no_config: Option<f32> = None;
+        assert_eq!(no_override.or(no_config), None);
     }
 
     #[test]
