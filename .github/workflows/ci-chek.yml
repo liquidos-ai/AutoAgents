@@ -15,7 +15,8 @@ concurrency:
 permissions: read-all
 
 env:
-  # Matches bindings/pyproject.toml `build-system.requires` pin (maturin==…); bump together.
+  # CI pins the maturin executable for reproducible builds; pyproject.toml only
+  # declares the supported build-backend range for isolated builds.
   MATURIN_VERSION: "1.13.3"
 
 jobs:

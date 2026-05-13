@@ -14,7 +14,8 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # Matches bindings/pyproject.toml `build-system.requires` pin (maturin==…); bump together.
+  # CI pins the maturin executable for reproducible builds; pyproject.toml only
+  # declares the supported build-backend range for isolated builds.
   MATURIN_VERSION: "1.13.3"
 
 concurrency:

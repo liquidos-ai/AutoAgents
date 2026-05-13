@@ -11,10 +11,29 @@ UV_CACHE_DIR ?= $(CURDIR)/.uv-cache
 export UV_CACHE_DIR
 export PYTHONDONTWRITEBYTECODE := 1
 
-# Copy the maturin-built cdylib beside the editable package. Depending on maturin
-# version, the artifact lives under $(1)/maturin/ or only $(1)/release/.
+# Copy the maturin-built cdylib beside the editable package. Depending on
+# maturin version, the artifact lives under $(1)/maturin/ or only
+# $(1)/release/. Rust uses platform-specific cdylib extensions for the source
+# artifact; the installed Python extension keeps its .abi3.so name.
 define install_maturin_cdylib
-	@lib="$(2)"; src=""; if [[ -f "$(1)/maturin/$$lib" ]]; then src="$(1)/maturin/$$lib"; elif [[ -f "$(1)/release/$$lib" ]]; then src="$(1)/release/$$lib"; else echo "error: $$lib not found under $(1)/maturin or $(1)/release" >&2; exit 1; fi; rm -f "$(3)"; install -m 755 "$$src" "$(3)"
+	@lib="$(2)"; dest="$(3)"; stem="$${lib%.so}"; candidates="$$lib"; \
+	if [[ "$$stem" != "$$lib" ]]; then \
+		candidates="$$candidates $$stem.dylib $$stem.dll $${stem#lib_}.dll"; \
+	fi; \
+	for dir in "$(1)/maturin" "$(1)/release"; do \
+		for candidate in $$candidates; do \
+			if [[ -f "$$dir/$$candidate" ]]; then \
+				src="$$dir/$$candidate"; \
+				break 2; \
+			fi; \
+		done; \
+	done; \
+	if [[ -z "$${src:-}" ]]; then \
+		echo "error: none of [$$candidates] found under $(1)/maturin or $(1)/release" >&2; \
+		exit 1; \
+	fi; \
+	rm -f "$$dest"; \
+	install -m 755 "$$src" "$$dest"
 endef
 
 PYTHON_BINDINGS_DIR := $(CURDIR)/bindings/python

@@ -48,7 +48,7 @@ cargo test --all-features
 # From repository root
  uv venv --python=3.12
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-uv pip install -U pip maturin==1.13.3 pytest pytest-asyncio pytest-cov
+uv pip install -U pip "maturin>=1.13.3,<2" pytest pytest-asyncio pytest-cov
 ```
 
 Build and install all CPU packages using the repository Makefile:
