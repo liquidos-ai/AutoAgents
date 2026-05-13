@@ -116,7 +116,7 @@ label applies to the Python extension mechanism, not to the Rust architecture.
 | Python | 3.9 | [python.org](https://www.python.org/downloads/) |
 | Rust | stable | `curl https://sh.rustup.rs -sSf \| sh` |
 | uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| maturin | 1.5 | `uv pip install maturin` |
+| maturin | 1.13.3 | `uv pip install maturin==1.13.3` |
 | pytest + pytest-asyncio + pytest-cov | latest | `uv pip install pytest pytest-asyncio pytest-cov` |
 
 ---
@@ -132,7 +132,7 @@ local imports always resolve to freshly compiled extensions:
 # From the repository root
 uv venv --python=3.12
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+uv pip install -U pip maturin==1.13.3 pytest pytest-asyncio pytest-cov
 
 # Build and install: base + llamacpp CPU + mistralrs CPU
 make python-bindings-build
@@ -153,7 +153,7 @@ targets above are the supported day-to-day development workflow.
 ```bash
 # 1. Base package (required first)
 cd bindings/python/autoagents
-uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+uv pip install -U pip maturin==1.13.3 pytest pytest-asyncio pytest-cov
 maturin develop --release
 
 # 2. llama.cpp CPU backend (optional)

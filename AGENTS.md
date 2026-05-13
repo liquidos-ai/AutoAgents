@@ -59,7 +59,7 @@ Python bindings are availble as a thin wrapper around the rust crates to give ab
 ```sh
 uv venv --python=3.12
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+uv pip install -U pip maturin==1.13.3 pytest pytest-asyncio pytest-cov
 
 # Clean, build, and install all CPU bindings into the active venv
 make python-bindings-build

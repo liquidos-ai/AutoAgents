@@ -14,6 +14,10 @@ concurrency:
 
 permissions: read-all
 
+env:
+  # Matches bindings/pyproject.toml `build-system.requires` pin (maturin==…); bump together.
+  MATURIN_VERSION: "1.13.3"
+
 jobs:
   ci:
     name: CI
@@ -106,7 +110,7 @@ jobs:
           workspaces: . -> target
 
       - name: Install Python test dependencies
-        run: .venv/bin/python -m pip install --upgrade pip maturin pytest pytest-asyncio pytest-cov
+        run: .venv/bin/python -m pip install --upgrade pip "maturin==${{ env.MATURIN_VERSION }}" pytest pytest-asyncio pytest-cov
 
       - name: Run Python binding tests
         run: make python-bindings-test-clean

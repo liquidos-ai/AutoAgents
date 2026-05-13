@@ -133,7 +133,7 @@ Instalação de desenvolvimento a partir deste repositório:
 ```bash
 uv venv --python=3.12
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+uv pip install -U pip maturin==1.13.3 pytest pytest-asyncio pytest-cov
 
 # Limpa, compila e instala todos os bindings CPU na venv ativa
 make python-bindings-build

@@ -133,7 +133,7 @@ AutoAgents는 Python 바인딩을 별도 패키지로 제공합니다:
 ```bash
 uv venv --python=3.12
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+uv pip install -U pip maturin==1.13.3 pytest pytest-asyncio pytest-cov
 
 # 활성 venv에 CPU 바인딩 전체를 정리, 빌드, 설치
 make python-bindings-build

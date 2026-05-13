@@ -17,6 +17,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Matches bindings/pyproject.toml `build-system.requires` pin (maturin==…); bump together.
+  MATURIN_VERSION: "1.13.3"
+
 # ── Build strategy ────────────────────────────────────────────────────────────
 # Match the release publishing build matrix so packaging issues are caught in
 # PR validation before a release tag is pushed.
@@ -55,6 +59,7 @@ jobs:
       - name: Build autoagents-py
         uses: PyO3/maturin-action@v1
         with:
+          maturin-version: v${{ env.MATURIN_VERSION }}
           target: x86_64
           manylinux: "2_28"
           sccache: true
@@ -66,6 +71,7 @@ jobs:
       - name: Build autoagents-guardrails-py
         uses: PyO3/maturin-action@v1
         with:
+          maturin-version: v${{ env.MATURIN_VERSION }}
           target: x86_64
           manylinux: "2_28"
           sccache: true
@@ -79,6 +85,7 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/mistralrs-cpu-linux-x86_64
         with:
+          maturin-version: v${{ env.MATURIN_VERSION }}
           target: x86_64
           manylinux: "2_28"
           sccache: true
@@ -119,6 +126,7 @@ jobs:
       - name: Build autoagents-py
         uses: PyO3/maturin-action@v1
         with:
+          maturin-version: v${{ env.MATURIN_VERSION }}
           target: aarch64
           manylinux: "2_28"
           sccache: true
@@ -130,6 +138,7 @@ jobs:
       - name: Build autoagents-guardrails-py
         uses: PyO3/maturin-action@v1
         with:
+          maturin-version: v${{ env.MATURIN_VERSION }}
           target: aarch64
           manylinux: "2_28"
           sccache: true
@@ -143,6 +152,7 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target/mistralrs-cpu-linux-aarch64
         with:
+          maturin-version: v${{ env.MATURIN_VERSION }}
           target: aarch64
           manylinux: "2_28"
           sccache: true
@@ -170,7 +180,7 @@ jobs:
           rustup default stable
 
       - name: Install maturin
-        run: python -m pip install --upgrade pip maturin
+        run: python -m pip install --upgrade pip "maturin==${{ env.MATURIN_VERSION }}"
 
       - name: Build autoagents-py sdist
         run: |
@@ -264,7 +274,7 @@ jobs:
           workspaces: . -> target
 
       - name: Install maturin
-        run: python -m pip install --upgrade pip maturin
+        run: python -m pip install --upgrade pip "maturin==${{ env.MATURIN_VERSION }}"
 
       - name: Build autoagents-py
         run: |
@@ -350,7 +360,7 @@ jobs:
           "$($vulkanRoot.FullName)\Bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install maturin
-        run: python -m pip install --upgrade pip maturin
+        run: python -m pip install --upgrade pip "maturin==${{ env.MATURIN_VERSION }}"
 
       - name: Build autoagents-py
         shell: pwsh
