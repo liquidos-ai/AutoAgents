@@ -133,7 +133,7 @@ AutoAgents 将 Python 绑定拆分为独立包：
 ```bash
 uv venv --python=3.12
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-uv pip install -U pip maturin pytest pytest-asyncio pytest-cov
+uv pip install -U pip maturin==1.13.3 pytest pytest-asyncio pytest-cov
 
 # 清理、构建并安装全部 CPU Python 绑定
 make python-bindings-build

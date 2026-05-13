@@ -14,6 +14,11 @@ concurrency:
 
 permissions: read-all
 
+env:
+  # CI pins the maturin executable for reproducible builds; pyproject.toml only
+  # declares the supported build-backend range for isolated builds.
+  MATURIN_VERSION: "1.13.3"
+
 jobs:
   ci:
     name: CI
@@ -106,7 +111,7 @@ jobs:
           workspaces: . -> target
 
       - name: Install Python test dependencies
-        run: .venv/bin/python -m pip install --upgrade pip maturin pytest pytest-asyncio pytest-cov
+        run: .venv/bin/python -m pip install --upgrade pip "maturin==${{ env.MATURIN_VERSION }}" pytest pytest-asyncio pytest-cov
 
       - name: Run Python binding tests
         run: make python-bindings-test-clean
