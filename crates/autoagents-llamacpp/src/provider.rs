@@ -11,8 +11,7 @@ use autoagents_llm::{
     FunctionCall, LLMProvider, ToolCall, async_trait,
     chat::{
         ChatMessage, ChatProvider, ChatResponse, MessageType, SamplingOverrides, StreamChoice,
-        StreamChunk, StreamDelta, StreamResponse, StructuredOutputFormat, Tool,
-        Usage as ChatUsage,
+        StreamChunk, StreamDelta, StreamResponse, StructuredOutputFormat, Tool, Usage as ChatUsage,
     },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
@@ -221,11 +220,16 @@ impl ActiveContext<'_> {
     ///
     /// Abstracts over owned vs session contexts — the closure receives a
     /// `&mut LlamaContext` regardless of which variant is active.
-    fn with_ctx<R>(&mut self, f: impl FnOnce(&mut llama_cpp_2::context::LlamaContext<'_>) -> R) -> R {
+    fn with_ctx<R>(
+        &mut self,
+        f: impl FnOnce(&mut llama_cpp_2::context::LlamaContext<'_>) -> R,
+    ) -> R {
         match self {
             ActiveContext::Owned(ctx) => f(ctx),
             ActiveContext::Session(guard) => {
-                let state = guard.as_mut().expect("session must exist during generation");
+                let state = guard
+                    .as_mut()
+                    .expect("session must exist during generation");
                 f(&mut state.ctx)
             }
         }
@@ -1068,7 +1072,9 @@ impl LlamaCppProvider {
 }
 
 // Helper: extract (max_tokens, temperature, top_p) from optional sampling overrides.
-fn unpack_sampling(sampling: Option<&SamplingOverrides>) -> (Option<u32>, Option<f32>, Option<f32>) {
+fn unpack_sampling(
+    sampling: Option<&SamplingOverrides>,
+) -> (Option<u32>, Option<f32>, Option<f32>) {
     (
         sampling.and_then(|s| s.max_tokens),
         sampling.and_then(|s| s.temperature),
@@ -2342,16 +2348,27 @@ fn build_chat_sampler(
 ///
 /// Returns `(ActiveContext, start_position)` where `start_position` is the
 /// KV-cache position after the prompt has been decoded.
+struct ContextAcquisitionRequest<'a> {
+    prompt_tokens: &'a [LlamaToken],
+    n_ctx: u32,
+    n_batch: u32,
+    required_tokens: u32,
+}
+
 fn acquire_context<'a>(
     model: &'a Arc<LlamaModel>,
     backend: &'a Arc<LlamaBackend>,
     config: &LlamaCppConfig,
     session_state: Option<&'a SharedSessionState>,
-    prompt_tokens: &[LlamaToken],
-    n_ctx: u32,
-    n_batch: u32,
-    required_tokens: u32,
+    request: ContextAcquisitionRequest<'_>,
 ) -> Result<(ActiveContext<'a>, i32), LlamaCppProviderError> {
+    let ContextAcquisitionRequest {
+        prompt_tokens,
+        n_ctx,
+        n_batch,
+        required_tokens,
+    } = request;
+
     if let Some(shared) = session_state {
         let mut guard = shared.lock().expect("session mutex poisoned");
 
@@ -2397,15 +2414,11 @@ fn acquire_context<'a>(
                     let last_pos = state.next_pos - 1;
                     let last_tok = prompt_tokens[prefix_len - 1];
                     let mut batch = LlamaBatch::new(1, 1);
-                    batch
-                        .add(last_tok, last_pos, &[0], true)
-                        .map_err(|e| LlamaCppProviderError::Inference(
-                            format!("logits refresh batch add: {e}"),
-                        ))?;
+                    batch.add(last_tok, last_pos, &[0], true).map_err(|e| {
+                        LlamaCppProviderError::Inference(format!("logits refresh batch add: {e}"))
+                    })?;
                     state.ctx.decode(&mut batch).map_err(|e| {
-                        LlamaCppProviderError::Inference(
-                            format!("logits refresh decode: {e}"),
-                        )
+                        LlamaCppProviderError::Inference(format!("logits refresh decode: {e}"))
                     })?;
                 }
             }
@@ -2474,8 +2487,16 @@ fn generate_chat_text(
     // Context acquisition: prefix-reuse path vs fresh-context path
     // -----------------------------------------------------------------------
     let (mut active_ctx, batch_start_pos) = acquire_context(
-        model, backend, config, session_state, &prompt_tokens,
-        n_ctx, n_batch, required_tokens,
+        model,
+        backend,
+        config,
+        session_state,
+        ContextAcquisitionRequest {
+            prompt_tokens: &prompt_tokens,
+            n_ctx,
+            n_batch,
+            required_tokens,
+        },
     )?;
 
     let mut n_cur = batch_start_pos;
@@ -2562,13 +2583,12 @@ fn generate_chat_text(
     if let Some(state) = active_ctx.session_state_mut() {
         std::mem::swap(&mut state.cached_tokens, &mut prompt_tokens);
         state.next_pos = state.cached_tokens.len() as i32;
-        state.ctx.clear_kv_cache_seq(
-            Some(0),
-            Some(state.cached_tokens.len() as u32),
-            None,
-        ).map_err(|e| LlamaCppProviderError::Inference(
-            format!("post-generation KV evict: {e}"),
-        ))?;
+        state
+            .ctx
+            .clear_kv_cache_seq(Some(0), Some(state.cached_tokens.len() as u32), None)
+            .map_err(|e| {
+                LlamaCppProviderError::Inference(format!("post-generation KV evict: {e}"))
+            })?;
     }
 
     let mut text = generated_text;
@@ -2733,8 +2753,16 @@ fn generate_text(
     let n_batch = resolve_n_batch(config, n_ctx);
 
     let (mut active_ctx, batch_start_pos) = acquire_context(
-        model, backend, config, session_state, &prompt_tokens,
-        n_ctx, n_batch, required_tokens,
+        model,
+        backend,
+        config,
+        session_state,
+        ContextAcquisitionRequest {
+            prompt_tokens: &prompt_tokens,
+            n_ctx,
+            n_batch,
+            required_tokens,
+        },
     )?;
 
     let mut sampler = build_sampler(model, config, use_json_grammar, temperature, top_p, None)?;
@@ -2788,13 +2816,12 @@ fn generate_text(
     if let Some(state) = active_ctx.session_state_mut() {
         std::mem::swap(&mut state.cached_tokens, &mut prompt_tokens);
         state.next_pos = state.cached_tokens.len() as i32;
-        state.ctx.clear_kv_cache_seq(
-            Some(0),
-            Some(state.cached_tokens.len() as u32),
-            None,
-        ).map_err(|e| LlamaCppProviderError::Inference(
-            format!("post-generation KV evict: {e}"),
-        ))?;
+        state
+            .ctx
+            .clear_kv_cache_seq(Some(0), Some(state.cached_tokens.len() as u32), None)
+            .map_err(|e| {
+                LlamaCppProviderError::Inference(format!("post-generation KV evict: {e}"))
+            })?;
     }
 
     let finish_reason = if completion_tokens >= max_tokens || position >= n_ctx as usize {
@@ -3849,9 +3876,7 @@ mod tests {
 
     #[test]
     fn test_config_builder_context_reuse_off_by_default() {
-        let config = LlamaCppConfigBuilder::new()
-            .model_path("test.gguf")
-            .build();
+        let config = LlamaCppConfigBuilder::new().model_path("test.gguf").build();
         assert!(!config.context_reuse);
     }
 
