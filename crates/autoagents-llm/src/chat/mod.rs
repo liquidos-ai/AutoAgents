@@ -391,6 +391,59 @@ pub trait ChatResponse: std::fmt::Debug + std::fmt::Display + Send + Sync {
     }
 }
 
+/// Per-call sampling overrides for [`ChatProvider`] methods.
+///
+/// Backends that support per-call sampling (e.g. `LlamaCppProvider`) apply
+/// these overrides on top of the defaults configured at provider construction.
+/// Backends that do not support per-call overrides (the default trait impl)
+/// silently ignore overrides — passing `Some(SamplingOverrides::...)` is safe
+/// against any backend.
+///
+/// `None` on any field means "use the provider default" (no override). Passing
+/// `sampling: None` to the `_and_sampling` methods is equivalent to calling
+/// the non-sampling-aware method (no behaviour change).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct SamplingOverrides {
+    /// Temperature override. `None` = use provider default.
+    pub temperature: Option<f32>,
+    /// Top-p (nucleus sampling) override. `None` = use provider default.
+    pub top_p: Option<f32>,
+    /// Max output tokens override. `None` = use provider default.
+    pub max_tokens: Option<u32>,
+}
+
+impl SamplingOverrides {
+    /// All overrides unset. Equivalent to [`SamplingOverrides::default`] —
+    /// included for call-site readability when explicitly opting out.
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    /// Convenience constructor: override only `temperature`.
+    pub fn with_temperature(temperature: f32) -> Self {
+        Self {
+            temperature: Some(temperature),
+            ..Self::default()
+        }
+    }
+
+    /// Convenience constructor: override only `top_p`.
+    pub fn with_top_p(top_p: f32) -> Self {
+        Self {
+            top_p: Some(top_p),
+            ..Self::default()
+        }
+    }
+
+    /// Convenience constructor: override only `max_tokens`.
+    pub fn with_max_tokens(max_tokens: u32) -> Self {
+        Self {
+            max_tokens: Some(max_tokens),
+            ..Self::default()
+        }
+    }
+}
+
 /// Trait for providers that support chat-style interactions.
 #[async_trait]
 pub trait ChatProvider: Sync + Send {
@@ -429,6 +482,47 @@ pub trait ChatProvider: Sync + Send {
         tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError>;
+
+    /// Sends a chat request with optional per-call sampling overrides.
+    ///
+    /// Equivalent to [`ChatProvider::chat`] when `sampling` is `None`. When
+    /// `sampling` is `Some(...)`, backends that support per-call sampling
+    /// apply the overrides on top of provider-construction defaults; backends
+    /// that do not (the default impl) silently ignore them.
+    ///
+    /// Backwards compatible: callers that don't need per-call sampling should
+    /// continue to use [`ChatProvider::chat`].
+    async fn chat_and_sampling(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+        sampling: Option<&SamplingOverrides>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        self.chat_with_tools_and_sampling(messages, None, json_schema, sampling)
+            .await
+    }
+
+    /// Sends a chat request with tools and optional per-call sampling overrides.
+    ///
+    /// Equivalent to [`ChatProvider::chat_with_tools`] when `sampling` is
+    /// `None`. When `sampling` is `Some(...)`, backends that support per-call
+    /// sampling apply the overrides on top of provider-construction defaults;
+    /// backends that do not (the default impl) silently ignore them.
+    ///
+    /// Backwards compatible: the default implementation delegates to
+    /// [`ChatProvider::chat_with_tools`], dropping `sampling` on the floor.
+    /// Backends that wish to honour per-call sampling override this method.
+    async fn chat_with_tools_and_sampling(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+        sampling: Option<&SamplingOverrides>,
+    ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        // Default impl: ignore sampling, delegate to existing chat_with_tools.
+        let _ = sampling;
+        self.chat_with_tools(messages, tools, json_schema).await
+    }
 
     /// Sends a chat with web search request to the provider
     ///
@@ -553,6 +647,39 @@ pub trait ChatProvider: Sync + Send {
         Err(LLMError::Generic(
             "Streaming with tools not supported for this provider".to_string(),
         ))
+    }
+
+    /// Streaming variant of [`ChatProvider::chat_stream`] with per-call
+    /// sampling overrides. Default impl ignores `sampling` and delegates to
+    /// [`ChatProvider::chat_stream`]. Backends that honour per-call sampling
+    /// override this method.
+    async fn chat_stream_and_sampling(
+        &self,
+        messages: &[ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+        sampling: Option<&SamplingOverrides>,
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
+    {
+        let _ = sampling;
+        self.chat_stream(messages, json_schema).await
+    }
+
+    /// Streaming variant of [`ChatProvider::chat_stream_struct`] with per-call
+    /// sampling overrides. Default impl ignores `sampling` and delegates to
+    /// [`ChatProvider::chat_stream_struct`]. Backends that honour per-call
+    /// sampling override this method.
+    async fn chat_stream_struct_and_sampling(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+        sampling: Option<&SamplingOverrides>,
+    ) -> Result<
+        std::pin::Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>,
+        LLMError,
+    > {
+        let _ = sampling;
+        self.chat_stream_struct(messages, tools, json_schema).await
     }
 }
 

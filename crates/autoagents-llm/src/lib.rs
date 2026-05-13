@@ -78,6 +78,7 @@ pub mod optim;
 
 //Re-export for convenience
 pub use async_trait::async_trait;
+pub use chat::SamplingOverrides;
 
 /// Unit config for providers with no provider-specific options.
 #[derive(Debug, Default, Clone)]
@@ -511,6 +512,81 @@ mod tests {
 
         let response = provider.chat(&messages, None).await.unwrap();
         assert_eq!(response.text(), Some("Mock response".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_chat_and_sampling_default_impl_ignores_sampling() {
+        // Default trait impl delegates to chat_with_tools, dropping sampling.
+        // Backends without per-call sampling support must not error when
+        // overrides are passed — `Some(SamplingOverrides::...)` is silently
+        // ignored. Asserts the contract documented on
+        // `chat_with_tools_and_sampling`.
+        let provider = MockLLMProvider;
+        let messages = vec![chat::ChatMessage::user().content("Test").build()];
+
+        // None override path: identical to chat_with_tools.
+        let baseline = provider.chat(&messages, None).await.unwrap();
+        let none_override = provider
+            .chat_and_sampling(&messages, None, None)
+            .await
+            .unwrap();
+        assert_eq!(baseline.text(), none_override.text());
+
+        // Some override path: also succeeds (mock ignores it).
+        let with_overrides = provider
+            .chat_and_sampling(
+                &messages,
+                None,
+                Some(&chat::SamplingOverrides {
+                    temperature: Some(0.0),
+                    top_p: Some(0.9),
+                    max_tokens: Some(64),
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(with_overrides.text(), Some("Mock response".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_tools_and_sampling_default_impl_ignores_sampling() {
+        let provider = MockLLMProvider;
+        let messages = vec![chat::ChatMessage::user().content("Test").build()];
+
+        let response = provider
+            .chat_with_tools_and_sampling(
+                &messages,
+                None,
+                None,
+                Some(&chat::SamplingOverrides::with_temperature(0.0)),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.text(), Some("Mock response".to_string()));
+    }
+
+    #[test]
+    fn test_sampling_overrides_helpers() {
+        let empty = chat::SamplingOverrides::empty();
+        assert_eq!(empty, chat::SamplingOverrides::default());
+        assert!(empty.temperature.is_none());
+        assert!(empty.top_p.is_none());
+        assert!(empty.max_tokens.is_none());
+
+        let temp = chat::SamplingOverrides::with_temperature(0.0);
+        assert_eq!(temp.temperature, Some(0.0));
+        assert_eq!(temp.top_p, None);
+
+        let top_p = chat::SamplingOverrides::with_top_p(0.95);
+        assert_eq!(top_p.top_p, Some(0.95));
+        assert_eq!(top_p.temperature, None);
+
+        let max_tok = chat::SamplingOverrides::with_max_tokens(128);
+        assert_eq!(max_tok.max_tokens, Some(128));
+
+        // SamplingOverrides is re-exported at crate root.
+        let from_root = SamplingOverrides::with_temperature(0.5);
+        assert_eq!(from_root.temperature, Some(0.5));
     }
 
     #[tokio::test]
