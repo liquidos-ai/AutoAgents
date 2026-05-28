@@ -118,11 +118,22 @@ struct OllamaChatMessage<'a> {
 }
 
 /// Response from Ollama's API endpoints.
-#[derive(Deserialize, Debug)]
+///
+/// Per Ollama's API docs (`/api/chat` + `/api/generate`), `prompt_eval_count`
+/// and `eval_count` appear in the final response object (both streaming and
+/// non-streaming). These map to `Usage::prompt_tokens` and
+/// `Usage::completion_tokens` respectively for OTel GenAI SemConv compatibility.
+#[derive(Deserialize, Debug, Default)]
 struct OllamaResponse {
     content: Option<String>,
     response: Option<String>,
     message: Option<OllamaChatResponseMessage>,
+    /// Number of tokens evaluated from the prompt (input tokens).
+    #[serde(default)]
+    prompt_eval_count: Option<u32>,
+    /// Number of tokens generated in the response (output tokens).
+    #[serde(default)]
+    eval_count: Option<u32>,
 }
 
 impl std::fmt::Display for OllamaResponse {
@@ -179,6 +190,23 @@ impl ChatResponse for OllamaResponse {
                     .collect()
             })
         })
+    }
+
+    fn usage(&self) -> Option<crate::chat::Usage> {
+        // Ollama returns prompt_eval_count + eval_count only in the final
+        // response chunk. Treat absence as "no usage available" rather than
+        // synthesising zeros so callers can distinguish streaming-mid-chunks
+        // from the terminal chunk.
+        match (self.prompt_eval_count, self.eval_count) {
+            (Some(p), Some(c)) => Some(crate::chat::Usage {
+                prompt_tokens: p,
+                completion_tokens: c,
+                total_tokens: p.saturating_add(c),
+                completion_tokens_details: None,
+                prompt_tokens_details: None,
+            }),
+            _ => None,
+        }
     }
 }
 
@@ -813,6 +841,7 @@ mod tests {
                 content: "message".to_string(),
                 tool_calls: None,
             }),
+            ..Default::default()
         };
         assert_eq!(response.text(), Some("content".to_string()));
 
@@ -823,6 +852,7 @@ mod tests {
                 content: "message".to_string(),
                 tool_calls: None,
             }),
+            ..Default::default()
         };
         assert_eq!(response.text(), Some("response".to_string()));
 
@@ -833,6 +863,7 @@ mod tests {
                 content: "message".to_string(),
                 tool_calls: None,
             }),
+            ..Default::default()
         };
         assert_eq!(response.text(), Some("message".to_string()));
     }
@@ -851,6 +882,7 @@ mod tests {
                     },
                 }]),
             }),
+            ..Default::default()
         };
         let calls = response.tool_calls().unwrap();
         assert_eq!(calls.len(), 1);
@@ -872,6 +904,7 @@ mod tests {
                     },
                 }]),
             }),
+            ..Default::default()
         };
         let output = format!("{response}");
         assert!(output.contains("lookup"));
@@ -1109,5 +1142,59 @@ mod tests {
             matches!(err, LLMError::ProviderError(message) if message == "No answer returned by Ollama")
         );
         mock.assert();
+    }
+
+    #[test]
+    fn test_ollama_usage_returns_some_when_token_counts_present() {
+        let response = OllamaResponse {
+            prompt_eval_count: Some(42),
+            eval_count: Some(17),
+            ..Default::default()
+        };
+        let usage = response
+            .usage()
+            .expect("usage should be Some when both counts present");
+        assert_eq!(usage.prompt_tokens, 42);
+        assert_eq!(usage.completion_tokens, 17);
+        assert_eq!(usage.total_tokens, 59);
+        assert!(usage.completion_tokens_details.is_none());
+        assert!(usage.prompt_tokens_details.is_none());
+    }
+
+    #[test]
+    fn test_ollama_usage_returns_none_when_counts_absent() {
+        let response = OllamaResponse::default();
+        assert!(response.usage().is_none());
+
+        // Partial — only prompt_eval_count present, eval_count absent → still None
+        let partial = OllamaResponse {
+            prompt_eval_count: Some(10),
+            eval_count: None,
+            ..Default::default()
+        };
+        assert!(partial.usage().is_none(), "partial counts must return None");
+    }
+
+    #[test]
+    fn test_ollama_response_deserializes_token_counts_from_api_payload() {
+        // Sample non-streaming /api/chat response per Ollama API docs.
+        // See https://github.com/ollama/ollama/blob/main/docs/api.md
+        let payload = json!({
+            "model": "llama3.2",
+            "created_at": "2024-08-04T08:52:19.385406455-07:00",
+            "message": {
+                "role": "assistant",
+                "content": "Hello!"
+            },
+            "done": true,
+            "prompt_eval_count": 26,
+            "eval_count": 298
+        });
+        let response: OllamaResponse =
+            serde_json::from_value(payload).expect("realistic Ollama payload must deserialize");
+        let usage = response.usage().expect("usage must be populated");
+        assert_eq!(usage.prompt_tokens, 26);
+        assert_eq!(usage.completion_tokens, 298);
+        assert_eq!(usage.total_tokens, 324);
     }
 }

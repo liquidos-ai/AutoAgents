@@ -126,13 +126,35 @@ struct GoogleGenerationConfig {
 struct GoogleChatResponse {
     /// Generated completion candidates
     candidates: Vec<GoogleCandidate>,
+    /// Token usage metadata per Gemini API spec (always present on
+    /// non-streaming responses; present on the terminal streaming chunk).
+    #[serde(rename = "usageMetadata", default)]
+    usage_metadata: Option<GoogleUsageMetadata>,
 }
 
-/// Response from the streaming chat completion API
+/// Response from the streaming chat completion API.
+///
+/// Note: Gemini surfaces `usageMetadata` on the terminal streaming chunk too,
+/// but the current SSE path (`parse_google_sse_chunk`) only extracts text.
+/// Streaming usage tracking would require accumulating the terminal chunk —
+/// out of scope for the initial usage() patch; tracked separately.
 #[derive(Deserialize, Debug)]
 struct GoogleStreamResponse {
     /// Generated completion candidates
     candidates: Option<Vec<GoogleCandidate>>,
+}
+
+/// Token accounting fields from the Gemini API response.
+/// See <https://ai.google.dev/api/generate-content#UsageMetadata>.
+#[derive(Deserialize, Debug, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+struct GoogleUsageMetadata {
+    #[serde(default)]
+    prompt_token_count: u32,
+    #[serde(default)]
+    candidates_token_count: u32,
+    #[serde(default)]
+    total_token_count: u32,
 }
 
 impl std::fmt::Display for GoogleChatResponse {
@@ -234,6 +256,23 @@ impl ChatResponse for GoogleChatResponse {
                     }]
                 })
             }
+        })
+    }
+
+    fn usage(&self) -> Option<crate::chat::Usage> {
+        self.usage_metadata.as_ref().map(|u| crate::chat::Usage {
+            prompt_tokens: u.prompt_token_count,
+            completion_tokens: u.candidates_token_count,
+            // Prefer Gemini's reported total (covers thinking tokens, etc).
+            // Fall back to sum if the API ever omits it.
+            total_tokens: if u.total_token_count > 0 {
+                u.total_token_count
+            } else {
+                u.prompt_token_count
+                    .saturating_add(u.candidates_token_count)
+            },
+            completion_tokens_details: None,
+            prompt_tokens_details: None,
         })
     }
 }
@@ -964,6 +1003,7 @@ mod tests {
                     function_calls: None,
                 },
             }],
+            usage_metadata: None,
         };
 
         assert_eq!(response.text(), Some("hi".to_string()));
@@ -989,6 +1029,7 @@ mod tests {
                     }]),
                 },
             }],
+            usage_metadata: None,
         };
 
         let calls = response.tool_calls().unwrap();
@@ -1110,5 +1151,84 @@ mod tests {
         let tools = build_google_tools(Some(&[tool])).unwrap();
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].function_declarations.len(), 1);
+    }
+
+    #[test]
+    fn test_google_usage_returns_none_when_metadata_absent() {
+        let response = GoogleChatResponse {
+            candidates: vec![],
+            usage_metadata: None,
+        };
+        assert!(response.usage().is_none());
+    }
+
+    #[test]
+    fn test_google_usage_maps_metadata_to_usage() {
+        let response = GoogleChatResponse {
+            candidates: vec![],
+            usage_metadata: Some(GoogleUsageMetadata {
+                prompt_token_count: 12,
+                candidates_token_count: 34,
+                total_token_count: 46,
+            }),
+        };
+        let usage = response.usage().expect("usage populated");
+        assert_eq!(usage.prompt_tokens, 12);
+        assert_eq!(usage.completion_tokens, 34);
+        assert_eq!(usage.total_tokens, 46);
+    }
+
+    #[test]
+    fn test_google_usage_falls_back_to_sum_when_total_zero() {
+        // Defensive — if Gemini ever returns the components without total.
+        let response = GoogleChatResponse {
+            candidates: vec![],
+            usage_metadata: Some(GoogleUsageMetadata {
+                prompt_token_count: 5,
+                candidates_token_count: 7,
+                total_token_count: 0,
+            }),
+        };
+        let usage = response.usage().expect("usage populated");
+        assert_eq!(usage.total_tokens, 12);
+    }
+
+    #[test]
+    fn test_google_chat_response_deserializes_usage_metadata_from_api_payload() {
+        // Sample non-streaming generateContent response per Gemini API docs.
+        // See https://ai.google.dev/api/generate-content#UsageMetadata
+        let payload = json!({
+            "candidates": [{
+                "content": {
+                    "parts": [{ "text": "Hello!" }]
+                }
+            }],
+            "usageMetadata": {
+                "promptTokenCount": 11,
+                "candidatesTokenCount": 22,
+                "totalTokenCount": 33
+            }
+        });
+        let response: GoogleChatResponse =
+            serde_json::from_value(payload).expect("realistic Gemini payload must deserialize");
+        let usage = response
+            .usage()
+            .expect("usage_metadata must populate Usage");
+        assert_eq!(usage.prompt_tokens, 11);
+        assert_eq!(usage.completion_tokens, 22);
+        assert_eq!(usage.total_tokens, 33);
+    }
+
+    #[test]
+    fn test_google_chat_response_deserializes_without_usage_metadata() {
+        // Legacy / cached responses may omit usageMetadata; must not fail.
+        let payload = json!({
+            "candidates": [{
+                "content": { "parts": [{ "text": "ok" }] }
+            }]
+        });
+        let response: GoogleChatResponse = serde_json::from_value(payload)
+            .expect("response without usageMetadata must still deserialize");
+        assert!(response.usage().is_none());
     }
 }
