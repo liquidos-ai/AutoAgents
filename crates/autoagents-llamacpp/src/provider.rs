@@ -1646,21 +1646,31 @@ fn select_template_schema_and_grammar(
     force_json_grammar: bool,
 ) -> (Option<String>, Option<String>) {
     // llama.cpp's OpenAI-compatible template API treats `json_schema` as part of grammar
-    // generation. When tools are present, passing the agent response schema here can
-    // produce invalid grammar and break tool-calling requests entirely.
+    // generation AND configures a schema-bound parser for the generated response. When
+    // tools are present, passing the agent response schema produces invalid grammar and
+    // breaks tool-calling requests entirely. When tools are absent, the schema-bound
+    // parser expects a structured-output envelope that plain-JSON generations don't
+    // provide, surfacing as `ffi error -3` from `chat_parse_to_oaicompat`
+    // (https://github.com/liquidos-ai/AutoAgents/issues/220). In both cases we compile
+    // the schema to grammar at our boundary and pass it via the `grammar` slot, leaving
+    // the parser in its generic (text) mode.
     if tools_present {
         return (None, None);
     }
 
-    let json_schema_value = json_schema
-        .and_then(sanitize_chat_template_schema)
-        .map(|schema| schema.to_string());
-    let grammar_value = if json_schema_value.is_none() && force_json_grammar {
+    if let Some(schema_value) = json_schema.and_then(sanitize_chat_template_schema) {
+        let schema_str = schema_value.to_string();
+        let grammar = llama_cpp_2::json_schema_to_grammar(&schema_str)
+            .unwrap_or_else(|_| JSON_GRAMMAR.to_string());
+        return (None, Some(grammar));
+    }
+
+    let grammar_value = if force_json_grammar {
         Some(JSON_GRAMMAR.to_string())
     } else {
         None
     };
-    (json_schema_value, grammar_value)
+    (None, grammar_value)
 }
 
 fn ensure_supported_messages_for_config(
@@ -3386,7 +3396,9 @@ mod tests {
     }
 
     #[test]
-    fn test_select_template_schema_and_grammar_sanitizes_schema_without_tools() {
+    fn test_select_template_schema_and_grammar_routes_schema_through_grammar_without_tools() {
+        // Schemas must be compiled to grammar at the autoagents boundary rather than
+        // forwarded into llama.cpp's OAI-compat `json_schema` slot (see issue #220).
         let schema = StructuredOutputFormat {
             name: "MathAgentOutput".to_string(),
             description: None,
@@ -3402,16 +3414,82 @@ mod tests {
 
         let (json_schema, grammar) =
             select_template_schema_and_grammar(false, Some(&schema), false);
-        assert!(grammar.is_none());
-        let json_schema = json_schema.expect("schema should be present");
-        let parsed: Value =
-            serde_json::from_str(&json_schema).expect("schema should be valid json");
         assert!(
-            parsed["additionalProperties"]
-                .as_bool()
-                .is_some_and(|value| !value)
+            json_schema.is_none(),
+            "schema must never be forwarded into the OAI-compat template slot"
         );
-        assert_eq!(parsed["properties"]["value"]["type"], "integer");
+        let grammar = grammar.expect("schema-derived grammar must be produced");
+        assert!(
+            grammar.contains("value"),
+            "grammar must constrain the schema fields, got: {grammar}"
+        );
+    }
+
+    // Regression for https://github.com/liquidos-ai/AutoAgents/issues/220 —
+    // when an agent declares `tools = []` plus `output = SomeStruct`, the schema must
+    // be enforced via grammar (compiled at our boundary) rather than forwarded to
+    // llama.cpp's OAI-compat template `json_schema` slot. The schema slot configures a
+    // parser that expects a structured-output envelope post-generation; the model emits
+    // plain JSON with no envelope, llama.cpp returns rc=-3 from `chat_parse_to_oaicompat`,
+    // surfacing as `ProviderError("Failed to parse response: ffi error -3")`.
+    #[test]
+    fn test_select_template_schema_and_grammar_compiles_schema_when_tools_empty() {
+        let schema = StructuredOutputFormat {
+            name: "MathAgentOutput".to_string(),
+            description: None,
+            schema: Some(json!({
+                "type": "object",
+                "properties": {
+                    "value": {"type": "integer", "description": "The addition result"},
+                    "explanation": {"type": "string", "description": "Explanation of the logic"},
+                    "generic": {
+                        "type": "string",
+                        "description": "If user asks other than math questions, use this to answer them."
+                    }
+                },
+                "required": ["value", "explanation"]
+            })),
+            strict: Some(true),
+        };
+
+        let (json_schema, grammar) =
+            select_template_schema_and_grammar(false, Some(&schema), false);
+
+        assert!(
+            json_schema.is_none(),
+            "schema must NOT be forwarded to OAI-compat template when tools are absent; \
+             doing so configures a schema-bound parser that crashes on plain-JSON generations"
+        );
+        let grammar = grammar.expect("schema-derived grammar must be produced");
+        assert!(
+            grammar.contains("value") && grammar.contains("explanation"),
+            "grammar must constrain the schema fields, got: {grammar}"
+        );
+    }
+
+    #[test]
+    fn test_select_template_schema_and_grammar_falls_back_to_json_grammar_on_unconvertible_schema()
+    {
+        // A schema that cannot be compiled to grammar must fall back to the generic JSON
+        // grammar (still enforces well-formed JSON), never re-introduce the schema slot.
+        let schema = StructuredOutputFormat {
+            name: "Recursive".to_string(),
+            description: None,
+            schema: Some(json!({
+                "$ref": "#/definitions/Missing"
+            })),
+            strict: Some(true),
+        };
+
+        let (json_schema, grammar) =
+            select_template_schema_and_grammar(false, Some(&schema), false);
+
+        assert!(json_schema.is_none(), "schema slot must stay empty");
+        assert_eq!(
+            grammar.as_deref(),
+            Some(JSON_GRAMMAR),
+            "must fall back to JSON_GRAMMAR when schema-to-grammar fails"
+        );
     }
 
     #[test]
