@@ -63,12 +63,17 @@ struct ThinkingConfig {
 ///
 /// Wire format (verified against Anthropic Messages API 2026-01):
 /// `{ "type": "json_schema", "schema": { ... } }`
+///
+/// `schema` is non-optional: an `AnthropicOutputFormat` must never be constructed
+/// without a concrete schema value. The `json_schema` type requires the `schema`
+/// field per the Anthropic API contract — omitting it produces a malformed payload.
+/// Guard at the mapping site (see `chat_with_tools`) ensures we only produce this
+/// struct when a schema is present.
 #[derive(Serialize, Debug)]
 struct AnthropicOutputFormat {
     #[serde(rename = "type")]
     format_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    schema: Option<serde_json::Value>,
+    schema: serde_json::Value,
 }
 
 /// Top-level `output_config` wrapper sent in an Anthropic messages request.
@@ -556,11 +561,16 @@ impl ChatProvider for Anthropic {
             None
         };
 
-        let output_config = json_schema.map(|schema| AnthropicOutputConfig {
-            format: AnthropicOutputFormat {
-                format_type: "json_schema".to_string(),
-                schema: schema.schema,
-            },
+        // Guard: only construct AnthropicOutputConfig when a concrete schema Value is present.
+        // If StructuredOutputFormat.schema is None, the `json_schema` type would be malformed
+        // (Anthropic API requires the schema field for json_schema type), so yield None instead.
+        let output_config = json_schema.and_then(|s| {
+            s.schema.map(|sch| AnthropicOutputConfig {
+                format: AnthropicOutputFormat {
+                    format_type: "json_schema".to_string(),
+                    schema: sch,
+                },
+            })
         });
 
         let system_message = messages
@@ -729,6 +739,7 @@ impl ChatProvider for Anthropic {
             tools: None,
             tool_choice: None,
             thinking: None,
+            // output_config intentionally None — Anthropic streaming endpoint does not support output_config as of 2026-01.
             output_config: None,
         };
 
@@ -808,6 +819,7 @@ impl ChatProvider for Anthropic {
             tools: anthropic_tools,
             tool_choice: final_tool_choice,
             thinking: None, // Thinking not supported with streaming tools
+            // output_config intentionally None — Anthropic streaming endpoint does not support output_config as of 2026-01.
             output_config: None,
         };
 
@@ -1846,7 +1858,7 @@ data: {"type": "ping"}
         let output_config = Some(AnthropicOutputConfig {
             format: AnthropicOutputFormat {
                 format_type: "json_schema".to_string(),
-                schema: Some(schema_value.clone()),
+                schema: schema_value.clone(),
             },
         });
 
@@ -1906,6 +1918,58 @@ data: {"type": "ping"}
         assert!(
             value.get("output_config").is_none(),
             "output_config key must be absent when None (skip_serializing_if)"
+        );
+    }
+
+    /// Verify the invalid-state-is-unrepresentable fix for TEST-001:
+    /// when StructuredOutputFormat.schema is None, the mapping closure must yield None
+    /// (no AnthropicOutputConfig is constructed) so the serialised request has no
+    /// `output_config` key rather than a malformed `{ "format": { "type": "json_schema" } }`.
+    #[test]
+    fn output_config_absent_when_schema_field_is_none() {
+        // Build a StructuredOutputFormat with schema = None (caller has a name but no schema value).
+        let sof = StructuredOutputFormat {
+            name: "test".to_string(),
+            description: None,
+            schema: None,
+            strict: None,
+        };
+
+        // Replicate the mapping closure from chat_with_tools.
+        let output_config: Option<AnthropicOutputConfig> = Some(sof).and_then(|s| {
+            s.schema.map(|sch| AnthropicOutputConfig {
+                format: AnthropicOutputFormat {
+                    format_type: "json_schema".to_string(),
+                    schema: sch,
+                },
+            })
+        });
+
+        // The closure must yield None — no malformed output_config.
+        assert!(
+            output_config.is_none(),
+            "output_config must be None when StructuredOutputFormat.schema is None"
+        );
+
+        // Confirm that placing None into AnthropicCompleteRequest causes the key to be absent.
+        let req = AnthropicCompleteRequest {
+            messages: vec![],
+            model: "claude-test",
+            max_tokens: Some(128),
+            temperature: Some(0.0),
+            system: None,
+            stream: Some(false),
+            top_p: None,
+            top_k: None,
+            tools: None,
+            tool_choice: None,
+            thinking: None,
+            output_config,
+        };
+        let value = serde_json::to_value(&req).expect("serialisation must not fail");
+        assert!(
+            value.get("output_config").is_none(),
+            "output_config key must be absent in serialised JSON when schema field is None"
         );
     }
 }
