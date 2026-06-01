@@ -759,6 +759,10 @@ impl ChatProvider for OpenAI {
             }
         }
     }
+
+    fn model(&self) -> &str {
+        self.provider.model()
+    }
 }
 
 #[async_trait]

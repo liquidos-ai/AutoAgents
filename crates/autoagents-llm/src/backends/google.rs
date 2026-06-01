@@ -648,6 +648,10 @@ impl ChatProvider for Google {
             parse_google_sse_chunk,
         ))
     }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
 }
 
 #[async_trait]

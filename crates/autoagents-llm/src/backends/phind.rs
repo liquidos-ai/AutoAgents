@@ -233,6 +233,10 @@ impl ChatProvider for Phind {
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         unimplemented!("TODO: Yet to be implented")
     }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
 }
 
 /// Implementation of completion functionality for Phind.

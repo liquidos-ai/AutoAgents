@@ -500,6 +500,10 @@ impl ChatProvider for AzureOpenAI {
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         self.chat_with_tools(messages, None, json_schema).await
     }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
 }
 
 #[async_trait]

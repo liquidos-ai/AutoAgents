@@ -508,6 +508,10 @@ impl ChatProvider for XAI {
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         unimplemented!("XAI Doesn't support tools yet")
     }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
 }
 
 #[async_trait]

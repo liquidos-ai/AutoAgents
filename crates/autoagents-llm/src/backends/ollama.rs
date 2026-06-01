@@ -594,6 +594,10 @@ impl ChatProvider for Ollama {
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         self.chat_with_tools(messages, tools, json_schema).await
     }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
 }
 
 #[async_trait]

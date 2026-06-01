@@ -681,6 +681,17 @@ pub trait ChatProvider: Sync + Send {
         let _ = sampling;
         self.chat_stream_struct(messages, tools, json_schema).await
     }
+
+    /// Returns the model identifier this provider was configured with.
+    ///
+    /// Default returns an empty string for backwards compatibility with impls
+    /// that predate this trait method. Concrete backends should override to
+    /// return their configured model string so consumers can route requests
+    /// based on backend model identity (e.g. selecting grammar-based vs
+    /// prompt-based structured output, or capability-aware fallback ladders).
+    fn model(&self) -> &str {
+        ""
+    }
 }
 
 impl fmt::Display for ReasoningEffort {
@@ -1134,5 +1145,112 @@ mod tests {
         let http_response = http::Response::builder().status(200).body(body).unwrap();
 
         http_response.into()
+    }
+}
+
+/// P7a RED — tests for `ChatProvider::fn model(&self) -> &str`
+///
+/// These tests must FAIL until the Green phase adds the method to the trait
+/// and each concrete backend override.
+#[cfg(test)]
+mod model_accessor_tests {
+    use super::*;
+
+    /// AC1: Default impl returns empty string for impls that don't override.
+    /// A minimal mock that only satisfies `chat_with_tools` gets `""` for free.
+    #[test]
+    fn default_impl_returns_empty_string() {
+        struct MinimalMock;
+        #[async_trait]
+        impl ChatProvider for MinimalMock {
+            async fn chat_with_tools(
+                &self,
+                _messages: &[ChatMessage],
+                _tools: Option<&[Tool]>,
+                _json_schema: Option<StructuredOutputFormat>,
+            ) -> Result<Box<dyn ChatResponse>, crate::error::LLMError> {
+                unimplemented!()
+            }
+        }
+        let mock = MinimalMock;
+        assert_eq!(mock.model(), "");
+    }
+
+    /// AC2: Concrete Ollama backend exposes its configured model string.
+    #[cfg(all(feature = "ollama", not(target_arch = "wasm32")))]
+    #[test]
+    fn ollama_backend_exposes_model_string() {
+        let ollama = crate::backends::ollama::Ollama::new(
+            "http://localhost:11434",        // base_url
+            None,                            // api_key
+            Some("qwen2.5:14b".to_string()), // model
+            None,                            // max_tokens
+            None,                            // temperature
+            None,                            // timeout_seconds
+            None,                            // top_p
+            None,                            // top_k
+            None,                            // keep_alive
+            None,                            // system
+            None,                            // think
+            None,                            // stop
+            None,                            // seed
+            None,                            // presence_penalty
+            None,                            // frequency_penalty
+            None,                            // num_ctx
+            None,                            // repeat_penalty
+            None,                            // repeat_last_n
+            None,                            // min_p
+        );
+        assert_eq!(ollama.model(), "qwen2.5:14b");
+    }
+
+    /// AC2: Concrete Anthropic backend exposes its configured model string.
+    #[cfg(all(feature = "anthropic", not(target_arch = "wasm32")))]
+    #[test]
+    fn anthropic_backend_exposes_model_string() {
+        let anthropic = crate::backends::anthropic::Anthropic::new(
+            "test-key",                                    // api_key
+            Some("claude-haiku-4-5-20251001".to_string()), // model
+            None,                                          // max_tokens
+            None,                                          // temperature
+            None,                                          // timeout_seconds
+            None,                                          // top_p
+            None,                                          // top_k
+            None,                                          // tool_choice
+            None,                                          // reasoning
+            None,                                          // thinking_budget_tokens
+        );
+        assert_eq!(anthropic.model(), "claude-haiku-4-5-20251001");
+    }
+
+    /// AC4: Arc<dyn ChatProvider> delegates `.model()` to the inner impl.
+    /// Uses Ollama as the inner concrete type.
+    #[cfg(all(feature = "ollama", not(target_arch = "wasm32")))]
+    #[test]
+    fn arc_chat_provider_delegates_model_to_inner() {
+        use std::sync::Arc;
+        let ollama = crate::backends::ollama::Ollama::new(
+            "http://localhost:11434",
+            None,
+            Some("qwen2.5:14b".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let arc: Arc<dyn ChatProvider> = Arc::new(ollama);
+        assert_eq!(arc.model(), "qwen2.5:14b");
     }
 }

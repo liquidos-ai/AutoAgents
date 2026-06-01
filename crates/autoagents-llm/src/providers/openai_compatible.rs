@@ -715,6 +715,10 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
 
         Ok(create_openai_tool_stream(response))
     }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
 }
 
 /// State for tracking tool use blocks during OpenAI-compatible streaming

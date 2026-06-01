@@ -296,6 +296,10 @@ impl ChatProvider for FallbackProvider {
         })
         .await
     }
+
+    fn model(&self) -> &str {
+        self.providers.first().map_or("", |p| p.model())
+    }
 }
 
 // ---------------------------------------------------------------------------
