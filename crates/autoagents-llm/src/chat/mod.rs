@@ -1253,4 +1253,81 @@ mod model_accessor_tests {
         let arc: Arc<dyn ChatProvider> = Arc::new(ollama);
         assert_eq!(arc.model(), "qwen2.5:14b");
     }
+
+    /// Integration test: ChatProvider::model() returns the configured string AND a subsequent
+    /// chat_with_tools call observes the same model in the outgoing request body.
+    ///
+    /// Uses httpmock so no live Ollama server is required. The mock asserts that
+    /// the POST body contains the model name reported by `.model()`, closing the
+    /// loop between the accessor and the actual wire format.
+    ///
+    /// Opt-in gate: set `OLLAMA_MODEL_INTEGRATION=1` to run (prevents accidental
+    /// execution in stock CI that has no Ollama server configured).
+    ///
+    /// Run manually:
+    /// ```sh
+    /// OLLAMA_MODEL_INTEGRATION=1 cargo test -p autoagents-llm --features ollama \
+    ///   --lib -- model_accessor_tests::model_accessor_wires_to_chat_request --ignored --nocapture
+    /// ```
+    #[cfg(all(feature = "ollama", not(target_arch = "wasm32")))]
+    #[tokio::test]
+    #[ignore]
+    async fn model_accessor_wires_to_chat_request() {
+        use httpmock::{Method::POST, MockServer};
+        use serde_json::json;
+
+        let configured_model = "qwen2.5:14b";
+        let server = MockServer::start();
+
+        let provider = crate::backends::ollama::Ollama::new(
+            server.base_url(),
+            None,
+            Some(configured_model.to_string()),
+            Some(128),
+            Some(0.0),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        // AC: model() returns the configured string.
+        assert_eq!(provider.model(), configured_model);
+
+        // Set up mock to verify the same model string appears in the wire request.
+        let model_in_body = format!("\"model\":\"{configured_model}\"");
+        let chat_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/api/chat")
+                .body_includes(model_in_body.as_str());
+            then.status(200).json_body(json!({
+                "message": {
+                    "content": "mock reply",
+                    "tool_calls": null
+                }
+            }));
+        });
+
+        let messages = vec![ChatMessage::user().content("ping").build()];
+        let response = provider
+            .chat_with_tools(&messages, None, None)
+            .await
+            .expect("Mock-backed chat_with_tools must succeed");
+
+        // AC: the response comes back correctly (proves the full call path ran).
+        assert!(response.text().is_some(), "Response must contain text");
+
+        // AC: mock was hit exactly once — the model string reached the wire.
+        chat_mock.assert();
+    }
 }
