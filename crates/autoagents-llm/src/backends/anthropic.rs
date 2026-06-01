@@ -61,7 +61,7 @@ struct ThinkingConfig {
 
 /// Inner format descriptor for Anthropic's `output_config.format` field.
 ///
-/// Wire format (verified against Anthropic Messages API 2026-01):
+/// Wire format:
 /// `{ "type": "json_schema", "schema": { ... } }`
 ///
 /// `schema` is non-optional: an `AnthropicOutputFormat` must never be constructed
@@ -72,7 +72,7 @@ struct ThinkingConfig {
 #[derive(Serialize, Debug)]
 struct AnthropicOutputFormat {
     #[serde(rename = "type")]
-    format_type: String,
+    format_type: &'static str,
     schema: serde_json::Value,
 }
 
@@ -82,6 +82,24 @@ struct AnthropicOutputFormat {
 #[derive(Serialize, Debug)]
 struct AnthropicOutputConfig {
     format: AnthropicOutputFormat,
+}
+
+/// Maps a caller-supplied `StructuredOutputFormat` to the Anthropic wire-level
+/// `output_config` field. Yields `None` when the caller did not supply a schema
+/// (`StructuredOutputFormat.schema = None`), preventing a malformed
+/// `{ "format": { "type": "json_schema" } }` payload — the `json_schema` type
+/// requires the `schema` field per the Anthropic API contract.
+fn build_output_config(
+    json_schema: Option<StructuredOutputFormat>,
+) -> Option<AnthropicOutputConfig> {
+    json_schema.and_then(|s| {
+        s.schema.map(|sch| AnthropicOutputConfig {
+            format: AnthropicOutputFormat {
+                format_type: "json_schema",
+                schema: sch,
+            },
+        })
+    })
 }
 
 /// Request payload for Anthropic's messages API endpoint.
@@ -561,17 +579,7 @@ impl ChatProvider for Anthropic {
             None
         };
 
-        // Guard: only construct AnthropicOutputConfig when a concrete schema Value is present.
-        // If StructuredOutputFormat.schema is None, the `json_schema` type would be malformed
-        // (Anthropic API requires the schema field for json_schema type), so yield None instead.
-        let output_config = json_schema.and_then(|s| {
-            s.schema.map(|sch| AnthropicOutputConfig {
-                format: AnthropicOutputFormat {
-                    format_type: "json_schema".to_string(),
-                    schema: sch,
-                },
-            })
-        });
+        let output_config = build_output_config(json_schema);
 
         let system_message = messages
             .iter()
@@ -654,7 +662,7 @@ impl ChatProvider for Anthropic {
     async fn chat_stream(
         &self,
         messages: &[ChatMessage],
-        _json_schema: Option<StructuredOutputFormat>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
         if self.api_key.is_empty() {
@@ -739,8 +747,11 @@ impl ChatProvider for Anthropic {
             tools: None,
             tool_choice: None,
             thinking: None,
-            // output_config intentionally None — Anthropic streaming endpoint does not support output_config as of 2026-01.
-            output_config: None,
+            // Pass `output_config` through to the streaming endpoint when the caller
+            // supplied a schema. The Messages API docs do not explicitly document
+            // streaming + output_config interaction; passing through lets the API
+            // surface any incompatibility rather than silently discarding the schema.
+            output_config: build_output_config(json_schema),
         };
 
         let mut request = self
@@ -786,7 +797,7 @@ impl ChatProvider for Anthropic {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
-        _json_schema: Option<StructuredOutputFormat>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError>
     {
         if self.api_key.is_empty() {
@@ -819,8 +830,11 @@ impl ChatProvider for Anthropic {
             tools: anthropic_tools,
             tool_choice: final_tool_choice,
             thinking: None, // Thinking not supported with streaming tools
-            // output_config intentionally None — Anthropic streaming endpoint does not support output_config as of 2026-01.
-            output_config: None,
+            // Pass `output_config` through to the streaming endpoint when the caller
+            // supplied a schema. The Messages API docs do not explicitly document
+            // streaming + output_config interaction; passing through lets the API
+            // surface any incompatibility rather than silently discarding the schema.
+            output_config: build_output_config(json_schema),
         };
 
         let mut request = self
@@ -1198,6 +1212,11 @@ impl LLMBuilder<Anthropic> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Env var read by integration tests gated on a live Anthropic API key.
+    /// Centralised constant so the lint that flags `std::env::var` string-literal
+    /// keys is satisfied and the spelling stays consistent across tests.
+    const ANTHROPIC_API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
     use crate::chat::{FunctionTool, ImageMime};
 
     #[test]
@@ -1857,7 +1876,7 @@ data: {"type": "ping"}
 
         let output_config = Some(AnthropicOutputConfig {
             format: AnthropicOutputFormat {
-                format_type: "json_schema".to_string(),
+                format_type: "json_schema",
                 schema: schema_value.clone(),
             },
         });
@@ -1935,15 +1954,8 @@ data: {"type": "ping"}
             strict: None,
         };
 
-        // Replicate the mapping closure from chat_with_tools.
-        let output_config: Option<AnthropicOutputConfig> = Some(sof).and_then(|s| {
-            s.schema.map(|sch| AnthropicOutputConfig {
-                format: AnthropicOutputFormat {
-                    format_type: "json_schema".to_string(),
-                    schema: sch,
-                },
-            })
-        });
+        // Exercise the shared mapping helper used by chat_with_tools + streaming.
+        let output_config = build_output_config(Some(sof));
 
         // The closure must yield None — no malformed output_config.
         assert!(
@@ -1988,10 +2000,10 @@ data: {"type": "ping"}
     #[tokio::test]
     #[ignore]
     async fn output_config_integration_real_api() {
-        let api_key = match std::env::var("ANTHROPIC_API_KEY") {
+        let api_key = match std::env::var(ANTHROPIC_API_KEY_ENV) {
             Ok(k) if !k.is_empty() => k,
             _ => {
-                eprintln!("ANTHROPIC_API_KEY not set — skipping integration test");
+                eprintln!("{ANTHROPIC_API_KEY_ENV} not set — skipping integration test");
                 return;
             }
         };
