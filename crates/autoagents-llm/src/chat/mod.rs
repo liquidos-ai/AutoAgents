@@ -1223,11 +1223,13 @@ mod model_accessor_tests {
         assert_eq!(anthropic.model(), "claude-haiku-4-5-20251001");
     }
 
-    /// AC4: Arc<dyn ChatProvider> delegates `.model()` to the inner impl.
-    /// Uses Ollama as the inner concrete type.
+    /// AC4: `Arc<dyn ChatProvider>` dispatches `.model()` to the inner impl via
+    /// `Deref` coercion. Note: there is no blanket `impl ChatProvider for Arc<T>` —
+    /// this test exercises method dispatch on `dyn ChatProvider` through `Arc`,
+    /// not a trait impl on `Arc<T>` itself.
     #[cfg(all(feature = "ollama", not(target_arch = "wasm32")))]
     #[test]
-    fn arc_chat_provider_delegates_model_to_inner() {
+    fn arc_dyn_chat_provider_dispatches_model_via_deref() {
         use std::sync::Arc;
         let ollama = crate::backends::ollama::Ollama::new(
             "http://localhost:11434",
@@ -1259,14 +1261,12 @@ mod model_accessor_tests {
     ///
     /// Uses httpmock so no live Ollama server is required. The mock asserts that
     /// the POST body contains the model name reported by `.model()`, closing the
-    /// loop between the accessor and the actual wire format.
-    ///
-    /// Opt-in gate: set `OLLAMA_MODEL_INTEGRATION=1` to run (prevents accidental
-    /// execution in stock CI that has no Ollama server configured).
+    /// loop between the accessor and the actual wire format. Gated only by
+    /// `#[ignore]` — run with `cargo test -- --ignored`.
     ///
     /// Run manually:
     /// ```sh
-    /// OLLAMA_MODEL_INTEGRATION=1 cargo test -p autoagents-llm --features ollama \
+    /// cargo test -p autoagents-llm --features ollama \
     ///   --lib -- model_accessor_tests::model_accessor_wires_to_chat_request --ignored --nocapture
     /// ```
     #[cfg(all(feature = "ollama", not(target_arch = "wasm32")))]
