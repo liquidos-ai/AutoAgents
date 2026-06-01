@@ -1972,4 +1972,88 @@ data: {"type": "ping"}
             "output_config key must be absent in serialised JSON when schema field is None"
         );
     }
+
+    /// Integration test: output_config is honoured end-to-end when a real Anthropic API key
+    /// is available. Sends a request with a strict JSON schema and verifies the response can
+    /// be parsed as valid JSON matching the schema shape.
+    ///
+    /// Skipped automatically when `ANTHROPIC_API_KEY` is unset.
+    ///
+    /// Run manually:
+    /// ```sh
+    /// ANTHROPIC_API_KEY=sk-ant-... cargo test -p autoagents-llm --features anthropic \
+    ///   --lib -- output_config_integration_real_api --ignored --nocapture
+    /// ```
+    #[cfg(all(feature = "anthropic", not(target_arch = "wasm32")))]
+    #[tokio::test]
+    #[ignore]
+    async fn output_config_integration_real_api() {
+        let api_key = match std::env::var("ANTHROPIC_API_KEY") {
+            Ok(k) if !k.is_empty() => k,
+            _ => {
+                eprintln!("ANTHROPIC_API_KEY not set — skipping integration test");
+                return;
+            }
+        };
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "sentiment": {
+                    "type": "string",
+                    "enum": ["positive", "neutral", "negative"]
+                }
+            },
+            "required": ["sentiment"],
+            "additionalProperties": false
+        });
+
+        let provider = Anthropic::new(
+            api_key,
+            Some("claude-haiku-4-5-20251001".to_string()),
+            Some(64),
+            Some(0.0),
+            Some(30),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let messages = vec![ChatMessage {
+            role: ChatRole::User,
+            message_type: crate::chat::MessageType::Text,
+            content: "Classify the sentiment of: 'I love sunny days!'".to_string(),
+        }];
+
+        let sof = StructuredOutputFormat {
+            name: "sentiment_response".to_string(),
+            description: Some("Sentiment classification result".to_string()),
+            schema: Some(schema),
+            strict: Some(true),
+        };
+
+        let response = provider
+            .chat_with_tools(&messages, None, Some(sof))
+            .await
+            .expect("Real API call must succeed");
+
+        let text = response.text().expect("Response must contain text content");
+
+        // The response must be parseable as JSON
+        let parsed: serde_json::Value =
+            serde_json::from_str(&text).expect("Response must be valid JSON per output_config");
+
+        // The schema requires exactly one field: sentiment ∈ {positive, neutral, negative}
+        let sentiment = parsed
+            .get("sentiment")
+            .and_then(|v| v.as_str())
+            .expect("Response JSON must contain 'sentiment' field");
+
+        assert!(
+            ["positive", "neutral", "negative"].contains(&sentiment),
+            "sentiment must be one of the enum values, got: {sentiment}"
+        );
+    }
 }
