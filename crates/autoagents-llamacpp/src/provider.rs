@@ -598,7 +598,7 @@ impl LlamaCppProvider {
                 parse_tool_calls,
             };
 
-            let result = self
+            let mut result = self
                 .model
                 .apply_chat_template_oaicompat(&template, &params)
                 .map_err(|err| {
@@ -606,6 +606,35 @@ impl LlamaCppProvider {
                         "Failed to apply OpenAI-compatible chat template: {err}"
                     ))
                 })?;
+
+            // When the request is grammar-constrained with no tools, the model
+            // output is itself the structured response — there is no envelope
+            // (reasoning_content, tool_calls, etc.) to extract, and no
+            // tool-call trigger tokens to wait for. The chat-format handler
+            // in `common_chat_templates_apply` configures both:
+            //   1. A parser string expecting an envelope shape — raises rc=-3
+            //      inside `chat_parse_to_oaicompat` when run against plain-JSON
+            //      output.
+            //   2. `grammar_lazy=true` (per `llama.cpp/common/chat.cpp:1059,1187`
+            //      pattern: `!(has_response_format || ...)`) — delays grammar
+            //      enforcement until a trigger token fires, leaving the model
+            //      free to emit markdown fences / preamble first.
+            // Both are wrong for the no-tools-grammar shape. We restore the
+            // correct routing: drop the parser (signals "no envelope"), force
+            // eager grammar enforcement (no triggers to wait for), and clear
+            // any trigger list (triggers are tool-call sentinels, irrelevant
+            // for plain JSON output).
+            //
+            // The unit-level fix in `select_template_schema_and_grammar`
+            // (#220 / #232) does not reach this configuration on its own —
+            // the parser + lazy flag + triggers are decided inside the C++
+            // template engine, not by the schema-vs-grammar slot routing.
+            if tools_json.is_none() && result.grammar.is_some() {
+                result.parser = None;
+                result.parse_tool_calls = false;
+                result.grammar_lazy = false;
+                result.grammar_triggers.clear();
+            }
 
             Ok(ChatPrompt::OpenAI(result))
         } else {
