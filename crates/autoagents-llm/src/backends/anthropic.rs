@@ -59,6 +59,49 @@ struct ThinkingConfig {
     budget_tokens: u32,
 }
 
+/// Inner format descriptor for Anthropic's `output_config.format` field.
+///
+/// Wire format:
+/// `{ "type": "json_schema", "schema": { ... } }`
+///
+/// `schema` is non-optional: an `AnthropicOutputFormat` must never be constructed
+/// without a concrete schema value. The `json_schema` type requires the `schema`
+/// field per the Anthropic API contract — omitting it produces a malformed payload.
+/// Guard at the mapping site (see `chat_with_tools`) ensures we only produce this
+/// struct when a schema is present.
+#[derive(Serialize, Debug)]
+struct AnthropicOutputFormat {
+    #[serde(rename = "type")]
+    format_type: &'static str,
+    schema: serde_json::Value,
+}
+
+/// Top-level `output_config` wrapper sent in an Anthropic messages request.
+///
+/// Wire format: `{ "output_config": { "format": { "type": "json_schema", "schema": { ... } } } }`
+#[derive(Serialize, Debug)]
+struct AnthropicOutputConfig {
+    format: AnthropicOutputFormat,
+}
+
+/// Maps a caller-supplied `StructuredOutputFormat` to the Anthropic wire-level
+/// `output_config` field. Yields `None` when the caller did not supply a schema
+/// (`StructuredOutputFormat.schema = None`), preventing a malformed
+/// `{ "format": { "type": "json_schema" } }` payload — the `json_schema` type
+/// requires the `schema` field per the Anthropic API contract.
+fn build_output_config(
+    json_schema: Option<StructuredOutputFormat>,
+) -> Option<AnthropicOutputConfig> {
+    json_schema.and_then(|s| {
+        s.schema.map(|sch| AnthropicOutputConfig {
+            format: AnthropicOutputFormat {
+                format_type: "json_schema",
+                schema: sch,
+            },
+        })
+    })
+}
+
 /// Request payload for Anthropic's messages API endpoint.
 #[derive(Serialize, Debug)]
 struct AnthropicCompleteRequest<'a> {
@@ -82,6 +125,8 @@ struct AnthropicCompleteRequest<'a> {
     tool_choice: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking: Option<ThinkingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_config: Option<AnthropicOutputConfig>,
 }
 
 /// Individual message in an Anthropic chat conversation.
@@ -510,7 +555,7 @@ impl ChatProvider for Anthropic {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
-        _json_schema: Option<StructuredOutputFormat>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
             return Err(LLMError::AuthError("Missing Anthropic API key".to_string()));
@@ -534,6 +579,8 @@ impl ChatProvider for Anthropic {
             None
         };
 
+        let output_config = build_output_config(json_schema);
+
         let system_message = messages
             .iter()
             .find(|msg| msg.role == ChatRole::System)
@@ -551,6 +598,7 @@ impl ChatProvider for Anthropic {
             tools: anthropic_tools,
             tool_choice: final_tool_choice,
             thinking,
+            output_config,
         };
 
         let mut request = self
@@ -614,7 +662,7 @@ impl ChatProvider for Anthropic {
     async fn chat_stream(
         &self,
         messages: &[ChatMessage],
-        _json_schema: Option<StructuredOutputFormat>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
         if self.api_key.is_empty() {
@@ -699,6 +747,11 @@ impl ChatProvider for Anthropic {
             tools: None,
             tool_choice: None,
             thinking: None,
+            // Pass `output_config` through to the streaming endpoint when the caller
+            // supplied a schema. The Messages API docs do not explicitly document
+            // streaming + output_config interaction; passing through lets the API
+            // surface any incompatibility rather than silently discarding the schema.
+            output_config: build_output_config(json_schema),
         };
 
         let mut request = self
@@ -744,7 +797,7 @@ impl ChatProvider for Anthropic {
         &self,
         messages: &[ChatMessage],
         tools: Option<&[Tool]>,
-        _json_schema: Option<StructuredOutputFormat>,
+        json_schema: Option<StructuredOutputFormat>,
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError>
     {
         if self.api_key.is_empty() {
@@ -777,6 +830,11 @@ impl ChatProvider for Anthropic {
             tools: anthropic_tools,
             tool_choice: final_tool_choice,
             thinking: None, // Thinking not supported with streaming tools
+            // Pass `output_config` through to the streaming endpoint when the caller
+            // supplied a schema. The Messages API docs do not explicitly document
+            // streaming + output_config interaction; passing through lets the API
+            // surface any incompatibility rather than silently discarding the schema.
+            output_config: build_output_config(json_schema),
         };
 
         let mut request = self
@@ -1154,6 +1212,11 @@ impl LLMBuilder<Anthropic> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Env var read by integration tests gated on a live Anthropic API key.
+    /// Centralised constant so the lint that flags `std::env::var` string-literal
+    /// keys is satisfied and the spelling stays consistent across tests.
+    const ANTHROPIC_API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
     use crate::chat::{FunctionTool, ImageMime};
 
     #[test]
@@ -1794,5 +1857,215 @@ data: {"type": "ping"}
                 Err(err) => err,
             };
         assert!(matches!(stream_invalid, LLMError::InvalidRequest(_)));
+    }
+
+    /// Verify that AnthropicCompleteRequest serialises output_config correctly
+    /// when a StructuredOutputFormat is provided.
+    ///
+    /// Expected wire shape (per Anthropic Messages API 2026-01):
+    /// `{ "output_config": { "format": { "type": "json_schema", "schema": { ... } } } }`
+    #[test]
+    fn output_config_serialises_correctly_when_schema_present() {
+        let schema_value = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "label": { "type": "string", "enum": ["Person", "Organisation", "Location"] }
+            },
+            "required": ["label"]
+        });
+
+        let output_config = Some(AnthropicOutputConfig {
+            format: AnthropicOutputFormat {
+                format_type: "json_schema",
+                schema: schema_value.clone(),
+            },
+        });
+
+        // Build a minimal request with no tools, no thinking
+        let req = AnthropicCompleteRequest {
+            messages: vec![],
+            model: "claude-test",
+            max_tokens: Some(128),
+            temperature: Some(0.0),
+            system: None,
+            stream: Some(false),
+            top_p: None,
+            top_k: None,
+            tools: None,
+            tool_choice: None,
+            thinking: None,
+            output_config,
+        };
+
+        let value = serde_json::to_value(&req).expect("serialisation must not fail");
+
+        // output_config.format.type must be "json_schema"
+        assert_eq!(
+            value["output_config"]["format"]["type"],
+            serde_json::Value::String("json_schema".to_string()),
+            "output_config.format.type must be 'json_schema'"
+        );
+
+        // output_config.format.schema must round-trip intact
+        assert_eq!(
+            value["output_config"]["format"]["schema"], schema_value,
+            "output_config.format.schema must round-trip without mutation",
+        );
+    }
+
+    /// Verify that output_config is absent from the serialised payload when no
+    /// schema is supplied (preserves backward-compat with requests that never
+    /// set a structured-output constraint).
+    #[test]
+    fn output_config_absent_when_no_schema() {
+        let req = AnthropicCompleteRequest {
+            messages: vec![],
+            model: "claude-test",
+            max_tokens: Some(128),
+            temperature: Some(0.0),
+            system: None,
+            stream: Some(false),
+            top_p: None,
+            top_k: None,
+            tools: None,
+            tool_choice: None,
+            thinking: None,
+            output_config: None,
+        };
+
+        let value = serde_json::to_value(&req).expect("serialisation must not fail");
+        assert!(
+            value.get("output_config").is_none(),
+            "output_config key must be absent when None (skip_serializing_if)"
+        );
+    }
+
+    /// Verify the invalid-state-is-unrepresentable fix for TEST-001:
+    /// when StructuredOutputFormat.schema is None, the mapping closure must yield None
+    /// (no AnthropicOutputConfig is constructed) so the serialised request has no
+    /// `output_config` key rather than a malformed `{ "format": { "type": "json_schema" } }`.
+    #[test]
+    fn output_config_absent_when_schema_field_is_none() {
+        // Build a StructuredOutputFormat with schema = None (caller has a name but no schema value).
+        let sof = StructuredOutputFormat {
+            name: "test".to_string(),
+            description: None,
+            schema: None,
+            strict: None,
+        };
+
+        // Exercise the shared mapping helper used by chat_with_tools + streaming.
+        let output_config = build_output_config(Some(sof));
+
+        // The closure must yield None — no malformed output_config.
+        assert!(
+            output_config.is_none(),
+            "output_config must be None when StructuredOutputFormat.schema is None"
+        );
+
+        // Confirm that placing None into AnthropicCompleteRequest causes the key to be absent.
+        let req = AnthropicCompleteRequest {
+            messages: vec![],
+            model: "claude-test",
+            max_tokens: Some(128),
+            temperature: Some(0.0),
+            system: None,
+            stream: Some(false),
+            top_p: None,
+            top_k: None,
+            tools: None,
+            tool_choice: None,
+            thinking: None,
+            output_config,
+        };
+        let value = serde_json::to_value(&req).expect("serialisation must not fail");
+        assert!(
+            value.get("output_config").is_none(),
+            "output_config key must be absent in serialised JSON when schema field is None"
+        );
+    }
+
+    /// Integration test: output_config is honoured end-to-end when a real Anthropic API key
+    /// is available. Sends a request with a strict JSON schema and verifies the response can
+    /// be parsed as valid JSON matching the schema shape.
+    ///
+    /// Skipped automatically when `ANTHROPIC_API_KEY` is unset.
+    ///
+    /// Run manually:
+    /// ```sh
+    /// ANTHROPIC_API_KEY=sk-ant-... cargo test -p autoagents-llm --features anthropic \
+    ///   --lib -- output_config_integration_real_api --ignored --nocapture
+    /// ```
+    #[cfg(all(feature = "anthropic", not(target_arch = "wasm32")))]
+    #[tokio::test]
+    #[ignore]
+    async fn output_config_integration_real_api() {
+        let api_key = match std::env::var(ANTHROPIC_API_KEY_ENV) {
+            Ok(k) if !k.is_empty() => k,
+            _ => {
+                eprintln!("{ANTHROPIC_API_KEY_ENV} not set — skipping integration test");
+                return;
+            }
+        };
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "sentiment": {
+                    "type": "string",
+                    "enum": ["positive", "neutral", "negative"]
+                }
+            },
+            "required": ["sentiment"],
+            "additionalProperties": false
+        });
+
+        let provider = Anthropic::new(
+            api_key,
+            Some("claude-haiku-4-5-20251001".to_string()),
+            Some(64),
+            Some(0.0),
+            Some(30),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let messages = vec![ChatMessage {
+            role: ChatRole::User,
+            message_type: crate::chat::MessageType::Text,
+            content: "Classify the sentiment of: 'I love sunny days!'".to_string(),
+        }];
+
+        let sof = StructuredOutputFormat {
+            name: "sentiment_response".to_string(),
+            description: Some("Sentiment classification result".to_string()),
+            schema: Some(schema),
+            strict: Some(true),
+        };
+
+        let response = provider
+            .chat_with_tools(&messages, None, Some(sof))
+            .await
+            .expect("Real API call must succeed");
+
+        let text = response.text().expect("Response must contain text content");
+
+        // The response must be parseable as JSON
+        let parsed: serde_json::Value =
+            serde_json::from_str(&text).expect("Response must be valid JSON per output_config");
+
+        // The schema requires exactly one field: sentiment ∈ {positive, neutral, negative}
+        let sentiment = parsed
+            .get("sentiment")
+            .and_then(|v| v.as_str())
+            .expect("Response JSON must contain 'sentiment' field");
+
+        assert!(
+            ["positive", "neutral", "negative"].contains(&sentiment),
+            "sentiment must be one of the enum values, got: {sentiment}"
+        );
     }
 }
