@@ -10,8 +10,8 @@
     "clear": "docusaurus clear"
   },
   "dependencies": {
-    "@docusaurus/core": "^3.10.0",
-    "@docusaurus/preset-classic": "^3.10.0",
+    "@docusaurus/core": "^3.10.1",
+    "@docusaurus/preset-classic": "^3.10.1",
     "@mdx-js/react": "^3.1.1",
     "clsx": "^2.1.1",
     "prism-react-renderer": "^2.4.1",
@@ -19,8 +19,15 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@docusaurus/module-type-aliases": "^3.9.2",
-    "@docusaurus/types": "^3.9.2",
+    "@docusaurus/module-type-aliases": "^3.10.1",
+    "@docusaurus/types": "^3.10.1",
     "typescript": "^5.9.2"
+  },
+  "overrides": {
+    "serialize-javascript": "7.0.5",
+    "uuid": "11.1.1"
+  },
+  "overridesNote": {
+    "security": "Remove these overrides once the upstream Docusaurus/Webpack dependency graph includes the patched transitive packages directly."
   }
 }
