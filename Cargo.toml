@@ -85,7 +85,7 @@ glob = "0.3.3"
 walkdir = "2.5"
 ignore = "0.4.25"
 wasmtime = "44.0.1"
-tokenizers = { version = "0.22.2", default-features = false, features = [] }
+tokenizers = { version = "0.23.1", default-features = false, features = [] }
 rand = "0.10.1"
 minijinja = "2.18.0"
 tiktoken-rs = { version = "0.9.1" }
