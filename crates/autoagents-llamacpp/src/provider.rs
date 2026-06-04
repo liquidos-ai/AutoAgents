@@ -629,9 +629,15 @@ impl LlamaCppProvider {
             // (#220 / #232) does not reach this configuration on its own —
             // the parser + lazy flag + triggers are decided inside the C++
             // template engine, not by the schema-vs-grammar slot routing.
+            //
+            // NOTE: the `tools.is_some() && grammar.is_some()` combination
+            // remains a known upstream limitation in llama.cpp's
+            // `common_chat_templates_apply` — the parser + lazy-grammar
+            // configuration intended for tool-calling conflicts with strict
+            // grammar enforcement on the structured-output payload. Fix
+            // belongs upstream; this branch only addresses the no-tools case.
             if tools_json.is_none() && result.grammar.is_some() {
                 result.parser = None;
-                result.parse_tool_calls = false;
                 result.grammar_lazy = false;
                 result.grammar_triggers.clear();
             }

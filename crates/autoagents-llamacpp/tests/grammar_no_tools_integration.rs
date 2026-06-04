@@ -31,6 +31,11 @@ use autoagents_llm::chat::{
     ChatMessage, ChatProvider, ChatRole, MessageType, StructuredOutputFormat,
 };
 
+/// Env var that opts this `#[ignore]`d test into a real-model run. Kept as a
+/// const so spelling typos at the call site become compile errors rather than
+/// silent skips.
+const MODEL_PATH_ENV: &str = "LLAMACPP_TEST_MODEL_PATH";
+
 const VERDICT_SCHEMA: &str = r#"{
     "type": "object",
     "properties": {
@@ -77,16 +82,44 @@ fn schema() -> StructuredOutputFormat {
     }
 }
 
-/// Extract a JSON object substring from raw text, tolerating leading/trailing
-/// markdown fences or whitespace. Returns the slice between the first `{` and
-/// the last `}` inclusive. With the fix correctly applied, raw output is
-/// already plain JSON and this is a no-op — the extraction exists as a safety
-/// net for any chat-template variation that still streams whitespace before
-/// the grammar engages.
+/// Extract a balanced top-level JSON object substring from raw text.
+///
+/// Walks from the first `{`, brace-counting (string-aware so `}` inside a
+/// `"..."` literal does not close the object) until depth returns to zero.
+/// This is robust against a leaked `<think>` block or reasoning preamble that
+/// itself contains `{` or `}` — `find/rfind` alone would mismatch in that
+/// case. With the fix applied raw output is already plain JSON and this is a
+/// no-op; the matcher exists as a safety net for chat-template variations.
 fn extract_json(text: &str) -> &str {
+    let bytes = text.as_bytes();
     let start = text.find('{').expect("response must contain a JSON object");
-    let end = text.rfind('}').expect("response must contain a JSON object");
-    &text[start..=end]
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escape = false;
+    for (idx, &b) in bytes.iter().enumerate().skip(start) {
+        if in_string {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_string = true,
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &text[start..=idx];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("response must contain a balanced JSON object");
 }
 
 /// Regression test: grammar + thinking + no tools. Pre-fix failure mode was
@@ -95,8 +128,8 @@ fn extract_json(text: &str) -> &str {
 #[tokio::test]
 #[ignore = "requires LLAMACPP_TEST_MODEL_PATH pointing at an instruction-tuned GGUF"]
 async fn chat_with_tools_grammar_no_envelope_returns_schema_conforming_json() {
-    let Ok(model_path) = std::env::var("LLAMACPP_TEST_MODEL_PATH") else {
-        eprintln!("skip: set LLAMACPP_TEST_MODEL_PATH to enable");
+    let Ok(model_path) = std::env::var(MODEL_PATH_ENV) else {
+        eprintln!("skip: set {MODEL_PATH_ENV} to enable");
         return;
     };
 
