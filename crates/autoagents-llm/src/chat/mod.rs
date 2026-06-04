@@ -1148,15 +1148,12 @@ mod tests {
     }
 }
 
-/// P7a RED — tests for `ChatProvider::fn model(&self) -> &str`
-///
-/// These tests must FAIL until the Green phase adds the method to the trait
-/// and each concrete backend override.
+/// Tests for `ChatProvider::fn model(&self) -> &str`.
 #[cfg(test)]
 mod model_accessor_tests {
     use super::*;
 
-    /// AC1: Default impl returns empty string for impls that don't override.
+    /// Default impl returns empty string for impls that don't override.
     /// A minimal mock that only satisfies `chat_with_tools` gets `""` for free.
     #[test]
     fn default_impl_returns_empty_string() {
@@ -1176,7 +1173,7 @@ mod model_accessor_tests {
         assert_eq!(mock.model(), "");
     }
 
-    /// AC2: Concrete Ollama backend exposes its configured model string.
+    /// Concrete Ollama backend exposes its configured model string.
     #[cfg(all(feature = "ollama", not(target_arch = "wasm32")))]
     #[test]
     fn ollama_backend_exposes_model_string() {
@@ -1204,7 +1201,7 @@ mod model_accessor_tests {
         assert_eq!(ollama.model(), "qwen2.5:14b");
     }
 
-    /// AC2: Concrete Anthropic backend exposes its configured model string.
+    /// Concrete Anthropic backend exposes its configured model string.
     #[cfg(all(feature = "anthropic", not(target_arch = "wasm32")))]
     #[test]
     fn anthropic_backend_exposes_model_string() {
@@ -1223,7 +1220,7 @@ mod model_accessor_tests {
         assert_eq!(anthropic.model(), "claude-haiku-4-5-20251001");
     }
 
-    /// AC4: `Arc<dyn ChatProvider>` dispatches `.model()` to the inner impl via
+    /// `Arc<dyn ChatProvider>` dispatches `.model()` to the inner impl via
     /// `Deref` coercion. Note: there is no blanket `impl ChatProvider for Arc<T>` —
     /// this test exercises method dispatch on `dyn ChatProvider` through `Arc`,
     /// not a trait impl on `Arc<T>` itself.
@@ -1301,7 +1298,7 @@ mod model_accessor_tests {
             None,
         );
 
-        // AC: model() returns the configured string.
+        // model() returns the configured string.
         assert_eq!(provider.model(), configured_model);
 
         // Set up mock to verify the same model string appears in the wire request.
@@ -1324,10 +1321,10 @@ mod model_accessor_tests {
             .await
             .expect("Mock-backed chat_with_tools must succeed");
 
-        // AC: the response comes back correctly (proves the full call path ran).
+        // Response comes back correctly (proves the full call path ran).
         assert!(response.text().is_some(), "Response must contain text");
 
-        // AC: mock was hit exactly once — the model string reached the wire.
+        // Mock was hit exactly once — the model string reached the wire.
         chat_mock.assert();
     }
 }
