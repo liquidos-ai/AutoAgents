@@ -319,6 +319,10 @@ impl ChatProvider for RetryProvider {
         })
         .await
     }
+
+    fn model(&self) -> &str {
+        self.inner.model()
+    }
 }
 
 // ---------------------------------------------------------------------------

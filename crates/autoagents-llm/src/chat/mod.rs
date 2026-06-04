@@ -681,6 +681,17 @@ pub trait ChatProvider: Sync + Send {
         let _ = sampling;
         self.chat_stream_struct(messages, tools, json_schema).await
     }
+
+    /// Returns the model identifier this provider was configured with.
+    ///
+    /// Default returns an empty string for backwards compatibility with impls
+    /// that predate this trait method. Concrete backends should override to
+    /// return their configured model string so consumers can route requests
+    /// based on backend model identity (e.g. selecting grammar-based vs
+    /// prompt-based structured output, or capability-aware fallback ladders).
+    fn model(&self) -> &str {
+        ""
+    }
 }
 
 impl fmt::Display for ReasoningEffort {
@@ -1134,5 +1145,186 @@ mod tests {
         let http_response = http::Response::builder().status(200).body(body).unwrap();
 
         http_response.into()
+    }
+}
+
+/// Tests for `ChatProvider::fn model(&self) -> &str`.
+#[cfg(test)]
+mod model_accessor_tests {
+    use super::*;
+
+    /// Default impl returns empty string for impls that don't override.
+    /// A minimal mock that only satisfies `chat_with_tools` gets `""` for free.
+    #[test]
+    fn default_impl_returns_empty_string() {
+        struct MinimalMock;
+        #[async_trait]
+        impl ChatProvider for MinimalMock {
+            async fn chat_with_tools(
+                &self,
+                _messages: &[ChatMessage],
+                _tools: Option<&[Tool]>,
+                _json_schema: Option<StructuredOutputFormat>,
+            ) -> Result<Box<dyn ChatResponse>, crate::error::LLMError> {
+                unimplemented!()
+            }
+        }
+        let mock = MinimalMock;
+        assert_eq!(mock.model(), "");
+    }
+
+    /// Concrete Ollama backend exposes its configured model string.
+    #[cfg(all(feature = "ollama", not(target_arch = "wasm32")))]
+    #[test]
+    fn ollama_backend_exposes_model_string() {
+        let ollama = crate::backends::ollama::Ollama::new(
+            "http://localhost:11434",        // base_url
+            None,                            // api_key
+            Some("qwen2.5:14b".to_string()), // model
+            None,                            // max_tokens
+            None,                            // temperature
+            None,                            // timeout_seconds
+            None,                            // top_p
+            None,                            // top_k
+            None,                            // keep_alive
+            None,                            // system
+            None,                            // think
+            None,                            // stop
+            None,                            // seed
+            None,                            // presence_penalty
+            None,                            // frequency_penalty
+            None,                            // num_ctx
+            None,                            // repeat_penalty
+            None,                            // repeat_last_n
+            None,                            // min_p
+        );
+        assert_eq!(ollama.model(), "qwen2.5:14b");
+    }
+
+    /// Concrete Anthropic backend exposes its configured model string.
+    #[cfg(all(feature = "anthropic", not(target_arch = "wasm32")))]
+    #[test]
+    fn anthropic_backend_exposes_model_string() {
+        let anthropic = crate::backends::anthropic::Anthropic::new(
+            "test-key",                                    // api_key
+            Some("claude-haiku-4-5-20251001".to_string()), // model
+            None,                                          // max_tokens
+            None,                                          // temperature
+            None,                                          // timeout_seconds
+            None,                                          // top_p
+            None,                                          // top_k
+            None,                                          // tool_choice
+            None,                                          // reasoning
+            None,                                          // thinking_budget_tokens
+        );
+        assert_eq!(anthropic.model(), "claude-haiku-4-5-20251001");
+    }
+
+    /// `Arc<dyn ChatProvider>` dispatches `.model()` to the inner impl via
+    /// `Deref` coercion. Note: there is no blanket `impl ChatProvider for Arc<T>` —
+    /// this test exercises method dispatch on `dyn ChatProvider` through `Arc`,
+    /// not a trait impl on `Arc<T>` itself.
+    #[cfg(all(feature = "ollama", not(target_arch = "wasm32")))]
+    #[test]
+    fn arc_dyn_chat_provider_dispatches_model_via_deref() {
+        use std::sync::Arc;
+        let ollama = crate::backends::ollama::Ollama::new(
+            "http://localhost:11434",
+            None,
+            Some("qwen2.5:14b".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let arc: Arc<dyn ChatProvider> = Arc::new(ollama);
+        assert_eq!(arc.model(), "qwen2.5:14b");
+    }
+
+    /// Integration test: ChatProvider::model() returns the configured string AND a subsequent
+    /// chat_with_tools call observes the same model in the outgoing request body.
+    ///
+    /// Uses httpmock so no live Ollama server is required. The mock asserts that
+    /// the POST body contains the model name reported by `.model()`, closing the
+    /// loop between the accessor and the actual wire format. Gated only by
+    /// `#[ignore]` — run with `cargo test -- --ignored`.
+    ///
+    /// Run manually:
+    /// ```sh
+    /// cargo test -p autoagents-llm --features ollama \
+    ///   --lib -- model_accessor_tests::model_accessor_wires_to_chat_request --ignored --nocapture
+    /// ```
+    #[cfg(all(feature = "ollama", not(target_arch = "wasm32")))]
+    #[tokio::test]
+    #[ignore]
+    async fn model_accessor_wires_to_chat_request() {
+        use httpmock::{Method::POST, MockServer};
+        use serde_json::json;
+
+        let configured_model = "qwen2.5:14b";
+        let server = MockServer::start();
+
+        let provider = crate::backends::ollama::Ollama::new(
+            server.base_url(),
+            None,
+            Some(configured_model.to_string()),
+            Some(128),
+            Some(0.0),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        // model() returns the configured string.
+        assert_eq!(provider.model(), configured_model);
+
+        // Set up mock to verify the same model string appears in the wire request.
+        let model_in_body = format!("\"model\":\"{configured_model}\"");
+        let chat_mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/api/chat")
+                .body_includes(model_in_body.as_str());
+            then.status(200).json_body(json!({
+                "message": {
+                    "content": "mock reply",
+                    "tool_calls": null
+                }
+            }));
+        });
+
+        let messages = vec![ChatMessage::user().content("ping").build()];
+        let response = provider
+            .chat_with_tools(&messages, None, None)
+            .await
+            .expect("Mock-backed chat_with_tools must succeed");
+
+        // Response comes back correctly (proves the full call path ran).
+        assert!(response.text().is_some(), "Response must contain text");
+
+        // Mock was hit exactly once — the model string reached the wire.
+        chat_mock.assert();
     }
 }

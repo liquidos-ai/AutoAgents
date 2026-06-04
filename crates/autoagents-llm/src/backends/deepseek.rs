@@ -170,6 +170,10 @@ impl ChatProvider for DeepSeek {
             .chat_stream_with_tools(messages, tools, json_schema)
             .await
     }
+
+    fn model(&self) -> &str {
+        self.provider.model()
+    }
 }
 
 #[async_trait]

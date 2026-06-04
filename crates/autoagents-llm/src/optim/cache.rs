@@ -733,6 +733,10 @@ impl ChatProvider for InMemoryCacheLayer {
         // Web results are time-sensitive — always delegate.
         self.inner.chat_with_web_search(input).await
     }
+
+    fn model(&self) -> &str {
+        self.inner.model()
+    }
 }
 
 // ---------------------------------------------------------------------------

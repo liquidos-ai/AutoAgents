@@ -870,6 +870,10 @@ impl ChatProvider for Anthropic {
 
         Ok(create_anthropic_tool_stream(response))
     }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
 }
 
 /// Creates an SSE stream that parses Anthropic tool use events into StreamChunk.

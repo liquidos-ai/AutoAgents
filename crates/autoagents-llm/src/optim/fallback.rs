@@ -296,6 +296,16 @@ impl ChatProvider for FallbackProvider {
         })
         .await
     }
+
+    /// Returns the primary (first-configured) provider's model identifier
+    /// unconditionally — `FallbackProvider` does not track which inner provider
+    /// is currently handling a request, so this accessor is safe for
+    /// capability-based routing and trait-bound generics but **not** for
+    /// telemetry attribution under active failover. If your use case requires
+    /// per-request attribution, query the underlying provider directly.
+    fn model(&self) -> &str {
+        self.providers.first().map_or("", |p| p.model())
+    }
 }
 
 // ---------------------------------------------------------------------------
