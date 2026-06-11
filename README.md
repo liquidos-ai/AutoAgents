@@ -12,7 +12,7 @@
 [![codecov](https://codecov.io/gh/liquidos-ai/AutoAgents/graph/badge.svg)](https://codecov.io/gh/liquidos-ai/AutoAgents)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/liquidos-ai/AutoAgents)
 ![Crates.io Downloads](https://img.shields.io/crates/d/autoagents)
-![PyPI - Downloads](https://img.shields.io/pypi/dm/autoagents-py?label=PyPI%20Downlods)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/autoagents-py?label=PyPI%20Downloads)
 
 [English](README.md) | [中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [한국어](README.ko.md) | [Português (Brasil)](README.pt-BR.md)
 <br />
@@ -29,7 +29,7 @@
 ## Overview
 
 AutoAgents is a modular, multi-agent framework for building intelligent systems in Rust. It combines a type-safe agent
-model with structured tool calling, configurable memory, and pluggable LLM backends. The architecture is designed for performance, safety, and composability across server and edge, and serves as the foundation for high level agent harness.
+model with structured tool calling, configurable memory, and pluggable LLM backends. The architecture is designed for performance, safety, and composability across server and edge, and serves as the foundation for a high-level agent harness.
 
 ---
 
