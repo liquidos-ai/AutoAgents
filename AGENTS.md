@@ -54,7 +54,7 @@
 - Derive macros: `#[agent]`, `#[tool]`, `#[derive(AgentOutput, ToolInput)]` are preferred for consistency and type safety.
 
 ## Python Bindings
-Python bindings are availble as a thin wrapper around the rust crates to give ability for users to quickly prototype agents. The python bindings must be simple and clean. It must not complicate and add additional stuff which is not required.
+Python bindings are available as a thin wrapper around the rust crates to give ability for users to quickly prototype agents. The python bindings must be simple and clean. It must not complicate and add additional stuff which is not required.
 
 ```sh
 uv venv --python=3.12
