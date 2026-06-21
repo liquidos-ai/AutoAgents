@@ -723,6 +723,11 @@ pub(crate) fn task_to_py(task: &Task, py: Python<'_>) -> PyResult<Py<PyAny>> {
     d.set_item("submission_id", task.submission_id.to_string())?;
     d.set_item("completed", task.completed)?;
     d.set_item("result_json", task.result.as_ref().map(|v| v.to_string()))?;
+    let app_meta = match &task.app_meta {
+        Some(value) => json_value_to_py(py, value)?,
+        None => py.None(),
+    };
+    d.set_item("app_meta", app_meta)?;
     Ok(d.into_any().unbind())
 }
 
@@ -1808,12 +1813,15 @@ mod tests {
     fn serialization_helpers_convert_expected_values() {
         init_python();
         Python::attach(|py| {
-            let task = Task::new("inspect me").with_system_prompt("system prompt");
+            let task = Task::new("inspect me")
+                .with_system_prompt("system prompt")
+                .with_app_meta(json!({"session_id": "s1"}));
             let task_value = task_to_py(&task, py).expect("task should convert");
             let task_json =
                 py_any_to_json_value(task_value.bind(py)).expect("task json should convert");
             assert_eq!(task_json["prompt"], json!("inspect me"));
             assert_eq!(task_json["system_prompt"], json!("system prompt"));
+            assert_eq!(task_json["app_meta"]["session_id"], json!("s1"));
 
             let tool_call = ToolCall {
                 id: "call_1".to_string(),

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Union
 
-from .types import TaskImagePayload, TaskPayload
+from .types import JsonObject, TaskImagePayload, TaskPayload
 
 
 class ImageMime(str, Enum):
@@ -31,6 +31,7 @@ class Task:
     prompt: str
     image: Optional[TaskImage] = None
     system_prompt: Optional[str] = None
+    app_meta: Optional[JsonObject] = None
 
     def to_payload(self) -> TaskPayload:
         payload: TaskPayload = {"prompt": self.prompt}
@@ -38,4 +39,6 @@ class Task:
             payload["system_prompt"] = self.system_prompt
         if self.image is not None:
             payload["image"] = self.image.to_payload()
+        if self.app_meta is not None:
+            payload["app_meta"] = self.app_meta
         return payload

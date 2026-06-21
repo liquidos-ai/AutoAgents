@@ -94,4 +94,13 @@ mod tests {
         let back: Task = serde_json::from_value(v).unwrap();
         assert!(back.app_meta.is_none());
     }
+
+    #[test]
+    fn with_app_meta_builder_sets_field() {
+        let task = Task::new("hi")
+            .with_app_meta(serde_json::json!({"session_id": "s1", "chat_id": "c1"}));
+        let meta = task.app_meta.expect("with_app_meta should set app_meta");
+        assert_eq!(meta.get("session_id").and_then(|v| v.as_str()), Some("s1"));
+        assert_eq!(meta.get("chat_id").and_then(|v| v.as_str()), Some("c1"));
+    }
 }
