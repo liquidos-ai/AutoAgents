@@ -284,18 +284,116 @@ pub fn is_fallbackable(err: &LLMError) -> bool {
     match err {
         LLMError::RateLimitError { .. } => true,
         LLMError::HttpStatusError { status_code, .. } => is_http_status_retryable(*status_code),
-        LLMError::HttpError(msg) => is_transport_retryable_message(msg),
+        LLMError::HttpError(_) => true,
         LLMError::ProviderError(_)
         | LLMError::ResponseFormatError { .. }
-        | LLMError::NoToolSupport(_) => true,
+        | LLMError::NoToolSupport(_)
+        | LLMError::Generic(_) => true,
         LLMError::AuthError { .. }
         | LLMError::InvalidRequest { .. }
         | LLMError::JsonError(_)
         | LLMError::ToolConfigError(_)
-        | LLMError::Generic(_)
         | LLMError::GuardrailBlocked { .. }
         | LLMError::GuardrailExecutionFailed { .. } => false,
     }
+}
+
+fn write_status_prefixed_error(
+    f: &mut fmt::Formatter<'_>,
+    label: &str,
+    message: &str,
+    status_code: Option<u16>,
+    response_body: Option<&str>,
+) -> fmt::Result {
+    if let Some(status) = status_code {
+        write!(f, "{label} ({status}): {message}")?;
+    } else {
+        write!(f, "{label}: {message}")?;
+    }
+    if let Some(body) = response_body {
+        write_truncated_body(f, "Response", body)?;
+    }
+    Ok(())
+}
+
+fn display_auth_error(
+    f: &mut fmt::Formatter<'_>,
+    message: &str,
+    status_code: Option<u16>,
+    response_body: Option<&str>,
+) -> fmt::Result {
+    write_status_prefixed_error(f, "Auth Error", message, status_code, response_body)
+}
+
+fn display_rate_limit_error(
+    f: &mut fmt::Formatter<'_>,
+    status_code: u16,
+    message: &str,
+    response_body: &str,
+    retry_after: Option<Duration>,
+    provider_code: Option<&str>,
+) -> fmt::Result {
+    write!(f, "Rate Limit Error ({status_code}): {message}")?;
+    write_truncated_body(f, "Response", response_body)?;
+    if let Some(code) = provider_code {
+        write!(f, ". Provider code: {code}")?;
+    }
+    if let Some(retry_after) = retry_after {
+        write!(f, ". Retry-After: {}s", retry_after.as_secs())?;
+    }
+    Ok(())
+}
+
+fn display_http_status_error(
+    f: &mut fmt::Formatter<'_>,
+    status_code: u16,
+    message: &str,
+    response_body: &str,
+    provider_code: Option<&str>,
+) -> fmt::Result {
+    write!(f, "HTTP Status Error ({status_code}): {message}")?;
+    write_truncated_body(f, "Response", response_body)?;
+    if let Some(code) = provider_code {
+        write!(f, ". Provider code: {code}")?;
+    }
+    Ok(())
+}
+
+fn display_invalid_request(
+    f: &mut fmt::Formatter<'_>,
+    message: &str,
+    status_code: Option<u16>,
+    response_body: Option<&str>,
+) -> fmt::Result {
+    write_status_prefixed_error(f, "Invalid Request", message, status_code, response_body)
+}
+
+fn display_response_format_error(
+    f: &mut fmt::Formatter<'_>,
+    message: &str,
+    raw_response: &str,
+) -> fmt::Result {
+    write!(f, "Response Format Error: {message}")?;
+    write_truncated_body(f, "Raw response", raw_response)
+}
+
+fn display_guardrail_blocked(
+    f: &mut fmt::Formatter<'_>,
+    phase: GuardrailPhase,
+    guard: &str,
+    rule_id: &str,
+    category: &str,
+    severity: &str,
+    message: &str,
+) -> fmt::Result {
+    let phase = match phase {
+        GuardrailPhase::Input => "input",
+        GuardrailPhase::Output => "output",
+    };
+    write!(
+        f,
+        "guardrail blocked {phase}: guard={guard}, rule={rule_id}, category={category}, severity={severity}, message={message}"
+    )
 }
 
 impl fmt::Display for LLMError {
@@ -306,71 +404,44 @@ impl fmt::Display for LLMError {
                 message,
                 status_code,
                 response_body,
-            } => {
-                if let Some(status) = status_code {
-                    write!(f, "Auth Error ({status}): {message}")?;
-                } else {
-                    write!(f, "Auth Error: {message}")?;
-                }
-                if let Some(body) = response_body {
-                    write_truncated_body(f, "Response", body)?;
-                }
-                Ok(())
-            }
+            } => display_auth_error(f, message, *status_code, response_body.as_deref()),
             LLMError::RateLimitError {
                 status_code,
                 message,
                 response_body,
                 retry_after,
                 provider_code,
-            } => {
-                write!(f, "Rate Limit Error ({status_code}): {message}")?;
-                write_truncated_body(f, "Response", response_body)?;
-                if let Some(code) = provider_code {
-                    write!(f, ". Provider code: {code}")?;
-                }
-                if let Some(retry_after) = retry_after {
-                    write!(f, ". Retry-After: {}s", retry_after.as_secs())?;
-                }
-                Ok(())
-            }
+            } => display_rate_limit_error(
+                f,
+                *status_code,
+                message,
+                response_body,
+                *retry_after,
+                provider_code.as_deref(),
+            ),
             LLMError::HttpStatusError {
                 status_code,
                 message,
                 response_body,
                 provider_code,
-            } => {
-                write!(f, "HTTP Status Error ({status_code}): {message}")?;
-                write_truncated_body(f, "Response", response_body)?;
-                if let Some(code) = provider_code {
-                    write!(f, ". Provider code: {code}")?;
-                }
-                Ok(())
-            }
+            } => display_http_status_error(
+                f,
+                *status_code,
+                message,
+                response_body,
+                provider_code.as_deref(),
+            ),
             LLMError::InvalidRequest {
                 message,
                 status_code,
                 response_body,
-            } => {
-                if let Some(status) = status_code {
-                    write!(f, "Invalid Request ({status}): {message}")?;
-                } else {
-                    write!(f, "Invalid Request: {message}")?;
-                }
-                if let Some(body) = response_body {
-                    write_truncated_body(f, "Response", body)?;
-                }
-                Ok(())
-            }
+            } => display_invalid_request(f, message, *status_code, response_body.as_deref()),
             LLMError::ProviderError(e) => write!(f, "Provider Error: {e}"),
             LLMError::Generic(e) => write!(f, "Generic Error : {e}"),
             LLMError::ResponseFormatError {
                 message,
                 raw_response,
-            } => {
-                write!(f, "Response Format Error: {message}")?;
-                write_truncated_body(f, "Raw response", raw_response)
-            }
+            } => display_response_format_error(f, message, raw_response),
             LLMError::JsonError(e) => write!(f, "JSON Parse Error: {e}"),
             LLMError::ToolConfigError(e) => write!(f, "Tool Configuration Error: {e}"),
             LLMError::NoToolSupport(e) => write!(f, "No Tool Support: {e}"),
@@ -381,22 +452,11 @@ impl fmt::Display for LLMError {
                 category,
                 severity,
                 message,
-            } => {
-                let phase = match phase {
-                    GuardrailPhase::Input => "input",
-                    GuardrailPhase::Output => "output",
-                };
-                write!(
-                    f,
-                    "guardrail blocked {phase}: guard={guard}, rule={rule_id}, category={category}, severity={severity}, message={message}"
-                )
-            }
-            LLMError::GuardrailExecutionFailed { guard, message } => {
-                write!(
-                    f,
-                    "guardrail execution failed: guard={guard}, error={message}"
-                )
-            }
+            } => display_guardrail_blocked(f, *phase, guard, rule_id, category, severity, message),
+            LLMError::GuardrailExecutionFailed { guard, message } => write!(
+                f,
+                "guardrail execution failed: guard={guard}, error={message}"
+            ),
         }
     }
 }

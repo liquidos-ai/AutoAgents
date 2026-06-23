@@ -80,10 +80,10 @@ impl Default for FallbackConfig {
 
 /// Default fallbackability predicate.
 ///
-/// Falls back on network, provider, and response-format errors as well as
-/// [`NoToolSupport`](crate::error::LLMError::NoToolSupport).
+/// Falls back on network, provider, response-format, and generic capability
+/// errors as well as typed rate-limit and retryable HTTP status failures.
 ///
-/// Does **not** fall back on auth, invalid-request, or generic errors.
+/// Does **not** fall back on auth, invalid-request, or guardrail errors.
 pub fn default_is_fallbackable(err: &LLMError) -> bool {
     crate::error::is_fallbackable(err)
 }
@@ -811,6 +811,12 @@ mod tests {
             message: "bad".into(),
             raw_response: "{}".into()
         }));
+        assert!(default_is_fallbackable(&LLMError::Generic(
+            "unsupported capability".into()
+        )));
+        assert!(default_is_fallbackable(&LLMError::HttpError(
+            "upstream unavailable".into()
+        )));
     }
 
     #[test]

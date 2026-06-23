@@ -952,6 +952,7 @@ impl ModelsProvider for Anthropic {
             .send()
             .await?;
 
+        let resp = ensure_success(resp, "Anthropic").await?;
         let result: AnthropicModelListResponse = resp.json().await?;
 
         Ok(Box::new(result))
@@ -1705,6 +1706,29 @@ data: {"type": "ping"}
             tool_use.tool_input,
             Some(Value::String("not-json".to_string()))
         );
+    }
+
+    #[tokio::test]
+    async fn test_list_models_maps_401_to_auth_error() {
+        let server = httpmock::MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/v1/models");
+            then.status(401)
+                .body(r#"{"error":{"message":"invalid key"}}"#);
+        });
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(format!("{}/v1/models", server.base_url()))
+            .header("x-api-key", "key")
+            .send()
+            .await
+            .expect("request should complete");
+
+        let err = ensure_success(resp, "Anthropic")
+            .await
+            .expect_err("401 should map to AuthError");
+        assert!(matches!(err, LLMError::AuthError { .. }));
     }
 
     #[test]

@@ -149,24 +149,50 @@ struct RetryProvider {
 }
 
 // ---------------------------------------------------------------------------
-// Back-off helpers (no external RNG — uses subsecond system-time entropy)
+// Back-off helpers (thread-local xorshift PRNG for full jitter)
 // ---------------------------------------------------------------------------
+
+thread_local! {
+    static JITTER_RNG: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+fn jitter_seed() -> u64 {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    std::thread::current().id().hash(&mut hasher);
+    std::ptr::from_ref(&JITTER_RNG).hash(&mut hasher);
+    if let Ok(duration) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        duration.as_nanos().hash(&mut hasher);
+    }
+    hasher.finish().max(1)
+}
+
+fn next_jitter_random() -> u64 {
+    JITTER_RNG.with(|rng| {
+        let mut state = rng.get();
+        if state == 0 {
+            state = jitter_seed();
+        }
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        rng.set(state);
+        state
+    })
+}
 
 /// Full-jitter sleep duration in `[0, ceiling]`.
 ///
-/// Uses `SystemTime::subsec_nanos()` as a cheap entropy source.  Not
-/// cryptographically uniform, but sufficient for back-off anti-thundering-herd.
+/// Uses a per-thread xorshift PRNG so concurrent callers in the same
+/// millisecond still receive independent jitter samples.
 #[inline]
 fn jitter_duration(ceiling: Duration) -> Duration {
     let nanos = ceiling.as_nanos();
     if nanos == 0 {
         return Duration::ZERO;
     }
-    let seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos() as u128;
-    Duration::from_nanos((seed % nanos) as u64)
+    Duration::from_nanos(((next_jitter_random() as u128) % nanos) as u64)
 }
 
 /// Back-off ceiling for zero-based `attempt` index.
@@ -638,6 +664,14 @@ mod tests {
             resolve_retry_sleep(&err, &config, 0),
             Duration::from_secs(5)
         );
+    }
+
+    #[test]
+    fn jitter_duration_produces_varied_samples() {
+        let ceiling = Duration::from_secs(30);
+        let first = jitter_duration(ceiling);
+        let varied = (1..64).any(|_| jitter_duration(ceiling) != first);
+        assert!(varied, "jitter should produce multiple distinct durations");
     }
 
     #[test]
