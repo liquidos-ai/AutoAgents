@@ -280,6 +280,55 @@ mod tests {
         assert!(parsed <= Duration::from_secs(65));
     }
 
+    #[test]
+    fn parse_retry_after_accepts_rfc3339_date() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        let future = (Utc::now() + chrono::Duration::seconds(90)).to_rfc3339();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            future.parse().expect("valid header value"),
+        );
+        let parsed = parse_retry_after(&headers).expect("retry-after should parse");
+        assert!(parsed >= Duration::from_secs(85));
+        assert!(parsed <= Duration::from_secs(95));
+    }
+
+    #[test]
+    fn parse_retry_after_past_http_date_returns_none() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        let past = (Utc::now() - chrono::Duration::seconds(120))
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            past.parse().expect("valid header value"),
+        );
+        assert_eq!(parse_retry_after(&headers), None);
+    }
+
+    #[test]
+    fn parse_provider_error_body_reads_top_level_fields() {
+        let details = parse_provider_error_body(r#"{"message":"fail","type":"provider_error"}"#);
+        assert_eq!(details.message.as_deref(), Some("fail"));
+        assert_eq!(details.provider_code.as_deref(), Some("provider_error"));
+    }
+
+    #[tokio::test]
+    async fn maps_non_standard_status_code_uses_numeric_default_message() {
+        let err = error_for_status(999, "non-standard", None).await;
+        match err {
+            LLMError::HttpStatusError {
+                message,
+                status_code,
+                ..
+            } => {
+                assert_eq!(status_code, 999);
+                assert!(message.contains("999"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
     #[tokio::test]
     async fn maps_401_to_auth_error() {
         let err = error_for_status(401, r#"{"error":{"message":"invalid key"}}"#, None).await;

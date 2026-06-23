@@ -624,4 +624,203 @@ mod tests {
             _ => panic!("Expected JsonError"),
         }
     }
+
+    #[test]
+    fn test_http_status_code_and_response_body_accessors() {
+        let auth = LLMError::AuthError {
+            message: "denied".into(),
+            status_code: Some(403),
+            response_body: Some("body".into()),
+        };
+        assert_eq!(auth.http_status_code(), Some(403));
+        assert_eq!(auth.response_body(), Some("body"));
+
+        let rate_limit = LLMError::RateLimitError {
+            status_code: 429,
+            message: "limit".into(),
+            response_body: "payload".into(),
+            retry_after: None,
+            provider_code: None,
+        };
+        assert_eq!(rate_limit.response_body(), Some("payload"));
+
+        let http_status = LLMError::HttpStatusError {
+            status_code: 502,
+            message: "bad gateway".into(),
+            response_body: "html".into(),
+            provider_code: None,
+        };
+        assert_eq!(http_status.http_status_code(), Some(502));
+        assert_eq!(http_status.response_body(), Some("html"));
+
+        let format_error = LLMError::ResponseFormatError {
+            message: "invalid json".into(),
+            raw_response: "not-json".into(),
+        };
+        assert_eq!(format_error.response_body(), Some("not-json"));
+        assert_eq!(LLMError::Generic("x".into()).http_status_code(), None);
+        assert_eq!(LLMError::JsonError("parse".into()).response_body(), None);
+    }
+
+    #[test]
+    fn test_is_transport_retryable_method() {
+        assert!(LLMError::HttpError("request timed out: elapsed".into()).is_transport_retryable());
+        assert!(!LLMError::Generic("timeout".into()).is_transport_retryable());
+    }
+
+    #[test]
+    fn test_truncate_for_display_respects_utf8_boundary() {
+        let body = format!("{}€{}", "a".repeat(511), "z".repeat(20));
+        let truncated = truncate_for_display(&body);
+        assert!(truncated.contains("truncated"));
+        assert!(std::str::from_utf8(truncated.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn test_is_fallbackable_matrix() {
+        assert!(is_fallbackable(&LLMError::HttpError("down".into())));
+        assert!(is_fallbackable(&LLMError::RateLimitError {
+            status_code: 429,
+            message: "limit".into(),
+            response_body: "body".into(),
+            retry_after: None,
+            provider_code: None,
+        }));
+        assert!(!is_fallbackable(&LLMError::missing_api_key("missing")));
+        assert!(!is_fallbackable(&LLMError::GuardrailBlocked {
+            phase: GuardrailPhase::Input,
+            guard: "g".into(),
+            rule_id: "r".into(),
+            category: "c".into(),
+            severity: "high".into(),
+            message: "blocked".into(),
+        }));
+    }
+
+    #[test]
+    fn test_llm_error_debug_covers_struct_variants() {
+        let cases: Vec<LLMError> = vec![
+            LLMError::HttpError("transport".into()),
+            LLMError::AuthError {
+                message: "denied".into(),
+                status_code: Some(401),
+                response_body: Some("secret".into()),
+            },
+            LLMError::HttpStatusError {
+                status_code: 500,
+                message: "fail".into(),
+                response_body: "body".into(),
+                provider_code: Some("internal".into()),
+            },
+            LLMError::InvalidRequest {
+                message: "bad".into(),
+                status_code: Some(422),
+                response_body: Some("details".into()),
+            },
+            LLMError::ProviderError("provider".into()),
+            LLMError::ResponseFormatError {
+                message: "parse".into(),
+                raw_response: "raw".into(),
+            },
+            LLMError::Generic("generic".into()),
+            LLMError::JsonError("json".into()),
+            LLMError::ToolConfigError("tool".into()),
+            LLMError::NoToolSupport("tools".into()),
+            LLMError::GuardrailBlocked {
+                phase: GuardrailPhase::Output,
+                guard: "guard".into(),
+                rule_id: "rule".into(),
+                category: "cat".into(),
+                severity: "low".into(),
+                message: "msg".into(),
+            },
+            LLMError::GuardrailExecutionFailed {
+                guard: "guard".into(),
+                message: "runtime".into(),
+            },
+        ];
+
+        for error in cases {
+            let debug = format!("{error:?}");
+            assert!(!debug.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_llm_error_display_covers_remaining_variants() {
+        assert!(
+            LLMError::HttpError("transport".into())
+                .to_string()
+                .contains("HTTP Error")
+        );
+
+        let status = LLMError::HttpStatusError {
+            status_code: 500,
+            message: "fail".into(),
+            response_body: "body".into(),
+            provider_code: Some("INTERNAL".into()),
+        };
+        let status_display = status.to_string();
+        assert!(status_display.contains("Provider code: INTERNAL"));
+
+        let format_error = LLMError::ResponseFormatError {
+            message: "bad json".into(),
+            raw_response: "not-json".into(),
+        };
+        assert!(format_error.to_string().contains("Response Format Error"));
+        assert!(format_error.to_string().contains("Raw response"));
+
+        let input_block = LLMError::GuardrailBlocked {
+            phase: GuardrailPhase::Input,
+            guard: "g".into(),
+            rule_id: "r".into(),
+            category: "c".into(),
+            severity: "high".into(),
+            message: "blocked".into(),
+        };
+        assert!(input_block.to_string().contains("guardrail blocked input"));
+
+        let output_block = LLMError::GuardrailBlocked {
+            phase: GuardrailPhase::Output,
+            guard: "g".into(),
+            rule_id: "r".into(),
+            category: "c".into(),
+            severity: "high".into(),
+            message: "blocked".into(),
+        };
+        assert!(
+            output_block
+                .to_string()
+                .contains("guardrail blocked output")
+        );
+
+        let execution_failed = LLMError::GuardrailExecutionFailed {
+            guard: "g".into(),
+            message: "runtime".into(),
+        };
+        assert!(
+            execution_failed
+                .to_string()
+                .contains("guardrail execution failed")
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_from_reqwest_connection_error() {
+        let client = reqwest::Client::new();
+        let err = client
+            .get("http://127.0.0.1:1")
+            .send()
+            .await
+            .expect_err("connection should fail");
+
+        let llm_err = LLMError::from(err);
+        match llm_err {
+            LLMError::HttpError(message) => {
+                assert!(message.starts_with("connection failed:"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
 }
