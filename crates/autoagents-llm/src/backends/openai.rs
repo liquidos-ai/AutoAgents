@@ -1176,7 +1176,7 @@ impl OpenAI {
         tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        let openai_msgs = self.provider.prepare_messages(messages);
+        let openai_msgs = self.provider.prepare_messages(messages)?;
         let response_format: Option<OpenAIResponseFormat> = json_schema.clone().map(|s| s.into());
         let final_tools = self.build_legacy_function_tools(tools);
         let request_tool_choice = self.resolve_legacy_tool_choice_for_request(&final_tools);
@@ -1245,7 +1245,7 @@ impl OpenAI {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>, LLMError>
     {
-        let openai_msgs = self.provider.prepare_messages(messages);
+        let openai_msgs = self.provider.prepare_messages(messages)?;
         let openai_tools = self.build_legacy_function_tools(tools);
         let response_schema: Option<OpenAIResponseFormat> = json_schema.map(|schema| schema.into());
         let body = OpenAIAPIChatRequest {

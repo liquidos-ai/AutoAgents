@@ -1,6 +1,6 @@
 use crate::{
     LLMProvider,
-    chat::{ChatMessage, ChatProvider, ChatRole},
+    chat::{ChatMessage, ChatProvider, ChatRole, MessageType},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
     error::LLMError,
@@ -175,6 +175,8 @@ impl ChatProvider for Phind {
         messages: &[ChatMessage],
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
+        validate_text_only_messages(messages)?;
+
         let mut message_history = vec![];
         for m in messages {
             let role_str = match m.role {
@@ -231,7 +233,9 @@ impl ChatProvider for Phind {
         _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        unimplemented!("TODO: Yet to be implented")
+        Err(LLMError::NoToolSupport(
+            "Phind does not support tool calling".to_string(),
+        ))
     }
 
     fn model(&self) -> &str {
@@ -286,6 +290,25 @@ impl crate::HasConfig for Phind {
     type Config = crate::NoConfig;
 }
 
+fn validate_text_only_messages(messages: &[ChatMessage]) -> Result<(), LLMError> {
+    for msg in messages {
+        match &msg.message_type {
+            MessageType::Text => {}
+            MessageType::ToolUse(_) | MessageType::ToolResult(_) => {
+                return Err(LLMError::NoToolSupport(
+                    "Phind does not support tool calling".to_string(),
+                ));
+            }
+            _ => {
+                return Err(LLMError::InvalidRequest(
+                    "Multimodal input is not supported by the Phind backend".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 impl LLMBuilder<Phind> {
     pub fn build(self) -> Result<Arc<Phind>, LLMError> {
         let phind = Phind::new(
@@ -305,6 +328,7 @@ impl LLMBuilder<Phind> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FunctionCall;
 
     #[test]
     fn test_create_headers() {
@@ -331,5 +355,63 @@ mod tests {
         ]
         .join("\n");
         assert_eq!(Phind::parse_stream_response(&response_text), "Hello World");
+    }
+
+    #[test]
+    fn test_validate_text_only_messages_rejects_multimodal() {
+        let messages = [ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::ImageURL("https://example.com/image.png".to_string()),
+            content: "describe".to_string(),
+        }];
+
+        let err = validate_text_only_messages(&messages).expect_err("image URL should be rejected");
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest(message)
+                if message == "Multimodal input is not supported by the Phind backend"
+        ));
+    }
+
+    #[test]
+    fn test_validate_text_only_messages_rejects_tool_messages() {
+        let messages = [ChatMessage {
+            role: ChatRole::Assistant,
+            message_type: MessageType::ToolUse(vec![ToolCall {
+                id: "call_1".to_string(),
+                call_type: "function".to_string(),
+                function: FunctionCall {
+                    name: "lookup".to_string(),
+                    arguments: "{}".to_string(),
+                },
+            }]),
+            content: "tool".to_string(),
+        }];
+
+        let err = validate_text_only_messages(&messages).expect_err("tool use should be rejected");
+
+        assert!(matches!(
+            err,
+            LLMError::NoToolSupport(message)
+                if message == "Phind does not support tool calling"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_tools_returns_no_tool_support() {
+        let provider = Phind::new(None, None, None, None, None, None, None);
+        let messages = [ChatMessage::user().content("hello").build()];
+
+        let err = provider
+            .chat_with_tools(&messages, None, None)
+            .await
+            .expect_err("Phind should report unsupported tool calling");
+
+        assert!(matches!(
+            err,
+            LLMError::NoToolSupport(message)
+                if message == "Phind does not support tool calling"
+        ));
     }
 }

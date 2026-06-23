@@ -62,9 +62,17 @@ struct AzureOpenAIChatMessage<'a> {
     tool_call_id: Option<String>,
 }
 
-impl<'a> From<&'a ChatMessage> for AzureOpenAIChatMessage<'a> {
-    fn from(chat_msg: &'a ChatMessage) -> Self {
-        Self {
+impl<'a> TryFrom<&'a ChatMessage> for AzureOpenAIChatMessage<'a> {
+    type Error = LLMError;
+
+    /// Converts a [`ChatMessage`] into Azure OpenAI chat completion format.
+    ///
+    /// This is the sole conversion path for non-[`MessageType::ToolResult`] messages.
+    /// Raw inline images and PDFs return [`LLMError::InvalidRequest`]; image URLs are
+    /// encoded as multipart content. [`ChatProvider::chat_with_tools`] does not
+    /// pre-process images before calling this conversion.
+    fn try_from(chat_msg: &'a ChatMessage) -> Result<Self, Self::Error> {
+        let message = Self {
             role: match chat_msg.role {
                 ChatRole::User => "user",
                 ChatRole::System => "system",
@@ -74,9 +82,17 @@ impl<'a> From<&'a ChatMessage> for AzureOpenAIChatMessage<'a> {
             tool_call_id: None,
             content: match &chat_msg.message_type {
                 MessageType::Text => Some(Right(chat_msg.content.clone())),
-                // Image case is handled separately above
-                MessageType::Image(_) => unreachable!(),
-                MessageType::Pdf(_) => unimplemented!(),
+                MessageType::Image(_) => {
+                    return Err(LLMError::InvalidRequest(
+                        "Raw image input is not supported by the Azure OpenAI chat backend"
+                            .to_string(),
+                    ));
+                }
+                MessageType::Pdf(_) => {
+                    return Err(LLMError::InvalidRequest(
+                        "PDF input is not supported by the Azure OpenAI chat backend".to_string(),
+                    ));
+                }
                 MessageType::ImageURL(url) => {
                     // Clone the URL to create an owned version
 
@@ -99,7 +115,8 @@ impl<'a> From<&'a ChatMessage> for AzureOpenAIChatMessage<'a> {
                 }
                 _ => None,
             },
-        }
+        };
+        Ok(message)
     }
 }
 
@@ -275,6 +292,33 @@ impl From<StructuredOutputFormat> for OpenAIResponseFormat {
     }
 }
 
+/// Converts chat messages into Azure OpenAI API request messages.
+///
+/// [`MessageType::ToolResult`] messages are expanded into one `tool` role message per
+/// result. All other message types are converted via [`AzureOpenAIChatMessage::try_from`].
+fn build_azure_chat_messages(
+    messages: &[ChatMessage],
+) -> Result<Vec<AzureOpenAIChatMessage<'_>>, LLMError> {
+    let mut openai_msgs = Vec::with_capacity(messages.len());
+
+    for msg in messages {
+        if let MessageType::ToolResult(ref results) = msg.message_type {
+            for result in results {
+                openai_msgs.push(AzureOpenAIChatMessage {
+                    role: "tool",
+                    tool_call_id: Some(result.id.clone()),
+                    tool_calls: None,
+                    content: Some(Right(result.function.arguments.clone())),
+                });
+            }
+        } else {
+            openai_msgs.push(AzureOpenAIChatMessage::try_from(msg)?);
+        }
+    }
+
+    Ok(openai_msgs)
+}
+
 impl ChatResponse for AzureOpenAIChatResponse {
     fn text(&self) -> Option<String> {
         self.choices.first().and_then(|c| c.message.content.clone())
@@ -396,25 +440,7 @@ impl ChatProvider for AzureOpenAI {
             ));
         }
 
-        let mut openai_msgs: Vec<AzureOpenAIChatMessage> = vec![];
-
-        for msg in messages {
-            if let MessageType::ToolResult(ref results) = msg.message_type {
-                for result in results {
-                    openai_msgs.push(
-                        // Clone strings to own them
-                        AzureOpenAIChatMessage {
-                            role: "tool",
-                            tool_call_id: Some(result.id.clone()),
-                            tool_calls: None,
-                            content: Some(Right(result.function.arguments.clone())),
-                        },
-                    );
-                }
-            } else {
-                openai_msgs.push(msg.into())
-            }
-        }
+        let openai_msgs = build_azure_chat_messages(messages)?;
 
         // Build the response format object
         let response_format: Option<OpenAIResponseFormat> = json_schema.clone().map(|s| s.into());
@@ -657,7 +683,7 @@ impl EmbeddingBuilder<AzureOpenAI> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::{ChatMessage, ChatRole, MessageType, Tool};
+    use crate::chat::{ChatMessage, ChatRole, ImageMime, MessageType, Tool};
     use crate::{FunctionCall, ToolCall};
     use httpmock::{Method::POST, MockServer};
     use serde_json::json;
@@ -679,13 +705,30 @@ mod tests {
     }
 
     #[test]
+    fn test_build_azure_chat_messages_rejects_raw_image() {
+        let messages = [ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Image((ImageMime::PNG, vec![1, 2, 3])),
+            content: "describe".to_string(),
+        }];
+
+        let err = build_azure_chat_messages(&messages).expect_err("raw image should be rejected");
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest(message)
+                if message == "Raw image input is not supported by the Azure OpenAI chat backend"
+        ));
+    }
+
+    #[test]
     fn test_azure_chat_message_from_text() {
         let msg = ChatMessage {
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "hello".to_string(),
         };
-        let azure = AzureOpenAIChatMessage::from(&msg);
+        let azure = AzureOpenAIChatMessage::try_from(&msg).expect("text should convert");
         assert_eq!(azure.role, "user");
         assert!(azure.content.is_some());
         assert!(azure.tool_calls.is_none());
@@ -698,7 +741,7 @@ mod tests {
             message_type: MessageType::ImageURL("https://example.com/img.png".to_string()),
             content: "describe".to_string(),
         };
-        let azure = AzureOpenAIChatMessage::from(&msg);
+        let azure = AzureOpenAIChatMessage::try_from(&msg).expect("image URL should convert");
         match azure.content.unwrap() {
             Right(_) => panic!("Expected multipart content"),
             Left(parts) => {
@@ -706,6 +749,40 @@ mod tests {
                 assert_eq!(parts[0].message_type, Some("image_url"));
             }
         }
+    }
+
+    #[test]
+    fn test_azure_chat_message_rejects_raw_image() {
+        let msg = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Image((ImageMime::PNG, vec![1, 2, 3])),
+            content: "describe".to_string(),
+        };
+
+        let err = AzureOpenAIChatMessage::try_from(&msg).expect_err("raw image should be rejected");
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest(message)
+                if message == "Raw image input is not supported by the Azure OpenAI chat backend"
+        ));
+    }
+
+    #[test]
+    fn test_azure_chat_message_rejects_pdf() {
+        let msg = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Pdf(vec![1, 2, 3]),
+            content: "doc".to_string(),
+        };
+
+        let err = AzureOpenAIChatMessage::try_from(&msg).expect_err("PDF should be rejected");
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest(message)
+                if message == "PDF input is not supported by the Azure OpenAI chat backend"
+        ));
     }
 
     #[test]
@@ -722,7 +799,7 @@ mod tests {
             }]),
             content: "tool use".to_string(),
         };
-        let azure = AzureOpenAIChatMessage::from(&msg);
+        let azure = AzureOpenAIChatMessage::try_from(&msg).expect("tool use should convert");
         assert!(azure.content.is_none());
         assert!(azure.tool_calls.is_some());
     }

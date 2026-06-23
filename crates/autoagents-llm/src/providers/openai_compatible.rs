@@ -361,28 +361,25 @@ impl<T: OpenAIProviderConfig> OpenAICompatibleProvider<T> {
         }
     }
 
-    pub fn prepare_messages(&self, messages: &[ChatMessage]) -> Vec<OpenAIChatMessage<'_>> {
-        let openai_msgs: Vec<OpenAIChatMessage> = messages
-            .iter()
-            .flat_map(|msg| {
-                if let MessageType::ToolResult(ref results) = msg.message_type {
-                    // Expand ToolResult into multiple messages
-                    results
-                        .iter()
-                        .map(|result| OpenAIChatMessage {
-                            role: "tool",
-                            tool_call_id: Some(result.id.clone()),
-                            tool_calls: None,
-                            content: Some(Right(result.function.arguments.clone())),
-                        })
-                        .collect::<Vec<_>>()
-                } else {
-                    // Convert single message
-                    vec![chat_message_to_openai_message(msg.clone())]
-                }
-            })
-            .collect();
-        openai_msgs
+    pub fn prepare_messages(
+        &self,
+        messages: &[ChatMessage],
+    ) -> Result<Vec<OpenAIChatMessage<'_>>, LLMError> {
+        let mut openai_msgs = Vec::new();
+        for msg in messages {
+            if let MessageType::ToolResult(ref results) = msg.message_type {
+                // Expand ToolResult into multiple messages.
+                openai_msgs.extend(results.iter().map(|result| OpenAIChatMessage {
+                    role: "tool",
+                    tool_call_id: Some(result.id.clone()),
+                    tool_calls: None,
+                    content: Some(Right(result.function.arguments.clone())),
+                }));
+            } else {
+                openai_msgs.push(chat_message_to_openai_message(msg.clone())?);
+            }
+        }
+        Ok(openai_msgs)
     }
 }
 
@@ -401,7 +398,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
                 T::PROVIDER_NAME
             )));
         }
-        let openai_msgs = self.prepare_messages(messages);
+        let openai_msgs = self.prepare_messages(messages)?;
         let response_format: Option<OpenAIResponseFormat> = if T::SUPPORTS_STRUCTURED_OUTPUT {
             json_schema.clone().map(|s| s.into())
         } else {
@@ -530,7 +527,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
                 T::PROVIDER_NAME
             )));
         }
-        let openai_msgs = self.prepare_messages(messages);
+        let openai_msgs = self.prepare_messages(messages)?;
         let request_tools = tools.map(|t| t.to_vec());
 
         let response_format: Option<OpenAIResponseFormat> = if T::SUPPORTS_STRUCTURED_OUTPUT {
@@ -628,7 +625,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
             )));
         }
 
-        let openai_msgs = self.prepare_messages(messages);
+        let openai_msgs = self.prepare_messages(messages)?;
 
         let requested_tools = tools.map(|t| t.to_vec());
 
@@ -988,8 +985,10 @@ struct OpenAIToolStreamFunction {
 }
 
 /// Create OpenAICompatibleChatMessage` that doesn't borrow from any temporary variables
-pub fn chat_message_to_openai_message(chat_msg: ChatMessage) -> OpenAIChatMessage<'static> {
-    OpenAIChatMessage {
+pub fn chat_message_to_openai_message(
+    chat_msg: ChatMessage,
+) -> Result<OpenAIChatMessage<'static>, LLMError> {
+    let message = OpenAIChatMessage {
         role: match chat_msg.role {
             ChatRole::User => "user",
             ChatRole::Assistant => "assistant",
@@ -1009,7 +1008,12 @@ pub fn chat_message_to_openai_message(chat_msg: ChatMessage) -> OpenAIChatMessag
                     tool_call_id: None,
                 }]))
             }
-            MessageType::Pdf(_) => unimplemented!(),
+            MessageType::Pdf(_) => {
+                return Err(LLMError::InvalidRequest(
+                    "PDF input is not supported by OpenAI-compatible chat completions backends"
+                        .to_string(),
+                ));
+            }
             MessageType::ImageURL(url) => Some(Left(vec![OpenAIMessageContent {
                 message_type: Some("image_url"),
                 text: None,
@@ -1037,7 +1041,8 @@ pub fn chat_message_to_openai_message(chat_msg: ChatMessage) -> OpenAIChatMessag
             }
             _ => None,
         },
-    }
+    };
+    Ok(message)
 }
 
 struct SSEStreamParser {
@@ -1706,7 +1711,9 @@ mod tests {
             "key", None, None, None, None, None, None, None, None, None, None, None, None, None,
             None, None,
         );
-        let prepared = provider.prepare_messages(&messages);
+        let prepared = provider
+            .prepare_messages(&messages)
+            .expect("tool result messages should prepare");
         assert_eq!(prepared.len(), 1);
         assert_eq!(prepared[0].role, "tool");
         assert_eq!(prepared[0].tool_call_id.as_deref(), Some("call_1"));
@@ -1724,7 +1731,7 @@ mod tests {
             message_type: MessageType::ImageURL("https://example.com/image.png".to_string()),
             content: "describe".to_string(),
         };
-        let openai_msg = chat_message_to_openai_message(msg);
+        let openai_msg = chat_message_to_openai_message(msg).expect("image URL should convert");
         assert_eq!(openai_msg.role, "user");
         match openai_msg.content.unwrap() {
             Left(parts) => {
@@ -1754,7 +1761,7 @@ mod tests {
             }]),
             content: "call tool".to_string(),
         };
-        let openai_msg = chat_message_to_openai_message(msg);
+        let openai_msg = chat_message_to_openai_message(msg).expect("tool use should convert");
         assert!(openai_msg.content.is_none());
         assert!(openai_msg.tool_calls.is_some());
         let calls = openai_msg.tool_calls.unwrap();
@@ -1771,7 +1778,7 @@ mod tests {
             message_type: MessageType::Image((ImageMime::PNG, vec![1, 2, 3, 4])),
             content: "caption".to_string(),
         };
-        let openai_msg = chat_message_to_openai_message(msg);
+        let openai_msg = chat_message_to_openai_message(msg).expect("image should convert");
         let content = openai_msg.content.unwrap();
         match content {
             Left(parts) => {
@@ -1799,7 +1806,8 @@ mod tests {
             message_type: MessageType::ToolUse(vec![tool_call.clone()]),
             content: "call".to_string(),
         };
-        let openai_msg = chat_message_to_openai_message(tool_use_msg);
+        let openai_msg =
+            chat_message_to_openai_message(tool_use_msg).expect("tool use should convert");
         assert!(openai_msg.content.is_none());
         let calls = openai_msg.tool_calls.unwrap();
         assert_eq!(calls.len(), 1);
@@ -1810,9 +1818,33 @@ mod tests {
             message_type: MessageType::ToolResult(vec![tool_call]),
             content: "result".to_string(),
         };
-        let openai_msg = chat_message_to_openai_message(tool_result_msg);
+        let openai_msg =
+            chat_message_to_openai_message(tool_result_msg).expect("tool result should convert");
         assert!(openai_msg.content.is_none());
         assert!(openai_msg.tool_calls.is_none());
+    }
+
+    #[test]
+    fn test_prepare_messages_rejects_pdf() {
+        let provider = OpenAICompatibleProvider::<TestConfig>::new(
+            "key", None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None,
+        );
+        let messages = vec![ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Pdf(vec![1, 2, 3]),
+            content: "doc".to_string(),
+        }];
+
+        let err = provider
+            .prepare_messages(&messages)
+            .expect_err("PDF input should be rejected");
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest(message)
+                if message == "PDF input is not supported by OpenAI-compatible chat completions backends"
+        ));
     }
 
     #[test]
