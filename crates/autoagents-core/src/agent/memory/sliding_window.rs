@@ -189,6 +189,7 @@ impl MemoryProvider for SlidingWindowMemory {
 
     async fn clear(&mut self) -> Result<(), LLMError> {
         self.messages.clear();
+        self.needs_summary = false;
         Ok(())
     }
 
@@ -412,6 +413,38 @@ mod tests {
         let messages = memory.messages();
         assert_eq!(messages[0].content, "summary");
         assert_eq!(messages[1].content, "Message 4");
+    }
+
+    #[tokio::test]
+    async fn test_clear_resets_pending_summary_state() {
+        let mut memory = SlidingWindowMemory::with_strategy(2, TrimStrategy::Summarize);
+
+        for i in 1..=3 {
+            let message = ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: format!("Message {i}"),
+            };
+            memory.remember(&message).await.unwrap();
+        }
+        assert!(memory.needs_summary());
+
+        memory.clear().await.unwrap();
+
+        assert!(!memory.needs_summary());
+        assert_eq!(memory.size(), 0);
+
+        for i in 4..=6 {
+            let message = ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: format!("Message {i}"),
+            };
+            memory.remember(&message).await.unwrap();
+        }
+
+        assert!(memory.needs_summary());
+        assert_eq!(memory.size(), 3);
     }
 
     #[tokio::test]
