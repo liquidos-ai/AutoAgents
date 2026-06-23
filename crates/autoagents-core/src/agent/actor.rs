@@ -281,14 +281,31 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
             }
         }
 
-        let agent_out = last_output.ok_or_else(|| {
-            RunnableAgentError::ExecutorError("Stream completed without output".to_string())
-        })?;
+        let agent_out = match last_output {
+            Some(output) => output,
+            None => {
+                let err = RunnableAgentError::ExecutorError(
+                    "Stream completed without output".to_string(),
+                );
+                #[cfg(not(target_arch = "wasm32"))]
+                EventHelper::send_task_error(&tx_event, submission_id, self.id, err.to_string())
+                    .await;
+                return Err(err);
+            }
+        };
 
-        let value = serde_json::to_value(&agent_out)
-            .map_err(|e| RunnableAgentError::ExecutorError(e.to_string()))?;
+        let value = match serde_json::to_value(&agent_out) {
+            Ok(value) => value,
+            Err(e) => {
+                let err = RunnableAgentError::ExecutorError(e.to_string());
+                #[cfg(not(target_arch = "wasm32"))]
+                EventHelper::send_task_error(&tx_event, submission_id, self.id, err.to_string())
+                    .await;
+                return Err(err);
+            }
+        };
         #[cfg(not(target_arch = "wasm32"))]
-        EventHelper::send_task_completed_value(
+        if let Err(e) = EventHelper::send_task_completed_value(
             &tx_event,
             submission_id,
             self.id,
@@ -296,7 +313,11 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
             &value,
         )
         .await
-        .map_err(|e| RunnableAgentError::ExecutorError(e.to_string()))?;
+        {
+            let err = RunnableAgentError::ExecutorError(e.to_string());
+            EventHelper::send_task_error(&tx_event, submission_id, self.id, err.to_string()).await;
+            return Err(err);
+        }
 
         self.inner
             .on_run_complete(&task, &agent_out, &context)
@@ -742,7 +763,7 @@ mod tests {
     #[tokio::test]
     async fn test_actor_run_stream_to_completion_empty_stream_error() {
         let llm = Arc::new(MockLLMProvider);
-        let (tx, _rx) = mpsc::channel(2);
+        let (tx, mut rx) = mpsc::channel(2);
         let agent = Arc::new(
             BaseAgent::<_, ActorAgent>::new(EmptyStreamAgent, llm, None, tx, true)
                 .await
@@ -755,6 +776,17 @@ mod tests {
             .expect_err("expected empty stream failure");
         assert!(matches!(err, RunnableAgentError::ExecutorError(_)));
         assert!(err.to_string().contains("without output"));
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("timed out waiting for TaskError event")
+            .expect("channel closed without event");
+        match event {
+            Event::TaskError { error, .. } => {
+                assert!(error.contains("without output"));
+            }
+            other => panic!("expected TaskError, got {other:?}"),
+        }
     }
 
     #[derive(Debug, Clone)]
