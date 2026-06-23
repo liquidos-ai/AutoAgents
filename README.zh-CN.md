@@ -49,18 +49,18 @@ AutoAgents 是一个用于在 Rust 中构建智能系统的模块化多智能体
 
 ### 云端提供方
 
-| 提供方          | 状态 |
-| --------------- | ---- |
-| **OpenAI**      | ✅   |
-| **OpenRouter**  | ✅   |
-| **Anthropic**   | ✅   |
-| **DeepSeek**    | ✅   |
-| **xAI**         | ✅   |
-| **Phind**       | ✅   |
-| **Groq**        | ✅   |
-| **Google**      | ✅   |
-| **Azure OpenAI** | ✅   |
-| **MiniMax**     | ✅   |
+| 提供方          | 对话 | 流式 | 工具调用 | 多模态说明 |
+| --------------- | ---- | ---- | -------- | ---------- |
+| **OpenAI**      | ✅   | ✅   | ✅       | 聊天补全支持图片 URL 和内联图片；通过 Responses API 的 PDF 会以类型化错误拒绝。 |
+| **OpenRouter**  | ✅   | ✅   | ✅       | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
+| **Anthropic**   | ✅   | ✅   | ✅       | 图片、图片 URL 和 PDF 使用 Anthropic 消息内容块。 |
+| **DeepSeek**    | ✅   | ✅   | ✅       | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
+| **xAI**         | ✅   | ✅   | 否       | 仅支持纯文本对话；多模态输入返回 `LLMError::InvalidRequest`。工具调用返回 `LLMError::NoToolSupport`。 |
+| **Phind**       | ✅   | 否*  | 否       | 仅支持纯文本对话；多模态输入返回 `LLMError::InvalidRequest`。工具调用返回 `LLMError::NoToolSupport`。 |
+| **Groq**        | ✅   | ✅   | ✅       | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
+| **Google**      | ✅   | ✅   | ✅       | 支持内联图片和 PDF；图片 URL 会以类型化错误拒绝。 |
+| **Azure OpenAI** | ✅  | 否*  | ✅       | 支持图片 URL；PDF 和原始内联图片会以类型化错误拒绝。 |
+| **MiniMax**     | ✅   | ✅   | ✅       | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
 
 ### 本地提供方
 
@@ -80,6 +80,8 @@ AutoAgents 是一个用于在 Rust 中构建智能系统的模块化多智能体
 | **Onnx** | ⚠️ 实验性     |
 
 提供方支持会根据社区需求持续扩展。
+
+\* 流式标记为 **否** 的提供方使用默认的 `ChatProvider::chat_stream` 实现，返回 `LLMError::Generic("Streaming not supported for this provider")`，而不会 panic。
 
 ## 安装
 

@@ -49,18 +49,18 @@ AutoAgents es un framework modular multiagente para construir sistemas inteligen
 
 ### Proveedores en la nube
 
-| Proveedor        | Estado |
-| ---------------- | ------ |
-| **OpenAI**       | ✅     |
-| **OpenRouter**   | ✅     |
-| **Anthropic**    | ✅     |
-| **DeepSeek**     | ✅     |
-| **xAI**          | ✅     |
-| **Phind**        | ✅     |
-| **Groq**         | ✅     |
-| **Google**       | ✅     |
-| **Azure OpenAI** | ✅     |
-| **MiniMax**      | ✅     |
+| Proveedor        | Chat | Streaming | Llamadas a herramientas | Notas multimodales |
+| ---------------- | ---- | --------- | ----------------------- | ------------------ |
+| **OpenAI**       | ✅   | ✅        | ✅                      | URLs de imagen e imágenes en línea en completions de chat; los PDF vía Responses API se rechazan con un error tipado. |
+| **OpenRouter**   | ✅   | ✅        | ✅                      | Entradas de imagen compatibles con OpenAI; los PDF se rechazan con un error tipado. |
+| **Anthropic**    | ✅   | ✅        | ✅                      | Imágenes, URLs de imagen y PDF usan bloques de contenido de mensaje de Anthropic. |
+| **DeepSeek**     | ✅   | ✅        | ✅                      | Entradas de imagen compatibles con OpenAI; los PDF se rechazan con un error tipado. |
+| **xAI**          | ✅   | ✅        | No                      | Chat solo de texto; la entrada multimodal devuelve `LLMError::InvalidRequest`. Las llamadas a herramientas devuelven `LLMError::NoToolSupport`. |
+| **Phind**        | ✅   | No*       | No                      | Chat solo de texto; la entrada multimodal devuelve `LLMError::InvalidRequest`. Las llamadas a herramientas devuelven `LLMError::NoToolSupport`. |
+| **Groq**         | ✅   | ✅        | ✅                      | Entradas de imagen compatibles con OpenAI; los PDF se rechazan con un error tipado. |
+| **Google**       | ✅   | ✅        | ✅                      | Se admiten imágenes en línea y PDF; las URLs de imagen se rechazan con un error tipado. |
+| **Azure OpenAI** | ✅   | No*       | ✅                      | Se admiten URLs de imagen; los PDF y las imágenes en línea sin procesar se rechazan con errores tipados. |
+| **MiniMax**      | ✅   | ✅        | ✅                      | Entradas de imagen compatibles con OpenAI; los PDF se rechazan con un error tipado. |
 
 ### Proveedores locales
 
@@ -80,6 +80,8 @@ Ver https://github.com/liquidos-ai/AutoAgents-Experimental-Backends
 | **Onnx**  | ⚠️ Experimental |
 
 El soporte de proveedores se expande activamente según las necesidades de la comunidad.
+
+\* Los proveedores marcados con **No** en streaming usan la implementación predeterminada de `ChatProvider::chat_stream`, que devuelve `LLMError::Generic("Streaming not supported for this provider")` en lugar de provocar un panic.
 
 ## Instalación
 

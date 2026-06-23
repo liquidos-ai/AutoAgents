@@ -49,18 +49,18 @@ AutoAgents ist ein modulares Multi-Agenten-Framework zum Aufbau intelligenter Sy
 
 ### Cloud-Anbieter
 
-| Anbieter          | Status |
-| ----------------- | ------ |
-| **OpenAI**        | ✅     |
-| **OpenRouter**    | ✅     |
-| **Anthropic**     | ✅     |
-| **DeepSeek**      | ✅     |
-| **xAI**           | ✅     |
-| **Phind**         | ✅     |
-| **Groq**          | ✅     |
-| **Google**        | ✅     |
-| **Azure OpenAI**  | ✅     |
-| **MiniMax**       | ✅     |
+| Anbieter          | Chat | Streaming | Tool-Aufrufe | Multimodale Hinweise |
+| ----------------- | ---- | --------- | ------------ | -------------------- |
+| **OpenAI**        | ✅   | ✅        | ✅           | Bild-URLs und Inline-Bilder in Chat-Completions; PDFs über die Responses API werden mit typisiertem Fehler abgelehnt. |
+| **OpenRouter**    | ✅   | ✅        | ✅           | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
+| **Anthropic**     | ✅   | ✅        | ✅           | Bilder, Bild-URLs und PDFs nutzen Anthropic-Nachrichteninhaltsblöcke. |
+| **DeepSeek**      | ✅   | ✅        | ✅           | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
+| **xAI**           | ✅   | ✅        | Nein         | Nur Text-Chat; multimodale Eingaben geben `LLMError::InvalidRequest` zurück. Tool-Aufrufe geben `LLMError::NoToolSupport` zurück. |
+| **Phind**         | ✅   | Nein*     | Nein         | Nur Text-Chat; multimodale Eingaben geben `LLMError::InvalidRequest` zurück. Tool-Aufrufe geben `LLMError::NoToolSupport` zurück. |
+| **Groq**          | ✅   | ✅        | ✅           | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
+| **Google**        | ✅   | ✅        | ✅           | Inline-Bilder und PDFs werden unterstützt; Bild-URLs werden mit typisiertem Fehler abgelehnt. |
+| **Azure OpenAI**  | ✅   | Nein*     | ✅           | Bild-URLs werden unterstützt; PDFs und rohe Inline-Bilder werden mit typisierten Fehlern abgelehnt. |
+| **MiniMax**       | ✅   | ✅        | ✅           | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
 
 ### Lokale Anbieter
 
@@ -80,6 +80,8 @@ Siehe https://github.com/liquidos-ai/AutoAgents-Experimental-Backends
 | **Onnx** | ⚠️ Experimentell |
 
 Die Anbieter-Unterstützung wird aktiv anhand der Community-Bedürfnisse erweitert.
+
+\* Anbieter mit **Nein** bei Streaming nutzen die Standard-`ChatProvider::chat_stream`-Implementierung, die `LLMError::Generic("Streaming not supported for this provider")` zurückgibt, anstatt zu paniken.
 
 ## Installation
 
