@@ -231,7 +231,9 @@ impl ChatProvider for Phind {
         _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        unimplemented!("TODO: Yet to be implented")
+        Err(LLMError::NoToolSupport(
+            "Phind does not support tool calling".to_string(),
+        ))
     }
 
     fn model(&self) -> &str {
@@ -331,5 +333,22 @@ mod tests {
         ]
         .join("\n");
         assert_eq!(Phind::parse_stream_response(&response_text), "Hello World");
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_tools_returns_no_tool_support() {
+        let provider = Phind::new(None, None, None, None, None, None, None);
+        let messages = [ChatMessage::user().content("hello").build()];
+
+        let err = provider
+            .chat_with_tools(&messages, None, None)
+            .await
+            .expect_err("Phind should report unsupported tool calling");
+
+        assert!(matches!(
+            err,
+            LLMError::NoToolSupport(message)
+                if message == "Phind does not support tool calling"
+        ));
     }
 }

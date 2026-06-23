@@ -4,18 +4,18 @@ AutoAgents supports a wide range of LLM providers, allowing you to choose the be
 
 ### Cloud Providers
 
-| Provider         | Status |
-|------------------|--------|
-| **OpenAI**       | ✅      |
-| **OpenRouter**   | ✅      |
-| **Anthropic**    | ✅      |
-| **DeepSeek**     | ✅      |
-| **xAI**          | ✅      |
-| **Phind**        | ✅      |
-| **Groq**         | ✅      |
-| **Google**       | ✅      |
-| **Azure OpenAI** | ✅      |
-| **MiniMax**      | ✅      |
+| Provider         | Chat | Streaming | Tool Calls |
+|------------------|------|-----------|------------|
+| **OpenAI**       | ✅   | ✅        | ✅         |
+| **OpenRouter**   | ✅   | ✅        | ✅         |
+| **Anthropic**    | ✅   | ✅        | ✅         |
+| **DeepSeek**     | ✅   | ✅        | ✅         |
+| **xAI**          | ✅   | ✅        | No         |
+| **Phind**        | ✅   | No        | No         |
+| **Groq**         | ✅   | ✅        | ✅         |
+| **Google**       | ✅   | ✅        | ✅         |
+| **Azure OpenAI** | ✅   | No        | ✅         |
+| **MiniMax**      | ✅   | ✅        | ✅         |
 
 ### Local Providers
 
@@ -116,5 +116,29 @@ This snapshot reflects the current code paths in `autoagents-llm` and may vary b
     - Structured Output: Yes
     - Embeddings: No (not implemented)
 
-For other providers (Azure OpenAI, Google, XAI, DeepSeek, Ollama), consult their module docs and service documentation;
+- xAI
+    - Chat + Streaming: Yes
+    - Tool Calls: No. Tool requests return `LLMError::NoToolSupport`.
+    - Structured Output: Model-dependent JSON schema support
+    - Embeddings: Yes
+
+- Phind
+    - Chat: Yes
+    - Streaming: No unified `chat_stream` implementation
+    - Tool Calls: No. Tool requests return `LLMError::NoToolSupport`.
+    - Embeddings: No (not implemented)
+
+- Google
+    - Chat + Streaming: Yes
+    - Tool Calls: Yes
+    - Structured Output: Yes
+    - Multimodal: Inline images and PDFs are supported; image URLs return `LLMError::InvalidRequest`.
+
+- Azure OpenAI
+    - Chat: Yes
+    - Streaming: No unified `chat_stream` implementation
+    - Tool Calls: Yes
+    - Multimodal: Image URLs are supported; PDFs and raw inline images return `LLMError::InvalidRequest`.
+
+For other providers (DeepSeek, Ollama, local inference backends), consult their module docs and service documentation;
 support can vary by model and API.

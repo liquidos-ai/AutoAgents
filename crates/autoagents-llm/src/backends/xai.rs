@@ -506,7 +506,9 @@ impl ChatProvider for XAI {
         _tools: Option<&[Tool]>,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        unimplemented!("XAI Doesn't support tools yet")
+        Err(LLMError::NoToolSupport(
+            "X.AI does not support tool calling".to_string(),
+        ))
     }
 
     fn model(&self) -> &str {
@@ -752,6 +754,26 @@ mod tests {
         );
         let err = client.list_models(None).await.unwrap_err();
         assert!(err.to_string().contains("Missing X.AI API key"));
+    }
+
+    #[tokio::test]
+    async fn test_chat_with_tools_returns_no_tool_support() {
+        let provider = XAI::new(
+            "key", None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None,
+        );
+        let messages = [ChatMessage::user().content("hello").build()];
+
+        let err = provider
+            .chat_with_tools(&messages, None, None)
+            .await
+            .expect_err("X.AI should report unsupported tool calling");
+
+        assert!(matches!(
+            err,
+            LLMError::NoToolSupport(message)
+                if message == "X.AI does not support tool calling"
+        ));
     }
 
     #[test]

@@ -51,18 +51,18 @@ model with structured tool calling, configurable memory, and pluggable LLM backe
 
 ### Cloud Providers
 
-| Provider         | Status |
-| ---------------- | ------ |
-| **OpenAI**       | ✅     |
-| **OpenRouter**   | ✅     |
-| **Anthropic**    | ✅     |
-| **DeepSeek**     | ✅     |
-| **xAI**          | ✅     |
-| **Phind**        | ✅     |
-| **Groq**         | ✅     |
-| **Google**       | ✅     |
-| **Azure OpenAI** | ✅     |
-| **MiniMax**      | ✅     |
+| Provider         | Chat | Streaming | Tool Calls | Multimodal Notes |
+| ---------------- | ---- | --------- | ---------- | ---------------- |
+| **OpenAI**       | ✅   | ✅        | ✅         | Image URLs and inline images in chat completions; PDFs via Responses API are rejected with a typed error. |
+| **OpenRouter**   | ✅   | ✅        | ✅         | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
+| **Anthropic**    | ✅   | ✅        | ✅         | Images, image URLs, and PDFs use Anthropic message content blocks. |
+| **DeepSeek**     | ✅   | ✅        | ✅         | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
+| **xAI**          | ✅   | ✅        | No         | Tool calls return `LLMError::NoToolSupport`. |
+| **Phind**        | ✅   | No        | No         | Tool calls return `LLMError::NoToolSupport`. |
+| **Groq**         | ✅   | ✅        | ✅         | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
+| **Google**       | ✅   | ✅        | ✅         | Inline images and PDFs are supported; image URLs are rejected with a typed error. |
+| **Azure OpenAI** | ✅   | No        | ✅         | Image URLs are supported; PDFs and raw inline images are rejected with typed errors. |
+| **MiniMax**      | ✅   | ✅        | ✅         | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
 
 ### Local Providers
 

@@ -497,7 +497,7 @@ impl Google {
             return Err(LLMError::AuthError("Missing Google API key".to_string()));
         }
 
-        let chat_contents = build_google_chat_contents(messages);
+        let chat_contents = build_google_chat_contents(messages)?;
         let google_tools = build_google_tools(tools);
         let generation_config = build_generation_config_with_schema(
             self.max_tokens,
@@ -606,7 +606,7 @@ impl ChatProvider for Google {
             return Err(LLMError::AuthError("Missing Google API key".to_string()));
         }
 
-        let chat_contents = build_google_stream_contents(messages);
+        let chat_contents = build_google_stream_contents(messages)?;
         let generation_config = build_generation_config_for_stream(
             self.max_tokens,
             self.temperature,
@@ -761,7 +761,9 @@ fn parse_google_sse_chunk(chunk: &str) -> Result<Option<String>, LLMError> {
     Ok(None)
 }
 
-fn build_google_chat_contents(messages: &[ChatMessage]) -> Vec<GoogleChatContent<'_>> {
+fn build_google_chat_contents(
+    messages: &[ChatMessage],
+) -> Result<Vec<GoogleChatContent<'_>>, LLMError> {
     let mut chat_contents = Vec::with_capacity(messages.len());
 
     for msg in messages {
@@ -785,7 +787,11 @@ fn build_google_chat_contents(messages: &[ChatMessage]) -> Vec<GoogleChatContent
                         data: BASE64.encode(raw_bytes),
                     })]
                 }
-                MessageType::ImageURL(_) => unimplemented!(),
+                MessageType::ImageURL(_) => {
+                    return Err(LLMError::InvalidRequest(
+                        "Image URL input is not supported by the Google Gemini backend".to_string(),
+                    ));
+                }
                 MessageType::Pdf(raw_bytes) => {
                     vec![GoogleContentPart::InlineData(GoogleInlineData {
                         mime_type: "application/pdf".to_string(),
@@ -821,10 +827,12 @@ fn build_google_chat_contents(messages: &[ChatMessage]) -> Vec<GoogleChatContent
         });
     }
 
-    chat_contents
+    Ok(chat_contents)
 }
 
-fn build_google_stream_contents(messages: &[ChatMessage]) -> Vec<GoogleChatContent<'_>> {
+fn build_google_stream_contents(
+    messages: &[ChatMessage],
+) -> Result<Vec<GoogleChatContent<'_>>, LLMError> {
     let mut chat_contents = Vec::with_capacity(messages.len());
 
     for msg in messages {
@@ -851,12 +859,17 @@ fn build_google_stream_contents(messages: &[ChatMessage]) -> Vec<GoogleChatConte
                         data: BASE64.encode(raw_bytes),
                     })]
                 }
+                MessageType::ImageURL(_) => {
+                    return Err(LLMError::InvalidRequest(
+                        "Image URL input is not supported by the Google Gemini backend".to_string(),
+                    ));
+                }
                 _ => vec![GoogleContentPart::Text(&msg.content)],
             },
         });
     }
 
-    chat_contents
+    Ok(chat_contents)
 }
 
 fn build_google_tools(tools: Option<&[Tool]>) -> Option<Vec<GoogleTool>> {
@@ -1088,7 +1101,7 @@ mod tests {
             },
         ];
 
-        let contents = build_google_chat_contents(&messages);
+        let contents = build_google_chat_contents(&messages).expect("tool messages should convert");
         assert_eq!(contents.len(), 2);
         assert_eq!(contents[0].role, "model");
         match &contents[0].parts[0] {
@@ -1107,6 +1120,46 @@ mod tests {
             }
             _ => panic!("unexpected part"),
         }
+    }
+
+    #[test]
+    fn test_build_google_chat_contents_rejects_image_url() {
+        let messages = [ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::ImageURL("https://example.com/image.png".to_string()),
+            content: "describe".to_string(),
+        }];
+
+        let err = match build_google_chat_contents(&messages) {
+            Ok(_) => panic!("Image URL should be rejected"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest(message)
+                if message == "Image URL input is not supported by the Google Gemini backend"
+        ));
+    }
+
+    #[test]
+    fn test_build_google_stream_contents_rejects_image_url() {
+        let messages = [ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::ImageURL("https://example.com/image.png".to_string()),
+            content: "describe".to_string(),
+        }];
+
+        let err = match build_google_stream_contents(&messages) {
+            Ok(_) => panic!("Image URL should be rejected"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest(message)
+                if message == "Image URL input is not supported by the Google Gemini backend"
+        ));
     }
 
     #[test]
