@@ -867,7 +867,10 @@ mod tests {
             let app_meta = task
                 .app_meta
                 .expect("app_meta should round-trip from python payload");
-            assert_eq!(app_meta.get("session_id").and_then(|v| v.as_str()), Some("s1"));
+            assert_eq!(
+                app_meta.get("session_id").and_then(|v| v.as_str()),
+                Some("s1")
+            );
             assert_eq!(app_meta.get("chat_id").and_then(|v| v.as_str()), Some("c1"));
 
             let err = py_task_to_rust_task(

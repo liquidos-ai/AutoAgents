@@ -45,7 +45,7 @@ pub enum RuntimeError {
     OperationFailed(String),
 
     #[error("Event error: {0}")]
-    EventError(#[from] SendError<Event>),
+    EventError(#[from] Box<SendError<Event>>),
 }
 
 /// Abstract runtime that manages actor subscriptions, pub/sub delivery, and

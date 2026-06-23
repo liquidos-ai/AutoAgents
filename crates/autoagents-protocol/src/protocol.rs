@@ -163,7 +163,7 @@ pub enum Event {
 #[derive(Debug)]
 pub enum InternalEvent {
     /// Process a protocol event
-    ProtocolEvent(Event),
+    ProtocolEvent(Box<Event>),
     /// Shutdown signal
     Shutdown,
 }

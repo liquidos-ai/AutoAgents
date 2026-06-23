@@ -87,7 +87,7 @@ impl SingleThreadedRuntime {
         debug!("Received internal event: {event:?}");
         match event {
             InternalEvent::ProtocolEvent(event) => {
-                self.process_protocol_event(event).await?;
+                self.process_protocol_event(*event).await?;
             }
             InternalEvent::Shutdown => {
                 self.shutdown_flag.store(true, Ordering::SeqCst);
@@ -113,7 +113,7 @@ impl SingleThreadedRuntime {
             self.external_tx
                 .send(event)
                 .await
-                .map_err(RuntimeError::EventError)?;
+                .map_err(|e| RuntimeError::EventError(Box::new(e)))?;
         }
         Ok(())
     }
@@ -285,7 +285,10 @@ impl Runtime for SingleThreadedRuntime {
 
         tokio::spawn(async move {
             while let Some(event) = interceptor_rx.recv().await {
-                if let Err(e) = internal_tx.send(InternalEvent::ProtocolEvent(event)).await {
+                if let Err(e) = internal_tx
+                    .send(InternalEvent::ProtocolEvent(Box::new(event)))
+                    .await
+                {
                     error!("Failed to forward event to internal channel: {e}");
                     break;
                 }
