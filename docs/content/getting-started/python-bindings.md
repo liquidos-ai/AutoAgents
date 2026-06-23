@@ -298,6 +298,11 @@ The actor example mirrors the Rust runtime model: create a `Runtime`, register
 it with an `Environment`, build the actor against the runtime, listen on the
 environment event stream, then publish a `Task` to the topic.
 
+In Rust, call `environment.run()?` followed by `environment.wait().await?` to
+join the background runtime task (see [Environment Lifecycle](https://liquidos-ai.github.io/AutoAgents/core-concepts/actor_agents#environment-lifecycle)).
+The Python `Environment.run()` helper starts runtimes in the background without
+blocking; the example exits once a `TaskComplete` event is received.
+
 The CodeAct example mirrors the Rust `examples/code_mode` sample: it exposes
 typed Python tools to the LLM, lets the model write sandboxed TypeScript, and
 prints the captured execution trace after the run.

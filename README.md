@@ -492,7 +492,7 @@ AutoAgents uses a sliding window memory model by default, with extensible backen
 AutoAgents provides typed pub/sub communication between agents, enabling structured message passing with compile-time type safety. Agents can publish events and subscribe to topics in a decoupled architecture.
 
 **What is the environment system?**
-The environment system manages shared state and resources across multiple agents. It provides a controlled space where agents can interact, share observations, and coordinate actions.
+The environment system manages shared state and resources across multiple agents. It provides a controlled space where agents can interact, share observations, and coordinate actions. Register runtimes with `register_runtime`, start them with `run()`, await completion with `wait().await`, or stop them with `shutdown().await`. See the [Actor Agents docs](https://liquidos-ai.github.io/AutoAgents/core-concepts/actor_agents#environment-lifecycle) for lifecycle patterns.
 
 ### Troubleshooting
 

@@ -68,7 +68,9 @@ Use `autoagents.experimental` to opt into Python-backed memory explicitly.
 ## Actor Runtime
 
 `actor_agent.py` shows `build_actor(...)`, `Runtime`, `Environment`, `Topic`,
-and environment event consumption.
+and environment event consumption. In Rust, pair `environment.run()` with
+`environment.wait().await` to join the runtime task; Python's `Environment.run()`
+starts runtimes in the background and the example stops on `TaskComplete`.
 
 ## Protocol Event Stream
 

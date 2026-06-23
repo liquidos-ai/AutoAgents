@@ -18,6 +18,45 @@ Actor-based agents run inside a runtime and communicate via typed messages and p
 2) Spawn your agent as `ActorAgent` and subscribe it to one or more `Topic<Task>`.
 3) Take the environment's event receiver and forward events to your UI/log sink.
 4) Publish `Task` messages to the relevant topic to trigger work.
+5) Call [`Environment::run`](https://docs.rs/autoagents-core/latest/autoagents_core/environment/struct.Environment.html#method.run), then [`wait`](https://docs.rs/autoagents-core/latest/autoagents_core/environment/struct.Environment.html#method.wait) or [`shutdown`](https://docs.rs/autoagents-core/latest/autoagents_core/environment/struct.Environment.html#method.shutdown) to manage runtime lifecycle.
+
+## Environment Lifecycle
+
+After wiring agents and publishing work, start the registered runtimes:
+
+- **`run()`** — spawns a background task that runs all registered runtimes. Returns `Err(EnvironmentError::AlreadyRunning)` if a run task is already in progress. Does **not** block until work completes.
+- **`wait().await`** — joins the background task started by `run()`. Clears the stored handle when the task finishes, so later calls return immediately with `Ok(Ok(()))`. Use this in short-lived programs once messages/tasks have been published.
+- **`shutdown().await`** — requests shutdown on all runtimes and joins the run handle. Use for graceful exit (for example on `Ctrl+C`).
+- **`run_background().await`** — starts runtimes without storing a join handle on the environment. Useful when you manage lifecycle elsewhere.
+- **`is_running()`** — returns whether a background run task is currently active.
+
+Common patterns:
+
+```rust
+// Fire-and-wait: publish work, start runtimes, block until they finish
+environment.run()?;
+let run_result = environment.wait().await?;
+if let Err(runtime_err) = run_result {
+    eprintln!("runtime error: {runtime_err}");
+}
+```
+
+```rust
+// Interactive or long-running: start runtimes, handle Ctrl+C gracefully
+environment.run()?;
+tokio::select! {
+    result = environment.wait() => {
+        if let Ok(Err(e)) = result {
+            eprintln!("runtime error: {e}");
+        }
+    }
+    _ = tokio::signal::ctrl_c() => {
+        environment.shutdown().await;
+    }
+}
+```
+
+Call `run()` **after** registering runtimes and **before** or **after** publishing tasks depending on your program. Actor agents process messages only while runtimes are running.
 
 ## Minimal Example
 
@@ -53,6 +92,10 @@ tokio::spawn(async move { /* forward events to UI */ });
 // 4) Publish tasks
 runtime.publish(&chat_topic, Task::new("Hello!"))
     .await?;
+
+// 5) Start runtimes and wait for the background run task to finish
+env.run()?;
+let _ = env.wait().await?;
 ```
 
 ## Event Handling Patterns

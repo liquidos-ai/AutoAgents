@@ -21,3 +21,4 @@ Use `SharedTool` or `shared_tools_to_boxes` to reuse `Arc<dyn ToolT>` across man
 
 - Use `Topic<M>` to broadcast tasks to a group of actor agents.
 - Combine with `Environment` + `Runtime` to route events and messages.
+- Start the environment with `environment.run()?`, then `environment.wait().await?` for batch workflows or `environment.shutdown().await` for graceful exit.

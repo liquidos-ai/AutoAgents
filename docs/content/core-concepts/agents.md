@@ -40,8 +40,10 @@ High‑level flow:
 
 - Create a `SingleThreadedRuntime`
 - Build the agent with `.runtime(runtime.clone())`
-- Register runtime in an `Environment` and run it
+- Register runtime in an `Environment`, call `run()`, then `wait()` or `shutdown()`
 - Publish `Task`s to topics or send direct messages
+
+See [Actor Agents](./actor_agents.md#environment-lifecycle) for lifecycle details (`run`, `wait`, `shutdown`).
 
 Use actor agents for multi‑agent collaboration, routing, or background workflows.
 
