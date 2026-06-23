@@ -65,6 +65,12 @@ struct AzureOpenAIChatMessage<'a> {
 impl<'a> TryFrom<&'a ChatMessage> for AzureOpenAIChatMessage<'a> {
     type Error = LLMError;
 
+    /// Converts a [`ChatMessage`] into Azure OpenAI chat completion format.
+    ///
+    /// This is the sole conversion path for non-[`MessageType::ToolResult`] messages.
+    /// Raw inline images and PDFs return [`LLMError::InvalidRequest`]; image URLs are
+    /// encoded as multipart content. [`ChatProvider::chat_with_tools`] does not
+    /// pre-process images before calling this conversion.
     fn try_from(chat_msg: &'a ChatMessage) -> Result<Self, Self::Error> {
         let message = Self {
             role: match chat_msg.role {
@@ -286,6 +292,33 @@ impl From<StructuredOutputFormat> for OpenAIResponseFormat {
     }
 }
 
+/// Converts chat messages into Azure OpenAI API request messages.
+///
+/// [`MessageType::ToolResult`] messages are expanded into one `tool` role message per
+/// result. All other message types are converted via [`AzureOpenAIChatMessage::try_from`].
+fn build_azure_chat_messages(
+    messages: &[ChatMessage],
+) -> Result<Vec<AzureOpenAIChatMessage<'_>>, LLMError> {
+    let mut openai_msgs = Vec::with_capacity(messages.len());
+
+    for msg in messages {
+        if let MessageType::ToolResult(ref results) = msg.message_type {
+            for result in results {
+                openai_msgs.push(AzureOpenAIChatMessage {
+                    role: "tool",
+                    tool_call_id: Some(result.id.clone()),
+                    tool_calls: None,
+                    content: Some(Right(result.function.arguments.clone())),
+                });
+            }
+        } else {
+            openai_msgs.push(AzureOpenAIChatMessage::try_from(msg)?);
+        }
+    }
+
+    Ok(openai_msgs)
+}
+
 impl ChatResponse for AzureOpenAIChatResponse {
     fn text(&self) -> Option<String> {
         self.choices.first().and_then(|c| c.message.content.clone())
@@ -407,25 +440,7 @@ impl ChatProvider for AzureOpenAI {
             ));
         }
 
-        let mut openai_msgs: Vec<AzureOpenAIChatMessage> = vec![];
-
-        for msg in messages {
-            if let MessageType::ToolResult(ref results) = msg.message_type {
-                for result in results {
-                    openai_msgs.push(
-                        // Clone strings to own them
-                        AzureOpenAIChatMessage {
-                            role: "tool",
-                            tool_call_id: Some(result.id.clone()),
-                            tool_calls: None,
-                            content: Some(Right(result.function.arguments.clone())),
-                        },
-                    );
-                }
-            } else {
-                openai_msgs.push(AzureOpenAIChatMessage::try_from(msg)?)
-            }
-        }
+        let openai_msgs = build_azure_chat_messages(messages)?;
 
         // Build the response format object
         let response_format: Option<OpenAIResponseFormat> = json_schema.clone().map(|s| s.into());
@@ -668,7 +683,7 @@ impl EmbeddingBuilder<AzureOpenAI> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::{ChatMessage, ChatRole, MessageType, Tool};
+    use crate::chat::{ChatMessage, ChatRole, ImageMime, MessageType, Tool};
     use crate::{FunctionCall, ToolCall};
     use httpmock::{Method::POST, MockServer};
     use serde_json::json;
@@ -687,6 +702,23 @@ mod tests {
                 }),
             },
         }
+    }
+
+    #[test]
+    fn test_build_azure_chat_messages_rejects_raw_image() {
+        let messages = [ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Image((ImageMime::PNG, vec![1, 2, 3])),
+            content: "describe".to_string(),
+        }];
+
+        let err = build_azure_chat_messages(&messages).expect_err("raw image should be rejected");
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest(message)
+                if message == "Raw image input is not supported by the Azure OpenAI chat backend"
+        ));
     }
 
     #[test]
@@ -717,6 +749,23 @@ mod tests {
                 assert_eq!(parts[0].message_type, Some("image_url"));
             }
         }
+    }
+
+    #[test]
+    fn test_azure_chat_message_rejects_raw_image() {
+        let msg = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Image((ImageMime::PNG, vec![1, 2, 3])),
+            content: "describe".to_string(),
+        };
+
+        let err = AzureOpenAIChatMessage::try_from(&msg).expect_err("raw image should be rejected");
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest(message)
+                if message == "Raw image input is not supported by the Azure OpenAI chat backend"
+        ));
     }
 
     #[test]

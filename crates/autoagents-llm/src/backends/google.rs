@@ -833,43 +833,7 @@ fn build_google_chat_contents(
 fn build_google_stream_contents(
     messages: &[ChatMessage],
 ) -> Result<Vec<GoogleChatContent<'_>>, LLMError> {
-    let mut chat_contents = Vec::with_capacity(messages.len());
-
-    for msg in messages {
-        let role = match msg.role {
-            ChatRole::User => "user",
-            ChatRole::Assistant => "model",
-            ChatRole::System => "user",
-            ChatRole::Tool => "user",
-        };
-
-        chat_contents.push(GoogleChatContent {
-            role,
-            parts: match &msg.message_type {
-                MessageType::Text => vec![GoogleContentPart::Text(&msg.content)],
-                MessageType::Image((image_mime, raw_bytes)) => {
-                    vec![GoogleContentPart::InlineData(GoogleInlineData {
-                        mime_type: image_mime.mime_type().to_string(),
-                        data: BASE64.encode(raw_bytes),
-                    })]
-                }
-                MessageType::Pdf(raw_bytes) => {
-                    vec![GoogleContentPart::InlineData(GoogleInlineData {
-                        mime_type: "application/pdf".to_string(),
-                        data: BASE64.encode(raw_bytes),
-                    })]
-                }
-                MessageType::ImageURL(_) => {
-                    return Err(LLMError::InvalidRequest(
-                        "Image URL input is not supported by the Google Gemini backend".to_string(),
-                    ));
-                }
-                _ => vec![GoogleContentPart::Text(&msg.content)],
-            },
-        });
-    }
-
-    Ok(chat_contents)
+    build_google_chat_contents(messages)
 }
 
 fn build_google_tools(tools: Option<&[Tool]>) -> Option<Vec<GoogleTool>> {
@@ -1102,6 +1066,51 @@ mod tests {
         ];
 
         let contents = build_google_chat_contents(&messages).expect("tool messages should convert");
+        assert_eq!(contents.len(), 2);
+        assert_eq!(contents[0].role, "model");
+        match &contents[0].parts[0] {
+            GoogleContentPart::FunctionCall(call) => {
+                assert_eq!(call.name, "lookup");
+                assert_eq!(call.args, json!({"q": "value"}));
+            }
+            _ => panic!("unexpected part"),
+        }
+
+        assert_eq!(contents[1].role, "function");
+        match &contents[1].parts[0] {
+            GoogleContentPart::FunctionResponse(resp) => {
+                assert_eq!(resp.name, "lookup");
+                assert_eq!(resp.response.content, json!({"q": "value"}));
+            }
+            _ => panic!("unexpected part"),
+        }
+    }
+
+    #[test]
+    fn test_build_google_stream_contents_tool_use_and_result() {
+        let tool_call = ToolCall {
+            id: "call_1".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "lookup".to_string(),
+                arguments: "{\"q\":\"value\"}".to_string(),
+            },
+        };
+        let messages = vec![
+            ChatMessage {
+                role: ChatRole::Assistant,
+                message_type: MessageType::ToolUse(vec![tool_call.clone()]),
+                content: "call".to_string(),
+            },
+            ChatMessage {
+                role: ChatRole::Tool,
+                message_type: MessageType::ToolResult(vec![tool_call]),
+                content: "result".to_string(),
+            },
+        ];
+
+        let contents =
+            build_google_stream_contents(&messages).expect("tool messages should convert");
         assert_eq!(contents.len(), 2);
         assert_eq!(contents[0].role, "model");
         match &contents[0].parts[0] {

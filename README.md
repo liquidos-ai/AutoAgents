@@ -57,11 +57,11 @@ model with structured tool calling, configurable memory, and pluggable LLM backe
 | **OpenRouter**   | ✅   | ✅        | ✅         | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
 | **Anthropic**    | ✅   | ✅        | ✅         | Images, image URLs, and PDFs use Anthropic message content blocks. |
 | **DeepSeek**     | ✅   | ✅        | ✅         | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
-| **xAI**          | ✅   | ✅        | No         | Tool calls return `LLMError::NoToolSupport`. |
-| **Phind**        | ✅   | No        | No         | Tool calls return `LLMError::NoToolSupport`. |
+| **xAI**          | ✅   | ✅        | No         | Text-only chat; multimodal input returns `LLMError::InvalidRequest`. Tool calls return `LLMError::NoToolSupport`. |
+| **Phind**        | ✅   | No*       | No         | Text-only chat; multimodal input returns `LLMError::InvalidRequest`. Tool calls return `LLMError::NoToolSupport`. |
 | **Groq**         | ✅   | ✅        | ✅         | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
 | **Google**       | ✅   | ✅        | ✅         | Inline images and PDFs are supported; image URLs are rejected with a typed error. |
-| **Azure OpenAI** | ✅   | No        | ✅         | Image URLs are supported; PDFs and raw inline images are rejected with typed errors. |
+| **Azure OpenAI** | ✅   | No*       | ✅         | Image URLs are supported; PDFs and raw inline images are rejected with typed errors. |
 | **MiniMax**      | ✅   | ✅        | ✅         | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
 
 ### Local Providers
@@ -82,6 +82,8 @@ See https://github.com/liquidos-ai/AutoAgents-Experimental-Backends
 | **Onnx** | ⚠️ Experimental |
 
 Provider support is actively expanding based on community needs.
+
+\* Providers marked **No** for streaming use the default `ChatProvider::chat_stream` implementation, which returns `LLMError::Generic("Streaming not supported for this provider")` rather than panicking.
 
 ---
 

@@ -11,10 +11,10 @@ AutoAgents supports a wide range of LLM providers, allowing you to choose the be
 | **Anthropic**    | ✅   | ✅        | ✅         |
 | **DeepSeek**     | ✅   | ✅        | ✅         |
 | **xAI**          | ✅   | ✅        | No         |
-| **Phind**        | ✅   | No        | No         |
+| **Phind**        | ✅   | No*       | No         |
 | **Groq**         | ✅   | ✅        | ✅         |
 | **Google**       | ✅   | ✅        | ✅         |
-| **Azure OpenAI** | ✅   | No        | ✅         |
+| **Azure OpenAI** | ✅   | No*       | ✅         |
 | **MiniMax**      | ✅   | ✅        | ✅         |
 
 ### Local Providers
@@ -35,6 +35,8 @@ Checkout https://github.com/liquidos-ai/AutoAgents-Experimental-Backends
 | **Onnx**       | ⚠️ Experimental      |
 
 _Provider support is actively expanding based on community needs._
+
+\* Providers marked **No** for streaming use the default `ChatProvider::chat_stream` implementation, which returns `LLMError::Generic("Streaming not supported for this provider")` rather than panicking.
 
 ## Using Providers
 
@@ -119,13 +121,15 @@ This snapshot reflects the current code paths in `autoagents-llm` and may vary b
 - xAI
     - Chat + Streaming: Yes
     - Tool Calls: No. Tool requests return `LLMError::NoToolSupport`.
+    - Multimodal: Text-only chat; multimodal input returns `LLMError::InvalidRequest`.
     - Structured Output: Model-dependent JSON schema support
     - Embeddings: Yes
 
 - Phind
     - Chat: Yes
-    - Streaming: No unified `chat_stream` implementation
+    - Streaming: No dedicated `chat_stream` implementation; the default trait method returns `LLMError::Generic`.
     - Tool Calls: No. Tool requests return `LLMError::NoToolSupport`.
+    - Multimodal: Text-only chat; multimodal input returns `LLMError::InvalidRequest`.
     - Embeddings: No (not implemented)
 
 - Google
@@ -136,7 +140,7 @@ This snapshot reflects the current code paths in `autoagents-llm` and may vary b
 
 - Azure OpenAI
     - Chat: Yes
-    - Streaming: No unified `chat_stream` implementation
+    - Streaming: No dedicated `chat_stream` implementation; the default trait method returns `LLMError::Generic`.
     - Tool Calls: Yes
     - Multimodal: Image URLs are supported; PDFs and raw inline images return `LLMError::InvalidRequest`.
 

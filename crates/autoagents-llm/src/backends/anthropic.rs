@@ -341,12 +341,14 @@ impl ChatResponse for AnthropicCompleteResponse {
 }
 
 impl Anthropic {
-    /// Converts a slice of ChatMessage into Anthropic's message format.
+    /// Converts a slice of [`ChatMessage`] into Anthropic's message format.
     ///
-    /// This helper method handles all message types including text, images, PDFs,
-    /// tool use, and tool results.
-    fn convert_messages_to_anthropic<'a>(messages: &'a [ChatMessage]) -> Vec<AnthropicMessage<'a>> {
-        messages
+    /// System messages are omitted (they are sent via the request `system` field).
+    /// Returns [`LLMError::InvalidRequest`] when the input contains no non-system messages.
+    fn convert_messages_to_anthropic<'a>(
+        messages: &'a [ChatMessage],
+    ) -> Result<Vec<AnthropicMessage<'a>>, LLMError> {
+        let anthropic_messages: Vec<AnthropicMessage<'a>> = messages
             .iter()
             .filter(|m| m.role != ChatRole::System)
             .map(|m| AnthropicMessage {
@@ -446,20 +448,26 @@ impl Anthropic {
                         .collect(),
                 },
             })
-            .collect()
-    }
+            .collect();
 
-    fn build_stream_request<'a>(
-        &'a self,
-        messages: &'a [ChatMessage],
-        json_schema: Option<StructuredOutputFormat>,
-    ) -> Result<AnthropicCompleteRequest<'a>, LLMError> {
-        let anthropic_messages = Self::convert_messages_to_anthropic(messages);
         if anthropic_messages.is_empty() {
             return Err(LLMError::InvalidRequest(
                 "At least one non-system message is required".to_string(),
             ));
         }
+
+        Ok(anthropic_messages)
+    }
+
+    /// Builds a streaming [`AnthropicCompleteRequest`] from chat messages.
+    ///
+    /// Propagates conversion errors from [`Self::convert_messages_to_anthropic`].
+    fn build_stream_request<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<AnthropicCompleteRequest<'a>, LLMError> {
+        let anthropic_messages = Self::convert_messages_to_anthropic(messages)?;
 
         let system_message = messages
             .iter()
@@ -598,12 +606,7 @@ impl ChatProvider for Anthropic {
             return Err(LLMError::AuthError("Missing Anthropic API key".to_string()));
         }
 
-        let anthropic_messages = Self::convert_messages_to_anthropic(messages);
-        if anthropic_messages.is_empty() {
-            return Err(LLMError::InvalidRequest(
-                "At least one non-system message is required".to_string(),
-            ));
-        }
+        let anthropic_messages = Self::convert_messages_to_anthropic(messages)?;
         let (anthropic_tools, final_tool_choice) =
             Self::prepare_tools_and_choice(tools, &self.tool_choice);
 
@@ -758,12 +761,7 @@ impl ChatProvider for Anthropic {
             return Err(LLMError::AuthError("Missing Anthropic API key".to_string()));
         }
 
-        let anthropic_messages = Self::convert_messages_to_anthropic(messages);
-        if anthropic_messages.is_empty() {
-            return Err(LLMError::InvalidRequest(
-                "At least one non-system message is required".to_string(),
-            ));
-        }
+        let anthropic_messages = Self::convert_messages_to_anthropic(messages)?;
         let (anthropic_tools, final_tool_choice) =
             Self::prepare_tools_and_choice(tools, &self.tool_choice);
 
@@ -1474,7 +1472,8 @@ data: {"type": "ping"}
         };
 
         let messages = vec![msg];
-        let converted = Anthropic::convert_messages_to_anthropic(&messages);
+        let converted =
+            Anthropic::convert_messages_to_anthropic(&messages).expect("should convert");
         assert_eq!(converted.len(), 1);
         let content = &converted[0].content[0];
         assert_eq!(content.message_type, Some("tool_result"));
@@ -1498,7 +1497,8 @@ data: {"type": "ping"}
         };
 
         let messages = [msg];
-        let converted = Anthropic::convert_messages_to_anthropic(&messages);
+        let converted =
+            Anthropic::convert_messages_to_anthropic(&messages).expect("should convert");
         let content = &converted[0].content[0];
         assert_eq!(content.message_type, Some("tool_use"));
         assert_eq!(content.tool_use_id.as_deref(), Some("tool_call"));
@@ -1571,7 +1571,8 @@ data: {"type": "ping"}
         };
 
         let messages = [image, pdf];
-        let converted = Anthropic::convert_messages_to_anthropic(&messages);
+        let converted =
+            Anthropic::convert_messages_to_anthropic(&messages).expect("should convert");
         assert_eq!(converted.len(), 2);
 
         let image_content = &converted[0].content[0];
@@ -1699,7 +1700,8 @@ data: {"type": "ping"}
             },
         ];
 
-        let converted = Anthropic::convert_messages_to_anthropic(&messages);
+        let converted =
+            Anthropic::convert_messages_to_anthropic(&messages).expect("should convert");
         assert_eq!(converted.len(), 2, "system messages should be filtered");
         assert_eq!(converted[0].role, "user");
         assert_eq!(converted[0].content[0].message_type, Some("image_url"));
@@ -1720,6 +1722,24 @@ data: {"type": "ping"}
             tool_use.tool_input,
             Some(Value::String("not-json".to_string()))
         );
+    }
+
+    #[test]
+    fn test_convert_messages_to_anthropic_rejects_system_only() {
+        let messages = [ChatMessage {
+            role: ChatRole::System,
+            message_type: MessageType::Text,
+            content: "system only".to_string(),
+        }];
+
+        let err = Anthropic::convert_messages_to_anthropic(&messages)
+            .expect_err("system-only input should be rejected");
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest(message)
+                if message == "At least one non-system message is required"
+        ));
     }
 
     #[test]

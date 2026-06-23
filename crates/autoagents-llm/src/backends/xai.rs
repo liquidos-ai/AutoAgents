@@ -8,7 +8,7 @@ use crate::chat::Tool;
 use crate::embedding::EmbeddingBuilder;
 use crate::{
     LLMProvider,
-    chat::{ChatMessage, ChatProvider, ChatRole, StructuredOutputFormat},
+    chat::{ChatMessage, ChatProvider, ChatRole, MessageType, StructuredOutputFormat},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
     error::LLMError,
@@ -284,19 +284,36 @@ impl XAI {
         }
     }
 
-    fn build_chat_messages<'a>(messages: &'a [ChatMessage]) -> Vec<XAIChatMessage<'a>> {
-        messages
-            .iter()
-            .map(|m| XAIChatMessage {
-                role: match m.role {
+    fn try_build_chat_messages<'a>(
+        messages: &'a [ChatMessage],
+    ) -> Result<Vec<XAIChatMessage<'a>>, LLMError> {
+        let mut built = Vec::with_capacity(messages.len());
+        for message in messages {
+            match &message.message_type {
+                MessageType::Text => {}
+                MessageType::ToolUse(_) | MessageType::ToolResult(_) => {
+                    return Err(LLMError::NoToolSupport(
+                        "X.AI does not support tool calling".to_string(),
+                    ));
+                }
+                _ => {
+                    return Err(LLMError::InvalidRequest(
+                        "Multimodal input is not supported by the X.AI backend".to_string(),
+                    ));
+                }
+            }
+
+            built.push(XAIChatMessage {
+                role: match message.role {
                     ChatRole::User => "user",
                     ChatRole::Assistant => "assistant",
                     ChatRole::System => "system",
                     ChatRole::Tool => "user",
                 },
-                content: &m.content,
-            })
-            .collect()
+                content: &message.content,
+            });
+        }
+        Ok(built)
     }
 
     fn build_search_parameters(&self) -> XaiSearchParameters {
@@ -378,7 +395,7 @@ impl ChatProvider for XAI {
             return Err(LLMError::AuthError("Missing X.AI API key".to_string()));
         }
 
-        let xai_msgs = XAI::build_chat_messages(messages);
+        let xai_msgs = XAI::try_build_chat_messages(messages)?;
 
         // OpenAI's structured output has some [odd requirements](https://platform.openai.com/docs/guides/structured-outputs?api-mode=chat&lang=curl#supported-schemas).
         // There's currently no check for these, so we'll leave it up to the user to provide a valid schema.
@@ -448,18 +465,7 @@ impl ChatProvider for XAI {
             return Err(LLMError::AuthError("Missing X.AI API key".to_string()));
         }
 
-        let xai_msgs: Vec<XAIChatMessage> = messages
-            .iter()
-            .map(|m| XAIChatMessage {
-                role: match m.role {
-                    ChatRole::User => "user",
-                    ChatRole::Assistant => "assistant",
-                    ChatRole::System => "system",
-                    ChatRole::Tool => "user",
-                },
-                content: &m.content,
-            })
-            .collect();
+        let xai_msgs = XAI::try_build_chat_messages(messages)?;
 
         let body = XAIChatRequest {
             model: &self.model,
@@ -694,6 +700,7 @@ impl EmbeddingBuilder<XAI> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FunctionCall;
     use serde_json::json;
 
     #[test]
@@ -785,7 +792,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_chat_messages_maps_roles() {
+    fn test_try_build_chat_messages_maps_roles() {
         let messages = vec![
             crate::chat::ChatMessageBuilder::new(ChatRole::System)
                 .content("sys")
@@ -793,11 +800,58 @@ mod tests {
             ChatMessage::user().content("user").build(),
             ChatMessage::assistant().content("asst").build(),
         ];
-        let built = XAI::build_chat_messages(&messages);
+        let built = XAI::try_build_chat_messages(&messages).expect("text messages should convert");
         assert_eq!(built.len(), 3);
         assert_eq!(built[0].role, "system");
         assert_eq!(built[1].role, "user");
         assert_eq!(built[2].role, "assistant");
+    }
+
+    #[test]
+    fn test_try_build_chat_messages_rejects_multimodal() {
+        let messages = [ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::ImageURL("https://example.com/image.png".to_string()),
+            content: "describe".to_string(),
+        }];
+
+        let err = match XAI::try_build_chat_messages(&messages) {
+            Ok(_) => panic!("image URL should be rejected"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest(message)
+                if message == "Multimodal input is not supported by the X.AI backend"
+        ));
+    }
+
+    #[test]
+    fn test_try_build_chat_messages_rejects_tool_messages() {
+        let messages = [ChatMessage {
+            role: ChatRole::Assistant,
+            message_type: MessageType::ToolUse(vec![ToolCall {
+                id: "call_1".to_string(),
+                call_type: "function".to_string(),
+                function: FunctionCall {
+                    name: "lookup".to_string(),
+                    arguments: "{}".to_string(),
+                },
+            }]),
+            content: "tool".to_string(),
+        }];
+
+        let err = match XAI::try_build_chat_messages(&messages) {
+            Ok(_) => panic!("tool use should be rejected"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(
+            err,
+            LLMError::NoToolSupport(message)
+                if message == "X.AI does not support tool calling"
+        ));
     }
 
     #[test]
