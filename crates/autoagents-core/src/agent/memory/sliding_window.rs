@@ -137,10 +137,7 @@ impl MemoryProvider for SlidingWindowMemory {
                 }
                 TrimStrategy::Summarize => {
                     if self.needs_summary {
-                        return Err(LLMError::ProviderError(
-                            "SlidingWindowMemory requires summarization before accepting new messages"
-                                .to_string(),
-                        ));
+                        return Err(summary_required_error());
                     }
                     self.mark_for_summary();
                 }
@@ -148,6 +145,37 @@ impl MemoryProvider for SlidingWindowMemory {
         }
         self.messages.push_back(message.clone());
         Ok(())
+    }
+
+    async fn remember_many(&mut self, messages: &[ChatMessage]) -> Result<(), LLMError> {
+        if messages.is_empty() {
+            return Ok(());
+        }
+
+        match self.trim_strategy {
+            TrimStrategy::Drop => {
+                for message in messages {
+                    self.remember(message).await?;
+                }
+                Ok(())
+            }
+            TrimStrategy::Summarize => {
+                if self.needs_summary {
+                    return Err(summary_required_error());
+                }
+
+                let projected_len = self.messages.len().saturating_add(messages.len());
+                if projected_len > self.window_size.saturating_add(1) {
+                    return Err(summary_required_error());
+                }
+
+                if projected_len > self.window_size {
+                    self.mark_for_summary();
+                }
+                self.messages.extend(messages.iter().cloned());
+                Ok(())
+            }
+        }
     }
 
     async fn recall(
@@ -202,6 +230,12 @@ impl MemoryProvider for SlidingWindowMemory {
     fn export(&self) -> Vec<ChatMessage> {
         Vec::from(self.messages.clone())
     }
+}
+
+fn summary_required_error() -> LLMError {
+    LLMError::ProviderError(
+        "SlidingWindowMemory requires summarization before accepting new messages".to_string(),
+    )
 }
 
 #[cfg(test)]
@@ -378,6 +412,41 @@ mod tests {
         let messages = memory.messages();
         assert_eq!(messages[0].content, "summary");
         assert_eq!(messages[1].content, "Message 4");
+    }
+
+    #[tokio::test]
+    async fn test_summarize_batch_rejects_without_mutating_when_over_cap() {
+        let mut memory = SlidingWindowMemory::with_strategy(2, TrimStrategy::Summarize);
+
+        for i in 1..=2 {
+            let message = ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: format!("Message {i}"),
+            };
+            memory.remember(&message).await.unwrap();
+        }
+
+        let batch = [
+            ChatMessage {
+                role: ChatRole::Assistant,
+                message_type: MessageType::Text,
+                content: "Message 3".to_string(),
+            },
+            ChatMessage {
+                role: ChatRole::Tool,
+                message_type: MessageType::Text,
+                content: "Message 4".to_string(),
+            },
+        ];
+        let result = memory.remember_many(&batch).await;
+
+        assert!(matches!(result, Err(LLMError::ProviderError(_))));
+        assert!(!memory.needs_summary());
+        assert_eq!(memory.size(), 2);
+        let messages = memory.messages();
+        assert_eq!(messages[0].content, "Message 1");
+        assert_eq!(messages[1].content, "Message 2");
     }
 
     #[tokio::test]

@@ -38,26 +38,22 @@ impl MemoryHelper {
         response_text: &str,
     ) -> Result<(), LLMError> {
         if let Some(mem) = memory {
-            let mut mem = mem.lock().await;
-
-            // Record assistant calling tools
-            mem.remember(&ChatMessage {
-                role: ChatRole::Assistant,
-                message_type: MessageType::ToolUse(tool_calls.to_vec()),
-                content: response_text.to_string(),
-            })
-            .await?;
-
-            // Create and store tool results
             let result_tool_calls =
                 ToolProcessor::create_result_tool_calls(tool_calls, tool_results);
+            let messages = [
+                ChatMessage {
+                    role: ChatRole::Assistant,
+                    message_type: MessageType::ToolUse(tool_calls.to_vec()),
+                    content: response_text.to_string(),
+                },
+                ChatMessage {
+                    role: ChatRole::Tool,
+                    message_type: MessageType::ToolResult(result_tool_calls),
+                    content: String::default(),
+                },
+            ];
 
-            mem.remember(&ChatMessage {
-                role: ChatRole::Tool,
-                message_type: MessageType::ToolResult(result_tool_calls),
-                content: String::default(),
-            })
-            .await?;
+            mem.lock().await.remember_many(&messages).await?;
         }
         Ok(())
     }
@@ -120,7 +116,7 @@ impl MemoryHelper {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::memory::{MemoryType, SlidingWindowMemory};
+    use crate::agent::memory::{MemoryType, SlidingWindowMemory, TrimStrategy};
 
     #[derive(Clone)]
     struct FailingMemoryProvider;
@@ -339,6 +335,46 @@ mod tests {
         assert_memory_write_error(
             MemoryHelper::store_tool_interaction(&Some(mem), &calls, &results, "text").await,
         );
+    }
+
+    #[tokio::test]
+    async fn test_store_tool_interaction_does_not_partially_write_when_memory_is_full() {
+        let mut memory = SlidingWindowMemory::with_strategy(2, TrimStrategy::Summarize);
+        for content in ["Message 1", "Message 2"] {
+            memory
+                .remember(&ChatMessage {
+                    role: ChatRole::User,
+                    message_type: MessageType::Text,
+                    content: content.to_string(),
+                })
+                .await
+                .unwrap();
+        }
+        let mem: Arc<Mutex<Box<dyn MemoryProvider>>> = Arc::new(Mutex::new(Box::new(memory)));
+        let calls = vec![autoagents_llm::ToolCall {
+            id: "t1".to_string(),
+            call_type: "function".to_string(),
+            function: autoagents_llm::FunctionCall {
+                name: "tool".to_string(),
+                arguments: "{}".to_string(),
+            },
+        }];
+        let results = vec![crate::tool::ToolCallResult {
+            tool_name: "tool".to_string(),
+            success: true,
+            arguments: serde_json::json!({}),
+            result: serde_json::json!("ok"),
+        }];
+
+        let result =
+            MemoryHelper::store_tool_interaction(&Some(mem.clone()), &calls, &results, "text")
+                .await;
+
+        assert!(matches!(result, Err(LLMError::ProviderError(_))));
+        let stored = mem.lock().await.recall("", None).await.unwrap();
+        assert_eq!(stored.len(), 2);
+        assert_eq!(stored[0].content, "Message 1");
+        assert_eq!(stored[1].content, "Message 2");
     }
 
     #[tokio::test]

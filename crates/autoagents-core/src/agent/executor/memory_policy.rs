@@ -71,7 +71,7 @@ impl MemoryPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::memory::{MemoryType, SlidingWindowMemory};
+    use crate::agent::memory::{MemoryType, SlidingWindowMemory, TrimStrategy};
 
     #[derive(Clone)]
     struct FailingMemoryProvider;
@@ -343,6 +343,48 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_store_tool_interaction_does_not_partially_write_when_memory_is_full() {
+        let mut memory = SlidingWindowMemory::with_strategy(2, TrimStrategy::Summarize);
+        for content in ["Message 1", "Message 2"] {
+            memory
+                .remember(&ChatMessage {
+                    role: ChatRole::User,
+                    message_type: MessageType::Text,
+                    content: content.to_string(),
+                })
+                .await
+                .unwrap();
+        }
+        let mem: Box<dyn MemoryProvider> = Box::new(memory);
+        let mem_arc = Arc::new(Mutex::new(mem));
+        let adapter = MemoryAdapter::new(Some(mem_arc.clone()), MemoryPolicy::basic());
+        let tool_calls = vec![ToolCall {
+            id: "tc1".to_string(),
+            call_type: "function".to_string(),
+            function: autoagents_llm::FunctionCall {
+                name: "tool".to_string(),
+                arguments: "{}".to_string(),
+            },
+        }];
+        let results = vec![crate::tool::ToolCallResult {
+            tool_name: "tool".to_string(),
+            success: true,
+            arguments: serde_json::json!({}),
+            result: serde_json::json!("ok"),
+        }];
+
+        let result = adapter
+            .store_tool_interaction(&tool_calls, &results, "text")
+            .await;
+
+        assert!(matches!(result, Err(LLMError::ProviderError(_))));
+        let stored = mem_arc.lock().await.recall("", None).await.unwrap();
+        assert_eq!(stored.len(), 2);
+        assert_eq!(stored[0].content, "Message 1");
+        assert_eq!(stored[1].content, "Message 2");
+    }
+
     #[test]
     fn test_adapter_policy_accessor() {
         let policy = MemoryPolicy::react();
@@ -441,23 +483,20 @@ impl MemoryAdapter {
         let Some(memory) = &self.memory else {
             return Ok(());
         };
-        let mut memory = memory.lock().await;
-        memory
-            .remember(&ChatMessage {
+        let result_tool_calls = ToolProcessor::create_result_tool_calls(tool_calls, tool_results);
+        let messages = [
+            ChatMessage {
                 role: ChatRole::Assistant,
                 message_type: MessageType::ToolUse(tool_calls.to_vec()),
                 content: response_text.to_string(),
-            })
-            .await?;
-
-        let result_tool_calls = ToolProcessor::create_result_tool_calls(tool_calls, tool_results);
-
-        memory
-            .remember(&ChatMessage {
+            },
+            ChatMessage {
                 role: ChatRole::Tool,
                 message_type: MessageType::ToolResult(result_tool_calls),
                 content: String::default(),
-            })
-            .await
+            },
+        ];
+
+        memory.lock().await.remember_many(&messages).await
     }
 }
