@@ -2,8 +2,10 @@ use crate::{
     LLMProvider,
     chat::{ChatMessage, ChatProvider, ChatRole, MessageType},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
+    config::resolve_request_timeout,
     embedding::EmbeddingProvider,
     error::LLMError,
+    http::ensure_success,
     models::ModelsProvider,
 };
 /// Implementation of the Phind LLM provider.
@@ -14,7 +16,6 @@ use crate::{
     chat::{ChatResponse, StructuredOutputFormat, Tool},
 };
 use async_trait::async_trait;
-use reqwest::StatusCode;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, Response};
 use serde_json::{Value, json};
@@ -29,7 +30,7 @@ pub struct Phind {
     /// Temperature for controlling randomness (0.0-1.0)
     pub temperature: Option<f32>,
     /// Request timeout in seconds
-    pub timeout_seconds: Option<u64>,
+    pub timeout_seconds: u64,
     /// Top-p sampling parameter
     pub top_p: Option<f32>,
     /// Top-k sampling parameter
@@ -73,10 +74,11 @@ impl Phind {
         top_k: Option<u32>,
         api_base_url: Option<String>,
     ) -> Self {
-        let mut builder = Client::builder();
-        if let Some(sec) = timeout_seconds {
-            builder = builder.timeout(std::time::Duration::from_secs(sec));
-        }
+        let timeout_seconds = resolve_request_timeout(timeout_seconds);
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_seconds))
+            .build()
+            .expect("Failed to build reqwest Client");
         Self {
             model: model.unwrap_or_else(|| "Phind-70B".to_string()),
             max_tokens,
@@ -86,7 +88,7 @@ impl Phind {
             top_k,
             api_base_url: api_base_url
                 .unwrap_or_else(|| "https://extension.phind.com/agent/".to_string()),
-            client: builder.build().expect("Failed to build reqwest Client"),
+            client,
         }
     }
 
@@ -128,32 +130,15 @@ impl Phind {
         &self,
         response: Response,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        let status = response.status();
-        if let StatusCode::OK = status {
-            let response_text = response.text().await?;
-            let full_text = Self::parse_stream_response(&response_text);
-            if full_text.is_empty() {
-                Err(LLMError::ProviderError(
-                    "No completion choice returned.".to_string(),
-                ))
-            } else {
-                Ok(Box::new(PhindResponse { content: full_text }))
-            }
+        let response = ensure_success(response, "Phind").await?;
+        let response_text = response.text().await?;
+        let full_text = Self::parse_stream_response(&response_text);
+        if full_text.is_empty() {
+            Err(LLMError::ProviderError(
+                "No completion choice returned.".to_string(),
+            ))
         } else {
-            let error_text = response.text().await?;
-            let error_json: Value = serde_json::from_str(&error_text)
-                .unwrap_or_else(|_| json!({"error": {"message": "Unknown error"}}));
-
-            let error_message = error_json
-                .get("error")
-                .and_then(|err| err.get("message"))
-                .and_then(|msg| msg.as_str())
-                .unwrap_or("Unexpected error from Phind")
-                .to_string();
-
-            Err(LLMError::ProviderError(format!(
-                "APIError {status}: {error_message}"
-            )))
+            Ok(Box::new(PhindResponse { content: full_text }))
         }
     }
 }
@@ -210,17 +195,13 @@ impl ChatProvider for Phind {
         }
 
         let headers = Self::create_headers()?;
-        let mut request = self
+        let response = self
             .client
             .post(&self.api_base_url)
             .headers(headers)
-            .json(&payload);
-
-        if let Some(timeout) = self.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
-
-        let response = request.send().await?;
+            .json(&payload)
+            .send()
+            .await?;
 
         log::debug!("Phind HTTP status: {}", response.status());
 
@@ -300,7 +281,7 @@ fn validate_text_only_messages(messages: &[ChatMessage]) -> Result<(), LLMError>
                 ));
             }
             _ => {
-                return Err(LLMError::InvalidRequest(
+                return Err(LLMError::invalid_request(
                     "Multimodal input is not supported by the Phind backend".to_string(),
                 ));
             }
@@ -369,7 +350,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            LLMError::InvalidRequest(message)
+            LLMError::InvalidRequest { message, .. }
                 if message == "Multimodal input is not supported by the Phind backend"
         ));
     }

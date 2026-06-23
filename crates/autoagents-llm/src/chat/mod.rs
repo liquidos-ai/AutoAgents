@@ -853,23 +853,6 @@ where
     Box::pin(stream)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub mod utils {
-    use crate::error::LLMError;
-    use reqwest::Response;
-    pub async fn check_response_status(response: Response) -> Result<Response, LLMError> {
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await?;
-            return Err(LLMError::ResponseFormatError {
-                message: format!("API returned error status: {status}"),
-                raw_response: error_text,
-            });
-        }
-        Ok(response)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

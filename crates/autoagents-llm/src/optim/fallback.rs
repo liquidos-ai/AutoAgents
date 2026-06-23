@@ -80,20 +80,12 @@ impl Default for FallbackConfig {
 
 /// Default fallbackability predicate.
 ///
-/// Falls back on network, provider, and structural-response errors as well as
-/// [`NoToolSupport`](crate::error::LLMError::NoToolSupport) (enables routing
-/// tool-calling tasks to a capable fallback).
+/// Falls back on network, provider, and response-format errors as well as
+/// [`NoToolSupport`](crate::error::LLMError::NoToolSupport).
 ///
-/// Does **not** fall back on auth or invalid-request errors.
+/// Does **not** fall back on auth, invalid-request, or generic errors.
 pub fn default_is_fallbackable(err: &LLMError) -> bool {
-    matches!(
-        err,
-        LLMError::HttpError(_)
-            | LLMError::ProviderError(_)
-            | LLMError::Generic(_)
-            | LLMError::ResponseFormatError { .. }
-            | LLMError::NoToolSupport(_)
-    )
+    crate::error::is_fallbackable(err)
 }
 
 // ---------------------------------------------------------------------------
@@ -461,7 +453,12 @@ mod tests {
     impl EmbeddingProvider for AlwaysFails {
         async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
-            Err(LLMError::HttpError(self.err_msg.clone()))
+            Err(LLMError::HttpStatusError {
+                status_code: 503,
+                message: self.err_msg.clone(),
+                response_body: self.err_msg.clone().into_boxed_str(),
+                provider_code: None,
+            })
         }
     }
     #[async_trait]
@@ -622,7 +619,7 @@ mod tests {
 
         let msg = ChatMessage::user().content("hi").build();
         let err = provider.chat(&[msg], None).await.unwrap_err();
-        assert!(matches!(err, LLMError::AuthError(_)));
+        assert!(matches!(err, LLMError::AuthError { .. }));
         assert_eq!(
             fallback.call_count(),
             0,
@@ -700,7 +697,7 @@ mod tests {
         let fallback = AlwaysSucceeds::new("custom_fallback");
 
         let config = FallbackConfig {
-            fallbackable: |err| matches!(err, LLMError::AuthError(_)),
+            fallbackable: |err| matches!(err, LLMError::AuthError { .. }),
         };
         let provider = FallbackLayer::new(vec![fallback.clone() as Arc<dyn LLMProvider>])
             .with_config(config)
@@ -726,7 +723,7 @@ mod tests {
             _tools: Option<&[Tool]>,
             _json_schema: Option<StructuredOutputFormat>,
         ) -> Result<Box<dyn ChatResponse>, LLMError> {
-            Err(LLMError::AuthError("invalid key".into()))
+            Err(LLMError::missing_api_key("invalid key".to_string()))
         }
     }
     #[async_trait]
@@ -736,13 +733,13 @@ mod tests {
             _req: &CompletionRequest,
             _json_schema: Option<StructuredOutputFormat>,
         ) -> Result<CompletionResponse, LLMError> {
-            Err(LLMError::AuthError("invalid key".into()))
+            Err(LLMError::missing_api_key("invalid key".to_string()))
         }
     }
     #[async_trait]
     impl EmbeddingProvider for AuthFailProvider {
         async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-            Err(LLMError::AuthError("invalid key".into()))
+            Err(LLMError::missing_api_key("invalid key".to_string()))
         }
     }
     #[async_trait]
@@ -795,14 +792,18 @@ mod tests {
     #[test]
     fn fallbackable_errors() {
         assert!(default_is_fallbackable(&LLMError::HttpError(
-            "timeout".into()
+            "request timed out: operation timed out".into()
         )));
         assert!(default_is_fallbackable(&LLMError::ProviderError(
             "down".into()
         )));
-        assert!(default_is_fallbackable(&LLMError::Generic(
-            "network".into()
-        )));
+        assert!(default_is_fallbackable(&LLMError::RateLimitError {
+            status_code: 429,
+            message: "limit".into(),
+            response_body: "body".into(),
+            retry_after: None,
+            provider_code: None,
+        }));
         assert!(default_is_fallbackable(&LLMError::NoToolSupport(
             "unsupported".into()
         )));
@@ -814,11 +815,11 @@ mod tests {
 
     #[test]
     fn non_fallbackable_errors() {
-        assert!(!default_is_fallbackable(&LLMError::AuthError(
-            "bad key".into()
+        assert!(!default_is_fallbackable(&LLMError::missing_api_key(
+            "bad key"
         )));
-        assert!(!default_is_fallbackable(&LLMError::InvalidRequest(
-            "bad param".into()
+        assert!(!default_is_fallbackable(&LLMError::invalid_request(
+            "bad param"
         )));
         assert!(!default_is_fallbackable(&LLMError::JsonError(
             "parse".into()

@@ -3,6 +3,7 @@
 //! This module provides integration with Groq's LLM models through their API.
 
 use crate::builder::LLMBuilder;
+use crate::http::ensure_success;
 use crate::{
     LLMProvider,
     builder::LLMBackend,
@@ -120,7 +121,9 @@ impl ModelsProvider for Groq {
         _request: Option<&ModelListRequest>,
     ) -> Result<Box<dyn ModelListResponse>, LLMError> {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing Groq API key".to_string()));
+            return Err(LLMError::missing_api_key(
+                "Missing Groq API key".to_string(),
+            ));
         }
 
         let url = format!("{}/models", GroqConfig::DEFAULT_BASE_URL);
@@ -130,8 +133,8 @@ impl ModelsProvider for Groq {
             .get(&url)
             .bearer_auth(&self.api_key)
             .send()
-            .await?
-            .error_for_status()?;
+            .await?;
+        let resp = ensure_success(resp, "Groq").await?;
 
         let result = StandardModelListResponse {
             inner: resp.json().await?,
@@ -145,7 +148,7 @@ impl LLMBuilder<Groq> {
     pub fn build(self) -> Result<Arc<Groq>, LLMError> {
         let api_key = self
             .api_key
-            .ok_or_else(|| LLMError::InvalidRequest("No API key provided for Groq".to_string()))?;
+            .ok_or_else(|| LLMError::invalid_request("No API key provided for Groq".to_string()))?;
 
         let groq = Groq::with_config(
             api_key,
@@ -199,7 +202,7 @@ mod tests {
         assert_eq!(provider.model, GroqConfig::DEFAULT_MODEL);
         assert_eq!(provider.max_tokens, Some(200));
         assert_eq!(provider.temperature, Some(0.5));
-        assert_eq!(provider.timeout_seconds, Some(12));
+        assert_eq!(provider.timeout_seconds, 12);
     }
 
     #[tokio::test]

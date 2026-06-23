@@ -21,8 +21,10 @@ use crate::{
         Tool,
     },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
+    config::resolve_request_timeout,
     embedding::{EmbeddingBuilder, EmbeddingProvider},
     error::LLMError,
+    http::ensure_success,
     models::ModelsProvider,
 };
 use async_trait::async_trait;
@@ -48,7 +50,7 @@ pub struct Google {
     /// Sampling temperature between 0.0 and 1.0
     pub temperature: Option<f32>,
     /// Request timeout in seconds
-    pub timeout_seconds: Option<u64>,
+    pub timeout_seconds: u64,
     /// Top-p sampling parameter
     pub top_p: Option<f32>,
     /// Top-k sampling parameter
@@ -461,10 +463,11 @@ impl Google {
         top_p: Option<f32>,
         top_k: Option<u32>,
     ) -> Self {
-        let mut builder = Client::builder();
-        if let Some(sec) = timeout_seconds {
-            builder = builder.timeout(std::time::Duration::from_secs(sec));
-        }
+        let timeout_seconds = resolve_request_timeout(timeout_seconds);
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_seconds))
+            .build()
+            .expect("Failed to build reqwest Client");
         Self {
             api_key: api_key.into(),
             model: model.unwrap_or_else(|| "gemini-1.5-flash".to_string()),
@@ -473,7 +476,7 @@ impl Google {
             timeout_seconds,
             top_p,
             top_k,
-            client: builder.build().expect("Failed to build reqwest Client"),
+            client,
         }
     }
 
@@ -494,7 +497,9 @@ impl Google {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing Google API key".to_string()));
+            return Err(LLMError::missing_api_key(
+                "Missing Google API key".to_string(),
+            ));
         }
 
         let chat_contents = build_google_chat_contents(messages)?;
@@ -525,17 +530,11 @@ impl Google {
             key = self.api_key
         );
 
-        let mut request = self.client.post(&url).json(&req_body);
-
-        if let Some(timeout) = self.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
-
-        let resp = request.send().await?;
+        let resp = self.client.post(&url).json(&req_body).send().await?;
 
         log::debug!("Google Gemini HTTP status (tool): {}", resp.status());
 
-        let resp = resp.error_for_status()?;
+        let resp = ensure_success(resp, "Google").await?;
 
         // Get the raw response text for debugging
         let resp_text = resp.text().await?;
@@ -603,7 +602,9 @@ impl ChatProvider for Google {
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing Google API key".to_string()));
+            return Err(LLMError::missing_api_key(
+                "Missing Google API key".to_string(),
+            ));
         }
 
         let chat_contents = build_google_stream_contents(messages)?;
@@ -626,22 +627,9 @@ impl ChatProvider for Google {
             key = self.api_key
         );
 
-        let mut request = self.client.post(&url).json(&req_body);
+        let response = self.client.post(&url).json(&req_body).send().await?;
 
-        if let Some(timeout) = self.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
-
-        let response = request.send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await?;
-            return Err(LLMError::ResponseFormatError {
-                message: format!("Google API returned error status: {status}"),
-                raw_response: error_text,
-            });
-        }
+        let response = ensure_success(response, "Google").await?;
 
         Ok(crate::chat::create_sse_stream(
             response,
@@ -685,7 +673,9 @@ impl CompletionProvider for Google {
 impl EmbeddingProvider for Google {
     async fn embed(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing Google API key".to_string()));
+            return Err(LLMError::missing_api_key(
+                "Missing Google API key".to_string(),
+            ));
         }
 
         let mut embeddings = Vec::new();
@@ -704,13 +694,8 @@ impl EmbeddingProvider for Google {
                 self.api_key
             );
 
-            let resp = self
-                .client
-                .post(&url)
-                .json(&req_body)
-                .send()
-                .await?
-                .error_for_status()?;
+            let resp = self.client.post(&url).json(&req_body).send().await?;
+            let resp = ensure_success(resp, "Google").await?;
 
             let embedding_resp: GoogleEmbeddingResponse = resp.json().await?;
             embeddings.push(embedding_resp.embedding.values);
@@ -788,7 +773,7 @@ fn build_google_chat_contents(
                     })]
                 }
                 MessageType::ImageURL(_) => {
-                    return Err(LLMError::InvalidRequest(
+                    return Err(LLMError::invalid_request(
                         "Image URL input is not supported by the Google Gemini backend".to_string(),
                     ));
                 }
@@ -901,7 +886,7 @@ impl ModelsProvider for Google {}
 impl LLMBuilder<Google> {
     pub fn build(self) -> Result<Arc<Google>, LLMError> {
         let api_key = self.api_key.ok_or_else(|| {
-            LLMError::InvalidRequest("No API key provided for Google".to_string())
+            LLMError::invalid_request("No API key provided for Google".to_string())
         })?;
 
         let google = Google::new(
@@ -922,7 +907,7 @@ impl EmbeddingBuilder<Google> {
     /// Build a Google embedding provider.
     pub fn build(self) -> Result<Arc<Google>, LLMError> {
         let api_key = self.api_key.ok_or_else(|| {
-            LLMError::InvalidRequest("No API key provided for Google".to_string())
+            LLMError::invalid_request("No API key provided for Google".to_string())
         })?;
 
         let provider = Google::new(
@@ -1146,7 +1131,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            LLMError::InvalidRequest(message)
+            LLMError::InvalidRequest { message, .. }
                 if message == "Image URL input is not supported by the Google Gemini backend"
         ));
     }
@@ -1166,7 +1151,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            LLMError::InvalidRequest(message)
+            LLMError::InvalidRequest { message, .. }
                 if message == "Image URL input is not supported by the Google Gemini backend"
         ));
     }

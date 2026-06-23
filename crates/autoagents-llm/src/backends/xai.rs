@@ -10,8 +10,10 @@ use crate::{
     LLMProvider,
     chat::{ChatMessage, ChatProvider, ChatRole, MessageType, StructuredOutputFormat},
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
+    config::resolve_request_timeout,
     embedding::EmbeddingProvider,
     error::LLMError,
+    http::ensure_success,
     models::ModelsProvider,
 };
 use crate::{ToolCall, builder::LLMBuilder, chat::ChatResponse};
@@ -35,7 +37,7 @@ pub struct XAI {
     /// Temperature parameter for controlling response randomness (0.0 to 1.0)
     pub temperature: Option<f32>,
     /// Request timeout duration in seconds
-    pub timeout_seconds: Option<u64>,
+    pub timeout_seconds: u64,
     /// Top-p sampling parameter for controlling response diversity
     pub top_p: Option<f32>,
     /// Top-k sampling parameter for controlling response diversity
@@ -260,10 +262,11 @@ impl XAI {
         xai_search_from_date: Option<String>,
         xai_search_to_date: Option<String>,
     ) -> Self {
-        let mut builder = Client::builder();
-        if let Some(sec) = timeout_seconds {
-            builder = builder.timeout(std::time::Duration::from_secs(sec));
-        }
+        let timeout_seconds = resolve_request_timeout(timeout_seconds);
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_seconds))
+            .build()
+            .expect("Failed to build reqwest Client");
         Self {
             api_key: api_key.into(),
             model: model.unwrap_or_else(|| "grok-2-latest".to_string()),
@@ -280,7 +283,7 @@ impl XAI {
             xai_search_max_results,
             xai_search_from_date,
             xai_search_to_date,
-            client: builder.build().expect("Failed to build reqwest Client"),
+            client,
         }
     }
 
@@ -297,7 +300,7 @@ impl XAI {
                     ));
                 }
                 _ => {
-                    return Err(LLMError::InvalidRequest(
+                    return Err(LLMError::invalid_request(
                         "Multimodal input is not supported by the X.AI backend".to_string(),
                     ));
                 }
@@ -392,7 +395,9 @@ impl ChatProvider for XAI {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing X.AI API key".to_string()));
+            return Err(LLMError::missing_api_key(
+                "Missing X.AI API key".to_string(),
+            ));
         }
 
         let xai_msgs = XAI::try_build_chat_messages(messages)?;
@@ -426,21 +431,17 @@ impl ChatProvider for XAI {
             log::trace!("XAI request payload: {json}");
         }
 
-        let mut request = self
+        let resp = self
             .client
             .post("https://api.x.ai/v1/chat/completions")
             .bearer_auth(&self.api_key)
-            .json(&body);
-
-        if let Some(timeout) = self.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
-
-        let resp = request.send().await?;
+            .json(&body)
+            .send()
+            .await?;
 
         log::debug!("XAI HTTP status: {}", resp.status());
 
-        let resp = resp.error_for_status()?;
+        let resp = ensure_success(resp, "X.AI").await?;
 
         let json_resp: XAIChatResponse = resp.json().await?;
         Ok(Box::new(json_resp))
@@ -462,7 +463,9 @@ impl ChatProvider for XAI {
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing X.AI API key".to_string()));
+            return Err(LLMError::missing_api_key(
+                "Missing X.AI API key".to_string(),
+            ));
         }
 
         let xai_msgs = XAI::try_build_chat_messages(messages)?;
@@ -479,26 +482,15 @@ impl ChatProvider for XAI {
             search_parameters: None,
         };
 
-        let mut request = self
+        let response = self
             .client
             .post("https://api.x.ai/v1/chat/completions")
             .bearer_auth(&self.api_key)
-            .json(&body);
+            .json(&body)
+            .send()
+            .await?;
 
-        if let Some(timeout) = self.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
-
-        let response = request.send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await?;
-            return Err(LLMError::ResponseFormatError {
-                message: format!("X.AI API returned error status: {status}"),
-                raw_response: error_text,
-            });
-        }
+        let response = ensure_success(response, "X.AI").await?;
 
         Ok(crate::chat::create_sse_stream(
             response,
@@ -541,7 +533,9 @@ impl CompletionProvider for XAI {
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<CompletionResponse, LLMError> {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing X.AI API key".into()));
+            return Err(LLMError::missing_api_key(
+                "Missing X.AI API key".to_string(),
+            ));
         }
         Err(LLMError::ProviderError(
             "X.AI completion not implemented yet".into(),
@@ -553,7 +547,9 @@ impl CompletionProvider for XAI {
 impl EmbeddingProvider for XAI {
     async fn embed(&self, text: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing X.AI API key".into()));
+            return Err(LLMError::missing_api_key(
+                "Missing X.AI API key".to_string(),
+            ));
         }
 
         let emb_format = self
@@ -574,8 +570,8 @@ impl EmbeddingProvider for XAI {
             .bearer_auth(&self.api_key)
             .json(&body)
             .send()
-            .await?
-            .error_for_status()?;
+            .await?;
+        let resp = ensure_success(resp, "X.AI").await?;
 
         let json_resp: XAIEmbeddingResponse = resp.json().await?;
 
@@ -591,7 +587,9 @@ impl ModelsProvider for XAI {
         _request: Option<&crate::models::ModelListRequest>,
     ) -> Result<Box<dyn crate::models::ModelListResponse>, LLMError> {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing X.AI API key".into()));
+            return Err(LLMError::missing_api_key(
+                "Missing X.AI API key".to_string(),
+            ));
         }
         Err(LLMError::ProviderError("List Models not supported".into()))
     }
@@ -644,7 +642,7 @@ impl LLMBuilder<XAI> {
     pub fn build(self) -> Result<Arc<XAI>, LLMError> {
         let api_key = self
             .api_key
-            .ok_or_else(|| LLMError::InvalidRequest("No API key provided for XAI".to_string()))?;
+            .ok_or_else(|| LLMError::invalid_request("No API key provided for XAI".to_string()))?;
 
         let xai = XAI::new(
             api_key,
@@ -673,7 +671,7 @@ impl EmbeddingBuilder<XAI> {
     pub fn build(self) -> Result<Arc<XAI>, LLMError> {
         let api_key = self
             .api_key
-            .ok_or_else(|| LLMError::InvalidRequest("No API key provided for XAI".to_string()))?;
+            .ok_or_else(|| LLMError::invalid_request("No API key provided for XAI".to_string()))?;
 
         let provider = XAI::new(
             api_key,
@@ -822,7 +820,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            LLMError::InvalidRequest(message)
+            LLMError::InvalidRequest { message, .. }
                 if message == "Multimodal input is not supported by the X.AI backend"
         ));
     }

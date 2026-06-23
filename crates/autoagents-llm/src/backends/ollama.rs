@@ -10,8 +10,10 @@ use crate::{
         Tool,
     },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
+    config::resolve_request_timeout,
     embedding::{EmbeddingBuilder, EmbeddingProvider},
     error::LLMError,
+    http::ensure_success,
     models::ModelsProvider,
 };
 use async_trait::async_trait;
@@ -45,7 +47,7 @@ pub struct Ollama {
     pub model: String,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
-    pub timeout_seconds: Option<u64>,
+    pub timeout_seconds: u64,
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,
     pub keep_alive: Option<String>,
@@ -447,10 +449,11 @@ impl Ollama {
         repeat_last_n: Option<i32>,
         min_p: Option<f32>,
     ) -> Self {
-        let mut builder = Client::builder();
-        if let Some(sec) = timeout_seconds {
-            builder = builder.timeout(std::time::Duration::from_secs(sec));
-        }
+        let timeout_seconds = resolve_request_timeout(timeout_seconds);
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_seconds))
+            .build()
+            .expect("Failed to build reqwest Client");
         Self {
             base_url: base_url.into(),
             api_key,
@@ -471,7 +474,7 @@ impl Ollama {
             repeat_penalty,
             repeat_last_n,
             min_p,
-            client: builder.build().expect("Failed to build reqwest Client"),
+            client,
         }
     }
 
@@ -482,7 +485,7 @@ impl Ollama {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.base_url.is_empty() {
-            return Err(LLMError::InvalidRequest("Missing base_url".to_string()));
+            return Err(LLMError::invalid_request("Missing base_url".to_string()));
         }
 
         let chat_messages: Vec<OllamaChatMessage> = messages
@@ -550,17 +553,11 @@ impl Ollama {
 
         let url = format!("{}/api/chat", self.base_url);
 
-        let mut request = self.client.post(&url).json(&req_body);
-
-        if let Some(timeout) = self.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
-
-        let resp = request.send().await?;
+        let resp = self.client.post(&url).json(&req_body).send().await?;
 
         log::debug!("Ollama HTTP status (tools): {}", resp.status());
 
-        let resp = resp.error_for_status()?;
+        let resp = ensure_success(resp, "Ollama").await?;
         let json_resp = resp.json::<OllamaResponse>().await?;
 
         Ok(Box::new(json_resp))
@@ -617,7 +614,7 @@ impl CompletionProvider for Ollama {
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<CompletionResponse, LLMError> {
         if self.base_url.is_empty() {
-            return Err(LLMError::InvalidRequest("Missing base_url".to_string()));
+            return Err(LLMError::invalid_request("Missing base_url".to_string()));
         }
         let url = format!("{}/api/generate", self.base_url);
 
@@ -644,13 +641,8 @@ impl CompletionProvider for Ollama {
             }),
         };
 
-        let resp = self
-            .client
-            .post(&url)
-            .json(&req_body)
-            .send()
-            .await?
-            .error_for_status()?;
+        let resp = self.client.post(&url).json(&req_body).send().await?;
+        let resp = ensure_success(resp, "Ollama").await?;
         let json_resp: OllamaResponse = resp.json().await?;
 
         if let Some(answer) = json_resp.response.or(json_resp.content) {
@@ -667,7 +659,7 @@ impl CompletionProvider for Ollama {
 impl EmbeddingProvider for Ollama {
     async fn embed(&self, text: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
         if self.base_url.is_empty() {
-            return Err(LLMError::InvalidRequest("Missing base_url".to_string()));
+            return Err(LLMError::invalid_request("Missing base_url".to_string()));
         }
         let url = format!("{}/api/embed", self.base_url);
 
@@ -676,13 +668,8 @@ impl EmbeddingProvider for Ollama {
             input: text,
         };
 
-        let resp = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?;
+        let resp = self.client.post(&url).json(&body).send().await?;
+        let resp = ensure_success(resp, "Ollama").await?;
 
         let json_resp: OllamaEmbeddingResponse = resp.json().await?;
         Ok(json_resp.embeddings)
@@ -799,7 +786,7 @@ impl EmbeddingBuilder<Ollama> {
     /// Build an Ollama embedding provider.
     pub fn build(self) -> Result<Arc<Ollama>, LLMError> {
         let model = self.model.ok_or_else(|| {
-            LLMError::InvalidRequest("No model provided for Ollama embeddings".to_string())
+            LLMError::invalid_request("No model provided for Ollama embeddings".to_string())
         })?;
 
         let provider = Ollama::new(
@@ -1079,7 +1066,7 @@ mod tests {
         let messages = vec![ChatMessage::user().content("hello").build()];
         assert!(matches!(
             provider.chat_with_tools(&messages, None, None).await,
-            Err(LLMError::InvalidRequest(message)) if message == "Missing base_url"
+            Err(LLMError::InvalidRequest { message, .. }) if message == "Missing base_url"
         ));
         assert!(matches!(
             provider
@@ -1092,11 +1079,11 @@ mod tests {
                     None
                 )
                 .await,
-            Err(LLMError::InvalidRequest(message)) if message == "Missing base_url"
+            Err(LLMError::InvalidRequest { message, .. }) if message == "Missing base_url"
         ));
         assert!(matches!(
             provider.embed(vec!["hello".to_string()]).await,
-            Err(LLMError::InvalidRequest(message)) if message == "Missing base_url"
+            Err(LLMError::InvalidRequest { message, .. }) if message == "Missing base_url"
         ));
 
         let server = MockServer::start();

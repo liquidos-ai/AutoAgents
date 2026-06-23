@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::config::resolve_request_timeout;
 use crate::embedding::EmbeddingProvider;
 
 /// Builder for creating embedding-only providers without going through the LLM builder.
@@ -80,9 +81,17 @@ impl<P: EmbeddingProvider> EmbeddingBuilder<P> {
     }
 
     /// Set a request timeout in seconds.
+    ///
+    /// When unset, [`resolved_timeout_seconds`](Self::resolved_timeout_seconds) returns
+    /// [`DEFAULT_REQUEST_TIMEOUT_SECS`](crate::config::DEFAULT_REQUEST_TIMEOUT_SECS) (120 seconds).
     pub fn timeout_seconds(mut self, timeout: u64) -> Self {
         self.timeout_seconds = Some(timeout);
         self
+    }
+
+    /// Returns the effective HTTP request timeout in seconds.
+    pub fn resolved_timeout_seconds(&self) -> u64 {
+        resolve_request_timeout(self.timeout_seconds)
     }
 }
 
@@ -122,5 +131,15 @@ mod tests {
         assert_eq!(builder.api_version.as_deref(), Some("v1"));
         assert_eq!(builder.deployment_id.as_deref(), Some("dep"));
         assert_eq!(builder.timeout_seconds, Some(10));
+        assert_eq!(builder.resolved_timeout_seconds(), 10);
+    }
+
+    #[test]
+    fn test_embedding_builder_default_timeout() {
+        let builder = EmbeddingBuilder::<DummyProvider>::new();
+        assert_eq!(
+            builder.resolved_timeout_seconds(),
+            crate::config::DEFAULT_REQUEST_TIMEOUT_SECS
+        );
     }
 }

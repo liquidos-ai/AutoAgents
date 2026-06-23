@@ -5,6 +5,7 @@
 use crate::builder::{LLMBackend, LLMBuilder};
 use crate::chat::Usage;
 use crate::embedding::EmbeddingBuilder;
+use crate::http::ensure_success;
 use crate::providers::openai_compatible::{
     OpenAIChatMessage, OpenAIChatResponse, OpenAICompatibleProvider, OpenAIProviderConfig,
     OpenAIResponseFormat, OpenAIStreamOptions, create_sse_stream,
@@ -568,7 +569,9 @@ impl OpenAI {
     ) -> Result<Self, LLMError> {
         let api_key_str = api_key.into();
         if api_key_str.is_empty() {
-            return Err(LLMError::AuthError("Missing OpenAI API key".to_string()));
+            return Err(LLMError::missing_api_key(
+                "Missing OpenAI API key".to_string(),
+            ));
         }
 
         Ok(Self {
@@ -794,8 +797,8 @@ impl ModelsProvider for OpenAI {
             .get(url)
             .bearer_auth(self.api_key())
             .send()
-            .await?
-            .error_for_status()?;
+            .await?;
+        let resp = ensure_success(resp, "OpenAI").await?;
 
         let result = StandardModelListResponse {
             inner: resp.json().await?,
@@ -824,7 +827,7 @@ impl OpenAI {
         &self.provider.base_url
     }
 
-    pub fn timeout_seconds(&self) -> Option<u64> {
+    pub fn timeout_seconds(&self) -> u64 {
         self.provider.timeout_seconds
     }
 
@@ -1056,7 +1059,7 @@ impl OpenAI {
                     ));
                 }
                 MessageType::Pdf(_) => {
-                    return Err(LLMError::InvalidRequest(
+                    return Err(LLMError::invalid_request(
                         "PDF input is not supported by the OpenAI Responses backend".to_string(),
                     ));
                 }
@@ -1120,7 +1123,7 @@ impl OpenAI {
             .base_url
             .join("responses")
             .map_err(|e| LLMError::HttpError(e.to_string()))?;
-        let mut request = self
+        let request = self
             .provider
             .client
             .post(url)
@@ -1133,21 +1136,9 @@ impl OpenAI {
             log::trace!("OpenAI Responses payload: {}", json);
         }
 
-        if let Some(timeout) = self.provider.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
-
         let response = request.send().await?;
         log::debug!("OpenAI Responses HTTP status: {}", response.status());
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await?;
-            return Err(LLMError::ResponseFormatError {
-                message: format!("OpenAI Responses API returned error status: {status}"),
-                raw_response: error_text,
-            });
-        }
-        Ok(response)
+        ensure_success(response, "OpenAI").await
     }
 
     async fn chat_with_tools_responses(
@@ -1202,7 +1193,7 @@ impl OpenAI {
             .base_url
             .join("chat/completions")
             .map_err(|e| LLMError::HttpError(e.to_string()))?;
-        let mut request = self
+        let request = self
             .provider
             .client
             .post(url)
@@ -1213,19 +1204,9 @@ impl OpenAI {
         {
             log::trace!("OpenAI request payload: {}", json);
         }
-        if let Some(timeout) = self.provider.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
         let response = request.send().await?;
         log::debug!("OpenAI HTTP status: {}", response.status());
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await?;
-            return Err(LLMError::ResponseFormatError {
-                message: format!("OpenAI API returned error status: {status}"),
-                raw_response: error_text,
-            });
-        }
+        let response = ensure_success(response, "OpenAI").await?;
         let resp_text = response.text().await?;
         let json_resp: Result<OpenAIChatResponse, serde_json::Error> =
             serde_json::from_str(&resp_text);
@@ -1272,24 +1253,14 @@ impl OpenAI {
             .base_url
             .join("chat/completions")
             .map_err(|e| LLMError::HttpError(e.to_string()))?;
-        let mut request = self
+        let request = self
             .provider
             .client
             .post(url)
             .bearer_auth(&self.provider.api_key)
             .json(&body);
-        if let Some(timeout) = self.provider.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
         let response = request.send().await?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await?;
-            return Err(LLMError::ResponseFormatError {
-                message: format!("OpenAI API returned error status: {status}"),
-                raw_response: error_text,
-            });
-        }
+        let response = ensure_success(response, "OpenAI").await?;
         Ok(create_sse_stream(
             response,
             self.provider.normalize_response,
@@ -1679,7 +1650,7 @@ impl LLMBuilder<OpenAI> {
 
     pub fn build(self) -> Result<Arc<OpenAI>, LLMError> {
         let key = self.api_key.ok_or_else(|| {
-            LLMError::InvalidRequest("No API key provided for OpenAI".to_string())
+            LLMError::invalid_request("No API key provided for OpenAI".to_string())
         })?;
         let openai = OpenAI::new(
             key,
@@ -1715,7 +1686,9 @@ impl LLMBuilder<OpenAI> {
 impl EmbeddingProvider for OpenAI {
     async fn embed(&self, input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
         if self.provider.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing OpenAI API key".into()));
+            return Err(LLMError::missing_api_key(
+                "Missing OpenAI API key".to_string(),
+            ));
         }
 
         let emb_format = self
@@ -1744,8 +1717,8 @@ impl EmbeddingProvider for OpenAI {
             .bearer_auth(&self.provider.api_key)
             .json(&body)
             .send()
-            .await?
-            .error_for_status()?;
+            .await?;
+        let resp = ensure_success(resp, "OpenAI").await?;
 
         let json_resp: OpenAIEmbeddingResponse = resp.json().await?;
 
@@ -1758,7 +1731,7 @@ impl EmbeddingBuilder<OpenAI> {
     /// Build an OpenAI embedding provider.
     pub fn build(self) -> Result<Arc<OpenAI>, LLMError> {
         let api_key = self.api_key.ok_or_else(|| {
-            LLMError::InvalidRequest("No API key provided for OpenAI".to_string())
+            LLMError::invalid_request("No API key provided for OpenAI".to_string())
         })?;
 
         let model = self
@@ -1946,7 +1919,7 @@ mod tests {
             None,
             None,
         );
-        assert!(matches!(result, Err(LLMError::AuthError(_))));
+        assert!(matches!(result, Err(LLMError::AuthError { .. })));
     }
 
     #[test]
@@ -2668,12 +2641,13 @@ mod tests {
             .await
             .expect_err("error status should fail");
         match err {
-            LLMError::ResponseFormatError {
-                message,
-                raw_response,
+            LLMError::HttpStatusError {
+                status_code,
+                response_body,
+                ..
             } => {
-                assert!(message.contains("returned error status"));
-                assert_eq!(raw_response, "bad gateway");
+                assert_eq!(status_code, 502);
+                assert_eq!(response_body.as_ref(), "bad gateway");
             }
             other => panic!("unexpected error: {other:?}"),
         }

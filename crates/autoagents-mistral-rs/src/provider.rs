@@ -390,7 +390,7 @@ impl MistralRsProvider {
                                 break;
                             }
                             Response::ValidationError(err) => {
-                                let _ = tx.send(Err(LLMError::InvalidRequest(err.to_string())));
+                                let _ = tx.send(Err(LLMError::invalid_request(err.to_string())));
                                 break;
                             }
                             Response::ModelError(msg, _) => {

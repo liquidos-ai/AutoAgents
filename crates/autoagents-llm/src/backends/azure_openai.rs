@@ -8,7 +8,9 @@ use crate::{
     FunctionCall, ToolCall,
     builder::LLMBuilder,
     chat::{ChatResponse, ToolChoice},
+    config::resolve_request_timeout,
     embedding::EmbeddingBuilder,
+    http::ensure_success,
 };
 #[cfg(feature = "azure_openai")]
 use crate::{
@@ -35,7 +37,7 @@ pub struct AzureOpenAI {
     pub model: String,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
-    pub timeout_seconds: Option<u64>,
+    pub timeout_seconds: u64,
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,
     pub tool_choice: Option<ToolChoice>,
@@ -83,13 +85,13 @@ impl<'a> TryFrom<&'a ChatMessage> for AzureOpenAIChatMessage<'a> {
             content: match &chat_msg.message_type {
                 MessageType::Text => Some(Right(chat_msg.content.clone())),
                 MessageType::Image(_) => {
-                    return Err(LLMError::InvalidRequest(
+                    return Err(LLMError::invalid_request(
                         "Raw image input is not supported by the Azure OpenAI chat backend"
                             .to_string(),
                     ));
                 }
                 MessageType::Pdf(_) => {
-                    return Err(LLMError::InvalidRequest(
+                    return Err(LLMError::invalid_request(
                         "PDF input is not supported by the Azure OpenAI chat backend".to_string(),
                     ));
                 }
@@ -389,10 +391,11 @@ impl AzureOpenAI {
         tool_choice: Option<ToolChoice>,
         reasoning_effort: Option<String>,
     ) -> Self {
-        let mut builder = Client::builder();
-        if let Some(sec) = timeout_seconds {
-            builder = builder.timeout(std::time::Duration::from_secs(sec));
-        }
+        let timeout_seconds = resolve_request_timeout(timeout_seconds);
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_seconds))
+            .build()
+            .expect("Failed to build reqwest Client");
 
         let endpoint = endpoint.into();
         let deployment_id = deployment_id.into();
@@ -411,7 +414,7 @@ impl AzureOpenAI {
             tool_choice,
             embedding_encoding_format,
             embedding_dimensions,
-            client: builder.build().expect("Failed to build reqwest Client"),
+            client,
             reasoning_effort,
         }
     }
@@ -435,7 +438,7 @@ impl ChatProvider for AzureOpenAI {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError(
+            return Err(LLMError::missing_api_key(
                 "Missing Azure OpenAI API key".to_string(),
             ));
         }
@@ -480,30 +483,18 @@ impl ChatProvider for AzureOpenAI {
         url.query_pairs_mut()
             .append_pair("api-version", &self.api_version);
 
-        let mut request = self
+        let request = self
             .client
             .post(url)
             .header("api-key", &self.api_key)
             .json(&body);
-
-        if let Some(timeout) = self.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
 
         // Send the request
         let response = request.send().await?;
 
         log::debug!("Azure OpenAI HTTP status: {}", response.status());
 
-        // If we got a non-200 response, let's get the error details
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await?;
-            return Err(LLMError::ResponseFormatError {
-                message: format!("OpenAI API returned error status: {status}"),
-                raw_response: error_text,
-            });
-        }
+        let response = ensure_success(response, "Azure OpenAI").await?;
 
         // Parse the successful response
         let resp_text = response.text().await?;
@@ -559,7 +550,9 @@ impl crate::HasConfig for AzureOpenAI {
 impl EmbeddingProvider for AzureOpenAI {
     async fn embed(&self, input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing OpenAI API key".into()));
+            return Err(LLMError::missing_api_key(
+                "Missing OpenAI API key".to_string(),
+            ));
         }
 
         let emb_format = self
@@ -588,8 +581,8 @@ impl EmbeddingProvider for AzureOpenAI {
             .header("api-key", &self.api_key)
             .json(&body)
             .send()
-            .await?
-            .error_for_status()?;
+            .await?;
+        let resp = ensure_success(resp, "Azure OpenAI").await?;
 
         let json_resp: OpenAIEmbeddingResponse = resp.json().await?;
 
@@ -604,19 +597,19 @@ impl ModelsProvider for AzureOpenAI {}
 impl LLMBuilder<AzureOpenAI> {
     pub fn build(self) -> Result<Arc<AzureOpenAI>, LLMError> {
         let endpoint = self.base_url.ok_or_else(|| {
-            LLMError::InvalidRequest("No API endpoint provided for Azure OpenAI".into())
+            LLMError::invalid_request("No API endpoint provided for Azure OpenAI")
         })?;
 
         let key = self.api_key.ok_or_else(|| {
-            LLMError::InvalidRequest("No API key provided for Azure OpenAI".to_string())
+            LLMError::invalid_request("No API key provided for Azure OpenAI".to_string())
         })?;
 
         let api_version = self.api_version.ok_or_else(|| {
-            LLMError::InvalidRequest("No API version provided for Azure OpenAI".to_string())
+            LLMError::invalid_request("No API version provided for Azure OpenAI".to_string())
         })?;
 
         let deployment = self.deployment_id.ok_or_else(|| {
-            LLMError::InvalidRequest("No deployment ID provided for Azure OpenAI".into())
+            LLMError::invalid_request("No deployment ID provided for Azure OpenAI")
         })?;
 
         let provider = AzureOpenAI::new(
@@ -644,16 +637,16 @@ impl EmbeddingBuilder<AzureOpenAI> {
     /// Build an Azure OpenAI embedding provider.
     pub fn build(self) -> Result<Arc<AzureOpenAI>, LLMError> {
         let api_key = self.api_key.ok_or_else(|| {
-            LLMError::InvalidRequest("No API key provided for Azure OpenAI".to_string())
+            LLMError::invalid_request("No API key provided for Azure OpenAI".to_string())
         })?;
         let api_version = self.api_version.ok_or_else(|| {
-            LLMError::InvalidRequest("No API version provided for Azure OpenAI".to_string())
+            LLMError::invalid_request("No API version provided for Azure OpenAI".to_string())
         })?;
         let deployment_id = self.deployment_id.ok_or_else(|| {
-            LLMError::InvalidRequest("No deployment ID provided for Azure OpenAI".to_string())
+            LLMError::invalid_request("No deployment ID provided for Azure OpenAI".to_string())
         })?;
         let endpoint = self.base_url.ok_or_else(|| {
-            LLMError::InvalidRequest("No API endpoint provided for Azure OpenAI".to_string())
+            LLMError::invalid_request("No API endpoint provided for Azure OpenAI".to_string())
         })?;
 
         let provider = AzureOpenAI::new(
@@ -716,7 +709,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            LLMError::InvalidRequest(message)
+            LLMError::InvalidRequest { message, .. }
                 if message == "Raw image input is not supported by the Azure OpenAI chat backend"
         ));
     }
@@ -763,7 +756,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            LLMError::InvalidRequest(message)
+            LLMError::InvalidRequest { message, .. }
                 if message == "Raw image input is not supported by the Azure OpenAI chat backend"
         ));
     }
@@ -780,7 +773,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            LLMError::InvalidRequest(message)
+            LLMError::InvalidRequest { message, .. }
                 if message == "PDF input is not supported by the Azure OpenAI chat backend"
         ));
     }
@@ -975,12 +968,13 @@ mod tests {
             .await
             .expect_err("error status should fail");
         match err {
-            LLMError::ResponseFormatError {
-                message,
-                raw_response,
+            LLMError::HttpStatusError {
+                status_code,
+                response_body,
+                ..
             } => {
-                assert!(message.contains("returned error status"));
-                assert_eq!(raw_response, "azure down");
+                assert_eq!(status_code, 500);
+                assert_eq!(response_body.as_ref(), "azure down");
             }
             other => panic!("unexpected error: {other:?}"),
         }

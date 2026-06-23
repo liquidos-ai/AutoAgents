@@ -184,7 +184,9 @@ impl CompletionProvider for DeepSeek {
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<CompletionResponse, LLMError> {
         if self.api_key().is_empty() {
-            return Err(LLMError::AuthError("Missing DeepSeek API key".into()));
+            return Err(LLMError::missing_api_key(
+                "Missing DeepSeek API key".to_string(),
+            ));
         }
         Err(LLMError::ProviderError(
             "DeepSeek completion not implemented yet".into(),
@@ -213,7 +215,7 @@ impl crate::HasConfig for DeepSeek {
 impl LLMBuilder<DeepSeek> {
     pub fn build(self) -> Result<Arc<DeepSeek>, LLMError> {
         let api_key = self.api_key.ok_or_else(|| {
-            LLMError::InvalidRequest("No API key provided for DeepSeek".to_string())
+            LLMError::invalid_request("No API key provided for DeepSeek".to_string())
         })?;
 
         let deepseek = DeepSeek::new(

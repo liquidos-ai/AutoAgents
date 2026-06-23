@@ -5,7 +5,9 @@
 
 use crate::FunctionCall;
 use crate::chat::{StreamChoice, StreamChunk as ChatStreamChunk, StreamDelta};
+use crate::config::resolve_request_timeout;
 use crate::error::LLMError;
+use crate::http::ensure_success;
 use crate::{
     ToolCall,
     chat::ChatResponse,
@@ -35,7 +37,7 @@ pub struct OpenAICompatibleProvider<T: OpenAIProviderConfig> {
     pub model: String,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
-    pub timeout_seconds: Option<u64>,
+    pub timeout_seconds: u64,
     pub top_p: Option<f32>,
     pub top_k: Option<u32>,
     pub tool_choice: Option<ToolChoice>,
@@ -325,10 +327,11 @@ impl<T: OpenAIProviderConfig> OpenAICompatibleProvider<T> {
         embedding_encoding_format: Option<String>,
         embedding_dimensions: Option<u32>,
     ) -> Self {
-        let mut builder = Client::builder();
-        if let Some(sec) = timeout_seconds {
-            builder = builder.timeout(std::time::Duration::from_secs(sec));
-        }
+        let timeout_seconds = resolve_request_timeout(timeout_seconds);
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_seconds))
+            .build()
+            .expect("Failed to build reqwest Client");
         let extra_body = match extra_body {
             Some(serde_json::Value::Object(map)) => map,
             _ => serde_json::Map::new(), // Should we panic here?
@@ -356,7 +359,7 @@ impl<T: OpenAIProviderConfig> OpenAICompatibleProvider<T> {
             normalize_response: normalize_response.unwrap_or(true),
             embedding_encoding_format,
             embedding_dimensions,
-            client: builder.build().expect("Failed to build reqwest Client"),
+            client,
             _phantom: PhantomData,
         }
     }
@@ -393,7 +396,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError(format!(
+            return Err(LLMError::missing_api_key(format!(
                 "Missing {} API key",
                 T::PROVIDER_NAME
             )));
@@ -452,19 +455,9 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
         {
             log::trace!("{} request payload: {}", T::PROVIDER_NAME, json);
         }
-        if let Some(timeout) = self.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
         let response = request.send().await?;
         log::debug!("{} HTTP status: {}", T::PROVIDER_NAME, response.status());
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await?;
-            return Err(LLMError::ResponseFormatError {
-                message: format!("{} API returned error status: {status}", T::PROVIDER_NAME),
-                raw_response: error_text,
-            });
-        }
+        let response = ensure_success(response, T::PROVIDER_NAME).await?;
         let resp_text = response.text().await?;
         let json_resp: Result<OpenAIChatResponse, serde_json::Error> =
             serde_json::from_str(&resp_text);
@@ -522,7 +515,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
         LLMError,
     > {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError(format!(
+            return Err(LLMError::missing_api_key(format!(
                 "Missing {} API key",
                 T::PROVIDER_NAME
             )));
@@ -581,19 +574,9 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
         {
             log::trace!("{} request payload: {}", T::PROVIDER_NAME, json);
         }
-        if let Some(timeout) = self.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
         let response = request.send().await?;
         log::debug!("{} HTTP status: {}", T::PROVIDER_NAME, response.status());
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await?;
-            return Err(LLMError::ResponseFormatError {
-                message: format!("{} API returned error status: {status}", T::PROVIDER_NAME),
-                raw_response: error_text,
-            });
-        }
+        let response = ensure_success(response, T::PROVIDER_NAME).await?;
         Ok(create_sse_stream(response, self.normalize_response))
     }
 
@@ -619,7 +602,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatStreamChunk, LLMError>> + Send>>, LLMError>
     {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError(format!(
+            return Err(LLMError::missing_api_key(format!(
                 "Missing {} API key",
                 T::PROVIDER_NAME
             )));
@@ -689,10 +672,6 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
             );
         }
 
-        if let Some(timeout) = self.timeout_seconds {
-            request = request.timeout(std::time::Duration::from_secs(timeout));
-        }
-
         log::debug!(
             "{} request: POST {} (streaming with tools)",
             T::PROVIDER_NAME,
@@ -700,15 +679,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
         );
         let response = request.send().await?;
         log::debug!("{} HTTP status: {}", T::PROVIDER_NAME, response.status());
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await?;
-            return Err(LLMError::ResponseFormatError {
-                message: format!("{} API returned error status: {status}", T::PROVIDER_NAME),
-                raw_response: error_text,
-            });
-        }
+        let response = ensure_success(response, T::PROVIDER_NAME).await?;
 
         Ok(create_openai_tool_stream(response))
     }
@@ -1009,7 +980,7 @@ pub fn chat_message_to_openai_message(
                 }]))
             }
             MessageType::Pdf(_) => {
-                return Err(LLMError::InvalidRequest(
+                return Err(LLMError::invalid_request(
                     "PDF input is not supported by OpenAI-compatible chat completions backends"
                         .to_string(),
                 ));
@@ -1842,7 +1813,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            LLMError::InvalidRequest(message)
+            LLMError::InvalidRequest { message, .. }
                 if message == "PDF input is not supported by OpenAI-compatible chat completions backends"
         ));
     }
@@ -1906,7 +1877,7 @@ mod tests {
         );
         let messages = vec![ChatMessage::user().content("hello").build()];
         let err = provider.chat(&messages, None).await.unwrap_err();
-        assert!(matches!(err, LLMError::AuthError(_)));
+        assert!(matches!(err, LLMError::AuthError { .. }));
     }
 
     #[tokio::test]
@@ -1921,7 +1892,7 @@ mod tests {
             .await
             .err()
             .expect("expected auth error");
-        assert!(matches!(err, LLMError::AuthError(_)));
+        assert!(matches!(err, LLMError::AuthError { .. }));
     }
 
     #[tokio::test]
@@ -1936,7 +1907,7 @@ mod tests {
             .await
             .err()
             .expect("expected auth error");
-        assert!(matches!(err, LLMError::AuthError(_)));
+        assert!(matches!(err, LLMError::AuthError { .. }));
     }
 
     #[test]
@@ -2087,12 +2058,13 @@ mod tests {
             .expect_err("non-success status should fail");
 
         match err {
-            LLMError::ResponseFormatError {
-                message,
-                raw_response,
+            LLMError::HttpStatusError {
+                status_code,
+                response_body,
+                ..
             } => {
-                assert!(message.contains("returned error status"));
-                assert_eq!(raw_response, "provider exploded");
+                assert_eq!(status_code, 500);
+                assert_eq!(response_body.as_ref(), "provider exploded");
             }
             other => panic!("unexpected error: {other:?}"),
         }
@@ -2202,5 +2174,120 @@ mod tests {
             Ok(ChatStreamChunk::Done { stop_reason }) if stop_reason == "tool_use"
         ));
         tool_mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_429_maps_to_rate_limit_error() {
+        let server = MockServer::start();
+        let rate_mock = server.mock(|when, then| {
+            when.method(POST).path("/v1/chat/completions");
+            then.status(429)
+                .header("Retry-After", "15")
+                .body(r#"{"error":{"message":"rate limited","code":"rate_limit_exceeded"}}"#);
+        });
+
+        let provider = full_support_provider(format!("{}/v1", server.base_url()));
+        let messages = vec![ChatMessage::user().content("hello").build()];
+        let err = provider
+            .chat_with_tools(&messages, None, None)
+            .await
+            .expect_err("429 should fail");
+
+        match err {
+            LLMError::RateLimitError {
+                status_code,
+                message,
+                retry_after,
+                ..
+            } => {
+                assert_eq!(status_code, 429);
+                assert_eq!(message, "rate limited");
+                assert_eq!(retry_after, Some(std::time::Duration::from_secs(15)));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        rate_mock.assert();
+    }
+
+    /// Reqwest client timeout bounds the full request lifecycle, including reading
+    /// a streaming response body. A slow-to-start SSE response should fail once
+    /// the configured timeout elapses.
+    #[tokio::test]
+    async fn test_streaming_request_times_out_when_body_is_slow() {
+        let server = MockServer::start();
+        let slow_stream_mock = server.mock(|when, then| {
+            when.method(POST).path("/v1/chat/completions");
+            then.status(200)
+                .header("content-type", "text/event-stream")
+                .delay(std::time::Duration::from_secs(3))
+                .body("data: {\"choices\":[{\"delta\":{\"content\":\"late\"}}]}\n\n");
+        });
+
+        let provider = OpenAICompatibleProvider::<FullSupportConfig>::new(
+            "key",
+            Some(format!("{}/v1", server.base_url())),
+            Some("full-model".to_string()),
+            Some(128),
+            Some(0.2),
+            Some(1),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let messages = vec![ChatMessage::user().content("stream").build()];
+        let err = match provider.chat_stream_struct(&messages, None, None).await {
+            Err(err) => err,
+            Ok(_) => panic!("slow stream should time out during setup/read"),
+        };
+
+        assert!(matches!(err, LLMError::HttpError(_)));
+        assert!(err.is_transport_retryable());
+        slow_stream_mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_chat_times_out_when_response_exceeds_limit() {
+        let server = MockServer::start();
+        let slow_mock = server.mock(|when, then| {
+            when.method(POST).path("/v1/chat/completions");
+            then.status(200).delay(std::time::Duration::from_secs(3)).body(
+                r#"{"choices":[{"message":{"role":"assistant","content":"late"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#,
+            );
+        });
+
+        let provider = OpenAICompatibleProvider::<FullSupportConfig>::new(
+            "key",
+            Some(format!("{}/v1", server.base_url())),
+            Some("full-model".to_string()),
+            Some(128),
+            Some(0.2),
+            Some(1),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let messages = vec![ChatMessage::user().content("hello").build()];
+        let err = provider
+            .chat_with_tools(&messages, None, None)
+            .await
+            .expect_err("slow response should time out");
+
+        assert!(matches!(err, LLMError::HttpError(_)));
+        assert!(err.is_transport_retryable());
+        slow_mock.assert();
     }
 }
