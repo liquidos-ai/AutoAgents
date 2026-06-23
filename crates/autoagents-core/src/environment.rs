@@ -280,11 +280,20 @@ impl Environment {
         }
     }
 
-    /// Returns whether a background run task is currently in progress.
+    /// Returns whether the environment has an active runtime launch.
+    ///
+    /// For [`run`](Self::run) this checks the managed join handle. For
+    /// [`run_background`](Self::run_background) this returns `true` until
+    /// [`shutdown`](Self::shutdown) clears the launch state.
     pub fn is_running(&self) -> bool {
-        self.handle
-            .as_ref()
-            .is_some_and(|handle| !handle.is_finished())
+        match self.launch_state {
+            RuntimeLaunchState::Background => true,
+            RuntimeLaunchState::Managed => self
+                .handle
+                .as_ref()
+                .is_some_and(|handle| !handle.is_finished()),
+            RuntimeLaunchState::Idle => false,
+        }
     }
 
     #[allow(clippy::result_large_err)]
@@ -714,6 +723,10 @@ mod tests {
         env.run_background()
             .await
             .expect("run_background should succeed");
+        assert!(
+            env.is_running(),
+            "run_background should mark the environment as running until shutdown"
+        );
 
         env.shutdown().await.expect("shutdown should succeed");
     }

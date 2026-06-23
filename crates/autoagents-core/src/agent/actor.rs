@@ -13,7 +13,7 @@ use crate::error::Error;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::runtime::TypedRuntime;
 use async_trait::async_trait;
-use autoagents_protocol::{Event, SubmissionId};
+use autoagents_protocol::Event;
 #[cfg(target_arch = "wasm32")]
 use futures::SinkExt;
 #[cfg(not(target_arch = "wasm32"))]
@@ -28,6 +28,7 @@ use std::sync::Arc;
 ///
 /// Actor agents run inside a runtime, can subscribe to topics, receive
 /// messages, and emit protocol `Event`s for streaming updates.
+#[derive(Clone, Copy)]
 pub struct ActorAgent {}
 
 impl AgentType for ActorAgent {
@@ -127,42 +128,6 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         self.tx.clone().ok_or(RunnableAgentError::EmptyTx)
     }
 
-    /// Convert executor output to a protocol event payload and finish the run
-    /// lifecycle. Uses `Value: From<AgentExecutor::Output>` so `TaskComplete`
-    /// matches the non-streaming path regardless of `AgentDeriveT::Output`.
-    async fn finish_executor_run(
-        &self,
-        task: &Task,
-        context: &Context,
-        tx_event: &Option<Sender<Event>>,
-        submission_id: SubmissionId,
-        executor_out: <T as AgentExecutor>::Output,
-    ) -> Result<<T as AgentDeriveT>::Output, RunnableAgentError>
-    where
-        Value: From<<T as AgentExecutor>::Output>,
-        <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
-    {
-        let value: Value = executor_out.clone().into();
-        #[cfg(not(target_arch = "wasm32"))]
-        if let Err(e) = EventHelper::send_task_completed_value(
-            tx_event,
-            submission_id,
-            self.id,
-            self.name().to_string(),
-            &value,
-        )
-        .await
-        {
-            let err = RunnableAgentError::ExecutorError(e.to_string());
-            EventHelper::send_task_error(tx_event, submission_id, self.id, err.to_string()).await;
-            return Err(err);
-        }
-
-        let agent_out: <T as AgentDeriveT>::Output = executor_out.into();
-        self.inner.on_run_complete(task, &agent_out, context).await;
-        Ok(agent_out)
-    }
-
     pub async fn run(
         self: Arc<Self>,
         task: Task,
@@ -192,7 +157,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         // Execute the agent's logic using the executor
         match self.inner().execute(&task, context.clone()).await {
             Ok(output) => {
-                self.finish_executor_run(&task, &context, &tx_event, submission_id, output)
+                self.finish_executor_run(&task, &context, submission_id, output)
                     .await
             }
             Err(e) => {
@@ -347,7 +312,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
             }
         };
 
-        self.finish_executor_run(&task, &context, &tx_event, submission_id, executor_out)
+        self.finish_executor_run(&task, &context, submission_id, executor_out)
             .await
     }
 }

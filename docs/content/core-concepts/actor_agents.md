@@ -28,7 +28,7 @@ After wiring agents and publishing work, start the registered runtimes:
 - **`wait().await`** — joins the background task started by `run()`. Clears the stored handle when the task finishes, so later calls return immediately with `Ok(Ok(()))`. Use this in short-lived programs once messages/tasks have been published.
 - **`shutdown().await`** — requests shutdown on all runtimes and joins the run handle. Returns `Result<(), EnvironmentError>` so runtime or join failures are visible. Use for graceful exit (for example on `Ctrl+C`).
 - **`run_background().await`** — starts runtimes without storing a join handle on the environment. Useful when you manage lifecycle elsewhere. Cannot be combined with `run()` on the same `Environment` until `shutdown().await` is called.
-- **`is_running()`** — returns whether a background run task is currently active.
+- **`is_running()`** — returns whether a runtime launch is active (`run()` join handle not finished, or `run_background()` until `shutdown()`).
 
 If a managed run task finishes without calling `wait()` or `shutdown()`, a subsequent `run()` joins the finished task first and returns any runtime or join error before spawning a new run.
 
