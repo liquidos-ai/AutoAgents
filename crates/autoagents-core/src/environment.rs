@@ -202,6 +202,7 @@ mod tests {
     use super::*;
     use crate::runtime::SingleThreadedRuntime;
     use tempfile::tempdir;
+    use tokio::sync::mpsc;
     use uuid::Uuid;
 
     #[test]
@@ -397,5 +398,174 @@ mod tests {
                 .expect("wait should not hang");
             assert!(result.is_ok());
         }
+    }
+
+    #[derive(Clone, Copy)]
+    enum ImmediateRuntimeBehavior {
+        Success,
+        Error,
+    }
+
+    struct ImmediateRuntime {
+        id: RuntimeID,
+        behavior: ImmediateRuntimeBehavior,
+        tx: mpsc::Sender<Event>,
+    }
+
+    #[async_trait::async_trait]
+    impl Runtime for ImmediateRuntime {
+        fn id(&self) -> RuntimeID {
+            self.id
+        }
+
+        async fn subscribe_any(
+            &self,
+            _topic_name: &str,
+            _topic_type: std::any::TypeId,
+            _actor: Arc<dyn crate::actor::AnyActor>,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn publish_any(
+            &self,
+            _topic_name: &str,
+            _topic_type: std::any::TypeId,
+            _message: Arc<dyn std::any::Any + Send + Sync>,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn tx(&self) -> mpsc::Sender<Event> {
+            self.tx.clone()
+        }
+
+        async fn transport(&self) -> Arc<dyn crate::actor::Transport> {
+            Arc::new(crate::actor::LocalTransport)
+        }
+
+        async fn take_event_receiver(&self) -> Option<BoxEventStream<Event>> {
+            None
+        }
+
+        async fn subscribe_events(&self) -> BoxEventStream<Event> {
+            Box::pin(futures::stream::empty())
+        }
+
+        async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            match self.behavior {
+                ImmediateRuntimeBehavior::Success => Ok(()),
+                ImmediateRuntimeBehavior::Error => {
+                    Err(std::io::Error::other("immediate runtime run failed").into())
+                }
+            }
+        }
+
+        async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_environment_wait_awaits_completed_run_task() {
+        let mut env = Environment::new(None);
+        let (tx, _rx) = mpsc::channel(1);
+        let runtime = Arc::new(ImmediateRuntime {
+            id: RuntimeID::new_v4(),
+            behavior: ImmediateRuntimeBehavior::Success,
+            tx,
+        }) as Arc<dyn Runtime>;
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run().expect("run should succeed");
+        let wait_result = env.wait().await.expect("wait join should succeed");
+        assert!(wait_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_environment_run_restarts_after_finished_handle() {
+        use tokio::time::{Duration, sleep};
+
+        let mut env = Environment::new(None);
+        let (tx, _rx) = mpsc::channel(1);
+        let runtime = Arc::new(ImmediateRuntime {
+            id: RuntimeID::new_v4(),
+            behavior: ImmediateRuntimeBehavior::Success,
+            tx,
+        }) as Arc<dyn Runtime>;
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run().expect("initial run should succeed");
+        sleep(Duration::from_millis(20)).await;
+        assert!(!env.is_running());
+
+        env.run().expect("run after finished handle should succeed");
+        env.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn test_environment_run_background_starts_runtimes() {
+        let mut env = Environment::new(None);
+        let (tx, _rx) = mpsc::channel(1);
+        let runtime = Arc::new(ImmediateRuntime {
+            id: RuntimeID::new_v4(),
+            behavior: ImmediateRuntimeBehavior::Success,
+            tx,
+        }) as Arc<dyn Runtime>;
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run_background()
+            .await
+            .expect("run_background should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_environment_wait_propagates_run_failure() {
+        let mut env = Environment::new(None);
+        let (tx, _rx) = mpsc::channel(1);
+        let runtime = Arc::new(ImmediateRuntime {
+            id: RuntimeID::new_v4(),
+            behavior: ImmediateRuntimeBehavior::Error,
+            tx,
+        }) as Arc<dyn Runtime>;
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run().expect("run should succeed");
+        let wait_result = env.wait().await.expect("wait join should succeed");
+        assert!(wait_result.is_err());
+    }
+
+    #[test]
+    fn test_environment_config_accessor() {
+        let dir = tempdir().expect("Unable to create temp dir");
+        let config = EnvironmentConfig {
+            working_dir: dir.path().to_path_buf(),
+        };
+        let env = Environment::new(Some(config.clone()));
+        assert_eq!(env.config().working_dir, config.working_dir);
+    }
+
+    #[tokio::test]
+    async fn test_subscribe_events_with_default_runtime() {
+        let mut env = Environment::new(None);
+        let runtime = SingleThreadedRuntime::new(None);
+        env.register_runtime(runtime).await.unwrap();
+
+        let stream = env.subscribe_events(None).await;
+        assert!(stream.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_runtime_or_default_uses_default_runtime() {
+        let mut env = Environment::new(None);
+        let runtime = SingleThreadedRuntime::new(None);
+        let runtime_id = runtime.id;
+        env.register_runtime(runtime).await.unwrap();
+
+        let resolved = env
+            .get_runtime_or_default(None)
+            .await
+            .expect("default runtime should resolve");
+        assert_eq!(resolved.id(), runtime_id);
     }
 }

@@ -227,10 +227,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
 
                 Ok(Box::pin(transformed_stream))
             }
-            Err(e) => {
-                // Send error event for stream creation failure
-                Err(e.into())
-            }
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -256,10 +253,19 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
             HookOutcome::Continue => {}
         }
 
-        let mut stream = self
+        let mut stream = match self
             .clone()
             .run_stream_with_context(task.clone(), context.clone())
-            .await?;
+            .await
+        {
+            Ok(stream) => stream,
+            Err(e) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                EventHelper::send_task_error(&tx_event, submission_id, self.id, e.to_string())
+                    .await;
+                return Err(e);
+            }
+        };
         use futures::StreamExt;
 
         let mut last_output = None;
@@ -356,11 +362,14 @@ where
 mod tests {
     use super::*;
     use crate::actor::{LocalTransport, Topic, Transport};
+    use crate::agent::hooks::HookOutcome;
+    use crate::agent::output::AgentOutputT;
+    use crate::agent::{Context, ExecutorConfig};
     use crate::runtime::{Runtime, RuntimeError};
-    use crate::tests::{MockAgentImpl, MockLLMProvider};
+    use crate::tests::{MockAgentImpl, MockLLMProvider, TestAgentOutput, TestError};
     use crate::utils::BoxEventStream;
     use async_trait::async_trait;
-    use futures::stream;
+    use futures::{StreamExt, stream};
     use std::any::{Any, TypeId};
     use std::sync::Arc;
     use tokio::sync::{Mutex, mpsc};
@@ -486,6 +495,374 @@ mod tests {
             .unwrap();
         agent.tx = None;
         let err = agent.tx().unwrap_err();
+        assert!(matches!(err, RunnableAgentError::EmptyTx));
+    }
+
+    async fn streaming_actor_agent(stream: bool) -> Arc<BaseAgent<MockAgentImpl, ActorAgent>> {
+        let mock = MockAgentImpl::new("stream_agent", "streaming test agent");
+        let llm = Arc::new(MockLLMProvider);
+        let (tx, _rx) = mpsc::channel(8);
+        Arc::new(
+            BaseAgent::<_, ActorAgent>::new(mock, llm, None, tx, stream)
+                .await
+                .expect("agent should build"),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_actor_run_stream_returns_executor_output() {
+        let agent = streaming_actor_agent(true).await;
+        let task = Task::new("stream me");
+        let stream = agent.run_stream(task).await.expect("stream should start");
+        let outputs: Vec<_> = stream.collect().await;
+        assert_eq!(outputs.len(), 1);
+        let output = outputs[0].as_ref().expect("expected stream output");
+        assert!(output.result.contains("stream me"));
+    }
+
+    #[tokio::test]
+    async fn test_actor_run_stream_to_completion_returns_output() {
+        let agent = streaming_actor_agent(true).await;
+        let task = Task::new("complete me");
+        let output = agent
+            .run_stream_to_completion(task)
+            .await
+            .expect("stream should complete");
+        assert!(output.result.contains("complete me"));
+    }
+
+    #[derive(Debug, Clone)]
+    struct AbortStreamingAgent;
+
+    #[async_trait]
+    impl AgentDeriveT for AbortStreamingAgent {
+        type Output = TestAgentOutput;
+
+        fn description(&self) -> &'static str {
+            "abort streaming agent"
+        }
+
+        fn output_schema(&self) -> Option<serde_json::Value> {
+            Some(TestAgentOutput::structured_output_format())
+        }
+
+        fn name(&self) -> &'static str {
+            "abort_streaming_agent"
+        }
+
+        fn tools(&self) -> Vec<Box<dyn crate::tool::ToolT>> {
+            vec![]
+        }
+    }
+
+    #[async_trait]
+    impl AgentExecutor for AbortStreamingAgent {
+        type Output = TestAgentOutput;
+        type Error = TestError;
+
+        fn config(&self) -> ExecutorConfig {
+            ExecutorConfig::default()
+        }
+
+        async fn execute(
+            &self,
+            _task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<Self::Output, Self::Error> {
+            Ok(TestAgentOutput {
+                result: "unused".to_string(),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl AgentHooks for AbortStreamingAgent {
+        async fn on_run_start(&self, _task: &Task, _ctx: &Context) -> HookOutcome {
+            HookOutcome::Abort
+        }
+    }
+
+    #[tokio::test]
+    async fn test_actor_run_stream_to_completion_aborts_on_hook() {
+        let llm = Arc::new(MockLLMProvider);
+        let (tx, _rx) = mpsc::channel(2);
+        let agent = Arc::new(
+            BaseAgent::<_, ActorAgent>::new(AbortStreamingAgent, llm, None, tx, true)
+                .await
+                .expect("agent should build"),
+        );
+
+        let err = agent
+            .run_stream_to_completion(Task::new("abort"))
+            .await
+            .expect_err("expected hook abort");
+        assert!(matches!(err, RunnableAgentError::Abort));
+    }
+
+    #[derive(Debug, Clone)]
+    struct FailingStreamSetupAgent;
+
+    #[async_trait]
+    impl AgentDeriveT for FailingStreamSetupAgent {
+        type Output = TestAgentOutput;
+
+        fn description(&self) -> &'static str {
+            "failing stream setup"
+        }
+
+        fn output_schema(&self) -> Option<serde_json::Value> {
+            Some(TestAgentOutput::structured_output_format())
+        }
+
+        fn name(&self) -> &'static str {
+            "failing_stream_setup"
+        }
+
+        fn tools(&self) -> Vec<Box<dyn crate::tool::ToolT>> {
+            vec![]
+        }
+    }
+
+    #[async_trait]
+    impl AgentExecutor for FailingStreamSetupAgent {
+        type Output = TestAgentOutput;
+        type Error = TestError;
+
+        fn config(&self) -> ExecutorConfig {
+            ExecutorConfig::default()
+        }
+
+        async fn execute(
+            &self,
+            _task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<Self::Output, Self::Error> {
+            Ok(TestAgentOutput {
+                result: "unused".to_string(),
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            _task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<crate::utils::BoxRuntimeStream<Result<Self::Output, Self::Error>>, Self::Error>
+        {
+            Err(TestError::ExecutionFailed(
+                "stream setup failed".to_string(),
+            ))
+        }
+    }
+
+    impl AgentHooks for FailingStreamSetupAgent {}
+
+    #[tokio::test]
+    async fn test_actor_run_stream_to_completion_execute_stream_setup_error() {
+        let llm = Arc::new(MockLLMProvider);
+        let (tx, mut rx) = mpsc::channel(2);
+        let agent = Arc::new(
+            BaseAgent::<_, ActorAgent>::new(FailingStreamSetupAgent, llm, None, tx, true)
+                .await
+                .expect("agent should build"),
+        );
+
+        let err = agent
+            .run_stream_to_completion(Task::new("fail setup"))
+            .await
+            .expect_err("expected stream setup failure");
+        assert!(matches!(err, RunnableAgentError::ExecutorError(_)));
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("timed out waiting for TaskError event")
+            .expect("channel closed without event");
+        match event {
+            Event::TaskError { error, .. } => {
+                assert!(error.contains("stream setup failed"));
+            }
+            other => panic!("expected TaskError, got {other:?}"),
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct EmptyStreamAgent;
+
+    #[async_trait]
+    impl AgentDeriveT for EmptyStreamAgent {
+        type Output = TestAgentOutput;
+
+        fn description(&self) -> &'static str {
+            "empty stream agent"
+        }
+
+        fn output_schema(&self) -> Option<serde_json::Value> {
+            Some(TestAgentOutput::structured_output_format())
+        }
+
+        fn name(&self) -> &'static str {
+            "empty_stream_agent"
+        }
+
+        fn tools(&self) -> Vec<Box<dyn crate::tool::ToolT>> {
+            vec![]
+        }
+    }
+
+    #[async_trait]
+    impl AgentExecutor for EmptyStreamAgent {
+        type Output = TestAgentOutput;
+        type Error = TestError;
+
+        fn config(&self) -> ExecutorConfig {
+            ExecutorConfig::default()
+        }
+
+        async fn execute(
+            &self,
+            _task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<Self::Output, Self::Error> {
+            Ok(TestAgentOutput {
+                result: "unused".to_string(),
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            _task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<crate::utils::BoxRuntimeStream<Result<Self::Output, Self::Error>>, Self::Error>
+        {
+            Ok(Box::pin(stream::empty()))
+        }
+    }
+
+    impl AgentHooks for EmptyStreamAgent {}
+
+    #[tokio::test]
+    async fn test_actor_run_stream_to_completion_empty_stream_error() {
+        let llm = Arc::new(MockLLMProvider);
+        let (tx, _rx) = mpsc::channel(2);
+        let agent = Arc::new(
+            BaseAgent::<_, ActorAgent>::new(EmptyStreamAgent, llm, None, tx, true)
+                .await
+                .expect("agent should build"),
+        );
+
+        let err = agent
+            .run_stream_to_completion(Task::new("empty"))
+            .await
+            .expect_err("expected empty stream failure");
+        assert!(matches!(err, RunnableAgentError::ExecutorError(_)));
+        assert!(err.to_string().contains("without output"));
+    }
+
+    #[derive(Debug, Clone)]
+    struct StreamItemErrorAgent;
+
+    #[async_trait]
+    impl AgentDeriveT for StreamItemErrorAgent {
+        type Output = TestAgentOutput;
+
+        fn description(&self) -> &'static str {
+            "stream item error agent"
+        }
+
+        fn output_schema(&self) -> Option<serde_json::Value> {
+            Some(TestAgentOutput::structured_output_format())
+        }
+
+        fn name(&self) -> &'static str {
+            "stream_item_error_agent"
+        }
+
+        fn tools(&self) -> Vec<Box<dyn crate::tool::ToolT>> {
+            vec![]
+        }
+    }
+
+    #[async_trait]
+    impl AgentExecutor for StreamItemErrorAgent {
+        type Output = TestAgentOutput;
+        type Error = TestError;
+
+        fn config(&self) -> ExecutorConfig {
+            ExecutorConfig::default()
+        }
+
+        async fn execute(
+            &self,
+            _task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<Self::Output, Self::Error> {
+            Ok(TestAgentOutput {
+                result: "unused".to_string(),
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            _task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<crate::utils::BoxRuntimeStream<Result<Self::Output, Self::Error>>, Self::Error>
+        {
+            Ok(Box::pin(stream::iter([Err(TestError::ExecutionFailed(
+                "stream item failed".to_string(),
+            ))])))
+        }
+    }
+
+    impl AgentHooks for StreamItemErrorAgent {}
+
+    #[tokio::test]
+    async fn test_actor_run_stream_to_completion_stream_item_error() {
+        let llm = Arc::new(MockLLMProvider);
+        let (tx, mut rx) = mpsc::channel(2);
+        let agent = Arc::new(
+            BaseAgent::<_, ActorAgent>::new(StreamItemErrorAgent, llm, None, tx, true)
+                .await
+                .expect("agent should build"),
+        );
+
+        let err = agent
+            .run_stream_to_completion(Task::new("stream error"))
+            .await
+            .expect_err("expected stream item failure");
+        assert!(matches!(err, RunnableAgentError::ExecutorError(_)));
+        assert!(err.to_string().contains("stream item failed"));
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("timed out waiting for TaskError event")
+            .expect("channel closed without event");
+        match event {
+            Event::TaskError { error, .. } => {
+                assert!(error.contains("stream item failed"));
+            }
+            other => panic!("expected TaskError, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_actor_run_stream_to_completion_missing_tx_error() {
+        let llm = Arc::new(MockLLMProvider);
+        let (tx, _rx) = mpsc::channel(2);
+        let mut agent = BaseAgent::<_, ActorAgent>::new(
+            MockAgentImpl::new("agent", "desc"),
+            llm,
+            None,
+            tx,
+            true,
+        )
+        .await
+        .expect("agent should build");
+        agent.tx = None;
+        let agent = Arc::new(agent);
+
+        let err = agent
+            .run_stream_to_completion(Task::new("missing tx"))
+            .await
+            .expect_err("expected missing tx failure");
         assert!(matches!(err, RunnableAgentError::EmptyTx));
     }
 }
