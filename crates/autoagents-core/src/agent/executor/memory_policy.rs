@@ -4,6 +4,7 @@ use crate::agent::task::Task;
 use crate::tool::ToolCallResult;
 use autoagents_llm::ToolCall;
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
+use autoagents_llm::error::LLMError;
 use std::sync::Arc;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -70,7 +71,53 @@ impl MemoryPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::memory::SlidingWindowMemory;
+    use crate::agent::memory::{MemoryType, SlidingWindowMemory, TrimStrategy};
+
+    #[derive(Clone)]
+    struct FailingMemoryProvider;
+
+    #[async_trait::async_trait]
+    impl MemoryProvider for FailingMemoryProvider {
+        async fn remember(&mut self, _message: &ChatMessage) -> Result<(), LLMError> {
+            Err(LLMError::ProviderError("memory write failed".to_string()))
+        }
+
+        async fn recall(
+            &self,
+            _query: &str,
+            _limit: Option<usize>,
+        ) -> Result<Vec<ChatMessage>, LLMError> {
+            Ok(Vec::new())
+        }
+
+        async fn clear(&mut self) -> Result<(), LLMError> {
+            Ok(())
+        }
+
+        fn memory_type(&self) -> MemoryType {
+            MemoryType::Custom
+        }
+
+        fn size(&self) -> usize {
+            0
+        }
+
+        fn clone_box(&self) -> Box<dyn MemoryProvider> {
+            Box::new(self.clone())
+        }
+    }
+
+    fn failing_adapter() -> MemoryAdapter {
+        let mem: Box<dyn MemoryProvider> = Box::new(FailingMemoryProvider);
+        MemoryAdapter::new(Some(Arc::new(Mutex::new(mem))), MemoryPolicy::basic())
+    }
+
+    fn assert_memory_write_error(result: Result<(), LLMError>) {
+        match result {
+            Err(LLMError::ProviderError(message)) => assert_eq!(message, "memory write failed"),
+            other => panic!("expected provider error, got {other:?}"),
+        }
+    }
 
     #[test]
     fn test_basic_memory_policy_enables_recall_and_tool_interactions() {
@@ -163,7 +210,7 @@ mod tests {
         let mem_arc = Arc::new(Mutex::new(mem));
         let adapter = MemoryAdapter::new(Some(mem_arc.clone()), MemoryPolicy::basic());
         let task = Task::new("user message");
-        adapter.store_user(&task).await;
+        adapter.store_user(&task).await.unwrap();
         let stored = mem_arc.lock().await.recall("", None).await.unwrap();
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0].content, "user message");
@@ -177,7 +224,7 @@ mod tests {
         policy.store_user = false;
         let adapter = MemoryAdapter::new(Some(mem_arc.clone()), policy);
         let task = Task::new("user message");
-        adapter.store_user(&task).await;
+        adapter.store_user(&task).await.unwrap();
         let stored = mem_arc.lock().await.recall("", None).await.unwrap();
         assert!(stored.is_empty());
     }
@@ -187,7 +234,7 @@ mod tests {
         let adapter = MemoryAdapter::new(None, MemoryPolicy::basic());
         let task = Task::new("user message");
         // Should not panic
-        adapter.store_user(&task).await;
+        adapter.store_user(&task).await.unwrap();
     }
 
     #[tokio::test]
@@ -195,7 +242,7 @@ mod tests {
         let mem: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(10));
         let mem_arc = Arc::new(Mutex::new(mem));
         let adapter = MemoryAdapter::new(Some(mem_arc.clone()), MemoryPolicy::basic());
-        adapter.store_assistant("assistant reply").await;
+        adapter.store_assistant("assistant reply").await.unwrap();
         let stored = mem_arc.lock().await.recall("", None).await.unwrap();
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0].content, "assistant reply");
@@ -208,7 +255,7 @@ mod tests {
         let mut policy = MemoryPolicy::basic();
         policy.store_assistant = false;
         let adapter = MemoryAdapter::new(Some(mem_arc.clone()), policy);
-        adapter.store_assistant("reply").await;
+        adapter.store_assistant("reply").await.unwrap();
         let stored = mem_arc.lock().await.recall("", None).await.unwrap();
         assert!(stored.is_empty());
     }
@@ -234,7 +281,8 @@ mod tests {
         }];
         adapter
             .store_tool_interaction(&tool_calls, &results, "text")
-            .await;
+            .await
+            .unwrap();
         let stored = mem_arc.lock().await.recall("", None).await.unwrap();
         // Stores 2 messages: assistant ToolUse + Tool ToolResult
         assert_eq!(stored.len(), 2);
@@ -247,9 +295,94 @@ mod tests {
         let mut policy = MemoryPolicy::basic();
         policy.store_tool_interactions = false;
         let adapter = MemoryAdapter::new(Some(mem_arc.clone()), policy);
-        adapter.store_tool_interaction(&[], &[], "text").await;
+        adapter
+            .store_tool_interaction(&[], &[], "text")
+            .await
+            .unwrap();
         let stored = mem_arc.lock().await.recall("", None).await.unwrap();
         assert!(stored.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_store_user_returns_memory_write_failure() {
+        let adapter = failing_adapter();
+        let task = Task::new("user message");
+
+        assert_memory_write_error(adapter.store_user(&task).await);
+    }
+
+    #[tokio::test]
+    async fn test_store_assistant_returns_memory_write_failure() {
+        let adapter = failing_adapter();
+
+        assert_memory_write_error(adapter.store_assistant("assistant reply").await);
+    }
+
+    #[tokio::test]
+    async fn test_store_tool_interaction_returns_memory_write_failure() {
+        let adapter = failing_adapter();
+        let tool_calls = vec![ToolCall {
+            id: "tc1".to_string(),
+            call_type: "function".to_string(),
+            function: autoagents_llm::FunctionCall {
+                name: "tool".to_string(),
+                arguments: "{}".to_string(),
+            },
+        }];
+        let results = vec![crate::tool::ToolCallResult {
+            tool_name: "tool".to_string(),
+            success: true,
+            arguments: serde_json::json!({}),
+            result: serde_json::json!("ok"),
+        }];
+
+        assert_memory_write_error(
+            adapter
+                .store_tool_interaction(&tool_calls, &results, "text")
+                .await,
+        );
+    }
+
+    #[tokio::test]
+    async fn test_store_tool_interaction_does_not_partially_write_when_memory_is_full() {
+        let mut memory = SlidingWindowMemory::with_strategy(2, TrimStrategy::Summarize);
+        for content in ["Message 1", "Message 2"] {
+            memory
+                .remember(&ChatMessage {
+                    role: ChatRole::User,
+                    message_type: MessageType::Text,
+                    content: content.to_string(),
+                })
+                .await
+                .unwrap();
+        }
+        let mem: Box<dyn MemoryProvider> = Box::new(memory);
+        let mem_arc = Arc::new(Mutex::new(mem));
+        let adapter = MemoryAdapter::new(Some(mem_arc.clone()), MemoryPolicy::basic());
+        let tool_calls = vec![ToolCall {
+            id: "tc1".to_string(),
+            call_type: "function".to_string(),
+            function: autoagents_llm::FunctionCall {
+                name: "tool".to_string(),
+                arguments: "{}".to_string(),
+            },
+        }];
+        let results = vec![crate::tool::ToolCallResult {
+            tool_name: "tool".to_string(),
+            success: true,
+            arguments: serde_json::json!({}),
+            result: serde_json::json!("ok"),
+        }];
+
+        let result = adapter
+            .store_tool_interaction(&tool_calls, &results, "text")
+            .await;
+
+        assert!(matches!(result, Err(LLMError::ProviderError(_))));
+        let stored = mem_arc.lock().await.recall("", None).await.unwrap();
+        assert_eq!(stored.len(), 2);
+        assert_eq!(stored[0].content, "Message 1");
+        assert_eq!(stored[1].content, "Message 2");
     }
 
     #[test]
@@ -300,12 +433,12 @@ impl MemoryAdapter {
             .unwrap_or_default()
     }
 
-    pub async fn store_user(&self, task: &Task) {
+    pub async fn store_user(&self, task: &Task) -> Result<(), LLMError> {
         if !self.policy.store_user {
-            return;
+            return Ok(());
         }
         let Some(memory) = &self.memory else {
-            return;
+            return Ok(());
         };
         let message = if let Some((mime, data)) = &task.image {
             ChatMessage {
@@ -320,22 +453,22 @@ impl MemoryAdapter {
                 content: task.prompt.clone(),
             }
         };
-        let _ = memory.lock().await.remember(&message).await;
+        memory.lock().await.remember(&message).await
     }
 
-    pub async fn store_assistant(&self, response: &str) {
+    pub async fn store_assistant(&self, response: &str) -> Result<(), LLMError> {
         if !self.policy.store_assistant {
-            return;
+            return Ok(());
         }
         let Some(memory) = &self.memory else {
-            return;
+            return Ok(());
         };
         let message = ChatMessage {
             role: ChatRole::Assistant,
             message_type: MessageType::Text,
             content: response.to_string(),
         };
-        let _ = memory.lock().await.remember(&message).await;
+        memory.lock().await.remember(&message).await
     }
 
     pub async fn store_tool_interaction(
@@ -343,30 +476,27 @@ impl MemoryAdapter {
         tool_calls: &[ToolCall],
         tool_results: &[ToolCallResult],
         response_text: &str,
-    ) {
+    ) -> Result<(), LLMError> {
         if !self.policy.store_tool_interactions {
-            return;
+            return Ok(());
         }
         let Some(memory) = &self.memory else {
-            return;
+            return Ok(());
         };
-        let mut memory = memory.lock().await;
-        let _ = memory
-            .remember(&ChatMessage {
+        let result_tool_calls = ToolProcessor::create_result_tool_calls(tool_calls, tool_results);
+        let messages = [
+            ChatMessage {
                 role: ChatRole::Assistant,
                 message_type: MessageType::ToolUse(tool_calls.to_vec()),
                 content: response_text.to_string(),
-            })
-            .await;
-
-        let result_tool_calls = ToolProcessor::create_result_tool_calls(tool_calls, tool_results);
-
-        let _ = memory
-            .remember(&ChatMessage {
+            },
+            ChatMessage {
                 role: ChatRole::Tool,
                 message_type: MessageType::ToolResult(result_tool_calls),
                 content: String::default(),
-            })
-            .await;
+            },
+        ];
+
+        memory.lock().await.remember_many(&messages).await
     }
 }

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 mod sliding_window;
-pub use sliding_window::SlidingWindowMemory;
+pub use sliding_window::{SlidingWindowMemory, TrimStrategy};
 
 #[cfg(test)]
 mod tests {
@@ -804,6 +804,17 @@ pub trait MemoryProvider: Send + Sync {
     /// * `Ok(())` if the message was stored successfully
     /// * `Err(LLMError)` if storage failed
     async fn remember(&mut self, message: &ChatMessage) -> Result<(), LLMError>;
+
+    /// Store multiple messages as one logical write.
+    ///
+    /// Providers can override this when they need to preflight capacity or
+    /// preserve invariants across related messages.
+    async fn remember_many(&mut self, messages: &[ChatMessage]) -> Result<(), LLMError> {
+        for message in messages {
+            self.remember(message).await?;
+        }
+        Ok(())
+    }
 
     /// Retrieve relevant messages from memory based on a query.
     ///
