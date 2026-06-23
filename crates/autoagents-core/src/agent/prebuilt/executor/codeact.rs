@@ -480,14 +480,14 @@ impl CodeActEngine {
                 .await?;
             let response_text = response.text().unwrap_or_default();
             if should_store_user {
-                memory.store_user(task).await;
+                memory.store_user(task).await?;
                 stored_user = true;
             }
 
             let tool_calls = response.tool_calls().unwrap_or_default();
             if tool_calls.is_empty() {
                 if !response_text.is_empty() {
-                    memory.store_assistant(&response_text).await;
+                    memory.store_assistant(&response_text).await?;
                     final_response = response_text;
                 }
 
@@ -523,7 +523,7 @@ impl CodeActEngine {
 
             memory
                 .store_tool_interaction(&tool_calls, &tool_results, &response_text)
-                .await;
+                .await?;
 
             EventHelper::send_turn_completed(
                 &tx_event,
@@ -628,7 +628,10 @@ impl CodeActEngine {
                 };
 
                 if should_store_user {
-                    memory.store_user(&task).await;
+                    if let Err(err) = memory.store_user(&task).await {
+                        let _ = tx.send(Err(err.into())).await;
+                        return;
+                    }
                     stored_user = true;
                 }
 
@@ -678,7 +681,10 @@ impl CodeActEngine {
 
                 if tool_calls.is_empty() {
                     if !response_text.is_empty() {
-                        memory.store_assistant(&response_text).await;
+                        if let Err(err) = memory.store_assistant(&response_text).await {
+                            let _ = tx.send(Err(err.into())).await;
+                            return;
+                        }
                         final_response = response_text;
                     }
 
@@ -726,9 +732,14 @@ impl CodeActEngine {
                     )
                     .await;
 
-                memory
+                if let Err(err) = memory
                     .store_tool_interaction(&tool_calls, &tool_results, &response_text)
-                    .await;
+                    .await
+                    .map_err(CodeActExecutorError::from)
+                {
+                    let _ = tx.send(Err(err)).await;
+                    return;
+                }
 
                 let _ = tx
                     .send(Ok(CodeActAgentOutput {

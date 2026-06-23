@@ -179,7 +179,7 @@ impl TurnEngine {
         let response_text = response.text().unwrap_or_default();
         let reasoning_content = response.thinking().unwrap_or_default();
         if store_user {
-            turn_state.memory.store_user(task).await;
+            turn_state.memory.store_user(task).await?;
             turn_state.mark_user_stored();
         }
 
@@ -203,7 +203,7 @@ impl TurnEngine {
             turn_state
                 .memory
                 .store_tool_interaction(&tool_calls, &tool_results, &response_text)
-                .await;
+                .await?;
             record_tool_calls_state(context, &tool_results);
 
             EventHelper::send_turn_completed(
@@ -226,7 +226,7 @@ impl TurnEngine {
         }
 
         if !response_text.is_empty() {
-            turn_state.memory.store_assistant(&response_text).await;
+            turn_state.memory.store_assistant(&response_text).await?;
         }
 
         EventHelper::send_turn_completed(
@@ -355,7 +355,7 @@ impl TurnEngine {
     ) -> Result<crate::agent::executor::TurnResult<TurnEngineOutput>, TurnEngineError> {
         let mut stream = self.get_structured_stream(context, messages).await?;
         if store_user {
-            memory.store_user(task).await;
+            memory.store_user(task).await?;
         }
         let mut response_text = String::default();
         let mut reasoning_content = String::default();
@@ -400,7 +400,7 @@ impl TurnEngine {
         }
 
         if !response_text.is_empty() {
-            memory.store_assistant(&response_text).await;
+            memory.store_assistant(&response_text).await?;
         }
 
         Ok(crate::agent::executor::TurnResult::Complete(
@@ -426,7 +426,7 @@ impl TurnEngine {
     ) -> Result<crate::agent::executor::TurnResult<TurnEngineOutput>, TurnEngineError> {
         let mut stream = self.get_tool_stream(context, messages, tools).await?;
         if store_user {
-            memory.store_user(task).await;
+            memory.store_user(task).await?;
         }
         let mut response_text = String::default();
         let mut reasoning_content = String::default();
@@ -468,7 +468,7 @@ impl TurnEngine {
 
         if tool_calls.is_empty() {
             if !response_text.is_empty() {
-                memory.store_assistant(&response_text).await;
+                memory.store_assistant(&response_text).await?;
             }
             return Ok(crate::agent::executor::TurnResult::Complete(
                 TurnEngineOutput {
@@ -492,7 +492,7 @@ impl TurnEngine {
 
         memory
             .store_tool_interaction(&tool_calls, &tool_results, &response_text)
-            .await;
+            .await?;
         record_tool_calls_state(context, &tool_results);
 
         let _ = tx
@@ -709,7 +709,7 @@ async fn process_tool_calls_with_hooks<H: AgentHooks>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::memory::{MemoryProvider, SlidingWindowMemory};
+    use crate::agent::memory::{MemoryProvider, MemoryType, SlidingWindowMemory};
     use crate::agent::task::Task;
     use crate::agent::{AgentConfig, Context};
     use crate::tests::{ConfigurableLLMProvider, StaticChatResponse};
@@ -762,6 +762,40 @@ mod tests {
 
     #[derive(Debug)]
     struct GuardrailRejectLLMProvider;
+
+    #[derive(Clone)]
+    struct FailingMemoryProvider;
+
+    #[async_trait]
+    impl MemoryProvider for FailingMemoryProvider {
+        async fn remember(&mut self, _message: &ChatMessage) -> Result<(), LLMError> {
+            Err(LLMError::ProviderError("memory write failed".to_string()))
+        }
+
+        async fn recall(
+            &self,
+            _query: &str,
+            _limit: Option<usize>,
+        ) -> Result<Vec<ChatMessage>, LLMError> {
+            Ok(Vec::new())
+        }
+
+        async fn clear(&mut self) -> Result<(), LLMError> {
+            Ok(())
+        }
+
+        fn memory_type(&self) -> MemoryType {
+            MemoryType::Custom
+        }
+
+        fn size(&self) -> usize {
+            0
+        }
+
+        fn clone_box(&self) -> Box<dyn MemoryProvider> {
+            Box::new(self.clone())
+        }
+    }
 
     fn guardrail_block_error() -> LLMError {
         LLMError::GuardrailBlocked {
@@ -854,6 +888,28 @@ mod tests {
             .with_memory(Some(Arc::new(tokio::sync::Mutex::new(memory))))
     }
 
+    fn context_with_failing_memory(llm: Arc<dyn LLMProvider>) -> Context {
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "memory_agent".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let memory: Box<dyn MemoryProvider> = Box::new(FailingMemoryProvider);
+        Context::new(llm, None)
+            .with_config(config)
+            .with_memory(Some(Arc::new(tokio::sync::Mutex::new(memory))))
+    }
+
+    fn assert_turn_memory_error(error: TurnEngineError) {
+        match error {
+            TurnEngineError::LLMError(LLMError::ProviderError(message)) => {
+                assert_eq!(message, "memory write failed");
+            }
+            other => panic!("expected memory provider error, got {other:?}"),
+        }
+    }
+
     async fn recalled_messages(context: &Context) -> Vec<ChatMessage> {
         let memory = context.memory().expect("memory should exist");
         memory
@@ -936,6 +992,24 @@ mod tests {
 
         assert_eq!(user_count, 1);
         assert_eq!(assistant_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_run_turn_returns_memory_write_failure() {
+        use crate::tests::MockAgentImpl;
+
+        let llm: Arc<dyn LLMProvider> = Arc::new(ConfigurableLLMProvider::default());
+        let context = context_with_failing_memory(llm);
+        let engine = TurnEngine::new(TurnEngineConfig::basic(1));
+        let mut turn_state = engine.turn_state(&context);
+        let task = Task::new("hello");
+        let hooks = MockAgentImpl::new("test", "test");
+
+        let result = engine
+            .run_turn(&hooks, &task, &context, &mut turn_state, 0, 1)
+            .await;
+
+        assert_turn_memory_error(result.expect_err("memory write should fail"));
     }
 
     #[test]
@@ -1515,6 +1589,44 @@ mod tests {
 
         let stored = recalled_messages(&context).await;
         assert!(stored.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_run_turn_stream_emits_memory_write_failure() {
+        use crate::tests::MockAgentImpl;
+
+        let llm: Arc<dyn LLMProvider> = Arc::new(ConfigurableLLMProvider {
+            structured_stream: vec![StreamResponse {
+                choices: vec![StreamChoice {
+                    delta: StreamDelta {
+                        content: Some("hello".to_string()),
+                        reasoning_content: None,
+                        tool_calls: None,
+                    },
+                }],
+                usage: None,
+            }],
+            ..ConfigurableLLMProvider::default()
+        });
+        let context = Arc::new(context_with_failing_memory(llm));
+        let engine = TurnEngine::new(TurnEngineConfig::basic(1));
+        let mut turn_state = engine.turn_state(&context);
+        let task = Task::new("hello");
+        let hooks = MockAgentImpl::new("test", "test");
+
+        let mut stream = engine
+            .run_turn_stream(hooks, &task, context, &mut turn_state, 0, 1)
+            .await
+            .expect("stream should initialize");
+
+        let first = stream
+            .next()
+            .await
+            .expect("stream should emit memory error");
+        match first {
+            Err(error) => assert_turn_memory_error(error),
+            other => panic!("expected memory error, got {other:?}"),
+        }
     }
 
     #[tokio::test]

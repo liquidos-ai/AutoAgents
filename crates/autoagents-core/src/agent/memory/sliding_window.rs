@@ -13,7 +13,11 @@ use super::{MemoryProvider, MemoryType};
 pub enum TrimStrategy {
     /// Drop oldest messages (FIFO behavior)
     Drop,
-    /// Summarize all messages into one before adding new ones
+    /// Mark memory for manual summarization when the window overflows.
+    ///
+    /// The first overflow is retained so a caller can summarize the full
+    /// previous window plus the triggering message. Further writes fail until
+    /// [`SlidingWindowMemory::replace_with_summary`] clears the pending state.
     Summarize,
 }
 
@@ -132,6 +136,12 @@ impl MemoryProvider for SlidingWindowMemory {
                     self.messages.pop_front();
                 }
                 TrimStrategy::Summarize => {
+                    if self.needs_summary {
+                        return Err(LLMError::ProviderError(
+                            "SlidingWindowMemory requires summarization before accepting new messages"
+                                .to_string(),
+                        ));
+                    }
                     self.mark_for_summary();
                 }
             }
@@ -310,7 +320,64 @@ mod tests {
         memory.remember(&message3).await.unwrap();
 
         assert!(memory.needs_summary());
-        assert_eq!(memory.size(), 3); // Still contains all messages until summarized
+        assert_eq!(memory.size(), 3); // Keeps one overflow message for manual summarization.
+    }
+
+    #[tokio::test]
+    async fn test_summarize_rejects_writes_while_summary_pending() {
+        let mut memory = SlidingWindowMemory::with_strategy(2, TrimStrategy::Summarize);
+
+        for i in 1..=3 {
+            let message = ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: format!("Message {i}"),
+            };
+            memory.remember(&message).await.unwrap();
+        }
+
+        let rejected = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "Message 4".to_string(),
+        };
+        let result = memory.remember(&rejected).await;
+
+        assert!(matches!(result, Err(LLMError::ProviderError(_))));
+        assert!(memory.needs_summary());
+        assert_eq!(memory.size(), 3);
+        let messages = memory.messages();
+        assert_eq!(messages[0].content, "Message 1");
+        assert_eq!(messages[2].content, "Message 3");
+    }
+
+    #[tokio::test]
+    async fn test_summarize_accepts_writes_after_replace_with_summary() {
+        let mut memory = SlidingWindowMemory::with_strategy(2, TrimStrategy::Summarize);
+
+        for i in 1..=3 {
+            let message = ChatMessage {
+                role: ChatRole::User,
+                message_type: MessageType::Text,
+                content: format!("Message {i}"),
+            };
+            memory.remember(&message).await.unwrap();
+        }
+
+        memory.replace_with_summary("summary".to_string());
+
+        let next = ChatMessage {
+            role: ChatRole::User,
+            message_type: MessageType::Text,
+            content: "Message 4".to_string(),
+        };
+        memory.remember(&next).await.unwrap();
+
+        assert!(!memory.needs_summary());
+        assert_eq!(memory.size(), 2);
+        let messages = memory.messages();
+        assert_eq!(messages[0].content, "summary");
+        assert_eq!(messages[1].content, "Message 4");
     }
 
     #[tokio::test]
