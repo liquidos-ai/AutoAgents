@@ -13,7 +13,7 @@ use crate::error::Error;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::runtime::TypedRuntime;
 use async_trait::async_trait;
-use autoagents_protocol::Event;
+use autoagents_protocol::{Event, SubmissionId};
 #[cfg(target_arch = "wasm32")]
 use futures::SinkExt;
 #[cfg(not(target_arch = "wasm32"))]
@@ -127,6 +127,42 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         self.tx.clone().ok_or(RunnableAgentError::EmptyTx)
     }
 
+    /// Convert executor output to a protocol event payload and finish the run
+    /// lifecycle. Uses `Value: From<AgentExecutor::Output>` so `TaskComplete`
+    /// matches the non-streaming path regardless of `AgentDeriveT::Output`.
+    async fn finish_executor_run(
+        &self,
+        task: &Task,
+        context: &Context,
+        tx_event: &Option<Sender<Event>>,
+        submission_id: SubmissionId,
+        executor_out: <T as AgentExecutor>::Output,
+    ) -> Result<<T as AgentDeriveT>::Output, RunnableAgentError>
+    where
+        Value: From<<T as AgentExecutor>::Output>,
+        <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
+    {
+        let value: Value = executor_out.clone().into();
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Err(e) = EventHelper::send_task_completed_value(
+            tx_event,
+            submission_id,
+            self.id,
+            self.name().to_string(),
+            &value,
+        )
+        .await
+        {
+            let err = RunnableAgentError::ExecutorError(e.to_string());
+            EventHelper::send_task_error(tx_event, submission_id, self.id, err.to_string()).await;
+            return Err(err);
+        }
+
+        let agent_out: <T as AgentDeriveT>::Output = executor_out.into();
+        self.inner.on_run_complete(task, &agent_out, context).await;
+        Ok(agent_out)
+    }
+
     pub async fn run(
         self: Arc<Self>,
         task: Task,
@@ -152,27 +188,8 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         // Execute the agent's logic using the executor
         match self.inner().execute(&task, context.clone()).await {
             Ok(output) => {
-                let value: Value = output.clone().into();
-                #[cfg(not(target_arch = "wasm32"))]
-                EventHelper::send_task_completed_value(
-                    &tx_event,
-                    submission_id,
-                    self.id,
-                    self.name().to_string(),
-                    &value,
-                )
-                .await
-                .map_err(|e| RunnableAgentError::ExecutorError(e.to_string()))?;
-
-                //Extract Agent output into the desired type
-                let agent_out: <T as AgentDeriveT>::Output = output.into();
-
-                //Run On complete Hook
-                self.inner
-                    .on_run_complete(&task, &agent_out, &context)
-                    .await;
-
-                Ok(agent_out)
+                self.finish_executor_run(&task, &context, &tx_event, submission_id, output)
+                    .await
             }
             Err(e) => {
                 #[cfg(not(target_arch = "wasm32"))]
@@ -198,6 +215,28 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         self.run_stream_with_context(task, context).await
     }
 
+    async fn run_executor_stream_with_context(
+        self: Arc<Self>,
+        task: Task,
+        context: Arc<Context>,
+    ) -> Result<
+        crate::utils::BoxRuntimeStream<Result<<T as AgentExecutor>::Output, RunnableAgentError>>,
+        RunnableAgentError,
+    >
+    where
+        <T as AgentExecutor>::Error: Into<RunnableAgentError>,
+    {
+        match self.inner().execute_stream(&task, context).await {
+            Ok(stream) => {
+                use futures::StreamExt;
+                let transformed_stream =
+                    stream.map(move |result| result.map_err(|error| error.into()));
+                Ok(Box::pin(transformed_stream))
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
     async fn run_stream_with_context(
         self: Arc<Self>,
         task: Task,
@@ -210,25 +249,10 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
         <T as AgentExecutor>::Error: Into<RunnableAgentError>,
     {
-        // Execute the agent's streaming logic using the executor
-        match self.inner().execute_stream(&task, context).await {
-            Ok(stream) => {
-                use futures::StreamExt;
-                // Transform the stream to convert agent output to TaskResult
-                let transformed_stream = stream.map(move |result| {
-                    match result {
-                        Ok(output) => Ok(output.into()),
-                        Err(e) => {
-                            // Handle error
-                            Err(e.into())
-                        }
-                    }
-                });
-
-                Ok(Box::pin(transformed_stream))
-            }
-            Err(e) => Err(e.into()),
-        }
+        let stream = self.run_executor_stream_with_context(task, context).await?;
+        use futures::StreamExt;
+        let transformed_stream = stream.map(|result| result.map(|output| output.into()));
+        Ok(Box::pin(transformed_stream))
     }
 
     /// Execute a streaming task to completion inside the actor, draining the
@@ -255,7 +279,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
 
         let mut stream = match self
             .clone()
-            .run_stream_with_context(task.clone(), context.clone())
+            .run_executor_stream_with_context(task.clone(), context.clone())
             .await
         {
             Ok(stream) => stream,
@@ -268,10 +292,10 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         };
         use futures::StreamExt;
 
-        let mut last_output = None;
+        let mut last_executor_output = None;
         while let Some(result) = stream.next().await {
             match result {
-                Ok(output) => last_output = Some(output),
+                Ok(output) => last_executor_output = Some(output),
                 Err(e) => {
                     #[cfg(not(target_arch = "wasm32"))]
                     EventHelper::send_task_error(&tx_event, submission_id, self.id, e.to_string())
@@ -281,7 +305,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
             }
         }
 
-        let agent_out = match last_output {
+        let executor_out = match last_executor_output {
             Some(output) => output,
             None => {
                 let err = RunnableAgentError::ExecutorError(
@@ -294,36 +318,8 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
             }
         };
 
-        let value = match serde_json::to_value(&agent_out) {
-            Ok(value) => value,
-            Err(e) => {
-                let err = RunnableAgentError::ExecutorError(e.to_string());
-                #[cfg(not(target_arch = "wasm32"))]
-                EventHelper::send_task_error(&tx_event, submission_id, self.id, err.to_string())
-                    .await;
-                return Err(err);
-            }
-        };
-        #[cfg(not(target_arch = "wasm32"))]
-        if let Err(e) = EventHelper::send_task_completed_value(
-            &tx_event,
-            submission_id,
-            self.id,
-            self.name().to_string(),
-            &value,
-        )
-        .await
-        {
-            let err = RunnableAgentError::ExecutorError(e.to_string());
-            EventHelper::send_task_error(&tx_event, submission_id, self.id, err.to_string()).await;
-            return Err(err);
-        }
-
-        self.inner
-            .on_run_complete(&task, &agent_out, &context)
-            .await;
-
-        Ok(agent_out)
+        self.finish_executor_run(&task, &context, &tx_event, submission_id, executor_out)
+            .await
     }
 }
 
@@ -391,6 +387,7 @@ mod tests {
     use crate::utils::BoxEventStream;
     use async_trait::async_trait;
     use futures::{StreamExt, stream};
+    use serde::{Deserialize, Serialize};
     use std::any::{Any, TypeId};
     use std::sync::Arc;
     use tokio::sync::{Mutex, mpsc};
@@ -896,5 +893,209 @@ mod tests {
             .await
             .expect_err("expected missing tx failure");
         assert!(matches!(err, RunnableAgentError::EmptyTx));
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct DivergentExecutorOutput {
+        response: String,
+        executor_only: u32,
+    }
+
+    impl From<DivergentExecutorOutput> for Value {
+        fn from(output: DivergentExecutorOutput) -> Self {
+            serde_json::json!({
+                "response": output.response,
+                "executor_only": output.executor_only,
+            })
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct DivergentAgentOutput {
+        result: String,
+    }
+
+    impl AgentOutputT for DivergentAgentOutput {
+        fn output_schema() -> &'static str {
+            r#"{"type":"object","properties":{"result":{"type":"string"}},"required":["result"]}"#
+        }
+
+        fn structured_output_format() -> Value {
+            serde_json::json!({
+                "name": "DivergentAgentOutput",
+                "description": "Derived agent output",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "result": {"type": "string"}
+                    },
+                    "required": ["result"]
+                },
+                "strict": true
+            })
+        }
+    }
+
+    impl From<DivergentExecutorOutput> for DivergentAgentOutput {
+        fn from(output: DivergentExecutorOutput) -> Self {
+            Self {
+                result: output.response,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct DivergentStreamingAgent;
+
+    #[async_trait]
+    impl AgentDeriveT for DivergentStreamingAgent {
+        type Output = DivergentAgentOutput;
+
+        fn description(&self) -> &'static str {
+            "divergent streaming agent"
+        }
+
+        fn output_schema(&self) -> Option<Value> {
+            Some(DivergentAgentOutput::structured_output_format())
+        }
+
+        fn name(&self) -> &'static str {
+            "divergent_streaming_agent"
+        }
+
+        fn tools(&self) -> Vec<Box<dyn crate::tool::ToolT>> {
+            vec![]
+        }
+    }
+
+    #[async_trait]
+    impl AgentExecutor for DivergentStreamingAgent {
+        type Output = DivergentExecutorOutput;
+        type Error = TestError;
+
+        fn config(&self) -> ExecutorConfig {
+            ExecutorConfig::default()
+        }
+
+        async fn execute(
+            &self,
+            task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<Self::Output, Self::Error> {
+            Ok(DivergentExecutorOutput {
+                response: task.prompt.clone(),
+                executor_only: 42,
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<crate::utils::BoxRuntimeStream<Result<Self::Output, Self::Error>>, Self::Error>
+        {
+            let output = DivergentExecutorOutput {
+                response: task.prompt.clone(),
+                executor_only: 42,
+            };
+            Ok(Box::pin(stream::iter([Ok(output)])))
+        }
+    }
+
+    impl AgentHooks for DivergentStreamingAgent {}
+
+    #[tokio::test]
+    async fn test_actor_run_stream_to_completion_task_complete_uses_executor_value_from() {
+        let llm = Arc::new(MockLLMProvider);
+        let (tx, mut rx) = mpsc::channel(2);
+        let agent = Arc::new(
+            BaseAgent::<_, ActorAgent>::new(DivergentStreamingAgent, llm, None, tx, true)
+                .await
+                .expect("agent should build"),
+        );
+
+        let output = agent
+            .run_stream_to_completion(Task::new("stream payload"))
+            .await
+            .expect("stream should complete");
+        assert_eq!(output.result, "stream payload");
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("timed out waiting for TaskComplete event")
+            .expect("channel closed without event");
+        match event {
+            Event::TaskComplete { result, .. } => {
+                let parsed: Value =
+                    serde_json::from_str(&result).expect("TaskComplete result should be JSON");
+                assert_eq!(parsed["executor_only"], 42);
+                assert_eq!(parsed["response"], "stream payload");
+            }
+            other => panic!("expected TaskComplete, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_actor_run_and_stream_to_completion_emit_matching_task_complete() {
+        let llm = Arc::new(MockLLMProvider);
+        let (tx_run, mut rx_run) = mpsc::channel(2);
+        let run_agent = Arc::new(
+            BaseAgent::<_, ActorAgent>::new(
+                DivergentStreamingAgent,
+                llm.clone(),
+                None,
+                tx_run,
+                false,
+            )
+            .await
+            .expect("run agent should build"),
+        );
+        let (tx_stream, mut rx_stream) = mpsc::channel(2);
+        let stream_agent = Arc::new(
+            BaseAgent::<_, ActorAgent>::new(DivergentStreamingAgent, llm, None, tx_stream, true)
+                .await
+                .expect("stream agent should build"),
+        );
+
+        let task = Task::new("parity payload");
+        run_agent
+            .clone()
+            .run(task.clone())
+            .await
+            .expect("run should succeed");
+        stream_agent
+            .run_stream_to_completion(task)
+            .await
+            .expect("stream should complete");
+
+        let run_event = tokio::time::timeout(std::time::Duration::from_secs(1), rx_run.recv())
+            .await
+            .expect("timed out waiting for run TaskComplete")
+            .expect("run channel closed without event");
+        let stream_event =
+            tokio::time::timeout(std::time::Duration::from_secs(1), rx_stream.recv())
+                .await
+                .expect("timed out waiting for stream TaskComplete")
+                .expect("stream channel closed without event");
+
+        match (run_event, stream_event) {
+            (
+                Event::TaskComplete {
+                    result: run_result, ..
+                },
+                Event::TaskComplete {
+                    result: stream_result,
+                    ..
+                },
+            ) => {
+                assert_eq!(
+                    run_result, stream_result,
+                    "run() and run_stream_to_completion() must serialize TaskComplete identically"
+                );
+            }
+            (run_event, stream_event) => {
+                panic!("expected TaskComplete events, got {run_event:?} and {stream_event:?}")
+            }
+        }
     }
 }
