@@ -118,9 +118,11 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         .publish(&topic1, Task::new("The new laptop model features a 3.5 GHz octa-core processor, 16GB of RAM, and a 1TB NVMe SSD."))
         .await?;
 
+    environment.run()?;
+
     // Run the environment and wait for completion or interruption
     tokio::select! {
-        _ = environment.run() => {
+        _ = environment.wait() => {
             println!("\nChaining pipeline completed successfully.");
         }
         _ = tokio::signal::ctrl_c() => {

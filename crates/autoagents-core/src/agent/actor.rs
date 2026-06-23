@@ -193,7 +193,6 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
         <T as AgentExecutor>::Error: Into<RunnableAgentError>,
     {
-        // let submission_id = task.submission_id;
         let context = self.create_context();
 
         // Execute the agent's streaming logic using the executor
@@ -218,6 +217,68 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
                 Err(e.into())
             }
         }
+    }
+
+    /// Execute a streaming task to completion inside the actor, draining the
+    /// stream and running lifecycle hooks before returning.
+    pub async fn run_stream_to_completion(
+        self: Arc<Self>,
+        task: Task,
+    ) -> Result<<T as AgentDeriveT>::Output, RunnableAgentError>
+    where
+        Value: From<<T as AgentExecutor>::Output>,
+        <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
+        <T as AgentExecutor>::Error: Into<RunnableAgentError>,
+    {
+        let submission_id = task.submission_id;
+        let tx = self.tx().map_err(|_| RunnableAgentError::EmptyTx)?;
+        let tx_event = Some(tx.clone());
+        let context = self.create_context();
+
+        let hook_outcome = self.inner.on_run_start(&task, &context).await;
+        match hook_outcome {
+            HookOutcome::Abort => return Err(RunnableAgentError::Abort),
+            HookOutcome::Continue => {}
+        }
+
+        let mut stream = self.clone().run_stream(task.clone()).await?;
+        use futures::StreamExt;
+
+        let mut last_output = None;
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(output) => last_output = Some(output),
+                Err(e) => {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    EventHelper::send_task_error(&tx_event, submission_id, self.id, e.to_string())
+                        .await;
+                    return Err(e);
+                }
+            }
+        }
+
+        let agent_out = last_output.ok_or_else(|| {
+            RunnableAgentError::ExecutorError("Stream completed without output".to_string())
+        })?;
+
+        let value = serde_json::to_value(&agent_out)
+            .map_err(|e| RunnableAgentError::ExecutorError(e.to_string()))?;
+        #[cfg(not(target_arch = "wasm32"))]
+        EventHelper::send_task_completed_value(
+            &tx_event,
+            submission_id,
+            self.id,
+            self.name().to_string(),
+            &value,
+        )
+        .await
+        .map_err(|e| RunnableAgentError::ExecutorError(e.to_string()))?;
+
+        self.inner
+            .on_run_complete(&task, &agent_out, &context)
+            .await;
+
+        Ok(agent_out)
     }
 }
 
@@ -263,7 +324,7 @@ where
 
         //Run agent
         if agent.stream() {
-            let _ = agent.run_stream(task).await?;
+            let _ = agent.run_stream_to_completion(task).await?;
             Ok(())
         } else {
             let _ = agent.run(task).await?;

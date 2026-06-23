@@ -183,9 +183,11 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     runtime.publish(&terms_topic, task.clone()).await?;
 
+    environment.run()?;
+
     // Run the environment
     tokio::select! {
-        _ = environment.run() => {
+        _ = environment.wait() => {
             println!("Environment finished running.");
         }
         _ = tokio::signal::ctrl_c() => {

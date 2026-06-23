@@ -379,9 +379,11 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         .publish(&planner_topic, Task::new(complex_task))
         .await?;
 
+    environment.run()?;
+
     // Run the environment with extended timeout for complex planning
     tokio::select! {
-        _ = environment.run() => {
+        _ = environment.wait() => {
             println!("\nStrategic planning process completed successfully.");
         }
         _ = tokio::time::sleep(tokio::time::Duration::from_secs(90)) => {

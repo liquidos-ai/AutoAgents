@@ -124,7 +124,7 @@ pub async fn wasm_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     handle_events(receiver);
 
     // Start the environment
-    let _handle = environment.run();
+    environment.run()?;
 
     // Send WASM computation tasks
     println!("\n📤 Sending WASM computation tasks...");

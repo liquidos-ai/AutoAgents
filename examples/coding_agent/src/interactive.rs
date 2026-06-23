@@ -52,7 +52,7 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
     handle_events(receiver);
 
     // Start the environment in the background
-    let _handle = environment.run();
+    environment.run()?;
 
     let stdin = io::stdin();
     let mut stdout = io::stdout();

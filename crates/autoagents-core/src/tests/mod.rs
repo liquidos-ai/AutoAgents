@@ -141,15 +141,6 @@ impl AgentExecutor for MockAgentImpl {
             result: format!("Processed: {}", task.prompt),
         })
     }
-
-    async fn execute_stream(
-        &self,
-        _task: &Task,
-        _context: Arc<Context>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>, Self::Error>
-    {
-        unimplemented!()
-    }
 }
 
 impl AgentHooks for MockAgentImpl {}

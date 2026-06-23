@@ -64,7 +64,8 @@ mod tests {
 
         // Start environment in background
         let env_handle = tokio::spawn(async move {
-            let _ = environment.run().await;
+            environment.run().expect("Failed to start environment");
+            let _ = environment.wait().await;
         });
 
         // Publish task
@@ -108,18 +109,61 @@ mod tests {
         let memory = Box::new(SlidingWindowMemory::new(10));
 
         let agent = MockAgentImpl::new("streaming_agent", "A streaming agent");
-        let result = AgentBuilder::new(agent)
+        let _agent_handle = AgentBuilder::new(agent)
             .llm(llm)
             .runtime(runtime.clone())
             .subscribe(topic.clone())
             .memory(memory)
             .stream(true)
             .build()
-            .await;
+            .await
+            .expect("Failed to build streaming agent");
+
+        let mut environment = Environment::new(None);
+        environment
+            .register_runtime(runtime.clone())
+            .await
+            .expect("Failed to register runtime");
+
+        let receiver = environment
+            .take_event_receiver(None)
+            .await
+            .expect("Failed to get event receiver");
+        let mut event_stream = receiver;
+
+        let env_handle = tokio::spawn(async move {
+            environment.run().expect("Failed to start environment");
+            let _ = environment.wait().await;
+        });
+
+        let task = Task::new("Streaming task execution");
+        runtime
+            .publish(&topic, task)
+            .await
+            .expect("Failed to publish task");
+
+        let result = timeout(Duration::from_secs(3), async {
+            while let Some(event) = event_stream.next().await {
+                match event {
+                    Event::TaskComplete { result: value, .. } => {
+                        let output: Result<TestAgentOutput, _> = serde_json::from_str(&value);
+                        if let Ok(agent_output) = output {
+                            return Some(agent_output);
+                        }
+                    }
+                    _ => continue,
+                }
+            }
+            None
+        })
+        .await;
+
+        env_handle.abort();
 
         assert!(result.is_ok());
-        let agent_handle = result.unwrap();
-        assert!(agent_handle.agent.stream());
+        if let Ok(Some(agent_output)) = result {
+            assert!(agent_output.result.contains("Streaming task execution"));
+        }
     }
 
     #[tokio::test]
@@ -152,7 +196,8 @@ mod tests {
 
         // Start environment in background
         let env_handle = tokio::spawn(async move {
-            let _ = environment.run().await;
+            environment.run().expect("Failed to start environment");
+            let _ = environment.wait().await;
         });
 
         // Publish task

@@ -243,9 +243,11 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         )
         .await?;
 
+    environment.run()?;
+
     // Run for a limited time to allow the reflection loop to complete
     tokio::select! {
-        _ = environment.run() => {
+        _ = environment.wait() => {
             println!("\nReflection loop completed.");
         }
         _ = tokio::time::sleep(tokio::time::Duration::from_secs(30)) => {
