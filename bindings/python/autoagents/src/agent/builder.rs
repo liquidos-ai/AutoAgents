@@ -3,7 +3,7 @@ use crate::agent::py_agent::{
     AgentOutputStream, BuildActorResult, BuildDirectResult, HookErrorState, PyAgentDef,
     PyAgentOutput, PyExecutorBuildable, PyRunnable,
 };
-use crate::convert::json_value_to_py;
+use crate::convert::{json_value_to_py, py_any_to_json_value};
 use crate::events::{PyEventStream, PySharedEventStream};
 use crate::llm::builder::extract_llm_provider;
 use crate::memory::PyMemoryProvider;
@@ -428,6 +428,14 @@ fn py_task_to_rust_task(task_obj: &Bound<'_, PyAny>) -> PyResult<Task> {
         task = task.with_system_prompt(system_prompt);
     }
 
+    if let Some(app_meta_any) = dict.get_item("app_meta")?
+        && !app_meta_any.is_none()
+    {
+        let app_meta = py_any_to_json_value(&app_meta_any)
+            .map_err(|_| PyRuntimeError::new_err("task.app_meta must be JSON-serializable"))?;
+        task = task.with_app_meta(app_meta);
+    }
+
     if let Some(image_any) = dict.get_item("image")?
         && !image_any.is_none()
     {
@@ -847,7 +855,8 @@ mod tests {
                     "image": {
                         "mime": "png",
                         "data": [137, 80, 78, 71]
-                    }
+                    },
+                    "app_meta": {"session_id": "s1", "chat_id": "c1"}
                 }),
             )
             .expect("dict should convert");
@@ -855,6 +864,11 @@ mod tests {
             assert_eq!(task.prompt, "image task");
             assert_eq!(task.system_prompt.as_deref(), Some("system"));
             assert!(matches!(task.image, Some((ImageMime::PNG, _))));
+            let app_meta = task
+                .app_meta
+                .expect("app_meta should round-trip from python payload");
+            assert_eq!(app_meta.get("session_id").and_then(|v| v.as_str()), Some("s1"));
+            assert_eq!(app_meta.get("chat_id").and_then(|v| v.as_str()), Some("c1"));
 
             let err = py_task_to_rust_task(
                 json_value_to_py(

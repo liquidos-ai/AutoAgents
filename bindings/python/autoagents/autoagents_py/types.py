@@ -33,6 +33,7 @@ class TaskPayload(TypedDict, total=False):
     prompt: str
     system_prompt: str
     image: TaskImagePayload
+    app_meta: Optional[JsonObject]
 
 
 class ExecutorTask(TypedDict, total=False):
@@ -41,6 +42,7 @@ class ExecutorTask(TypedDict, total=False):
     submission_id: str
     completed: bool
     result_json: Optional[str]
+    app_meta: Optional[JsonObject]
 
 
 class ChatMessagePayload(TypedDict, total=False):
