@@ -59,6 +59,14 @@ fn http_status_error(
 }
 
 async fn read_bounded_error_body(response: Response) -> Result<String, LLMError> {
+    // Reads at most `MAX_HTTP_ERROR_BODY_BYTES` from the wire on error responses.
+    //
+    // When `Content-Length` exceeds the cap, the body is not read at all and a placeholder
+    // is returned instead. This avoids pulling multi-megabyte CDN/WAF HTML pages into memory.
+    //
+    // Otherwise the body is streamed and accumulation stops at the cap. The remainder is not
+    // drained, so the connection may not be reused; that tradeoff is intentional on the
+    // error path where bounded memory use matters more than keep-alive reuse.
     if let Some(content_length) = response.content_length()
         && content_length as usize > MAX_HTTP_ERROR_BODY_BYTES
     {
@@ -185,6 +193,7 @@ fn parse_provider_error_body(body: &str) -> ProviderErrorDetails {
     };
 
     // OpenAI-compatible: { "error": { "message", "type", "code" } }
+    // Google: { "error": { "message", "code" (numeric), "status" } }
     if let Some(error) = value.get("error") {
         return ProviderErrorDetails {
             message: error
@@ -193,8 +202,9 @@ fn parse_provider_error_body(body: &str) -> ProviderErrorDetails {
                 .map(str::to_string),
             provider_code: error
                 .get("code")
-                .or_else(|| error.get("type"))
                 .and_then(|v| v.as_str())
+                .or_else(|| error.get("type").and_then(|v| v.as_str()))
+                .or_else(|| error.get("status").and_then(|v| v.as_str()))
                 .map(str::to_string),
         };
     }
@@ -237,6 +247,15 @@ mod tests {
         ensure_success(response, "TestProvider")
             .await
             .expect_err("expected error")
+    }
+
+    #[test]
+    fn parse_provider_error_body_extracts_google_status() {
+        let details = parse_provider_error_body(
+            r#"{"error":{"code":429,"message":"Resource exhausted","status":"RESOURCE_EXHAUSTED"}}"#,
+        );
+        assert_eq!(details.message.as_deref(), Some("Resource exhausted"));
+        assert_eq!(details.provider_code.as_deref(), Some("RESOURCE_EXHAUSTED"));
     }
 
     #[test]
@@ -435,7 +454,8 @@ mod tests {
     #[tokio::test]
     async fn read_bounded_error_body_truncates_chunked_response() {
         let server = httpmock::MockServer::start();
-        let oversized_body = "y".repeat(MAX_HTTP_ERROR_BODY_BYTES + 8_192);
+        let overflow = 8_192;
+        let oversized_body = "y".repeat(MAX_HTTP_ERROR_BODY_BYTES + overflow);
         let _mock = server.mock(|when, then| {
             when.method(httpmock::Method::GET).path("/chunked");
             then.status(500)
@@ -449,16 +469,35 @@ mod tests {
             .send()
             .await
             .unwrap();
+
+        // Chunked responses must not advertise a Content-Length above the cap; otherwise
+        // the fast-path skip would run instead of the streaming truncation under test.
+        match response.content_length() {
+            None => {}
+            Some(content_length) => assert!(
+                content_length as usize <= MAX_HTTP_ERROR_BODY_BYTES,
+                "unexpected Content-Length for streaming test: {content_length}"
+            ),
+        }
+
         let err = ensure_success(response, "TestProvider")
             .await
             .expect_err("expected error");
 
         match err {
             LLMError::HttpStatusError { response_body, .. } => {
+                let expected_prefix = "y".repeat(MAX_HTTP_ERROR_BODY_BYTES);
                 assert!(
-                    response_body.contains("truncated after reading")
-                        || response_body.contains("body omitted"),
+                    response_body.starts_with(&expected_prefix),
+                    "expected first {MAX_HTTP_ERROR_BODY_BYTES} bytes preserved"
+                );
+                assert!(
+                    response_body.contains("truncated after reading"),
                     "unexpected body: {response_body}"
+                );
+                assert!(
+                    !response_body.contains("body omitted"),
+                    "expected streaming truncation, not Content-Length skip"
                 );
                 assert!(response_body.len() < oversized_body.len());
             }
