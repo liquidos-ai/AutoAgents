@@ -4,11 +4,40 @@ mod tests {
     use crate::agent::{AgentBuilder, memory::SlidingWindowMemory, task::Task};
     use crate::environment::Environment;
     use crate::runtime::{SingleThreadedRuntime, TypedRuntime};
-    use crate::tests::{MockAgentImpl, MockLLMProvider, TestAgentOutput};
+    use crate::tests::{DivergentStreamingAgent, MockAgentImpl, MockLLMProvider, TestAgentOutput};
     use autoagents_protocol::Event;
     use std::sync::Arc;
     use tokio::time::{Duration, timeout};
     use tokio_stream::StreamExt;
+
+    async fn wait_for_task_complete(
+        event_stream: &mut crate::utils::BoxEventStream<Event>,
+    ) -> TestAgentOutput {
+        timeout(Duration::from_secs(3), async {
+            while let Some(event) = event_stream.next().await {
+                if let Event::TaskComplete { result: value, .. } = event {
+                    return serde_json::from_str::<TestAgentOutput>(&value)
+                        .expect("TaskComplete result should deserialize");
+                }
+            }
+            panic!("event stream ended without TaskComplete");
+        })
+        .await
+        .expect("timed out waiting for TaskComplete")
+    }
+
+    async fn wait_for_task_error(event_stream: &mut crate::utils::BoxEventStream<Event>) -> String {
+        timeout(Duration::from_secs(3), async {
+            while let Some(event) = event_stream.next().await {
+                if let Event::TaskError { error, .. } = event {
+                    return error;
+                }
+            }
+            panic!("event stream ended without TaskError");
+        })
+        .await
+        .expect("timed out waiting for TaskError")
+    }
 
     #[tokio::test]
     async fn test_agent_creation_and_subscription() {
@@ -49,56 +78,31 @@ mod tests {
             .await
             .expect("Failed to build agent");
 
-        // Set up environment
         let mut environment = Environment::new(None);
         environment
             .register_runtime(runtime.clone())
             .await
             .expect("Failed to register runtime");
 
-        let receiver = environment
+        let mut event_stream = environment
             .take_event_receiver(None)
             .await
             .expect("Failed to get event receiver");
-        let mut event_stream = receiver;
 
-        // Start environment in background
-        let env_handle = tokio::spawn(async move {
-            environment.run().expect("Failed to start environment");
-            let _ = environment.wait().await;
-        });
+        environment.run().expect("Failed to start environment");
 
-        // Publish task
-        let task = Task::new("Test task execution");
         runtime
-            .publish(&topic, task)
+            .publish(&topic, Task::new("Test task execution"))
             .await
             .expect("Failed to publish task");
 
-        // Wait for task completion with timeout
-        let result = timeout(Duration::from_secs(3), async {
-            while let Some(event) = event_stream.next().await {
-                match event {
-                    Event::TaskComplete { result: value, .. } => {
-                        let output: Result<TestAgentOutput, _> = serde_json::from_str(&value);
-                        if let Ok(agent_output) = output {
-                            return Some(agent_output);
-                        }
-                    }
-                    _ => continue,
-                }
-            }
-            None
-        })
-        .await;
+        let agent_output = wait_for_task_complete(&mut event_stream).await;
+        assert!(agent_output.result.contains("Test task execution"));
 
-        // Clean up
-        env_handle.abort();
-
-        assert!(result.is_ok());
-        if let Ok(Some(agent_output)) = result {
-            assert!(agent_output.result.contains("Test task execution"));
-        }
+        environment
+            .shutdown()
+            .await
+            .expect("shutdown should succeed");
     }
 
     #[tokio::test]
@@ -125,45 +129,80 @@ mod tests {
             .await
             .expect("Failed to register runtime");
 
-        let receiver = environment
+        let mut event_stream = environment
             .take_event_receiver(None)
             .await
             .expect("Failed to get event receiver");
-        let mut event_stream = receiver;
 
-        let env_handle = tokio::spawn(async move {
-            environment.run().expect("Failed to start environment");
-            let _ = environment.wait().await;
-        });
+        environment.run().expect("Failed to start environment");
 
-        let task = Task::new("Streaming task execution");
         runtime
-            .publish(&topic, task)
+            .publish(&topic, Task::new("Streaming task execution"))
+            .await
+            .expect("Failed to publish task");
+
+        let agent_output = wait_for_task_complete(&mut event_stream).await;
+        assert!(agent_output.result.contains("Streaming task execution"));
+
+        environment
+            .shutdown()
+            .await
+            .expect("shutdown should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_streaming_actor_emits_executor_task_complete_through_runtime() {
+        let llm = Arc::new(MockLLMProvider);
+        let runtime = SingleThreadedRuntime::new(None);
+        let topic = Topic::<Task>::new("streaming_executor_payload");
+
+        let _agent_handle = AgentBuilder::new(DivergentStreamingAgent)
+            .llm(llm)
+            .runtime(runtime.clone())
+            .subscribe(topic.clone())
+            .stream(true)
+            .build()
+            .await
+            .expect("Failed to build streaming agent");
+
+        let mut environment = Environment::new(None);
+        environment
+            .register_runtime(runtime.clone())
+            .await
+            .expect("Failed to register runtime");
+
+        let mut event_stream = environment
+            .take_event_receiver(None)
+            .await
+            .expect("Failed to get event receiver");
+
+        environment.run().expect("Failed to start environment");
+
+        runtime
+            .publish(&topic, Task::new("runtime payload"))
             .await
             .expect("Failed to publish task");
 
         let result = timeout(Duration::from_secs(3), async {
             while let Some(event) = event_stream.next().await {
-                match event {
-                    Event::TaskComplete { result: value, .. } => {
-                        let output: Result<TestAgentOutput, _> = serde_json::from_str(&value);
-                        if let Ok(agent_output) = output {
-                            return Some(agent_output);
-                        }
-                    }
-                    _ => continue,
+                if let Event::TaskComplete { result, .. } = event {
+                    let parsed: serde_json::Value =
+                        serde_json::from_str(&result).expect("TaskComplete should be JSON");
+                    return parsed;
                 }
             }
-            None
+            panic!("event stream ended without TaskComplete");
         })
-        .await;
+        .await
+        .expect("timed out waiting for TaskComplete");
 
-        env_handle.abort();
+        assert_eq!(result["executor_only"], 42);
+        assert_eq!(result["response"], "runtime payload");
 
-        assert!(result.is_ok());
-        if let Ok(Some(agent_output)) = result {
-            assert!(agent_output.result.contains("Streaming task execution"));
-        }
+        environment
+            .shutdown()
+            .await
+            .expect("shutdown should succeed");
     }
 
     #[tokio::test]
@@ -181,53 +220,31 @@ mod tests {
             .await
             .expect("Failed to build agent");
 
-        // Set up environment
         let mut environment = Environment::new(None);
         environment
             .register_runtime(runtime.clone())
             .await
             .expect("Failed to register runtime");
 
-        let receiver = environment
+        let mut event_stream = environment
             .take_event_receiver(None)
             .await
             .expect("Failed to get event receiver");
-        let mut event_stream = receiver;
 
-        // Start environment in background
-        let env_handle = tokio::spawn(async move {
-            environment.run().expect("Failed to start environment");
-            let _ = environment.wait().await;
-        });
+        environment.run().expect("Failed to start environment");
 
-        // Publish task
-        let task = Task::new("This should fail");
         runtime
-            .publish(&topic, task)
+            .publish(&topic, Task::new("This should fail"))
             .await
             .expect("Failed to publish task");
 
-        // Wait for task result (should be an error)
-        let result = timeout(Duration::from_secs(3), async {
-            while let Some(event) = event_stream.next().await {
-                match event {
-                    Event::TaskError { error, .. } => {
-                        return Some(error);
-                    }
-                    _ => continue,
-                }
-            }
-            None
-        })
-        .await;
+        let error_message = wait_for_task_error(&mut event_stream).await;
+        assert!(error_message.contains("Mock execution failed"));
 
-        // Clean up
-        env_handle.abort();
-
-        assert!(result.is_ok());
-        if let Ok(Some(error_message)) = result {
-            assert!(error_message.contains("Mock execution failed"));
-        }
+        environment
+            .shutdown()
+            .await
+            .expect("shutdown should succeed");
     }
 
     #[tokio::test]
@@ -251,14 +268,12 @@ mod tests {
         assert!(result.is_ok());
         let _agent_handle = result.unwrap();
 
-        // Set up environment
         let mut environment = Environment::new(None);
         environment
             .register_runtime(runtime.clone())
             .await
             .expect("Failed to register runtime");
 
-        // Publish tasks to both topics - should not panic
         let task1 = Task::new("Task for topic 1");
         let task2 = Task::new("Task for topic 2");
 
@@ -280,7 +295,6 @@ mod tests {
 
         assert!(result.is_err());
         let error_string = result.unwrap_err().to_string();
-        // The error should be a build failure
         assert!(error_string.contains("Build Failure"));
     }
 
@@ -298,7 +312,6 @@ mod tests {
 
         assert!(result.is_err());
         let error_string = result.unwrap_err().to_string();
-        // The error should be a build failure
         assert!(error_string.contains("Build Failure"));
     }
 
@@ -319,7 +332,6 @@ mod tests {
             .await
             .expect("Failed to build agent");
 
-        // Verify memory is configured
         assert!(agent_handle.agent.memory().is_some());
     }
 
@@ -339,7 +351,6 @@ mod tests {
             .expect("Failed to build agent");
 
         let tools = agent_handle.agent.tools();
-        // MockAgentImpl returns empty tools vector by default
         assert_eq!(tools.len(), 0);
     }
 }

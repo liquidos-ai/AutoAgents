@@ -26,9 +26,26 @@ After wiring agents and publishing work, start the registered runtimes:
 
 - **`run()`** — spawns a background task that runs all registered runtimes. Returns `Err(EnvironmentError::AlreadyRunning)` if a run task is already in progress. Does **not** block until work completes.
 - **`wait().await`** — joins the background task started by `run()`. Clears the stored handle when the task finishes, so later calls return immediately with `Ok(Ok(()))`. Use this in short-lived programs once messages/tasks have been published.
-- **`shutdown().await`** — requests shutdown on all runtimes and joins the run handle. Use for graceful exit (for example on `Ctrl+C`).
-- **`run_background().await`** — starts runtimes without storing a join handle on the environment. Useful when you manage lifecycle elsewhere.
+- **`shutdown().await`** — requests shutdown on all runtimes and joins the run handle. Returns `Result<(), EnvironmentError>` so runtime or join failures are visible. Use for graceful exit (for example on `Ctrl+C`).
+- **`run_background().await`** — starts runtimes without storing a join handle on the environment. Useful when you manage lifecycle elsewhere. Cannot be combined with `run()` on the same `Environment` until `shutdown().await` is called.
 - **`is_running()`** — returns whether a background run task is currently active.
+
+### Migration from earlier releases
+
+`Environment::run()` no longer returns a `JoinHandle`. Use the stored lifecycle instead:
+
+```rust
+// Before
+let handle = environment.run();
+handle.await??;
+
+// After
+environment.run()?;
+let run_result = environment.wait().await?;
+run_result?;
+```
+
+For long-running programs that previously dropped the join handle, call `environment.shutdown().await?` on exit.
 
 Common patterns:
 
@@ -51,7 +68,7 @@ tokio::select! {
         }
     }
     _ = tokio::signal::ctrl_c() => {
-        environment.shutdown().await;
+        environment.shutdown().await?;
     }
 }
 ```

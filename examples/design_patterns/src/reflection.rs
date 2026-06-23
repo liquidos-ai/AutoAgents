@@ -252,11 +252,11 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         }
         _ = tokio::time::sleep(tokio::time::Duration::from_secs(30)) => {
             println!("\nReflection loop timeout - shutting down.");
-            environment.shutdown().await;
+            let _ = environment.shutdown().await;
         }
         _ = tokio::signal::ctrl_c() => {
             println!("\nCtrl+C detected. Shutting down...");
-            environment.shutdown().await;
+            let _ = environment.shutdown().await;
         }
     }
 

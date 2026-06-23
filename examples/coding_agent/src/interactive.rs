@@ -102,6 +102,8 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
         }
     }
 
+    environment.shutdown().await?;
+
     Ok(())
 }
 

@@ -388,11 +388,11 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         }
         _ = tokio::time::sleep(tokio::time::Duration::from_secs(90)) => {
             println!("\nPlanning process timeout - shutting down.");
-            environment.shutdown().await;
+            let _ = environment.shutdown().await;
         }
         _ = tokio::signal::ctrl_c() => {
             println!("\nCtrl+C detected. Shutting down...");
-            environment.shutdown().await;
+            let _ = environment.shutdown().await;
         }
     }
 

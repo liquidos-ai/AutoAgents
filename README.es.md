@@ -426,6 +426,60 @@ AutoAgents está diseñado para alto rendimiento:
 
 ---
 
+## FAQ
+
+### General
+
+**¿Qué es AutoAgents?**
+AutoAgents es un framework multiagente de grado de producción escrito en Rust. Proporciona una arquitectura modular para construir sistemas inteligentes con modelos de agentes tipados, llamadas a herramientas estructuradas, memoria configurable y backends LLM intercambiables — diseñado para rendimiento, seguridad y composabilidad en entornos de servidor y edge.
+
+**¿En qué se diferencia AutoAgents de otros frameworks de agentes?**
+AutoAgents es Rust-first, ofreciendo seguridad de memoria, abstracciones de costo cero y alto rendimiento. Proporciona una interfaz unificada para proveedores LLM en la nube y locales, guardrails integrados, pasadas de optimización (caché/reintento) y un sandbox WASM para ejecución de herramientas — todo en un solo framework.
+
+**¿Existe una versión en Python?**
+Sí. AutoAgents proporciona bindings de Python vía `autoagents-py` en PyPI, permitiendo a los desarrolladores Python aprovechar el núcleo Rust con una API familiar.
+
+### Configuración
+
+**¿Cómo instalo AutoAgents?**
+Instala vía Cargo: `cargo add autoagents`, o vía PyPI para Python: `pip install autoagents-py`. Consulta la [documentación](https://liquidos-ai.github.io/AutoAgents/) para guías detalladas.
+
+**¿Qué proveedores LLM están soportados?**
+AutoAgents soporta OpenAI, OpenRouter, Anthropic, DeepSeek, xAI y modelos locales mediante una interfaz unificada. Configura tus claves API en el entorno o archivo de configuración.
+
+**¿Puedo usar modelos locales?**
+Sí. AutoAgents soporta backends LLM locales a través de su interfaz unificada de proveedores, permitiendo operación de agentes completamente offline.
+
+### Desarrollo de agentes
+
+**¿Qué es el executor ReAct?**
+El executor ReAct (Reasoning + Acting) es el modelo de ejecución principal de AutoAgents. Alterna entre pasos de razonamiento y llamadas a herramientas, permitiendo que los agentes planifiquen, ejecuten y observen resultados en un bucle hasta completar la tarea.
+
+**¿Cómo funciona el sistema de herramientas?**
+Las herramientas se definen con macros derive (`#[derive(Tool)]`) para entrada/salida tipada. AutoAgents también proporciona un runtime WASM sandboxed para ejecutar herramientas no confiables de forma segura.
+
+**¿Qué backends de memoria están disponibles?**
+AutoAgents usa por defecto un modelo de memoria de ventana deslizante, con backends extensibles para estrategias personalizadas — permitiendo control granular del contexto.
+
+### Orquestación multiagente
+
+**¿Cómo se comunican los agentes?**
+AutoAgents proporciona comunicación pub/sub tipada entre agentes, con paso de mensajes estructurado y seguridad de tipos en tiempo de compilación. Los agentes pueden publicar eventos y suscribirse a topics en una arquitectura desacoplada.
+
+**¿Qué es el sistema de entorno (environment)?**
+El sistema de entorno gestiona estado compartido y recursos entre múltiples agentes. Proporciona un espacio controlado donde los agentes interactúan, comparten observaciones y coordinan acciones. Registra runtimes con `register_runtime`, inícialos con `run()`, espera la finalización con `wait().await`, o deténlos con `shutdown().await?`. Consulta la [documentación de Actor Agents](https://liquidos-ai.github.io/AutoAgents/core-concepts/actor_agents#environment-lifecycle) para patrones de ciclo de vida.
+
+### Solución de problemas
+
+**La compilación falla con errores de versión de Rust. ¿Qué debo hacer?**
+AutoAgents requiere Rust 1.75+. Ejecuta `rustup update` para obtener la última versión estable. Consulta la [documentación](https://liquidos-ai.github.io/AutoAgents/) para requisitos de versión mínima.
+
+**¿Dónde puedo obtener ayuda?**
+- Documentación: https://liquidos-ai.github.io/AutoAgents/
+- Ejemplos: directorio `examples/` en el repositorio
+- DeepWiki: https://deepwiki.com/liquidos-ai/AutoAgents
+- GitHub Issues: https://github.com/liquidos-ai/AutoAgents/issues
+
 ## Licencia
 
 AutoAgents tiene doble licencia:

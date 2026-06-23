@@ -426,6 +426,60 @@ AutoAgents est conçu pour de hautes performances :
 
 ---
 
+## FAQ
+
+### Général
+
+**Qu'est-ce qu'AutoAgents ?**
+AutoAgents est un framework multi-agents de qualité production écrit en Rust. Il fournit une architecture modulaire pour construire des systèmes intelligents avec des modèles d'agents typés, des appels d'outils structurés, une mémoire configurable et des backends LLM interchangeables — conçu pour la performance, la sécurité et la composabilité sur serveur et edge.
+
+**En quoi AutoAgents diffère-t-il des autres frameworks d'agents ?**
+AutoAgents est Rust-first, offrant la sécurité mémoire, des abstractions sans coût et de hautes performances. Il fournit une interface unifiée pour les fournisseurs LLM cloud et locaux, des guardrails intégrés, des passes d'optimisation (cache/retry) et un sandbox WASM pour l'exécution d'outils — le tout dans un seul framework.
+
+**Existe-t-il une version Python ?**
+Oui. AutoAgents fournit des bindings Python via `autoagents-py` sur PyPI, permettant aux développeurs Python d'utiliser le cœur Rust avec une API familière.
+
+### Installation et configuration
+
+**Comment installer AutoAgents ?**
+Installez via Cargo : `cargo add autoagents`, ou via PyPI pour Python : `pip install autoagents-py`. Consultez la [documentation](https://liquidos-ai.github.io/AutoAgents/) pour les guides détaillés.
+
+**Quels fournisseurs LLM sont pris en charge ?**
+AutoAgents prend en charge OpenAI, OpenRouter, Anthropic, DeepSeek, xAI et les modèles locaux via une interface unifiée. Configurez vos clés API dans l'environnement ou le fichier de configuration.
+
+**Puis-je utiliser des modèles locaux ?**
+Oui. AutoAgents prend en charge les backends LLM locaux via son interface unifiée, permettant un fonctionnement d'agents entièrement hors ligne.
+
+### Développement d'agents
+
+**Qu'est-ce que l'exécuteur ReAct ?**
+L'exécuteur ReAct (Reasoning + Acting) est le modèle d'exécution principal d'AutoAgents. Il alterne entre des étapes de raisonnement et des appels d'outils, permettant aux agents de planifier, exécuter et observer les résultats en boucle jusqu'à la fin de la tâche.
+
+**Comment fonctionne le système d'outils ?**
+Les outils sont définis avec des macros derive (`#[derive(Tool)]`) pour des entrées/sorties typées. AutoAgents fournit aussi un runtime WASM sandboxé pour exécuter des outils non fiables en toute sécurité.
+
+**Quels backends mémoire sont disponibles ?**
+AutoAgents utilise par défaut un modèle de mémoire à fenêtre glissante, avec des backends extensibles pour des stratégies personnalisées — permettant un contrôle fin du contexte.
+
+### Orchestration multi-agents
+
+**Comment les agents communiquent-ils ?**
+AutoAgents fournit une communication pub/sub typée entre agents, avec passage de messages structuré et sûreté de types à la compilation. Les agents peuvent publier des événements et s'abonner à des topics dans une architecture découplée.
+
+**Qu'est-ce que le système d'environnement ?**
+Le système d'environnement gère l'état partagé et les ressources entre plusieurs agents. Il fournit un espace contrôlé où les agents interagissent, partagent des observations et coordonnent leurs actions. Enregistrez les runtimes avec `register_runtime`, démarrez-les avec `run()`, attendez la fin avec `wait().await`, ou arrêtez-les avec `shutdown().await?`. Consultez la [documentation Actor Agents](https://liquidos-ai.github.io/AutoAgents/core-concepts/actor_agents#environment-lifecycle) pour les modèles de cycle de vie.
+
+### Dépannage
+
+**La compilation échoue avec des erreurs de version Rust. Que faire ?**
+AutoAgents nécessite Rust 1.75+. Exécutez `rustup update` pour obtenir la dernière version stable. Consultez la [documentation](https://liquidos-ai.github.io/AutoAgents/) pour les exigences de version minimale.
+
+**Où obtenir de l'aide ?**
+- Documentation : https://liquidos-ai.github.io/AutoAgents/
+- Exemples : répertoire `examples/` du dépôt
+- DeepWiki : https://deepwiki.com/liquidos-ai/AutoAgents
+- GitHub Issues : https://github.com/liquidos-ai/AutoAgents/issues
+
 ## Licence
 
 AutoAgents est sous double licence :

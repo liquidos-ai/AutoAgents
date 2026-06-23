@@ -1,5 +1,6 @@
 use crate::agent::base::AgentType;
 use crate::agent::error::{AgentBuildError, RunnableAgentError};
+use crate::agent::executor::event_helper::EventHelper;
 use crate::agent::task::Task;
 use crate::agent::{AgentBuilder, AgentDeriveT, AgentExecutor, AgentHooks, BaseAgent, HookOutcome};
 use crate::error::Error;
@@ -85,12 +86,24 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
         <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
         <T as AgentExecutor>::Error: Into<RunnableAgentError>,
     {
+        let submission_id = task.submission_id;
+        let tx_event = self.tx.clone();
         let context = self.create_context();
 
         //Run Hook
         let hook_outcome = self.inner.on_run_start(&task, &context).await;
         match hook_outcome {
-            HookOutcome::Abort => return Err(RunnableAgentError::Abort),
+            HookOutcome::Abort => {
+                #[cfg(not(target_arch = "wasm32"))]
+                EventHelper::send_task_error(
+                    &tx_event,
+                    submission_id,
+                    self.id,
+                    RunnableAgentError::Abort.to_string(),
+                )
+                .await;
+                return Err(RunnableAgentError::Abort);
+            }
             HookOutcome::Continue => {}
         }
 
@@ -128,12 +141,24 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
         <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
         <T as AgentExecutor>::Error: Into<RunnableAgentError>,
     {
+        let submission_id = task.submission_id;
+        let tx_event = self.tx.clone();
         let context = self.create_context();
 
         //Run Hook
         let hook_outcome = self.inner.on_run_start(&task, &context).await;
         match hook_outcome {
-            HookOutcome::Abort => return Err(RunnableAgentError::Abort),
+            HookOutcome::Abort => {
+                #[cfg(not(target_arch = "wasm32"))]
+                EventHelper::send_task_error(
+                    &tx_event,
+                    submission_id,
+                    self.id,
+                    RunnableAgentError::Abort.to_string(),
+                )
+                .await;
+                return Err(RunnableAgentError::Abort);
+            }
             HookOutcome::Continue => {}
         }
 
@@ -471,7 +496,7 @@ mod tests {
             executed: Arc::clone(&executed),
         };
         let llm = Arc::new(ConfigurableLLMProvider::default());
-        let handle = AgentBuilder::<_, DirectAgent>::new(agent)
+        let mut handle = AgentBuilder::<_, DirectAgent>::new(agent)
             .llm(llm)
             .build()
             .await
@@ -481,5 +506,16 @@ mod tests {
         let err = handle.agent.run(task).await.expect_err("expected abort");
         assert!(matches!(err, RunnableAgentError::Abort));
         assert!(!executed.load(Ordering::SeqCst));
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), handle.rx.next())
+            .await
+            .expect("timed out waiting for TaskError event")
+            .expect("stream ended without event");
+        match event {
+            Event::TaskError { error, .. } => {
+                assert!(error.contains("Abort"));
+            }
+            other => panic!("expected TaskError, got {other:?}"),
+        }
     }
 }

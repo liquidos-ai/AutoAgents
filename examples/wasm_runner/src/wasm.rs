@@ -150,6 +150,8 @@ pub async fn wasm_agent(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     // Give time for processing
     tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
 
+    environment.shutdown().await?;
+
     println!("\n✅ WASM Agent example completed!");
     Ok(())
 }

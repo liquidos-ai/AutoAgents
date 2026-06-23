@@ -317,13 +317,19 @@ impl Runtime for SingleThreadedRuntime {
     }
 
     async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.shutdown_flag.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+
         info!("Initiating runtime shutdown for {}", self.id);
 
         // Send shutdown signal
-        self.internal_tx
-            .send(InternalEvent::Shutdown)
-            .await
-            .map_err(|e| format!("Failed to send shutdown signal: {e}"))?;
+        if let Err(e) = self.internal_tx.send(InternalEvent::Shutdown).await {
+            if self.shutdown_flag.load(Ordering::SeqCst) {
+                return Ok(());
+            }
+            return Err(format!("Failed to send shutdown signal: {e}").into());
+        }
 
         // Wait a brief moment for shutdown to complete
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;

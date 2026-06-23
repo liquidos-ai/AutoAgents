@@ -181,7 +181,17 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         //Run Hook
         let hook_outcome = self.inner.on_run_start(&task, &context).await;
         match hook_outcome {
-            HookOutcome::Abort => return Err(RunnableAgentError::Abort),
+            HookOutcome::Abort => {
+                #[cfg(not(target_arch = "wasm32"))]
+                EventHelper::send_task_error(
+                    &tx_event,
+                    submission_id,
+                    self.id,
+                    RunnableAgentError::Abort.to_string(),
+                )
+                .await;
+                return Err(RunnableAgentError::Abort);
+            }
             HookOutcome::Continue => {}
         }
 
@@ -257,6 +267,10 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
 
     /// Execute a streaming task to completion inside the actor, draining the
     /// stream and running lifecycle hooks before returning.
+    ///
+    /// When the executor stream yields multiple successful outputs, only the
+    /// **last** item is used for `TaskComplete` and the returned agent output.
+    /// Intermediate items are not emitted as terminal events.
     pub async fn run_stream_to_completion(
         self: Arc<Self>,
         task: Task,
@@ -273,7 +287,17 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
 
         let hook_outcome = self.inner.on_run_start(&task, &context).await;
         match hook_outcome {
-            HookOutcome::Abort => return Err(RunnableAgentError::Abort),
+            HookOutcome::Abort => {
+                #[cfg(not(target_arch = "wasm32"))]
+                EventHelper::send_task_error(
+                    &tx_event,
+                    submission_id,
+                    self.id,
+                    RunnableAgentError::Abort.to_string(),
+                )
+                .await;
+                return Err(RunnableAgentError::Abort);
+            }
             HookOutcome::Continue => {}
         }
 
@@ -383,11 +407,13 @@ mod tests {
     use crate::agent::output::AgentOutputT;
     use crate::agent::{Context, ExecutorConfig};
     use crate::runtime::{Runtime, RuntimeError};
-    use crate::tests::{MockAgentImpl, MockLLMProvider, TestAgentOutput, TestError};
+    use crate::tests::{
+        DivergentStreamingAgent, MockAgentImpl, MockLLMProvider, MultiItemStreamAgent,
+        TestAgentOutput, TestError,
+    };
     use crate::utils::BoxEventStream;
     use async_trait::async_trait;
     use futures::{StreamExt, stream};
-    use serde::{Deserialize, Serialize};
     use std::any::{Any, TypeId};
     use std::sync::Arc;
     use tokio::sync::{Mutex, mpsc};
@@ -601,9 +627,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_actor_run_aborts_on_hook_emits_task_error() {
+        let llm = Arc::new(MockLLMProvider);
+        let (tx, mut rx) = mpsc::channel(2);
+        let agent = Arc::new(
+            BaseAgent::<_, ActorAgent>::new(AbortStreamingAgent, llm, None, tx, false)
+                .await
+                .expect("agent should build"),
+        );
+
+        let err = agent
+            .run(Task::new("abort"))
+            .await
+            .expect_err("expected hook abort");
+        assert!(matches!(err, RunnableAgentError::Abort));
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("timed out waiting for TaskError event")
+            .expect("channel closed without event");
+        match event {
+            Event::TaskError { error, .. } => {
+                assert!(error.contains("Abort"));
+            }
+            other => panic!("expected TaskError, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
     async fn test_actor_run_stream_to_completion_aborts_on_hook() {
         let llm = Arc::new(MockLLMProvider);
-        let (tx, _rx) = mpsc::channel(2);
+        let (tx, mut rx) = mpsc::channel(2);
         let agent = Arc::new(
             BaseAgent::<_, ActorAgent>::new(AbortStreamingAgent, llm, None, tx, true)
                 .await
@@ -615,6 +669,17 @@ mod tests {
             .await
             .expect_err("expected hook abort");
         assert!(matches!(err, RunnableAgentError::Abort));
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("timed out waiting for TaskError event")
+            .expect("channel closed without event");
+        match event {
+            Event::TaskError { error, .. } => {
+                assert!(error.contains("Abort"));
+            }
+            other => panic!("expected TaskError, got {other:?}"),
+        }
     }
 
     #[derive(Debug, Clone)]
@@ -895,114 +960,36 @@ mod tests {
         assert!(matches!(err, RunnableAgentError::EmptyTx));
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct DivergentExecutorOutput {
-        response: String,
-        executor_only: u32,
-    }
+    #[tokio::test]
+    async fn test_actor_run_stream_to_completion_uses_last_stream_item() {
+        let llm = Arc::new(MockLLMProvider);
+        let (tx, mut rx) = mpsc::channel(2);
+        let agent = Arc::new(
+            BaseAgent::<_, ActorAgent>::new(MultiItemStreamAgent, llm, None, tx, true)
+                .await
+                .expect("agent should build"),
+        );
 
-    impl From<DivergentExecutorOutput> for Value {
-        fn from(output: DivergentExecutorOutput) -> Self {
-            serde_json::json!({
-                "response": output.response,
-                "executor_only": output.executor_only,
-            })
-        }
-    }
+        let output = agent
+            .run_stream_to_completion(Task::new("chunked"))
+            .await
+            .expect("stream should complete");
+        assert_eq!(output.result, "chunked-3");
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct DivergentAgentOutput {
-        result: String,
-    }
-
-    impl AgentOutputT for DivergentAgentOutput {
-        fn output_schema() -> &'static str {
-            r#"{"type":"object","properties":{"result":{"type":"string"}},"required":["result"]}"#
-        }
-
-        fn structured_output_format() -> Value {
-            serde_json::json!({
-                "name": "DivergentAgentOutput",
-                "description": "Derived agent output",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "result": {"type": "string"}
-                    },
-                    "required": ["result"]
-                },
-                "strict": true
-            })
-        }
-    }
-
-    impl From<DivergentExecutorOutput> for DivergentAgentOutput {
-        fn from(output: DivergentExecutorOutput) -> Self {
-            Self {
-                result: output.response,
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("timed out waiting for TaskComplete event")
+            .expect("channel closed without event");
+        match event {
+            Event::TaskComplete { result, .. } => {
+                let parsed: Value =
+                    serde_json::from_str(&result).expect("TaskComplete result should be JSON");
+                assert_eq!(parsed["sequence"], 3);
+                assert_eq!(parsed["response"], "chunked-3");
             }
+            other => panic!("expected TaskComplete, got {other:?}"),
         }
     }
-
-    #[derive(Debug, Clone)]
-    struct DivergentStreamingAgent;
-
-    #[async_trait]
-    impl AgentDeriveT for DivergentStreamingAgent {
-        type Output = DivergentAgentOutput;
-
-        fn description(&self) -> &'static str {
-            "divergent streaming agent"
-        }
-
-        fn output_schema(&self) -> Option<Value> {
-            Some(DivergentAgentOutput::structured_output_format())
-        }
-
-        fn name(&self) -> &'static str {
-            "divergent_streaming_agent"
-        }
-
-        fn tools(&self) -> Vec<Box<dyn crate::tool::ToolT>> {
-            vec![]
-        }
-    }
-
-    #[async_trait]
-    impl AgentExecutor for DivergentStreamingAgent {
-        type Output = DivergentExecutorOutput;
-        type Error = TestError;
-
-        fn config(&self) -> ExecutorConfig {
-            ExecutorConfig::default()
-        }
-
-        async fn execute(
-            &self,
-            task: &Task,
-            _context: Arc<Context>,
-        ) -> Result<Self::Output, Self::Error> {
-            Ok(DivergentExecutorOutput {
-                response: task.prompt.clone(),
-                executor_only: 42,
-            })
-        }
-
-        async fn execute_stream(
-            &self,
-            task: &Task,
-            _context: Arc<Context>,
-        ) -> Result<crate::utils::BoxRuntimeStream<Result<Self::Output, Self::Error>>, Self::Error>
-        {
-            let output = DivergentExecutorOutput {
-                response: task.prompt.clone(),
-                executor_only: 42,
-            };
-            Ok(Box::pin(stream::iter([Ok(output)])))
-        }
-    }
-
-    impl AgentHooks for DivergentStreamingAgent {}
 
     #[tokio::test]
     async fn test_actor_run_stream_to_completion_task_complete_uses_executor_value_from() {

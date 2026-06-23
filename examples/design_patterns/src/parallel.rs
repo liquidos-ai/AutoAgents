@@ -192,7 +192,7 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         }
         _ = tokio::signal::ctrl_c() => {
             println!("Ctrl+C detected. Shutting down...");
-            environment.shutdown().await;
+            let _ = environment.shutdown().await;
         }
     }
 

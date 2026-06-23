@@ -3,6 +3,7 @@ use crate::runtime::manager::RuntimeManager;
 use crate::runtime::{Runtime, RuntimeError};
 use crate::utils::BoxEventStream;
 use autoagents_protocol::{Event, RuntimeID};
+use futures_util::FutureExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -24,6 +25,9 @@ pub enum EnvironmentError {
 
     #[error("Error when consuming receiver")]
     EventError,
+
+    #[error("Run task join error: {0}")]
+    JoinError(#[from] tokio::task::JoinError),
 }
 
 /// Configuration for the process environment that owns one or more runtimes.
@@ -48,6 +52,15 @@ pub struct Environment {
     runtime_manager: Arc<RuntimeManager>,
     default_runtime: Option<RuntimeID>,
     handle: Option<JoinHandle<Result<(), RuntimeError>>>,
+    launch_state: RuntimeLaunchState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum RuntimeLaunchState {
+    #[default]
+    Idle,
+    Managed,
+    Background,
 }
 
 impl Environment {
@@ -61,6 +74,7 @@ impl Environment {
             runtime_manager,
             default_runtime: None,
             handle: None,
+            launch_state: RuntimeLaunchState::Idle,
         }
     }
 
@@ -108,20 +122,28 @@ impl Environment {
     /// runtimes and await completion. Returns [`EnvironmentError::AlreadyRunning`]
     /// if a run task is already in progress.
     ///
+    /// If a previous managed run task finished without [`wait`](Self::wait) or
+    /// [`shutdown`](Self::shutdown), its result is joined and returned before
+    /// spawning a new run task.
+    ///
     /// Use [`wait`](Self::wait) to await the background run task, or
     /// [`shutdown`](Self::shutdown) to stop runtimes and join the task.
     #[allow(clippy::result_large_err)] // Only `AlreadyRunning` is returned from this method.
     pub fn run(&mut self) -> Result<(), EnvironmentError> {
-        if let Some(handle) = &self.handle {
-            if !handle.is_finished() {
-                return Err(EnvironmentError::AlreadyRunning);
-            }
-            self.handle = None;
+        self.reconcile_finished_managed_launch()?;
+
+        if self.launch_state == RuntimeLaunchState::Background {
+            return Err(EnvironmentError::AlreadyRunning);
+        }
+
+        if self.is_running() {
+            return Err(EnvironmentError::AlreadyRunning);
         }
 
         let manager = self.runtime_manager.clone();
         let handle = tokio::spawn(async move { manager.run().await });
         self.handle = Some(handle);
+        self.launch_state = RuntimeLaunchState::Managed;
         Ok(())
     }
 
@@ -132,17 +154,34 @@ impl Environment {
     /// immediately.
     pub async fn wait(&mut self) -> Result<Result<(), RuntimeError>, tokio::task::JoinError> {
         match self.handle.take() {
-            Some(handle) => handle.await,
+            Some(handle) => {
+                let result = handle.await;
+                self.launch_state = RuntimeLaunchState::Idle;
+                result
+            }
             None => Ok(Ok(())),
         }
     }
 
     /// Start all registered runtimes and return immediately without waiting
     /// for completion.
-    pub async fn run_background(&mut self) -> Result<(), RuntimeError> {
+    ///
+    /// Cannot be combined with [`run`](Self::run) on the same environment
+    /// instance without calling [`shutdown`](Self::shutdown) first.
+    pub async fn run_background(&mut self) -> Result<(), EnvironmentError> {
+        self.reconcile_finished_managed_launch()?;
+
+        if self.launch_state != RuntimeLaunchState::Idle || self.is_running() {
+            return Err(EnvironmentError::AlreadyRunning);
+        }
+
         let manager = self.runtime_manager.clone();
-        // Spawn background task to run the runtimes.
-        manager.run_background().await
+        manager
+            .run_background()
+            .await
+            .map_err(EnvironmentError::RuntimeError)?;
+        self.launch_state = RuntimeLaunchState::Background;
+        Ok(())
     }
 
     /// Take the event receiver for a specific runtime (or the default one) so
@@ -181,11 +220,25 @@ impl Environment {
     }
 
     /// Request shutdown on all runtimes and await the run handle if present.
-    pub async fn shutdown(&mut self) {
-        let _ = self.runtime_manager.stop().await;
+    pub async fn shutdown(&mut self) -> Result<(), EnvironmentError> {
+        let stop_result = self.runtime_manager.stop().await;
 
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.await;
+        let join_result = if let Some(handle) = self.handle.take() {
+            Some(handle.await)
+        } else {
+            None
+        };
+
+        self.launch_state = RuntimeLaunchState::Idle;
+
+        if let Err(e) = stop_result {
+            return Err(EnvironmentError::RuntimeError(e));
+        }
+
+        match join_result {
+            None | Some(Ok(Ok(()))) => Ok(()),
+            Some(Ok(Err(e))) => Err(EnvironmentError::RuntimeError(e)),
+            Some(Err(e)) => Err(EnvironmentError::JoinError(e)),
         }
     }
 
@@ -194,6 +247,38 @@ impl Environment {
         self.handle
             .as_ref()
             .is_some_and(|handle| !handle.is_finished())
+    }
+
+    #[allow(clippy::result_large_err)]
+    fn reconcile_finished_managed_launch(&mut self) -> Result<(), EnvironmentError> {
+        if self.launch_state != RuntimeLaunchState::Managed {
+            return Ok(());
+        }
+
+        let Some(handle) = self.handle.take() else {
+            self.launch_state = RuntimeLaunchState::Idle;
+            return Ok(());
+        };
+
+        if !handle.is_finished() {
+            self.handle = Some(handle);
+            return Ok(());
+        }
+
+        self.launch_state = RuntimeLaunchState::Idle;
+        Self::join_finished_handle(handle)
+    }
+
+    #[allow(clippy::result_large_err)]
+    fn join_finished_handle(
+        handle: JoinHandle<Result<(), RuntimeError>>,
+    ) -> Result<(), EnvironmentError> {
+        match handle.now_or_never() {
+            Some(Ok(Ok(()))) => Ok(()),
+            Some(Ok(Err(e))) => Err(EnvironmentError::RuntimeError(e)),
+            Some(Err(e)) => Err(EnvironmentError::JoinError(e)),
+            None => Err(EnvironmentError::AlreadyRunning),
+        }
     }
 }
 
@@ -258,8 +343,9 @@ mod tests {
     #[tokio::test]
     async fn test_environment_shutdown() {
         let mut env = Environment::new(None);
-        env.shutdown().await;
-        // Should not panic
+        env.shutdown()
+            .await
+            .expect("shutdown should succeed when idle");
     }
 
     #[tokio::test]
@@ -271,11 +357,11 @@ mod tests {
         let non_existent_id = Uuid::new_v4();
 
         let result = env.get_runtime_or_default(Some(non_existent_id)).await;
-        assert!(result.is_err());
-
-        assert!(result.is_err());
-        // Just test that it's an error, not the specific variant
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(Error::EnvironmentError(EnvironmentError::RuntimeNotFound(id)))
+            if id == non_existent_id
+        ));
     }
 
     #[test]
@@ -336,7 +422,7 @@ mod tests {
         assert!(env.is_running());
         assert!(matches!(env.run(), Err(EnvironmentError::AlreadyRunning)));
 
-        env.shutdown().await;
+        env.shutdown().await.expect("shutdown should succeed");
         assert!(!env.is_running());
     }
 
@@ -347,9 +433,18 @@ mod tests {
         env.register_runtime(runtime).await.unwrap();
 
         env.run().expect("initial run should succeed");
-        env.shutdown().await;
+        env.shutdown().await.expect("shutdown should succeed");
+
+        // Environment allows spawning a new run task after shutdown. The same
+        // SingleThreadedRuntime instance cannot re-enter its event loop, so the
+        // second run task fails when joined.
         env.run().expect("run after shutdown should succeed");
-        env.shutdown().await;
+        let run_result = env.wait().await.expect("wait should join run task");
+        assert!(run_result.is_err());
+
+        env.shutdown()
+            .await
+            .expect("shutdown should succeed when idle after failed run");
     }
 
     #[tokio::test]
@@ -390,7 +485,7 @@ mod tests {
         env.register_runtime(runtime).await.unwrap();
 
         env.run().expect("run should succeed");
-        env.shutdown().await;
+        env.shutdown().await.expect("shutdown should succeed");
 
         for _ in 0..2 {
             let result = timeout(Duration::from_secs(1), env.wait())
@@ -500,7 +595,7 @@ mod tests {
         assert!(!env.is_running());
 
         env.run().expect("run after finished handle should succeed");
-        env.shutdown().await;
+        env.shutdown().await.expect("shutdown should succeed");
     }
 
     #[tokio::test]
@@ -517,6 +612,42 @@ mod tests {
         env.run_background()
             .await
             .expect("run_background should succeed");
+
+        env.shutdown().await.expect("shutdown should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_environment_run_background_rejects_after_run() {
+        let mut env = Environment::new(None);
+        let runtime = SingleThreadedRuntime::new(None);
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run().expect("run should succeed");
+        assert!(matches!(
+            env.run_background().await,
+            Err(EnvironmentError::AlreadyRunning)
+        ));
+
+        env.shutdown().await.expect("shutdown should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_environment_run_rejects_after_run_background() {
+        let mut env = Environment::new(None);
+        let (tx, _rx) = mpsc::channel(1);
+        let runtime = Arc::new(ImmediateRuntime {
+            id: RuntimeID::new_v4(),
+            behavior: ImmediateRuntimeBehavior::Success,
+            tx,
+        }) as Arc<dyn Runtime>;
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run_background()
+            .await
+            .expect("run_background should succeed");
+        assert!(matches!(env.run(), Err(EnvironmentError::AlreadyRunning)));
+
+        env.shutdown().await.expect("shutdown should succeed");
     }
 
     #[tokio::test]
@@ -533,6 +664,53 @@ mod tests {
         env.run().expect("run should succeed");
         let wait_result = env.wait().await.expect("wait join should succeed");
         assert!(wait_result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_environment_run_surfaces_prior_failure_without_wait() {
+        use tokio::time::{Duration, sleep};
+
+        let mut env = Environment::new(None);
+        let (tx, _rx) = mpsc::channel(1);
+        let runtime = Arc::new(ImmediateRuntime {
+            id: RuntimeID::new_v4(),
+            behavior: ImmediateRuntimeBehavior::Error,
+            tx,
+        }) as Arc<dyn Runtime>;
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run().expect("initial run should succeed");
+        sleep(Duration::from_millis(20)).await;
+        assert!(!env.is_running());
+
+        let err = env
+            .run()
+            .expect_err("restart should surface prior run failure");
+        assert!(matches!(err, EnvironmentError::RuntimeError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_environment_run_background_surfaces_prior_failure_without_wait() {
+        use tokio::time::{Duration, sleep};
+
+        let mut env = Environment::new(None);
+        let (tx, _rx) = mpsc::channel(1);
+        let runtime = Arc::new(ImmediateRuntime {
+            id: RuntimeID::new_v4(),
+            behavior: ImmediateRuntimeBehavior::Error,
+            tx,
+        }) as Arc<dyn Runtime>;
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run().expect("initial run should succeed");
+        sleep(Duration::from_millis(20)).await;
+        assert!(!env.is_running());
+
+        let err = env
+            .run_background()
+            .await
+            .expect_err("run_background should surface prior run failure");
+        assert!(matches!(err, EnvironmentError::RuntimeError(_)));
     }
 
     #[test]

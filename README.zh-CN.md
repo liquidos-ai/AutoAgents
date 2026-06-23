@@ -425,6 +425,60 @@ AutoAgents 面向高性能设计：
 
 ---
 
+## 常见问题
+
+### 概述
+
+**什么是 AutoAgents？**
+AutoAgents 是一个用 Rust 编写的生产级多智能体框架。它提供模块化架构，支持类型安全的智能体模型、结构化工具调用、可配置内存和可插拔 LLM 后端——专为服务器和边缘环境的性能、安全性和可组合性而设计。
+
+**AutoAgents 与其他智能体框架有何不同？**
+AutoAgents 以 Rust 为先，提供内存安全、零成本抽象和高性能。它在单一框架中提供云和本地 LLM 提供商的统一接口、内置护栏、优化通道（缓存/重试）以及用于工具执行的 WASM 沙箱。
+
+**有 Python 版本吗？**
+有。AutoAgents 通过 PyPI 上的 `autoagents-py` 提供 Python 绑定，让 Python 开发者可以使用熟悉的 API 调用 Rust 核心。
+
+### 安装与配置
+
+**如何安装 AutoAgents？**
+通过 Cargo 安装：`cargo add autoagents`；Python 用户：`pip install autoagents-py`。详细指南请参阅[文档](https://liquidos-ai.github.io/AutoAgents/)。
+
+**支持哪些 LLM 提供商？**
+AutoAgents 通过统一接口支持 OpenAI、OpenRouter、Anthropic、DeepSeek、xAI 及本地模型。请在环境变量或配置文件中设置 API 密钥。
+
+**可以使用本地模型吗？**
+可以。AutoAgents 通过统一的提供商接口支持本地 LLM 后端，实现完全离线的智能体运行。
+
+### 智能体开发
+
+**什么是 ReAct 执行器？**
+ReAct（推理 + 行动）执行器是 AutoAgents 的主要智能体执行模型。它在推理步骤和工具调用之间交替，使智能体能够循环规划、执行并观察结果，直到任务完成。
+
+**工具系统如何工作？**
+工具通过 derive 宏（`#[derive(Tool)]`）定义，实现类型安全的输入/输出。AutoAgents 还提供沙箱化的 WASM 运行时，用于安全执行不可信工具。
+
+**有哪些内存后端？**
+AutoAgents 默认使用滑动窗口内存模型，并提供可扩展后端以支持自定义内存策略——实现对上下文管理的精细控制。
+
+### 多智能体编排
+
+**智能体如何通信？**
+AutoAgents 提供类型化的 pub/sub 通信，支持结构化消息传递和编译期类型安全。智能体可以在解耦架构中发布事件并订阅主题。
+
+**什么是环境（environment）系统？**
+环境系统管理多个智能体之间的共享状态和资源，提供受控空间供智能体交互、共享观察结果并协调行动。使用 `register_runtime` 注册运行时，用 `run()` 启动，用 `wait().await` 等待完成，或用 `shutdown().await?` 停止。生命周期模式请参阅 [Actor Agents 文档](https://liquidos-ai.github.io/AutoAgents/core-concepts/actor_agents#environment-lifecycle)。
+
+### 故障排除
+
+**构建因 Rust 版本错误失败，该怎么办？**
+AutoAgents 需要 Rust 1.75+。运行 `rustup update` 获取最新稳定版。最低版本要求请参阅[文档](https://liquidos-ai.github.io/AutoAgents/)。
+
+**在哪里获取帮助？**
+- 文档：https://liquidos-ai.github.io/AutoAgents/
+- 示例：仓库中的 `examples/` 目录
+- DeepWiki：https://deepwiki.com/liquidos-ai/AutoAgents
+- GitHub Issues：https://github.com/liquidos-ai/AutoAgents/issues
+
 ## 许可证
 
 AutoAgents 采用双许可证：
