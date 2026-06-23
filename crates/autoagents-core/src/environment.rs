@@ -26,23 +26,6 @@ pub enum EnvironmentError {
     EventError,
 }
 
-/// Returned when [`Environment::run`] is called while a run task is already active.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("Environment is already running")]
-pub struct EnvironmentAlreadyRunning;
-
-impl From<EnvironmentAlreadyRunning> for EnvironmentError {
-    fn from(_: EnvironmentAlreadyRunning) -> Self {
-        Self::AlreadyRunning
-    }
-}
-
-impl From<EnvironmentAlreadyRunning> for Error {
-    fn from(err: EnvironmentAlreadyRunning) -> Self {
-        EnvironmentError::from(err).into()
-    }
-}
-
 /// Configuration for the process environment that owns one or more runtimes.
 #[derive(Clone)]
 pub struct EnvironmentConfig {
@@ -127,10 +110,11 @@ impl Environment {
     ///
     /// Use [`wait`](Self::wait) to await the background run task, or
     /// [`shutdown`](Self::shutdown) to stop runtimes and join the task.
-    pub fn run(&mut self) -> Result<(), EnvironmentAlreadyRunning> {
+    #[allow(clippy::result_large_err)] // Only `AlreadyRunning` is returned from this method.
+    pub fn run(&mut self) -> Result<(), EnvironmentError> {
         if let Some(handle) = &self.handle {
             if !handle.is_finished() {
-                return Err(EnvironmentAlreadyRunning);
+                return Err(EnvironmentError::AlreadyRunning);
             }
             self.handle = None;
         }
@@ -143,9 +127,11 @@ impl Environment {
 
     /// Await the background task started by [`run`](Self::run).
     ///
-    /// Returns `Ok(Ok(()))` when no run task has been started.
+    /// Returns `Ok(Ok(()))` when no run task has been started. After the task
+    /// completes, the stored handle is cleared so subsequent calls return
+    /// immediately.
     pub async fn wait(&mut self) -> Result<Result<(), RuntimeError>, tokio::task::JoinError> {
-        match self.handle.as_mut() {
+        match self.handle.take() {
             Some(handle) => handle.await,
             None => Ok(Ok(())),
         }
@@ -293,7 +279,7 @@ mod tests {
 
     #[test]
     fn test_environment_error_already_running_display() {
-        let error = EnvironmentAlreadyRunning;
+        let error = EnvironmentError::AlreadyRunning;
         assert!(error.to_string().contains("already running"));
     }
 
@@ -347,10 +333,7 @@ mod tests {
         assert!(!env.is_running());
         env.run().expect("run should succeed");
         assert!(env.is_running());
-        assert_eq!(
-            env.run().expect_err("second run should fail while active"),
-            EnvironmentAlreadyRunning
-        );
+        assert!(matches!(env.run(), Err(EnvironmentError::AlreadyRunning)));
 
         env.shutdown().await;
         assert!(!env.is_running());
@@ -395,5 +378,24 @@ mod tests {
             result,
             Err(EnvironmentError::RuntimeNotFound(id)) if id == non_existent_id
         ));
+    }
+
+    #[tokio::test]
+    async fn test_environment_wait_is_idempotent() {
+        use tokio::time::{Duration, timeout};
+
+        let mut env = Environment::new(None);
+        let runtime = SingleThreadedRuntime::new(None);
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run().expect("run should succeed");
+        env.shutdown().await;
+
+        for _ in 0..2 {
+            let result = timeout(Duration::from_secs(1), env.wait())
+                .await
+                .expect("wait should not hang");
+            assert!(result.is_ok());
+        }
     }
 }

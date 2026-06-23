@@ -1,6 +1,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use crate::actor::Topic;
 use crate::agent::base::AgentType;
+use crate::agent::context::Context;
 use crate::agent::error::{AgentBuildError, RunnableAgentError};
 use crate::agent::executor::event_helper::EventHelper;
 use crate::agent::hooks::AgentHooks;
@@ -194,7 +195,21 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         <T as AgentExecutor>::Error: Into<RunnableAgentError>,
     {
         let context = self.create_context();
+        self.run_stream_with_context(task, context).await
+    }
 
+    async fn run_stream_with_context(
+        self: Arc<Self>,
+        task: Task,
+        context: Arc<Context>,
+    ) -> Result<
+        crate::utils::BoxRuntimeStream<Result<<T as AgentDeriveT>::Output, RunnableAgentError>>,
+        RunnableAgentError,
+    >
+    where
+        <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
+        <T as AgentExecutor>::Error: Into<RunnableAgentError>,
+    {
         // Execute the agent's streaming logic using the executor
         match self.inner().execute_stream(&task, context).await {
             Ok(stream) => {
@@ -241,7 +256,10 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
             HookOutcome::Continue => {}
         }
 
-        let mut stream = self.clone().run_stream(task.clone()).await?;
+        let mut stream = self
+            .clone()
+            .run_stream_with_context(task.clone(), context.clone())
+            .await?;
         use futures::StreamExt;
 
         let mut last_output = None;
