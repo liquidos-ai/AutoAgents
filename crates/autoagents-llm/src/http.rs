@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use futures::StreamExt;
 use reqwest::{Response, StatusCode};
 
 use crate::error::LLMError;
@@ -58,16 +59,52 @@ fn http_status_error(
 }
 
 async fn read_bounded_error_body(response: Response) -> Result<String, LLMError> {
-    let bytes = response.bytes().await?;
-    if bytes.len() <= MAX_HTTP_ERROR_BODY_BYTES {
-        return Ok(String::from_utf8_lossy(&bytes).into_owned());
+    if let Some(content_length) = response.content_length()
+        && content_length as usize > MAX_HTTP_ERROR_BODY_BYTES
+    {
+        return Ok(format!(
+            "... [body omitted, Content-Length: {content_length} bytes]"
+        ));
     }
 
-    let truncated = String::from_utf8_lossy(&bytes[..MAX_HTTP_ERROR_BODY_BYTES]).into_owned();
-    Ok(format!(
-        "{truncated}... [truncated, {} bytes total]",
-        bytes.len()
-    ))
+    let mut stream = response.bytes_stream();
+    let mut collected = Vec::with_capacity(MAX_HTTP_ERROR_BODY_BYTES.min(8192));
+    let mut total_received = 0usize;
+    let mut at_capacity = false;
+
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result?;
+        let chunk_len = chunk.len();
+        total_received += chunk_len;
+
+        if !at_capacity {
+            let remaining = MAX_HTTP_ERROR_BODY_BYTES.saturating_sub(collected.len());
+            if chunk_len <= remaining {
+                collected.extend_from_slice(&chunk);
+                if collected.len() == MAX_HTTP_ERROR_BODY_BYTES {
+                    at_capacity = true;
+                }
+            } else {
+                collected.extend_from_slice(&chunk[..remaining]);
+                at_capacity = true;
+            }
+        }
+
+        if at_capacity {
+            break;
+        }
+    }
+
+    if at_capacity {
+        Ok(format_truncated_error_body(&collected, total_received))
+    } else {
+        Ok(String::from_utf8_lossy(&collected).into_owned())
+    }
+}
+
+fn format_truncated_error_body(collected: &[u8], bytes_read: usize) -> String {
+    let truncated = String::from_utf8_lossy(collected).into_owned();
+    format!("{truncated}... [truncated after reading {bytes_read} bytes]")
 }
 
 fn map_http_status_error(
@@ -363,6 +400,78 @@ mod tests {
                     "TestProvider API returned error status: 503 Service Unavailable"
                 );
                 assert_eq!(response_body.as_ref(), "service unavailable");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn read_bounded_error_body_skips_oversized_content_length() {
+        let server = httpmock::MockServer::start();
+        let oversized_body = "x".repeat(MAX_HTTP_ERROR_BODY_BYTES + 1);
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/huge");
+            then.status(500).body(&oversized_body);
+        });
+
+        let client = Client::new();
+        let response = client
+            .get(format!("{}/huge", server.base_url()))
+            .send()
+            .await
+            .unwrap();
+        let err = ensure_success(response, "TestProvider")
+            .await
+            .expect_err("expected error");
+
+        match err {
+            LLMError::HttpStatusError { response_body, .. } => {
+                assert!(response_body.contains("body omitted"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn read_bounded_error_body_truncates_chunked_response() {
+        let server = httpmock::MockServer::start();
+        let oversized_body = "y".repeat(MAX_HTTP_ERROR_BODY_BYTES + 8_192);
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/chunked");
+            then.status(500)
+                .header("Transfer-Encoding", "chunked")
+                .body(&oversized_body);
+        });
+
+        let client = Client::new();
+        let response = client
+            .get(format!("{}/chunked", server.base_url()))
+            .send()
+            .await
+            .unwrap();
+        let err = ensure_success(response, "TestProvider")
+            .await
+            .expect_err("expected error");
+
+        match err {
+            LLMError::HttpStatusError { response_body, .. } => {
+                assert!(
+                    response_body.contains("truncated after reading")
+                        || response_body.contains("body omitted"),
+                    "unexpected body: {response_body}"
+                );
+                assert!(response_body.len() < oversized_body.len());
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn read_bounded_error_body_returns_small_body_unchanged() {
+        let err = error_for_status(500, "small error", None).await;
+        match err {
+            LLMError::HttpStatusError { response_body, .. } => {
+                assert_eq!(response_body.as_ref(), "small error");
             }
             other => panic!("unexpected error: {other:?}"),
         }

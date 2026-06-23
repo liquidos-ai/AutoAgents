@@ -159,7 +159,7 @@ thread_local! {
 fn jitter_seed() -> u64 {
     use std::hash::{Hash, Hasher};
 
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut hasher = std::collections::hash_map::DefaultHasher::default();
     std::thread::current().id().hash(&mut hasher);
     std::ptr::from_ref(&JITTER_RNG).hash(&mut hasher);
     if let Ok(duration) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
