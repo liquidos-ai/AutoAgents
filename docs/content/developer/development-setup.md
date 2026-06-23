@@ -123,7 +123,7 @@ lefthook --version
 
 # Build AutoAgents
 cd AutoAgents
-cargo build --all-features
+cargo build --workspace --features full
 
 # Run tests
 cargo test --all-features

@@ -27,7 +27,7 @@
 
 
 ## Build, Test, and Development Commands
-- Build workspace: `cargo build --workspace --all-features`
+- Build workspace: `cargo build --workspace --features full`
 - Lint: `cargo clippy --all-features --all-targets -- -D warnings`
 - Format: `cargo fmt --all`
 - Test fast (CI-like): `cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent`

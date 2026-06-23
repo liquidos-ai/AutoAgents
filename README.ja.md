@@ -116,8 +116,12 @@ npm install -g lefthook
 git clone https://github.com/liquidos-ai/AutoAgents.git
 cd AutoAgents
 lefthook install
-cargo build --workspace --all-features
+cargo build --workspace --features full
 ```
+
+CUDA、Vulkan、Metal などのハードウェア固有のアクセラレータ機能には、
+対応するローカルのツールチェーンとプラットフォームが必要です。これらの機能は、
+ビルドする特定のバックエンドに対してのみ有効にしてください。
 
 ### Python バインディング
 
@@ -361,7 +365,10 @@ AutoAgents/
 ### テストの実行
 
 ```bash
-cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
+cargo test --features default
+
+# Python バインディング
+make python-bindings-test-clean
 
 # Coverage (requires cargo-tarpaulin)
 cargo install cargo-tarpaulin
@@ -381,7 +388,8 @@ cargo bench -p autoagents-core --bench agent_runtime
 
 - `cargo fmt --check` でコードを整形
 - `cargo clippy -- -D warnings` で静的解析
-- `cargo test --all-features --workspace --exclude autoagents-burn` でテスト実行
+- Rust テストは `cargo test --features full` で実行
+- Python バインディングのテストは `make python-bindings-test` で実行
 
 ### コントリビュート
 

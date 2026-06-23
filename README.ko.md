@@ -116,8 +116,12 @@ npm install -g lefthook
 git clone https://github.com/liquidos-ai/AutoAgents.git
 cd AutoAgents
 lefthook install
-cargo build --workspace --all-features
+cargo build --workspace --features full
 ```
+
+CUDA, Vulkan, Metal 같은 하드웨어별 가속 기능에는
+해당 로컬 툴체인과 플랫폼이 필요합니다. 이러한 기능은
+빌드하려는 특정 백엔드에서만 활성화하세요.
 
 ### Python 바인딩
 
@@ -361,7 +365,10 @@ AutoAgents/
 ### 테스트 실행
 
 ```bash
-cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
+cargo test --features default
+
+# Python 바인딩
+make python-bindings-test-clean
 
 # Coverage (requires cargo-tarpaulin)
 cargo install cargo-tarpaulin
@@ -381,7 +388,8 @@ cargo bench -p autoagents-core --bench agent_runtime
 
 - `cargo fmt --check` 로 코드 포맷
 - `cargo clippy -- -D warnings` 로 린트
-- `cargo test --all-features --workspace --exclude autoagents-burn` 로 테스트 실행
+- Rust 테스트는 `cargo test --features full` 로 실행
+- Python 바인딩 테스트는 `make python-bindings-test` 로 실행
 
 ### 기여하기
 

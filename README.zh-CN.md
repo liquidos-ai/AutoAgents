@@ -116,8 +116,12 @@ npm install -g lefthook
 git clone https://github.com/liquidos-ai/AutoAgents.git
 cd AutoAgents
 lefthook install
-cargo build --workspace --all-features
+cargo build --workspace --features full
 ```
+
+CUDA、Vulkan 和 Metal 等硬件特定的加速功能需要
+匹配的本地工具链和平台。请仅为你正在构建的特定后端
+启用这些功能。
 
 ### Python 绑定
 
@@ -361,7 +365,10 @@ AutoAgents/
 ### 运行测试
 
 ```bash
-cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
+cargo test --features default
+
+# Python 绑定
+make python-bindings-test-clean
 
 # Coverage (requires cargo-tarpaulin)
 cargo install cargo-tarpaulin
@@ -381,7 +388,8 @@ cargo bench -p autoagents-core --bench agent_runtime
 
 - 使用 `cargo fmt --check` 格式化代码
 - 使用 `cargo clippy -- -D warnings` 运行静态检查
-- 使用 `cargo test --all-features --workspace --exclude autoagents-burn` 执行测试
+- 使用 `cargo test --features full` 运行 Rust 测试
+- 使用 `make python-bindings-test` 运行 Python 绑定测试
 
 ### 贡献
 

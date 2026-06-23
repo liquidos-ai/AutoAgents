@@ -116,8 +116,12 @@ npm install -g lefthook
 git clone https://github.com/liquidos-ai/AutoAgents.git
 cd AutoAgents
 lefthook install
-cargo build --workspace --all-features
+cargo build --workspace --features full
 ```
+
+Les fonctionnalités d'accélération propres au matériel, comme CUDA, Vulkan et Metal, nécessitent
+les plateformes et toolchains locales correspondantes. Activez-les uniquement
+pour le backend spécifique que vous compilez.
 
 ### Bindings Python
 
@@ -362,7 +366,10 @@ AutoAgents/
 ### Exécuter les tests
 
 ```bash
-cargo test --workspace --features default --exclude autoagents-burn --exclude autoagents-mistral-rs --exclude wasm_agent
+cargo test --features default
+
+# Bindings Python
+make python-bindings-test-clean
 
 # Coverage (requires cargo-tarpaulin)
 cargo install cargo-tarpaulin
@@ -382,7 +389,8 @@ Ce projet utilise LeftHook pour la gestion des Git hooks. Les hooks exécutent a
 
 - Formatage avec `cargo fmt --check`
 - Linting avec `cargo clippy -- -D warnings`
-- Tests avec `cargo test --all-features --workspace --exclude autoagents-burn`
+- Tests Rust avec `cargo test --features full`
+- Tests des bindings Python avec `make python-bindings-test`
 
 ### Contribuer
 
