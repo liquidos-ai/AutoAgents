@@ -390,16 +390,20 @@ where
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         let agent = self.0.clone();
-        let task = message;
 
-        //Run agent
-        if agent.stream() {
-            let _ = agent.run_stream_to_completion(task).await?;
-            Ok(())
+        // Run agent
+        let result = if agent.stream() {
+            agent.run_stream_to_completion(message).await
         } else {
-            let _ = agent.run(task).await?;
-            Ok(())
-        }
+            agent.run(message).await
+        };
+
+        // Task-level failures are surfaced on the event channel as `TaskError` (or
+        // `TaskComplete` on success) by the run helpers above. Do not propagate them
+        // to ractor — returning `Err` here terminates the actor and breaks long-running
+        // pub/sub agents after a single bad task.
+        let _ = result;
+        Ok(())
     }
 }
 

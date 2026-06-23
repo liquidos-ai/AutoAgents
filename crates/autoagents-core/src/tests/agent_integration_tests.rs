@@ -241,6 +241,66 @@ mod tests {
         let error_message = wait_for_task_error(&mut event_stream).await;
         assert!(error_message.contains("Mock execution failed"));
 
+        runtime
+            .publish(&topic, Task::new("Second failing task"))
+            .await
+            .expect("Failed to publish second task");
+
+        let second_error = wait_for_task_error(&mut event_stream).await;
+        assert!(second_error.contains("Mock execution failed"));
+
+        environment
+            .shutdown()
+            .await
+            .expect("shutdown should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_streaming_pub_sub_actor_survives_stream_task_failure() {
+        let llm = Arc::new(MockLLMProvider);
+        let runtime = SingleThreadedRuntime::new(None);
+        let topic = Topic::<Task>::new("streaming_failure_test");
+
+        let agent = MockAgentImpl::new("failing_stream_agent", "Streaming agent that fails")
+            .with_failure(true);
+        let _agent_handle = AgentBuilder::new(agent)
+            .llm(llm)
+            .runtime(runtime.clone())
+            .subscribe(topic.clone())
+            .stream(true)
+            .build()
+            .await
+            .expect("Failed to build streaming agent");
+
+        let mut environment = Environment::new(None);
+        environment
+            .register_runtime(runtime.clone())
+            .await
+            .expect("Failed to register runtime");
+
+        let mut event_stream = environment
+            .take_event_receiver(None)
+            .await
+            .expect("Failed to get event receiver");
+
+        environment.run().expect("Failed to start environment");
+
+        runtime
+            .publish(&topic, Task::new("First streaming failure"))
+            .await
+            .expect("Failed to publish first task");
+
+        let first_error = wait_for_task_error(&mut event_stream).await;
+        assert!(first_error.contains("Mock execution failed"));
+
+        runtime
+            .publish(&topic, Task::new("Second streaming failure"))
+            .await
+            .expect("Failed to publish second task");
+
+        let second_error = wait_for_task_error(&mut event_stream).await;
+        assert!(second_error.contains("Mock execution failed"));
+
         environment
             .shutdown()
             .await

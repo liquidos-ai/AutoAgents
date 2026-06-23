@@ -175,6 +175,8 @@ Actor agents expose two streaming entry points with different event contracts:
 
 Non-streaming `run()` always emits `TaskComplete` or `TaskError`. This matches `run_stream_to_completion()`, not `run_stream()`.
 
+Pub/sub dispatch (`AgentActor::handle`) calls `run()` / `run_stream_to_completion()` and **does not** propagate task failures to ractor. A failed task emits `TaskError` on the event channel but the actor keeps running so it can process subsequent messages.
+
 For the direct-agent variant of this contract, see [Agents — Direct agent event contract](./agents.md#direct-agent-event-contract).
 
 ## When To Use Actor Agents vs Direct Agents
