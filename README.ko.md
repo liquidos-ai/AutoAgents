@@ -402,6 +402,7 @@ cargo bench -p autoagents-core --bench agent_runtime
 ## 문서
 
 - **[API 문서](https://liquidos-ai.github.io/AutoAgents)**: 전체 프레임워크 문서
+- **[FAQ](https://liquidos-ai.github.io/AutoAgents/faq)**: 자주 묻는 질문 및 문제 해결
 - **[예제](examples/)**: 실용적인 구현 예시
 
 ---
@@ -424,6 +425,10 @@ AutoAgents는 고성능을 목표로 설계되었습니다:
 - **타입 안전성**: Rust 타입 시스템의 컴파일 타임 보장
 
 ---
+
+## FAQ
+
+설치, 프로바이더, 실행기, 환경 라이프사이클, 문제 해결은 문서의 [FAQ](https://liquidos-ai.github.io/AutoAgents/faq)를 참조하세요.
 
 ## 라이선스
 

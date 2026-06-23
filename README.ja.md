@@ -402,6 +402,7 @@ cargo bench -p autoagents-core --bench agent_runtime
 ## ドキュメント
 
 - **[API ドキュメント](https://liquidos-ai.github.io/AutoAgents)**：フレームワークの完全なドキュメント
+- **[FAQ](https://liquidos-ai.github.io/AutoAgents/faq)**：よくある質問とトラブルシューティング
 - **[例](examples/)**：実用的な実装例
 
 ---
@@ -424,6 +425,10 @@ AutoAgents は高性能を目指して設計されています：
 - **型安全**：Rust の型システムによるコンパイル時保証
 
 ---
+
+## FAQ
+
+インストール、プロバイダー、エグゼキューター、環境ライフサイクル、トラブルシューティングについては、ドキュメントの [FAQ](https://liquidos-ai.github.io/AutoAgents/faq) を参照してください。
 
 ## ライセンス
 

@@ -16,7 +16,9 @@ export OPENAI_API_KEY=your_openai_api_key_here
 cargo run --package basic-example -- --usecase simple
 ```
 
-Shows a basic event-driven agent.
+Shows a basic event-driven agent with `DirectAgent::run()` and a background event listener.
+
+**Return value vs `TaskComplete`:** `agent.run()` returns the agent output type (`MathAgentOutput` in this example). The `TaskComplete` event on `handle.rx` carries the **executor** payload instead (for ReAct, `ReActAgentOutput` with `response`, `tool_calls`, and `done`). The `response` field is often a JSON string that maps to the agent output after parsing — the example's `handle_events` helper pretty-prints that nested JSON so it matches the structured `Result:` line below it.
 
 ### Add hooks to agents
 

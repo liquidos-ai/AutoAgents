@@ -243,20 +243,15 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
         )
         .await?;
 
-    // Run for a limited time to allow the reflection loop to complete
-    tokio::select! {
-        _ = environment.run() => {
-            println!("\nReflection loop completed.");
-        }
-        _ = tokio::time::sleep(tokio::time::Duration::from_secs(30)) => {
-            println!("\nReflection loop timeout - shutting down.");
-            environment.shutdown().await;
-        }
-        _ = tokio::signal::ctrl_c() => {
-            println!("\nCtrl+C detected. Shutting down...");
-            environment.shutdown().await;
-        }
-    }
+    environment.run()?;
+
+    crate::environment_lifecycle::wait_ctrl_c_or_timeout(
+        &mut environment,
+        tokio::time::Duration::from_secs(30),
+        "\nReflection loop completed.",
+        "\nReflection loop timeout - shutting down.",
+    )
+    .await;
 
     Ok(())
 }

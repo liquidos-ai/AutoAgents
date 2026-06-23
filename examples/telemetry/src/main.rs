@@ -215,7 +215,7 @@ async fn run_actor(llm: Arc<dyn LLMProvider>, args: &Args) -> Result<(), Error> 
         .await
         .map_err(|err| Error::CustomError(err.to_string()))?;
 
-    environment.shutdown().await;
+    environment.shutdown().await?;
     Ok(())
 }
 

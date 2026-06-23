@@ -402,6 +402,7 @@ cargo bench -p autoagents-core --bench agent_runtime
 ## 文档
 
 - **[API 文档](https://liquidos-ai.github.io/AutoAgents)**：完整框架文档
+- **[FAQ](https://liquidos-ai.github.io/AutoAgents/faq)**：常见问题与故障排除
 - **[示例](examples/)**：实用实现示例
 
 ---
@@ -424,6 +425,10 @@ AutoAgents 面向高性能设计：
 - **类型安全**：Rust 类型系统的编译期保障
 
 ---
+
+## 常见问题
+
+安装、提供商、执行器、环境生命周期和故障排除请参阅文档中的 [FAQ](https://liquidos-ai.github.io/AutoAgents/faq)。
 
 ## 许可证
 

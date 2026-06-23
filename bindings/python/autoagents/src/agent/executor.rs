@@ -1600,6 +1600,8 @@ where
     PyAgentOutput: From<<T as AgentExecutor>::Output>,
     <T as AgentExecutor>::Error: Into<RunnableAgentError>,
     <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
+    Value: From<<T as AgentExecutor>::Output>,
+    <T as AgentExecutor>::Output: Clone,
 {
     Box::pin(async move {
         let mut handle = AgentBuilder::<_, DirectAgent>::new(executor)

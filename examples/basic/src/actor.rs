@@ -133,7 +133,8 @@ pub async fn run(_llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
     //Send Direct Message
     runtime.send_message(general_message, actor1_ref).await?;
 
-    let _ = environment.run().await;
+    environment.run()?;
+    let _ = environment.wait().await;
 
     println!("\n✅ All messages sent successfully!");
 

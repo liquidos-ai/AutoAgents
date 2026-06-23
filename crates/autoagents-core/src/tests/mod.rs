@@ -141,15 +141,6 @@ impl AgentExecutor for MockAgentImpl {
             result: format!("Processed: {}", task.prompt),
         })
     }
-
-    async fn execute_stream(
-        &self,
-        _task: &Task,
-        _context: Arc<Context>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>, Self::Error>
-    {
-        unimplemented!()
-    }
 }
 
 impl AgentHooks for MockAgentImpl {}
@@ -361,3 +352,205 @@ impl EmbeddingProvider for MockLLMProvider {
 impl ModelsProvider for MockLLMProvider {}
 
 impl LLMProvider for MockLLMProvider {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct DivergentExecutorOutput {
+    pub(crate) response: String,
+    pub(crate) executor_only: u32,
+}
+
+impl From<DivergentExecutorOutput> for Value {
+    fn from(output: DivergentExecutorOutput) -> Self {
+        serde_json::json!({
+            "response": output.response,
+            "executor_only": output.executor_only,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct DivergentAgentOutput {
+    pub(crate) result: String,
+}
+
+impl AgentOutputT for DivergentAgentOutput {
+    fn output_schema() -> &'static str {
+        r#"{"type":"object","properties":{"result":{"type":"string"}},"required":["result"]}"#
+    }
+
+    fn structured_output_format() -> Value {
+        serde_json::json!({
+            "name": "DivergentAgentOutput",
+            "description": "Derived agent output",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "result": {"type": "string"}
+                },
+                "required": ["result"]
+            },
+            "strict": true
+        })
+    }
+}
+
+impl From<DivergentExecutorOutput> for DivergentAgentOutput {
+    fn from(output: DivergentExecutorOutput) -> Self {
+        Self {
+            result: output.response,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DivergentStreamingAgent;
+
+#[async_trait]
+impl AgentDeriveT for DivergentStreamingAgent {
+    type Output = DivergentAgentOutput;
+
+    fn description(&self) -> &'static str {
+        "divergent streaming agent"
+    }
+
+    fn output_schema(&self) -> Option<Value> {
+        Some(DivergentAgentOutput::structured_output_format())
+    }
+
+    fn name(&self) -> &'static str {
+        "divergent_streaming_agent"
+    }
+
+    fn tools(&self) -> Vec<Box<dyn ToolT>> {
+        vec![]
+    }
+}
+
+#[async_trait]
+impl AgentExecutor for DivergentStreamingAgent {
+    type Output = DivergentExecutorOutput;
+    type Error = TestError;
+
+    fn config(&self) -> ExecutorConfig {
+        ExecutorConfig::default()
+    }
+
+    async fn execute(
+        &self,
+        task: &Task,
+        _context: Arc<Context>,
+    ) -> Result<Self::Output, Self::Error> {
+        Ok(DivergentExecutorOutput {
+            response: task.prompt.clone(),
+            executor_only: 42,
+        })
+    }
+
+    async fn execute_stream(
+        &self,
+        task: &Task,
+        _context: Arc<Context>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>, Self::Error>
+    {
+        let output = DivergentExecutorOutput {
+            response: task.prompt.clone(),
+            executor_only: 42,
+        };
+        Ok(Box::pin(stream::iter([Ok(output)])))
+    }
+}
+
+impl AgentHooks for DivergentStreamingAgent {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct SequencedExecutorOutput {
+    pub(crate) response: String,
+    pub(crate) sequence: u32,
+}
+
+impl From<SequencedExecutorOutput> for Value {
+    fn from(output: SequencedExecutorOutput) -> Self {
+        serde_json::json!({
+            "response": output.response,
+            "sequence": output.sequence,
+        })
+    }
+}
+
+impl From<SequencedExecutorOutput> for TestAgentOutput {
+    fn from(output: SequencedExecutorOutput) -> Self {
+        Self {
+            result: output.response,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct MultiItemStreamAgent;
+
+#[async_trait]
+impl AgentDeriveT for MultiItemStreamAgent {
+    type Output = TestAgentOutput;
+
+    fn description(&self) -> &'static str {
+        "multi item stream agent"
+    }
+
+    fn output_schema(&self) -> Option<Value> {
+        Some(TestAgentOutput::structured_output_format())
+    }
+
+    fn name(&self) -> &'static str {
+        "multi_item_stream_agent"
+    }
+
+    fn tools(&self) -> Vec<Box<dyn ToolT>> {
+        vec![]
+    }
+}
+
+#[async_trait]
+impl AgentExecutor for MultiItemStreamAgent {
+    type Output = SequencedExecutorOutput;
+    type Error = TestError;
+
+    fn config(&self) -> ExecutorConfig {
+        ExecutorConfig::default()
+    }
+
+    async fn execute(
+        &self,
+        task: &Task,
+        _context: Arc<Context>,
+    ) -> Result<Self::Output, Self::Error> {
+        Ok(SequencedExecutorOutput {
+            response: task.prompt.clone(),
+            sequence: 1,
+        })
+    }
+
+    async fn execute_stream(
+        &self,
+        task: &Task,
+        _context: Arc<Context>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<Self::Output, Self::Error>> + Send>>, Self::Error>
+    {
+        let prompt = task.prompt.clone();
+        Ok(Box::pin(stream::iter([
+            Ok(SequencedExecutorOutput {
+                response: format!("{prompt}-1"),
+                sequence: 1,
+            }),
+            Ok(SequencedExecutorOutput {
+                response: format!("{prompt}-2"),
+                sequence: 2,
+            }),
+            Ok(SequencedExecutorOutput {
+                response: format!("{prompt}-3"),
+                sequence: 3,
+            }),
+        ])))
+    }
+}
+
+impl AgentHooks for MultiItemStreamAgent {}

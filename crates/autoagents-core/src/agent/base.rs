@@ -1,11 +1,13 @@
 use crate::agent::config::AgentConfig;
+use crate::agent::executor::event_helper::EventHelper;
 use crate::agent::memory::MemoryProvider;
+use crate::agent::task::Task;
 use crate::agent::{AgentExecutor, Context, output::AgentOutputT};
 use crate::tool::{ToolT, to_llm_tool};
 use async_trait::async_trait;
 use autoagents_llm::LLMProvider;
 use autoagents_llm::chat::Tool;
-use autoagents_protocol::{ActorID, Event};
+use autoagents_protocol::{ActorID, Event, SubmissionId};
 
 use serde_json::Value;
 use std::marker::PhantomData;
@@ -172,6 +174,58 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
     /// Get the memory provider if available
     pub fn memory(&self) -> Option<Arc<Mutex<Box<dyn MemoryProvider>>>> {
         self.memory.clone()
+    }
+
+    /// Clone handle-style fields without requiring `T: Clone`.
+    pub(crate) fn clone_shallow(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            llm: self.llm.clone(),
+            id: self.id,
+            memory: self.memory.clone(),
+            serialized_tools: self.serialized_tools.clone(),
+            tx: self.tx.clone(),
+            stream: self.stream,
+            marker: PhantomData,
+        }
+    }
+
+    /// Emit `TaskComplete`, run `on_run_complete`, and return the agent output.
+    ///
+    /// Uses `Value: From<AgentExecutor::Output>` so `TaskComplete` serialization matches
+    /// the executor payload regardless of `AgentDeriveT::Output`.
+    pub(crate) async fn finish_executor_run(
+        &self,
+        task: &Task,
+        context: &Context,
+        submission_id: SubmissionId,
+        executor_out: <T as AgentExecutor>::Output,
+    ) -> Result<<T as AgentDeriveT>::Output, RunnableAgentError>
+    where
+        Value: From<<T as AgentExecutor>::Output>,
+        <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
+        <T as AgentExecutor>::Output: Clone,
+    {
+        let tx_event = self.tx.clone();
+        let value: Value = executor_out.clone().into();
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Err(e) = EventHelper::send_task_completed_value(
+            &tx_event,
+            submission_id,
+            self.id,
+            self.name().to_string(),
+            &value,
+        )
+        .await
+        {
+            let err = RunnableAgentError::ExecutorError(e.to_string());
+            EventHelper::send_task_error(&tx_event, submission_id, self.id, err.to_string()).await;
+            return Err(err);
+        }
+
+        let agent_out: <T as AgentDeriveT>::Output = executor_out.into();
+        self.inner.on_run_complete(task, &agent_out, context).await;
+        Ok(agent_out)
     }
 }
 

@@ -1173,6 +1173,9 @@ impl<T> PyRunnable for BaseAgent<T, DirectAgent>
 where
     T: AgentDeriveT<Output = PyAgentOutput> + AgentExecutor + AgentHooks + Send + Sync + 'static,
     PyAgentOutput: From<<T as AgentExecutor>::Output>,
+    <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
+    Value: From<<T as AgentExecutor>::Output>,
+    <T as AgentExecutor>::Output: Clone,
     <T as AgentExecutor>::Error: Into<RunnableAgentError>,
 {
     async fn run(&self, task: Task) -> Result<PyAgentOutput, String> {

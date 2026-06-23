@@ -403,6 +403,7 @@ Contribuições são bem-vindas. Consulte o [Guia de Contribuição](CONTRIBUTIN
 ## Documentação
 
 - **[Documentação da API](https://liquidos-ai.github.io/AutoAgents)**: documentação completa do framework
+- **[FAQ](https://liquidos-ai.github.io/AutoAgents/faq)**: perguntas frequentes e solução de problemas
 - **[Exemplos](examples/)**: implementações práticas
 
 ---
@@ -425,6 +426,10 @@ AutoAgents é projetado para alto desempenho:
 - **Segurança de tipos**: garantias em tempo de compilação com o sistema de tipos do Rust
 
 ---
+
+## FAQ
+
+Consulte as [FAQ](https://liquidos-ai.github.io/AutoAgents/faq) na documentação sobre instalação, provedores, executors, ciclo de vida do ambiente e solução de problemas.
 
 ## Licença
 

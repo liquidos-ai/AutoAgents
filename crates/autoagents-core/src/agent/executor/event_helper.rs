@@ -3,6 +3,8 @@ use autoagents_protocol::StreamChunk;
 use autoagents_protocol::{ActorID, Event, SubmissionId};
 use serde_json::Value;
 
+use crate::agent::error::RunnableAgentError;
+
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::mpsc;
 
@@ -99,6 +101,38 @@ impl EventHelper {
             },
         )
         .await;
+    }
+
+    /// Emit `TaskError` for a hook abort and return `RunnableAgentError::Abort`.
+    pub async fn abort_run_from_hook(
+        tx: &Option<mpsc::Sender<Event>>,
+        sub_id: SubmissionId,
+        actor_id: ActorID,
+    ) -> RunnableAgentError {
+        #[cfg(not(target_arch = "wasm32"))]
+        Self::send_task_error(tx, sub_id, actor_id, RunnableAgentError::Abort.to_string()).await;
+        RunnableAgentError::Abort
+    }
+
+    /// Map an executor stream item to `RunnableAgentError`, emitting `TaskError` on failure.
+    pub async fn map_executor_stream_item<T, E>(
+        tx: &Option<mpsc::Sender<Event>>,
+        sub_id: SubmissionId,
+        actor_id: ActorID,
+        result: Result<T, E>,
+    ) -> Result<T, RunnableAgentError>
+    where
+        E: Into<RunnableAgentError>,
+    {
+        match result {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                let err = error.into();
+                #[cfg(not(target_arch = "wasm32"))]
+                Self::send_task_error(tx, sub_id, actor_id, err.to_string()).await;
+                Err(err)
+            }
+        }
     }
 
     /// Send turn started event
