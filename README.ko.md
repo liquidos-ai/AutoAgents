@@ -402,6 +402,7 @@ cargo bench -p autoagents-core --bench agent_runtime
 ## 문서
 
 - **[API 문서](https://liquidos-ai.github.io/AutoAgents)**: 전체 프레임워크 문서
+- **[FAQ](https://liquidos-ai.github.io/AutoAgents/faq)**: 자주 묻는 질문 및 문제 해결
 - **[예제](examples/)**: 실용적인 구현 예시
 
 ---
@@ -427,57 +428,7 @@ AutoAgents는 고성능을 목표로 설계되었습니다:
 
 ## FAQ
 
-### 일반
-
-**AutoAgents란?**
-AutoAgents는 Rust로 작성된 프로덕션급 멀티 에이전트 프레임워크입니다. 타입 안전한 에이전트 모델, 구조화된 도구 호출, 구성 가능한 메모리, 플러그형 LLM 백엔드를 갖춘 모듈식 아키텍처를 제공하며, 서버와 엣지 환경 모두에서 성능, 안전성, 합성 가능성을 목표로 설계되었습니다.
-
-**다른 에이전트 프레임워크와의 차이점은?**
-AutoAgents는 Rust 우선으로 메모리 안전성, 제로 코스트 추상화, 고성능을 제공합니다. 클라우드 및 로컬 LLM 프로바이더를 위한 통합 인터페이스, 내장 가드레일, 최적화 패스(캐시/재시도), 도구 실행용 WASM 샌드박스를 단일 프레임워크에서 제공합니다.
-
-**Python 버전이 있나요?**
-네. AutoAgents는 PyPI의 `autoagents-py`를 통해 Python 바인딩을 제공하여 Python 개발자가 익숙한 API로 Rust 코어를 활용할 수 있습니다.
-
-### 설정
-
-**AutoAgents 설치 방법은?**
-Cargo로 `cargo add autoagents`, Python은 PyPI로 `pip install autoagents-py`입니다. 자세한 내용은 [문서](https://liquidos-ai.github.io/AutoAgents/)를 참조하세요.
-
-**지원되는 LLM 프로바이더는?**
-AutoAgents는 OpenAI, OpenRouter, Anthropic, DeepSeek, xAI 및 로컬 모델을 통합 인터페이스로 지원합니다. API 키는 환경 변수 또는 설정 파일에 구성하세요.
-
-**로컬 모델을 사용할 수 있나요?**
-네. 통합 프로바이더 인터페이스를 통해 로컬 LLM 백엔드를 지원하여 완전 오프라인 에이전트 운영이 가능합니다.
-
-### 에이전트 개발
-
-**ReAct 실행기란?**
-ReAct(Reasoning + Acting) 실행기는 AutoAgents의 주요 에이전트 실행 모델입니다. 추론 단계와 도구 호출을 번갈아 수행하여 작업이 완료될 때까지 계획, 실행, 결과 관찰을 반복합니다.
-
-**도구 시스템은 어떻게 동작하나요?**
-도구는 derive 매크로(`#[derive(Tool)]`)로 타입 안전한 입출력을 정의합니다. AutoAgents는 신뢰할 수 없는 도구를 안전하게 실행하는 샌드박스 WASM 런타임도 제공합니다.
-
-**사용 가능한 메모리 백엔드는?**
-AutoAgents는 기본적으로 슬라이딩 윈도우 메모리 모델을 사용하며, 사용자 정의 메모리 전략을 위한 확장 가능한 백엔드로 컨텍스트 관리를 세밀하게 제어할 수 있습니다.
-
-### 멀티 에이전트 오케스트레이션
-
-**에이전트는 어떻게 통신하나요?**
-AutoAgents는 타입 기반 pub/sub 통신을 제공하여 컴파일 타임 타입 안전성을 갖춘 구조화된 메시지 전달을 가능하게 합니다. 에이전트는 이벤트를 게시하고 느슨한 결합 아키텍처에서 토픽을 구독할 수 있습니다.
-
-**환경(environment) 시스템이란?**
-환경 시스템은 여러 에이전트 간 공유 상태와 리소스를 관리합니다. 에이전트가 상호작용하고 관찰을 공유하며 행동을 조율하는 제어된 공간을 제공합니다. `register_runtime`으로 런타임을 등록하고, `run()`으로 시작하며, `wait().await`로 완료를 기다리거나, `shutdown().await?`로 중지합니다. 라이프사이클 패턴은 [Actor Agents 문서](https://liquidos-ai.github.io/AutoAgents/core-concepts/actor_agents#environment-lifecycle)를 참조하세요.
-
-### 문제 해결
-
-**Rust 버전 오류로 빌드가 실패합니다. 어떻게 해야 하나요?**
-AutoAgents는 Rust 1.75+가 필요합니다. `rustup update`로 최신 안정 버전을 받으세요. 최소 버전 요구 사항은 [문서](https://liquidos-ai.github.io/AutoAgents/)를 확인하세요.
-
-**도움은 어디서 받을 수 있나요?**
-- 문서: https://liquidos-ai.github.io/AutoAgents/
-- 예제: 저장소의 `examples/` 디렉터리
-- DeepWiki: https://deepwiki.com/liquidos-ai/AutoAgents
-- GitHub Issues: https://github.com/liquidos-ai/AutoAgents/issues
+설치, 프로바이더, 실행기, 환경 라이프사이클, 문제 해결은 문서의 [FAQ](https://liquidos-ai.github.io/AutoAgents/faq)를 참조하세요.
 
 ## 라이선스
 

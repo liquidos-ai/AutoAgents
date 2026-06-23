@@ -30,6 +30,12 @@ After wiring agents and publishing work, start the registered runtimes:
 - **`run_background().await`** — starts runtimes without storing a join handle on the environment. Useful when you manage lifecycle elsewhere. Cannot be combined with `run()` on the same `Environment` until `shutdown().await` is called.
 - **`is_running()`** — returns whether a background run task is currently active.
 
+If a managed run task finishes without calling `wait()` or `shutdown()`, a subsequent `run()` joins the finished task first and returns any runtime or join error before spawning a new run.
+
+Calling `wait()` inside `tokio::select!` is safe: if another branch wins, the join handle stays on the environment so `shutdown()` can still drain the run task.
+
+`SingleThreadedRuntime` is single-cycle: after its event loop exits, register a **new** runtime instance to run again on the same `Environment`.
+
 ### Migration from earlier releases
 
 `Environment::run()` no longer returns a `JoinHandle`. Use the stored lifecycle instead:
@@ -61,14 +67,20 @@ if let Err(runtime_err) = run_result {
 ```rust
 // Interactive or long-running: start runtimes, handle Ctrl+C gracefully
 environment.run()?;
+// `wait()` is select-safe — if Ctrl+C wins, the join handle is restored
+// so shutdown can still drain runtimes. See design_patterns::environment_lifecycle.
 tokio::select! {
     result = environment.wait() => {
         if let Ok(Err(e)) = result {
             eprintln!("runtime error: {e}");
+        } else if let Err(e) = result {
+            eprintln!("run task join error: {e}");
         }
     }
     _ = tokio::signal::ctrl_c() => {
-        environment.shutdown().await?;
+        if let Err(err) = environment.shutdown().await {
+            eprintln!("shutdown failed: {err}");
+        }
     }
 }
 ```

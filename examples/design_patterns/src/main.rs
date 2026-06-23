@@ -3,6 +3,7 @@
 //! This example demonstrates different Agentic AI Design Patterns
 
 mod chaining;
+mod environment_lifecycle;
 mod parallel;
 mod planning;
 mod reflection;

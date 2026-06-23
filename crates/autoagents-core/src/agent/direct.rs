@@ -32,6 +32,9 @@ impl AgentType for DirectAgent {
 /// Handle for a direct agent containing the agent instance and an event stream
 /// receiver. Use `agent.run(...)` for one-shot calls or `agent.run_stream(...)`
 /// to receive streaming outputs.
+///
+/// Terminal failures (hook abort, executor error, stream setup error, and in-stream
+/// item errors) emit [`Event::TaskError`] on [`Self::rx`].
 pub struct DirectAgentHandle<T: AgentDeriveT + AgentExecutor + AgentHooks + Send + Sync> {
     pub agent: BaseAgent<T, DirectAgent>,
     pub rx: BoxEventStream<Event>,
@@ -94,15 +97,9 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
         let hook_outcome = self.inner.on_run_start(&task, &context).await;
         match hook_outcome {
             HookOutcome::Abort => {
-                #[cfg(not(target_arch = "wasm32"))]
-                EventHelper::send_task_error(
-                    &tx_event,
-                    submission_id,
-                    self.id,
-                    RunnableAgentError::Abort.to_string(),
-                )
-                .await;
-                return Err(RunnableAgentError::Abort);
+                return Err(
+                    EventHelper::abort_run_from_hook(&tx_event, submission_id, self.id).await,
+                );
             }
             HookOutcome::Continue => {}
         }
@@ -122,8 +119,11 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
                 Ok(agent_out)
             }
             Err(e) => {
-                // Send error event
-                Err(e.into())
+                let err: RunnableAgentError = e.into();
+                #[cfg(not(target_arch = "wasm32"))]
+                EventHelper::send_task_error(&tx_event, submission_id, self.id, err.to_string())
+                    .await;
+                Err(err)
             }
         }
     }
@@ -149,15 +149,9 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
         let hook_outcome = self.inner.on_run_start(&task, &context).await;
         match hook_outcome {
             HookOutcome::Abort => {
-                #[cfg(not(target_arch = "wasm32"))]
-                EventHelper::send_task_error(
-                    &tx_event,
-                    submission_id,
-                    self.id,
-                    RunnableAgentError::Abort.to_string(),
-                )
-                .await;
-                return Err(RunnableAgentError::Abort);
+                return Err(
+                    EventHelper::abort_run_from_hook(&tx_event, submission_id, self.id).await,
+                );
             }
             HookOutcome::Continue => {}
         }
@@ -165,18 +159,33 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
         // Execute the agent's streaming logic using the executor
         match self.inner().execute_stream(&task, context.clone()).await {
             Ok(stream) => {
-                use futures::TryStreamExt;
-                // Convert stream output/error without returning large Result err types from closures.
+                use futures::{StreamExt, TryStreamExt};
+                let tx_event = tx_event.clone();
+                let actor_id = self.id;
                 let transformed_stream = stream
+                    .then(move |result| {
+                        let tx = tx_event.clone();
+                        async move {
+                            EventHelper::map_executor_stream_item(
+                                &tx,
+                                submission_id,
+                                actor_id,
+                                result,
+                            )
+                            .await
+                        }
+                    })
                     .map_ok(Into::into)
-                    .map_err(Into::<RunnableAgentError>::into)
                     .map_err(Error::from);
 
                 Ok(Box::pin(transformed_stream))
             }
             Err(e) => {
-                // Send error event for stream creation failure
-                Err(e.into())
+                let err: RunnableAgentError = e.into();
+                #[cfg(not(target_arch = "wasm32"))]
+                EventHelper::send_task_error(&tx_event, submission_id, self.id, err.to_string())
+                    .await;
+                Err(err)
             }
         }
     }
@@ -237,7 +246,7 @@ mod tests {
     async fn test_direct_agent_run_executor_error() {
         let mock_agent = MockAgentImpl::new("direct", "direct agent").with_failure(true);
         let llm = Arc::new(ConfigurableLLMProvider::default());
-        let handle = AgentBuilder::<_, DirectAgent>::new(mock_agent)
+        let mut handle = AgentBuilder::<_, DirectAgent>::new(mock_agent)
             .llm(llm)
             .build()
             .await
@@ -246,6 +255,17 @@ mod tests {
         let task = Task::new("fail");
         let err = handle.agent.run(task).await.expect_err("expected error");
         assert!(matches!(err, RunnableAgentError::ExecutorError(_)));
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), handle.rx.next())
+            .await
+            .expect("timed out waiting for TaskError event")
+            .expect("stream ended without event");
+        match event {
+            Event::TaskError { error, .. } => {
+                assert!(error.contains("Mock execution failed"));
+            }
+            other => panic!("expected TaskError, got {other:?}"),
+        }
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -514,6 +534,253 @@ mod tests {
         match event {
             Event::TaskError { error, .. } => {
                 assert!(error.contains("Abort"));
+            }
+            other => panic!("expected TaskError, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_direct_agent_run_stream_aborts_before_execute_stream() {
+        let executed = Arc::new(AtomicBool::new(false));
+        let agent = AbortAgent {
+            executed: Arc::clone(&executed),
+        };
+        let llm = Arc::new(ConfigurableLLMProvider::default());
+        let mut handle = AgentBuilder::<_, DirectAgent>::new(agent)
+            .llm(llm)
+            .stream(true)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let task = Task::new("abort");
+        let err = match handle.agent.run_stream(task).await {
+            Err(err) => err,
+            Ok(_) => panic!("expected abort"),
+        };
+        assert!(matches!(err, RunnableAgentError::Abort));
+        assert!(!executed.load(Ordering::SeqCst));
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), handle.rx.next())
+            .await
+            .expect("timed out waiting for TaskError event")
+            .expect("stream ended without event");
+        match event {
+            Event::TaskError { error, .. } => {
+                assert!(error.contains("Abort"));
+            }
+            other => panic!("expected TaskError, got {other:?}"),
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct FailingStreamSetupAgent;
+
+    #[async_trait]
+    impl AgentDeriveT for FailingStreamSetupAgent {
+        type Output = TestAgentOutput;
+
+        fn description(&self) -> &'static str {
+            "failing stream setup"
+        }
+
+        fn output_schema(&self) -> Option<Value> {
+            Some(TestAgentOutput::structured_output_format())
+        }
+
+        fn name(&self) -> &'static str {
+            "failing_stream_setup"
+        }
+
+        fn tools(&self) -> Vec<Box<dyn ToolT>> {
+            vec![]
+        }
+    }
+
+    #[async_trait]
+    impl AgentExecutor for FailingStreamSetupAgent {
+        type Output = TestAgentOutput;
+        type Error = TestError;
+
+        fn config(&self) -> ExecutorConfig {
+            ExecutorConfig::default()
+        }
+
+        async fn execute(
+            &self,
+            _task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<Self::Output, Self::Error> {
+            Ok(TestAgentOutput {
+                result: "unused".to_string(),
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            _task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<crate::utils::BoxRuntimeStream<Result<Self::Output, Self::Error>>, Self::Error>
+        {
+            Err(TestError::ExecutionFailed(
+                "stream setup failed".to_string(),
+            ))
+        }
+    }
+
+    impl AgentHooks for FailingStreamSetupAgent {}
+
+    #[tokio::test]
+    async fn test_direct_agent_run_stream_setup_error_emits_task_error() {
+        let llm = Arc::new(ConfigurableLLMProvider::default());
+        let mut handle = AgentBuilder::<_, DirectAgent>::new(FailingStreamSetupAgent)
+            .llm(llm)
+            .stream(true)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let err = match handle.agent.run_stream(Task::new("fail setup")).await {
+            Err(err) => err,
+            Ok(_) => panic!("expected stream setup failure"),
+        };
+        assert!(matches!(err, RunnableAgentError::ExecutorError(_)));
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), handle.rx.next())
+            .await
+            .expect("timed out waiting for TaskError event")
+            .expect("stream ended without event");
+        match event {
+            Event::TaskError { error, .. } => {
+                assert!(error.contains("stream setup failed"));
+            }
+            other => panic!("expected TaskError, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_direct_agent_run_stream_item_error_emits_task_error() {
+        let mock_agent = MockAgentImpl::new("direct", "direct agent").with_failure(true);
+        let llm = Arc::new(ConfigurableLLMProvider::default());
+        let mut handle = AgentBuilder::<_, DirectAgent>::new(mock_agent)
+            .llm(llm)
+            .stream(true)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let mut stream = handle
+            .agent
+            .run_stream(Task::new("fail"))
+            .await
+            .expect("default execute_stream should return Ok stream");
+
+        let err = stream
+            .next()
+            .await
+            .expect("stream should yield one item")
+            .expect_err("expected stream item error");
+        assert!(matches!(err, Error::RunnableAgentError(_)));
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), handle.rx.next())
+            .await
+            .expect("timed out waiting for TaskError event")
+            .expect("stream ended without event");
+        match event {
+            Event::TaskError { error, .. } => {
+                assert!(error.contains("Mock execution failed"));
+            }
+            other => panic!("expected TaskError, got {other:?}"),
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct StreamItemErrorAgent;
+
+    #[async_trait]
+    impl AgentDeriveT for StreamItemErrorAgent {
+        type Output = TestAgentOutput;
+
+        fn description(&self) -> &'static str {
+            "stream item error agent"
+        }
+
+        fn output_schema(&self) -> Option<Value> {
+            Some(TestAgentOutput::structured_output_format())
+        }
+
+        fn name(&self) -> &'static str {
+            "stream_item_error"
+        }
+
+        fn tools(&self) -> Vec<Box<dyn ToolT>> {
+            vec![]
+        }
+    }
+
+    #[async_trait]
+    impl AgentExecutor for StreamItemErrorAgent {
+        type Output = TestAgentOutput;
+        type Error = TestError;
+
+        fn config(&self) -> ExecutorConfig {
+            ExecutorConfig::default()
+        }
+
+        async fn execute(
+            &self,
+            _task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<Self::Output, Self::Error> {
+            Ok(TestAgentOutput {
+                result: "unused".to_string(),
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            _task: &Task,
+            _context: Arc<Context>,
+        ) -> Result<crate::utils::BoxRuntimeStream<Result<Self::Output, Self::Error>>, Self::Error>
+        {
+            Ok(Box::pin(futures::stream::iter([Err(
+                TestError::ExecutionFailed("stream item failed".to_string()),
+            )])))
+        }
+    }
+
+    impl AgentHooks for StreamItemErrorAgent {}
+
+    #[tokio::test]
+    async fn test_direct_agent_run_stream_custom_item_error_emits_task_error() {
+        let llm = Arc::new(ConfigurableLLMProvider::default());
+        let mut handle = AgentBuilder::<_, DirectAgent>::new(StreamItemErrorAgent)
+            .llm(llm)
+            .stream(true)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let mut stream = handle
+            .agent
+            .run_stream(Task::new("stream error"))
+            .await
+            .expect("stream should start");
+
+        let err = stream
+            .next()
+            .await
+            .expect("stream should yield one item")
+            .expect_err("expected stream item failure");
+        assert!(matches!(err, Error::RunnableAgentError(_)));
+
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), handle.rx.next())
+            .await
+            .expect("timed out waiting for TaskError event")
+            .expect("stream ended without event");
+        match event {
+            Event::TaskError { error, .. } => {
+                assert!(error.contains("stream item failed"));
             }
             other => panic!("expected TaskError, got {other:?}"),
         }

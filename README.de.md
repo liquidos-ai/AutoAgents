@@ -403,6 +403,7 @@ Beiträge sind willkommen. Siehe [Contribution Guidelines](CONTRIBUTING.md) und 
 ## Dokumentation
 
 - **[API-Dokumentation](https://liquidos-ai.github.io/AutoAgents)**: vollständige Framework-Dokumentation
+- **[FAQ](https://liquidos-ai.github.io/AutoAgents/faq)**: häufige Fragen und Fehlerbehebung
 - **[Beispiele](examples/)**: praxisnahe Implementierungen
 
 ---
@@ -428,57 +429,7 @@ AutoAgents ist auf hohe Performance ausgelegt:
 
 ## FAQ
 
-### Allgemein
-
-**Was ist AutoAgents?**
-AutoAgents ist ein produktionsreifes Multi-Agenten-Framework in Rust. Es bietet eine modulare Architektur für intelligente Systeme mit typsicheren Agentenmodellen, strukturierten Tool-Aufrufen, konfigurierbarem Speicher und austauschbaren LLM-Backends — ausgelegt für Performance, Sicherheit und Komponierbarkeit auf Servern und Edge-Umgebungen.
-
-**Wie unterscheidet sich AutoAgents von anderen Agent-Frameworks?**
-AutoAgents ist Rust-first und bietet Speichersicherheit, Zero-Cost-Abstraktionen und hohe Performance. Es stellt eine einheitliche Schnittstelle für Cloud- und lokale LLM-Provider bereit, integrierte Guardrails, Optimierungspasses (Cache/Retry) und eine WASM-Sandbox für Tool-Ausführung — alles in einem Framework.
-
-**Gibt es eine Python-Version?**
-Ja. AutoAgents bietet Python-Bindings über `autoagents-py` auf PyPI, sodass Python-Entwickler den Rust-Kern mit einer vertrauten API nutzen können.
-
-### Setup & Konfiguration
-
-**Wie installiere ich AutoAgents?**
-Installation über Cargo: `cargo add autoagents`, oder über PyPI für Python: `pip install autoagents-py`. Siehe die [Dokumentation](https://liquidos-ai.github.io/AutoAgents/) für detaillierte Setup-Anleitungen.
-
-**Welche LLM-Provider werden unterstützt?**
-AutoAgents unterstützt OpenAI, OpenRouter, Anthropic, DeepSeek, xAI und lokale Modelle über eine einheitliche Schnittstelle. Konfigurieren Sie Ihre API-Schlüssel in der Umgebung oder in der Konfigurationsdatei.
-
-**Kann ich lokale Modelle verwenden?**
-Ja. AutoAgents unterstützt lokale LLM-Backends über seine einheitliche Provider-Schnittstelle und ermöglicht vollständig offline Agent-Betrieb.
-
-### Agent-Entwicklung
-
-**Was ist der ReAct-Executor?**
-Der ReAct-Executor (Reasoning + Acting) ist das primäre Ausführungsmodell von AutoAgents. Er wechselt zwischen Reasoning-Schritten und Tool-Aufrufen, sodass Agenten planen, ausführen und Ergebnisse in einer Schleife beobachten können, bis die Aufgabe abgeschlossen ist.
-
-**Wie funktioniert das Tool-System?**
-Tools werden mit Derive-Makros (`#[derive(Tool)]`) für typsichere Ein-/Ausgabe definiert. AutoAgents bietet außerdem eine sandboxed WASM-Runtime zur sicheren Ausführung nicht vertrauenswürdiger Tools.
-
-**Welche Speicher-Backends sind verfügbar?**
-AutoAgents verwendet standardmäßig ein Sliding-Window-Speichermodell mit erweiterbaren Backends für benutzerdefinierte Speicherstrategien — für feingranulare Kontrolle über das Context-Management.
-
-### Multi-Agenten-Orchestrierung
-
-**Wie kommunizieren Agenten miteinander?**
-AutoAgents bietet typisierte Pub/Sub-Kommunikation zwischen Agenten mit strukturiertem Nachrichtenaustausch und Compile-Time-Typsicherheit. Agenten können Events veröffentlichen und Topics in einer entkoppelten Architektur abonnieren.
-
-**Was ist das Environment-System?**
-Das Environment-System verwaltet gemeinsamen Zustand und Ressourcen über mehrere Agenten hinweg. Es bietet einen kontrollierten Raum, in dem Agenten interagieren, Beobachtungen teilen und Aktionen koordinieren können. Registrieren Sie Runtimes mit `register_runtime`, starten Sie sie mit `run()`, warten Sie mit `wait().await` auf Abschluss oder beenden Sie sie mit `shutdown().await?`. Siehe die [Actor Agents docs](https://liquidos-ai.github.io/AutoAgents/core-concepts/actor_agents#environment-lifecycle) für Lifecycle-Muster.
-
-### Fehlerbehebung
-
-**Der Build schlägt mit Rust-Versionsfehlern fehl. Was soll ich tun?**
-AutoAgents erfordert Rust 1.75+. Führen Sie `rustup update` aus, um die neueste stabile Version zu erhalten. Prüfen Sie die [Dokumentation](https://liquidos-ai.github.io/AutoAgents/) für Mindestversionsanforderungen.
-
-**Wo erhalte ich Hilfe?**
-- Dokumentation: https://liquidos-ai.github.io/AutoAgents/
-- Beispiele: `examples/`-Verzeichnis im Repository
-- DeepWiki: https://deepwiki.com/liquidos-ai/AutoAgents
-- GitHub Issues: https://github.com/liquidos-ai/AutoAgents/issues
+Siehe die [FAQ](https://liquidos-ai.github.io/AutoAgents/faq) in der Dokumentation zu Installation, Providern, Executors, Environment-Lifecycle und Fehlerbehebung.
 
 ## Lizenz
 

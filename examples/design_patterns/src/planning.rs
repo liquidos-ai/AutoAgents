@@ -381,20 +381,13 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     environment.run()?;
 
-    // Run the environment with extended timeout for complex planning
-    tokio::select! {
-        _ = environment.wait() => {
-            println!("\nStrategic planning process completed successfully.");
-        }
-        _ = tokio::time::sleep(tokio::time::Duration::from_secs(90)) => {
-            println!("\nPlanning process timeout - shutting down.");
-            let _ = environment.shutdown().await;
-        }
-        _ = tokio::signal::ctrl_c() => {
-            println!("\nCtrl+C detected. Shutting down...");
-            let _ = environment.shutdown().await;
-        }
-    }
+    crate::environment_lifecycle::wait_ctrl_c_or_timeout(
+        &mut environment,
+        tokio::time::Duration::from_secs(90),
+        "\nStrategic planning process completed successfully.",
+        "\nPlanning process timeout - shutting down.",
+    )
+    .await;
 
     Ok(())
 }

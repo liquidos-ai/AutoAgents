@@ -28,6 +28,9 @@ pub enum EnvironmentError {
 
     #[error("Run task join error: {0}")]
     JoinError(#[from] tokio::task::JoinError),
+
+    #[error("Finished run task result was not yet available")]
+    RunResultNotReady,
 }
 
 /// Configuration for the process environment that owns one or more runtimes.
@@ -152,15 +155,28 @@ impl Environment {
     /// Returns `Ok(Ok(()))` when no run task has been started. After the task
     /// completes, the stored handle is cleared so subsequent calls return
     /// immediately.
+    ///
+    /// If this future is dropped before completion (for example when a
+    /// `tokio::select!` branch wins elsewhere), the join handle is restored on
+    /// the environment so a later [`shutdown`](Self::shutdown) can still stop
+    /// runtimes and join the run task.
     pub async fn wait(&mut self) -> Result<Result<(), RuntimeError>, tokio::task::JoinError> {
-        match self.handle.take() {
-            Some(handle) => {
-                let result = handle.await;
-                self.launch_state = RuntimeLaunchState::Idle;
-                result
-            }
-            None => Ok(Ok(())),
-        }
+        let handle = match self.handle.take() {
+            Some(handle) => handle,
+            None => return Ok(Ok(())),
+        };
+
+        let mut guard = RestoreRunHandleOnDrop {
+            environment: self,
+            handle: Some(handle),
+        };
+
+        let join_result = guard.handle.as_mut().expect("handle was just set").await;
+
+        guard.handle = None;
+        guard.environment.launch_state = RuntimeLaunchState::Idle;
+
+        join_result
     }
 
     /// Start all registered runtimes and return immediately without waiting
@@ -273,11 +289,31 @@ impl Environment {
     fn join_finished_handle(
         handle: JoinHandle<Result<(), RuntimeError>>,
     ) -> Result<(), EnvironmentError> {
+        debug_assert!(
+            handle.is_finished(),
+            "join_finished_handle requires a finished run task"
+        );
+
         match handle.now_or_never() {
             Some(Ok(Ok(()))) => Ok(()),
             Some(Ok(Err(e))) => Err(EnvironmentError::RuntimeError(e)),
             Some(Err(e)) => Err(EnvironmentError::JoinError(e)),
-            None => Err(EnvironmentError::AlreadyRunning),
+            None => Err(EnvironmentError::RunResultNotReady),
+        }
+    }
+}
+
+/// Restores a managed run [`JoinHandle`] when a [`Environment::wait`] future is
+/// cancelled before the join completes.
+struct RestoreRunHandleOnDrop<'a> {
+    environment: &'a mut Environment,
+    handle: Option<JoinHandle<Result<(), RuntimeError>>>,
+}
+
+impl Drop for RestoreRunHandleOnDrop<'_> {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            self.environment.handle = Some(handle);
         }
     }
 }
@@ -368,6 +404,12 @@ mod tests {
     fn test_environment_error_already_running_display() {
         let error = EnvironmentError::AlreadyRunning;
         assert!(error.to_string().contains("already running"));
+    }
+
+    #[test]
+    fn test_environment_error_run_result_not_ready_display() {
+        let error = EnvironmentError::RunResultNotReady;
+        assert!(error.to_string().contains("not yet available"));
     }
 
     #[test]
@@ -474,6 +516,38 @@ mod tests {
             result,
             Err(EnvironmentError::RuntimeNotFound(id)) if id == non_existent_id
         ));
+    }
+
+    #[tokio::test]
+    async fn test_environment_wait_restores_handle_when_cancelled() {
+        use tokio::time::{Duration, sleep};
+
+        let mut env = Environment::new(None);
+        let runtime = SingleThreadedRuntime::new(None);
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run().expect("run should succeed");
+        assert!(env.is_running());
+
+        {
+            let wait_fut = env.wait();
+            tokio::pin!(wait_fut);
+
+            tokio::select! {
+                _ = &mut wait_fut => panic!("run task should not finish immediately"),
+                _ = sleep(Duration::from_millis(10)) => {}
+            }
+        }
+
+        assert!(
+            env.is_running(),
+            "cancelled wait should restore the join handle"
+        );
+
+        env.shutdown()
+            .await
+            .expect("shutdown should join the restored handle");
+        assert!(!env.is_running());
     }
 
     #[tokio::test]

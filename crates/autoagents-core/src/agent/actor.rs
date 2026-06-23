@@ -182,15 +182,9 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         let hook_outcome = self.inner.on_run_start(&task, &context).await;
         match hook_outcome {
             HookOutcome::Abort => {
-                #[cfg(not(target_arch = "wasm32"))]
-                EventHelper::send_task_error(
-                    &tx_event,
-                    submission_id,
-                    self.id,
-                    RunnableAgentError::Abort.to_string(),
-                )
-                .await;
-                return Err(RunnableAgentError::Abort);
+                return Err(
+                    EventHelper::abort_run_from_hook(&tx_event, submission_id, self.id).await,
+                );
             }
             HookOutcome::Continue => {}
         }
@@ -288,15 +282,9 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         let hook_outcome = self.inner.on_run_start(&task, &context).await;
         match hook_outcome {
             HookOutcome::Abort => {
-                #[cfg(not(target_arch = "wasm32"))]
-                EventHelper::send_task_error(
-                    &tx_event,
-                    submission_id,
-                    self.id,
-                    RunnableAgentError::Abort.to_string(),
-                )
-                .await;
-                return Err(RunnableAgentError::Abort);
+                return Err(
+                    EventHelper::abort_run_from_hook(&tx_event, submission_id, self.id).await,
+                );
             }
             HookOutcome::Continue => {}
         }
@@ -318,14 +306,11 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
 
         let mut last_executor_output = None;
         while let Some(result) = stream.next().await {
-            match result {
+            match EventHelper::map_executor_stream_item(&tx_event, submission_id, self.id, result)
+                .await
+            {
                 Ok(output) => last_executor_output = Some(output),
-                Err(e) => {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    EventHelper::send_task_error(&tx_event, submission_id, self.id, e.to_string())
-                        .await;
-                    return Err(e);
-                }
+                Err(e) => return Err(e),
             }
         }
 

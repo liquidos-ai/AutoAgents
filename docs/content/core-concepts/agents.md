@@ -21,16 +21,41 @@ An agent in AutoAgents typically:
 
 ## Direct Agents
 
-Direct agents expose simple `run`/`run_stream` APIs and return results to the caller.
+Direct agents expose simple `run`/`run_stream` APIs and return results to the caller. `AgentBuilder::build()` returns a `DirectAgentHandle` with the runnable agent and an event receiver (`handle.rx`).
 
 ```rust
+use autoagents::core::agent::task::Task;
 use autoagents::core::agent::{AgentBuilder, DirectAgent};
-let handle = AgentBuilder::<_, DirectAgent>::new(my_executor)
+
+let mut handle = AgentBuilder::<_, DirectAgent>::new(my_executor)
     .llm(llm)
     .build()
     .await?;
-let result = handle.agent.run(Task::new("Prompt")) .await?;
+
+// One-shot: the final output comes from the return value, not from handle.rx
+let result = handle.agent.run(Task::new("Prompt")).await?;
 ```
+
+### Direct agent event contract
+
+Direct agents use a **return-value-first** model. Unlike actor agents running inside a runtime, they do **not** emit `TaskComplete` on success — use the `Result` from `run()` or items from `run_stream()` for output.
+
+| Outcome | Return value | `handle.rx` |
+|--------|--------------|-------------|
+| Success (`run`) | `Ok(output)` | No terminal event |
+| Success (`run_stream`) | `Ok(stream)` of output items | No terminal event |
+| Hook abort | `Err(Abort)` | `TaskError` |
+| Executor error (`run`) | `Err(...)` | `TaskError` |
+| Stream setup error (`run_stream`) | `Err(...)` | `TaskError` |
+| In-stream item error (`run_stream`) | `Err(...)` on the output stream | `TaskError` when the stream item is polled |
+
+**Listening for failures:** If your code waits on `handle.rx` (for example in a `select!`), subscribe before or concurrently with execution. Terminal failures emit `TaskError` so listeners do not hang indefinitely.
+
+**Streaming caveat:** For `run_stream()`, in-stream failures emit `TaskError` on `handle.rx` when the **returned output stream is polled**. If you only listen on `handle.rx` and never poll the output stream, item-level errors will not surface on the event channel.
+
+**Mid-run events:** Executors may still emit non-terminal events (for example `TurnStarted`, `ToolCallRequested`, `StreamChunk`) on `handle.rx` during execution. Use `handle.subscribe_events()` when multiple consumers need the same stream.
+
+For full protocol event shapes, see [Actor Agents — Protocol Events Reference](./actor_agents.md#protocol-events-reference). Actor agents emit `TaskComplete` and route events through the runtime; direct agents only guarantee `TaskError` on the failure paths above.
 
 ## Actor Based Agents
 

@@ -403,6 +403,7 @@ Contribuições são bem-vindas. Consulte o [Guia de Contribuição](CONTRIBUTIN
 ## Documentação
 
 - **[Documentação da API](https://liquidos-ai.github.io/AutoAgents)**: documentação completa do framework
+- **[FAQ](https://liquidos-ai.github.io/AutoAgents/faq)**: perguntas frequentes e solução de problemas
 - **[Exemplos](examples/)**: implementações práticas
 
 ---
@@ -428,57 +429,7 @@ AutoAgents é projetado para alto desempenho:
 
 ## FAQ
 
-### Geral
-
-**O que é AutoAgents?**
-AutoAgents é um framework multiagente de nível de produção escrito em Rust. Oferece uma arquitetura modular para construir sistemas inteligentes com modelos de agentes tipados, chamadas de ferramentas estruturadas, memória configurável e backends LLM plugáveis — projetado para desempenho, segurança e composabilidade em ambientes de servidor e edge.
-
-**Como o AutoAgents difere de outros frameworks de agentes?**
-AutoAgents é Rust-first, oferecendo segurança de memória, abstrações de custo zero e alto desempenho. Fornece uma interface unificada para provedores LLM na nuvem e locais, guardrails integrados, passes de otimização (cache/retry) e um sandbox WASM para execução de ferramentas — tudo em um único framework.
-
-**Existe uma versão Python?**
-Sim. O AutoAgents fornece bindings Python via `autoagents-py` no PyPI, permitindo que desenvolvedores Python aproveitem o núcleo Rust com uma API familiar.
-
-### Configuração
-
-**Como instalar o AutoAgents?**
-Instale via Cargo: `cargo add autoagents`, ou via PyPI para Python: `pip install autoagents-py`. Consulte a [documentação](https://liquidos-ai.github.io/AutoAgents/) para guias detalhados.
-
-**Quais provedores LLM são suportados?**
-O AutoAgents suporta OpenAI, OpenRouter, Anthropic, DeepSeek, xAI e modelos locais via uma interface unificada. Configure suas chaves de API no ambiente ou arquivo de configuração.
-
-**Posso usar modelos locais?**
-Sim. O AutoAgents suporta backends LLM locais por meio de sua interface unificada de provedores, permitindo operação de agentes totalmente offline.
-
-### Desenvolvimento de agentes
-
-**O que é o executor ReAct?**
-O executor ReAct (Reasoning + Acting) é o modelo de execução principal do AutoAgents. Alterna entre etapas de raciocínio e chamadas de ferramentas, permitindo que agentes planejem, executem e observem resultados em loop até a tarefa ser concluída.
-
-**Como funciona o sistema de ferramentas?**
-As ferramentas são definidas com macros derive (`#[derive(Tool)]`) para entrada/saída tipada. O AutoAgents também fornece um runtime WASM sandboxed para executar ferramentas não confiáveis com segurança.
-
-**Quais backends de memória estão disponíveis?**
-O AutoAgents usa por padrão um modelo de memória de janela deslizante, com backends extensíveis para estratégias personalizadas — permitindo controle granular do contexto.
-
-### Orquestração multiagente
-
-**Como os agentes se comunicam?**
-O AutoAgents fornece comunicação pub/sub tipada entre agentes, com passagem de mensagens estruturada e segurança de tipos em tempo de compilação. Agentes podem publicar eventos e assinar tópicos em uma arquitetura desacoplada.
-
-**O que é o sistema de ambiente (environment)?**
-O sistema de ambiente gerencia estado compartilhado e recursos entre múltiplos agentes. Fornece um espaço controlado onde agentes interagem, compartilham observações e coordenam ações. Registre runtimes com `register_runtime`, inicie com `run()`, aguarde conclusão com `wait().await` ou pare com `shutdown().await?`. Consulte a [documentação Actor Agents](https://liquidos-ai.github.io/AutoAgents/core-concepts/actor_agents#environment-lifecycle) para padrões de ciclo de vida.
-
-### Solução de problemas
-
-**A compilação falha com erros de versão do Rust. O que fazer?**
-O AutoAgents requer Rust 1.75+. Execute `rustup update` para obter a versão estável mais recente. Consulte a [documentação](https://liquidos-ai.github.io/AutoAgents/) para requisitos de versão mínima.
-
-**Onde posso obter ajuda?**
-- Documentação: https://liquidos-ai.github.io/AutoAgents/
-- Exemplos: diretório `examples/` no repositório
-- DeepWiki: https://deepwiki.com/liquidos-ai/AutoAgents
-- GitHub Issues: https://github.com/liquidos-ai/AutoAgents/issues
+Consulte as [FAQ](https://liquidos-ai.github.io/AutoAgents/faq) na documentação sobre instalação, provedores, executors, ciclo de vida do ambiente e solução de problemas.
 
 ## Licença
 

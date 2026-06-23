@@ -120,16 +120,11 @@ pub async fn run(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
 
     environment.run()?;
 
-    // Run the environment and wait for completion or interruption
-    tokio::select! {
-        _ = environment.wait() => {
-            println!("\nChaining pipeline completed successfully.");
-        }
-        _ = tokio::signal::ctrl_c() => {
-            println!("\nCtrl+C detected. Shutting down...");
-            let _ = environment.shutdown().await;
-        }
-    }
+    crate::environment_lifecycle::wait_or_ctrl_c(
+        &mut environment,
+        "\nChaining pipeline completed successfully.",
+    )
+    .await;
 
     Ok(())
 }
