@@ -48,15 +48,15 @@ jobs:
         with:
           components: llvm-tools-preview,rustfmt,clippy
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-targets: false
-
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
           df -h
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
 
       - name: Add WASI target
         run: rustup target add wasm32-wasip1
