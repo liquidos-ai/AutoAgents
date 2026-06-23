@@ -55,7 +55,7 @@ Direct agents use a **return-value-first** model. Unlike actor agents running in
 
 **Mid-run events:** Executors may still emit non-terminal events (for example `TurnStarted`, `ToolCallRequested`, `StreamChunk`) on `handle.rx` during execution. Use `handle.subscribe_events()` when multiple consumers need the same stream.
 
-For full protocol event shapes, see [Actor Agents — Protocol Events Reference](./actor_agents.md#protocol-events-reference). Actor agents emit `TaskComplete` and route events through the runtime; direct agents only guarantee `TaskError` on the failure paths above.
+For full protocol event shapes, see [Actor Agents — Protocol Events Reference](./actor_agents.md#protocol-events-reference). Actor agents emit `TaskComplete` via `run()` and `run_stream_to_completion()`; see [Actor streaming APIs](./actor_agents.md#actor-streaming-apis) for the `run_stream()` distinction.
 
 ## Actor Based Agents
 

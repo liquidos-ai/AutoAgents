@@ -50,6 +50,25 @@ impl Default for EnvironmentConfig {
 /// High-level container that owns one or more runtimes, exposes a unified
 /// event receiver, and provides lifecycle helpers for running and shutting down
 /// the underlying actor system.
+///
+/// ## Run lifecycle state machine
+///
+/// An internal [`RuntimeLaunchState`] records how runtimes were last started:
+///
+/// - **`Idle`** — no active launch mode; safe to call `run()` or `run_background()`.
+/// - **`Managed`** — [`run`](Self::run) spawned a join handle tracked by this environment.
+///   Await it with [`wait`](Self::wait) or stop with [`shutdown`](Self::shutdown).
+/// - **`Background`** — [`run_background`](Self::run_background) started runtimes without storing
+///   a handle on the environment. Call [`shutdown`](Self::shutdown) before `run()`.
+///
+/// `run()` and `run_background()` both call [`reconcile_finished_managed_launch`](Self::reconcile_finished_managed_launch)
+/// first. When a managed run task finished without `wait()` or `shutdown()`, that helper joins the
+/// stale handle and surfaces any runtime or join error before a new launch proceeds.
+///
+/// [`wait`](Self::wait) temporarily takes the managed join handle. If the future is dropped early
+/// (for example when another branch wins in `tokio::select!`), [`RestoreRunHandleOnDrop`] puts the
+/// handle back so a later `shutdown()` can still stop runtimes and join the task. A successful
+/// `wait()` clears the handle and returns the launch state to `Idle`.
 pub struct Environment {
     config: EnvironmentConfig,
     runtime_manager: Arc<RuntimeManager>,
@@ -60,9 +79,12 @@ pub struct Environment {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum RuntimeLaunchState {
+    /// No launch in progress; `run()` and `run_background()` are allowed.
     #[default]
     Idle,
+    /// [`Environment::run`] spawned a managed join handle stored on the environment.
     Managed,
+    /// [`Environment::run_background`] started runtimes without a stored join handle.
     Background,
 }
 
@@ -266,6 +288,12 @@ impl Environment {
     }
 
     #[allow(clippy::result_large_err)]
+    /// Join a managed run task that finished without `wait()` or `shutdown()`.
+    ///
+    /// No-op unless `launch_state` is [`RuntimeLaunchState::Managed`]. When the stored handle is
+    /// still running, the handle is restored and this returns `Ok(())`. When the handle finished,
+    /// it is joined via [`join_finished_handle`](Self::join_finished_handle) and `launch_state`
+    /// becomes `Idle`.
     fn reconcile_finished_managed_launch(&mut self) -> Result<(), EnvironmentError> {
         if self.launch_state != RuntimeLaunchState::Managed {
             return Ok(());

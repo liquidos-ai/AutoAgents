@@ -204,6 +204,19 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         }
     }
 
+    /// Return a live executor output stream without the full task lifecycle.
+    ///
+    /// **Event channel:** Does **not** emit terminal protocol events (`TaskComplete`,
+    /// `TaskError`) on the agent event channel. In-stream failures appear only as `Err`
+    /// items on the returned stream. Lifecycle hooks (`on_run_start`, `on_run_complete`) are
+    /// also skipped.
+    ///
+    /// Use [`Self::run_stream_to_completion`] when dispatching through a runtime, waiting on
+    /// `TaskComplete` / `TaskError`, or matching the pub/sub actor path (which calls
+    /// `run_stream_to_completion` internally).
+    ///
+    /// Mid-run events (`StreamChunk`, tool-call events, etc.) may still be emitted by the
+    /// executor while the returned stream is polled.
     pub async fn run_stream(
         self: Arc<Self>,
         task: Task,
@@ -262,9 +275,16 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
     /// Execute a streaming task to completion inside the actor, draining the
     /// stream and running lifecycle hooks before returning.
     ///
+    /// This is the **event-aware** streaming entry point: emits `TaskError` on hook abort,
+    /// stream setup failure, in-stream item errors, and empty streams; emits `TaskComplete`
+    /// on success. Pub/sub [`AgentActor`](AgentActor) dispatch uses this method when
+    /// `stream()` is enabled.
+    ///
     /// When the executor stream yields multiple successful outputs, only the
     /// **last** item is used for `TaskComplete` and the returned agent output.
     /// Intermediate items are not emitted as terminal events.
+    ///
+    /// For incremental output without terminal events, see [`Self::run_stream`].
     pub async fn run_stream_to_completion(
         self: Arc<Self>,
         task: Task,
@@ -892,6 +912,37 @@ mod tests {
     }
 
     impl AgentHooks for StreamItemErrorAgent {}
+
+    #[tokio::test]
+    async fn test_actor_run_stream_does_not_emit_task_error_on_item_failure() {
+        let llm = Arc::new(MockLLMProvider);
+        let (tx, mut rx) = mpsc::channel(2);
+        let agent = Arc::new(
+            BaseAgent::<_, ActorAgent>::new(StreamItemErrorAgent, llm, None, tx, true)
+                .await
+                .expect("agent should build"),
+        );
+
+        let mut stream = agent
+            .run_stream(Task::new("stream error"))
+            .await
+            .expect("stream should start");
+        let err = stream
+            .next()
+            .await
+            .expect("stream should yield one item")
+            .expect_err("expected stream item failure");
+        assert!(err.to_string().contains("stream item failed"));
+
+        let event = tokio::time::timeout(std::time::Duration::from_millis(100), rx.recv()).await;
+        match event {
+            Ok(Some(Event::TaskError { .. })) => {
+                panic!("run_stream must not emit TaskError; use run_stream_to_completion")
+            }
+            Ok(Some(_)) | Ok(None) => {}
+            Err(_) => {}
+        }
+    }
 
     #[tokio::test]
     async fn test_actor_run_stream_to_completion_stream_item_error() {

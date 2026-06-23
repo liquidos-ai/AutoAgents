@@ -162,6 +162,21 @@ These map to `autoagents::core::protocol::Event` variants emitted by actor agent
 
 Internally, the runtime also routes `PublishMessage` for typed pub/sub (`Topic<M>`), but that variant is skipped in serde and used only inside the runtime.
 
+## Actor streaming APIs
+
+Actor agents expose two streaming entry points with different event contracts:
+
+| API | Terminal events (`TaskComplete` / `TaskError`) | Hooks | Typical use |
+|-----|-----------------------------------------------|-------|-------------|
+| `run_stream()` | **No** — failures are `Err` items on the returned stream only | Skipped | Incremental output; poll the stream directly |
+| `run_stream_to_completion()` | **Yes** — full task lifecycle on the event channel | Run | Runtime pub/sub dispatch, event subscribers, `select!` on `TaskError` |
+
+**Footgun:** If you subscribe to runtime or agent events and call `run_stream()` directly, terminal failures will **not** emit `TaskError` on the event channel even though mid-run events (`StreamChunk`, tool calls) may still arrive. Listeners waiting only for `TaskComplete` / `TaskError` can hang. Use `run_stream_to_completion()` instead, or handle errors on the returned output stream.
+
+Non-streaming `run()` always emits `TaskComplete` or `TaskError`. This matches `run_stream_to_completion()`, not `run_stream()`.
+
+For the direct-agent variant of this contract, see [Agents — Direct agent event contract](./agents.md#direct-agent-event-contract).
+
 ## When To Use Actor Agents vs Direct Agents
 
 - Use Direct agents for one-shot calls (no runtime, minimal wiring).
