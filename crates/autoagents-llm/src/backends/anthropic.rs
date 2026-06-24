@@ -667,8 +667,11 @@ impl ChatProvider for Anthropic {
         let resp = ensure_success(resp, "Anthropic").await?;
 
         let body = resp.text().await?;
-        let json_resp: AnthropicCompleteResponse = serde_json::from_str(&body)
-            .map_err(|e| LLMError::HttpError(format!("Failed to parse JSON: {e}")))?;
+        let json_resp: AnthropicCompleteResponse =
+            serde_json::from_str(&body).map_err(|e| LLMError::ResponseFormatError {
+                message: format!("Failed to decode Anthropic response: {e}"),
+                raw_response: body,
+            })?;
         Ok(Box::new(json_resp))
     }
 
