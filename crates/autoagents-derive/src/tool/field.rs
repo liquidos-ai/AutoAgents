@@ -10,16 +10,6 @@ pub(crate) enum Choice {
     Number(LitInt),
 }
 
-#[allow(clippy::inherent_to_string)]
-impl Choice {
-    pub(crate) fn to_string(&self) -> String {
-        match self {
-            Self::Number(n) => n.to_string(),
-            Self::String(s) => s.value(),
-        }
-    }
-}
-
 impl Parse for Choice {
     fn parse(input: ParseStream) -> Result<Self> {
         // Otherwise, parse a single literal.

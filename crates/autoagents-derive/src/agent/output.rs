@@ -1,4 +1,7 @@
-use super::super::tool::{field::FieldSchemaAttr, json::JsonType};
+use super::super::tool::{
+    field::{Choice, FieldSchemaAttr},
+    json::JsonType,
+};
 use crate::resolve;
 use crate::schema_emit;
 use proc_macro::TokenStream;
@@ -23,7 +26,7 @@ pub(crate) struct OutputSchemaProperty {
     _type: String,
     description: Option<String>,
     #[serde(rename = "enum", skip_serializing_if = "Option::is_none")]
-    _enum: Option<Vec<String>>,
+    _enum: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Serialize, Default)]
@@ -213,9 +216,7 @@ impl OutputParser {
             Ok(OutputSchemaProperty {
                 _type: json_type.to_string(),
                 description: schema.description.map(|lit| lit.value()),
-                _enum: schema
-                    .choice
-                    .map(|choices| choices.iter().map(|choice| choice.to_string()).collect()),
+                _enum: schema.choice.map(choices_to_json_values).transpose()?,
             })
         } else {
             Ok(OutputSchemaProperty {
@@ -271,16 +272,9 @@ impl OutputParser {
             let invalid_choice = enum_vals.iter().find(|c| {
                 !matches!(
                     (c, field_type),
-                    (
-                        super::super::tool::field::Choice::String(_),
-                        JsonType::String
-                    ) | (
-                        super::super::tool::field::Choice::Number(_),
-                        JsonType::Number
-                    ) | (
-                        super::super::tool::field::Choice::Number(_),
-                        JsonType::Integer
-                    )
+                    (Choice::String(_), JsonType::String)
+                        | (Choice::Number(_), JsonType::Number)
+                        | (Choice::Number(_), JsonType::Integer)
                 )
             });
 
@@ -294,6 +288,21 @@ impl OutputParser {
 
         Ok(attributes)
     }
+}
+
+fn choices_to_json_values(choices: Vec<Choice>) -> Result<Vec<serde_json::Value>> {
+    choices
+        .into_iter()
+        .map(|choice| match choice {
+            Choice::String(s) => Ok(serde_json::Value::String(s.value())),
+            Choice::Number(n) => {
+                let parsed = n.base10_parse::<i64>().map_err(|_| {
+                    Error::new(n.span(), "Numeric `choice` value is out of range for i64")
+                })?;
+                Ok(serde_json::Value::Number(parsed.into()))
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -351,9 +360,38 @@ mod tests {
         let mode = parser.output_data.schema.properties.get("mode").unwrap();
         assert_eq!(mode._type, "string");
         assert_eq!(mode._enum.as_ref().unwrap().len(), 2);
+        assert_eq!(
+            mode._enum.as_ref().unwrap()[0],
+            serde_json::Value::String("fast".to_string())
+        );
 
         let age = parser.output_data.schema.properties.get("age").unwrap();
         assert_eq!(age._type, "integer");
+    }
+
+    #[test]
+    fn numeric_choices_serialize_as_json_numbers() {
+        let input: DeriveInput = syn::parse_str(
+            r#"
+            struct MyOutput {
+                #[output(description = "Level", choice = [1, 2, 3])]
+                level: u32,
+            }
+            "#,
+        )
+        .unwrap();
+
+        let parser = build_parser(input);
+        let level = parser.output_data.schema.properties.get("level").unwrap();
+        assert_eq!(level._type, "integer");
+        assert_eq!(
+            level._enum.as_ref().unwrap(),
+            &[
+                serde_json::json!(1),
+                serde_json::json!(2),
+                serde_json::json!(3),
+            ]
+        );
     }
 
     #[test]

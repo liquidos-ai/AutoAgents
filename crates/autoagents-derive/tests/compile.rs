@@ -2,6 +2,9 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
+
+static CARGO_CHECK_LOCK: Mutex<()> = Mutex::new(());
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -18,6 +21,7 @@ fn manifest_path(name: &str) -> PathBuf {
 }
 
 fn cargo_check_package(package: &str) -> bool {
+    let _guard = CARGO_CHECK_LOCK.lock().expect("cargo check lock poisoned");
     Command::new(env!("CARGO"))
         .current_dir(workspace_root())
         .args(["check", "-p", package])
@@ -27,6 +31,7 @@ fn cargo_check_package(package: &str) -> bool {
 }
 
 fn cargo_check_manifest(manifest: &Path) -> (bool, String) {
+    let _guard = CARGO_CHECK_LOCK.lock().expect("cargo check lock poisoned");
     let output = Command::new(env!("CARGO"))
         .current_dir(manifest.parent().expect("manifest parent"))
         .arg("check")
