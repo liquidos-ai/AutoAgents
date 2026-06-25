@@ -8,7 +8,11 @@ default-members = [
     "crates/autoagents-derive",
     "crates/autoagents-protocol",
 ]
-members = ["crates/*", "examples/*", "bindings/python/*"]
+members = [
+    "crates/*",
+    "examples/*",
+    "bindings/python/*",
+]
 
 exclude = [
     "examples/wasm_tool",
@@ -69,6 +73,7 @@ futures = "0.3.32"
 futures-core = "0.3.32"
 futures-util = "0.3.32"
 proc-macro2 = "1.0.106"
+proc-macro-crate = "3.4.0"
 quote = "1.0.44"
 clap = { version = "4.6.0", features = ["derive"] }
 ureq = { version = "3.2.0", features = ["json"] }

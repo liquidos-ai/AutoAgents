@@ -1,12 +1,17 @@
-use super::super::tool::{field::FieldSchemaAttr, json::JsonType};
+use super::super::tool::{
+    field::{Choice, FieldSchemaAttr},
+    json::JsonType,
+};
+use crate::resolve;
+use crate::schema_emit;
 use proc_macro::TokenStream;
-use quote::{ToTokens, quote};
+use quote::quote;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use strum::{Display, EnumString};
 use syn::{
     Attribute, Data, DataStruct, DeriveInput, Error, Field, Ident, LitStr, Result, Type,
-    parse_macro_input,
+    parse_macro_input, spanned::Spanned,
 };
 
 #[derive(EnumString, Display)]
@@ -21,7 +26,7 @@ pub(crate) struct OutputSchemaProperty {
     _type: String,
     description: Option<String>,
     #[serde(rename = "enum", skip_serializing_if = "Option::is_none")]
-    _enum: Option<Vec<String>>,
+    _enum: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Serialize, Default)]
@@ -29,7 +34,7 @@ pub(crate) struct OutputSchema {
     #[serde(rename = "type")]
     _type: String,
     #[serde(default)]
-    properties: HashMap<String, OutputSchemaProperty>,
+    properties: BTreeMap<String, OutputSchemaProperty>,
     #[serde(default)]
     required: Vec<String>,
 }
@@ -53,38 +58,62 @@ impl OutputParser {
     pub fn parse(&mut self, input: TokenStream) -> TokenStream {
         let input = parse_macro_input!(input as DeriveInput);
         let struct_ident = input.ident.clone();
+        let struct_span = struct_ident.span();
         self.ident = Some(input.ident);
 
-        // Initialize the output data with the struct name
         self.output_data.name = struct_ident.to_string();
         self.output_data.schema._type = JsonType::Object.to_string();
 
-        // Parse the struct attributes for description and strict mode
-        self.parse_struct_attributes(&input.attrs);
+        if let Err(err) = self.parse_struct_attributes(&input.attrs) {
+            return err.to_compile_error().into();
+        }
 
-        // Parse the data structure
-        self.parse_data(input.data).unwrap();
+        if let Err(err) = self.parse_data(input.data) {
+            return err.to_compile_error().into();
+        }
 
-        let serialized_data = serde_json::to_string(&self.output_data).unwrap();
-        let schema_literal = LitStr::new(&serialized_data, struct_ident.span());
+        let core = match resolve::resolve_core_path() {
+            Ok(core) => core,
+            Err(err) => return err.to_compile_error().into(),
+        };
+        let core = &core;
+
+        let serialized_data = match serde_json::to_string(&self.output_data) {
+            Ok(data) => data,
+            Err(err) => {
+                return Error::new(
+                    struct_span,
+                    format!("failed to serialize agent output schema: {err}"),
+                )
+                .to_compile_error()
+                .into();
+            }
+        };
+
+        let schema_tokens = match schema_emit::schema_str_to_tokens(&serialized_data, struct_span) {
+            Ok(tokens) => tokens,
+            Err(err) => return err.to_compile_error().into(),
+        };
+
+        let schema_literal = LitStr::new(&serialized_data, struct_span);
 
         let expanded = quote! {
-            impl autoagents::core::agent::AgentOutputT for #struct_ident {
+            impl #core::agent::AgentOutputT for #struct_ident {
                 fn output_schema() -> &'static str {
                     #schema_literal
                 }
 
-                fn structured_output_format() -> serde_json::Value {
-                    let schema_str = Self::output_schema();
-                    serde_json::from_str(schema_str)
-                        .expect("Failed to parse output schema")
+                fn structured_output_format() -> ::serde_json::Value {
+                    static SCHEMA: ::std::sync::LazyLock<::serde_json::Value> =
+                        ::std::sync::LazyLock::new(|| #schema_tokens);
+                    (*SCHEMA).clone()
                 }
             }
         };
         TokenStream::from(expanded)
     }
 
-    fn parse_struct_attributes(&mut self, attrs: &[Attribute]) {
+    fn parse_struct_attributes(&mut self, attrs: &[Attribute]) -> Result<()> {
         for attr in attrs {
             if attr.path().is_ident("doc") {
                 // Extract documentation comments as description
@@ -97,16 +126,26 @@ impl OutputParser {
                 {
                     let doc_value = lit_str.value().trim().to_string();
                     if !doc_value.is_empty() {
-                        self.output_data.description = Some(doc_value);
+                        let description =
+                            self.output_data.description.get_or_insert_with(String::new);
+                        if !description.is_empty() {
+                            description.push(' ');
+                        }
+                        description.push_str(&doc_value);
                     }
                 }
             } else if attr.path().is_ident("strict") {
-                // Parse strict attribute
                 if let Ok(strict_value) = attr.parse_args::<syn::LitBool>() {
                     self.output_data.strict = Some(strict_value.value);
+                } else {
+                    return Err(Error::new(
+                        attr.span(),
+                        "`#[strict]` on AgentOutput structs must be a boolean literal, e.g. `#[strict(true)]`",
+                    ));
                 }
             }
         }
+        Ok(())
     }
 
     fn parse_data(&mut self, input: Data) -> Result<()> {
@@ -128,13 +167,11 @@ impl OutputParser {
                 let mut has_output_attribute = false;
 
                 for field in fields.named.iter() {
-                    let field_name = field
-                        .ident
-                        .as_ref()
-                        .expect("Couldn't get the field name!")
-                        .to_string();
+                    let field_name = field.ident.as_ref().ok_or_else(|| {
+                        Error::new(field.span(), "named fields must have an identifier")
+                    })?;
+                    let field_name = field_name.to_string();
 
-                    // Check if this field has an #[output()] attribute
                     let has_field_output_attr = field.attrs.iter().any(|attr| {
                         attr.path()
                             .is_ident(OutputAttrIdent::Output.to_string().as_str())
@@ -151,7 +188,6 @@ impl OutputParser {
                         .insert(field_name, output_property);
                 }
 
-                // Validate that at least one field has an #[output()] attribute
                 if !has_output_attribute {
                     return Err(Error::new(
                         proc_macro2::Span::call_site(),
@@ -170,7 +206,6 @@ impl OutputParser {
     }
 
     fn parse_field(&mut self, name: String, field: &Field) -> Result<OutputSchemaProperty> {
-        // Check if field is optional (wrapped in Option<T>)
         let (is_optional, inner_type) = self.extract_option_type(&field.ty);
 
         if !is_optional {
@@ -180,7 +215,6 @@ impl OutputParser {
         let json_type = self.get_json_type(inner_type.unwrap_or(&field.ty))?;
         let mut field_schema: Option<FieldSchemaAttr> = None;
 
-        // Parse field attributes
         for attr in &field.attrs {
             if attr
                 .path()
@@ -194,12 +228,9 @@ impl OutputParser {
             Ok(OutputSchemaProperty {
                 _type: json_type.to_string(),
                 description: schema.description.map(|lit| lit.value()),
-                _enum: schema
-                    .choice
-                    .map(|choices| choices.iter().map(|choice| choice.to_string()).collect()),
+                _enum: schema.choice.map(choices_to_json_values).transpose()?,
             })
         } else {
-            // Default property without attributes
             Ok(OutputSchemaProperty {
                 _type: json_type.to_string(),
                 description: None,
@@ -221,26 +252,39 @@ impl OutputParser {
     }
 
     fn get_json_type(&self, field_type: &Type) -> Result<JsonType> {
-        let type_str = field_type.to_token_stream().to_string();
-        let json_type = match type_str.as_str() {
-            "String" | "str" => JsonType::String,
-            "i32" | "u32" | "u8" | "i64" | "u64" | "i16" | "u16" | "isize" | "usize" => {
-                JsonType::Integer
-            }
-            "f64" | "f32" => JsonType::Number,
-            "bool" => JsonType::Boolean,
-            _ => {
-                // Check if it's a Vec<T>
-                if type_str.starts_with("Vec <") {
+        match field_type {
+            Type::Path(path) => {
+                let Some(segment) = path.path.segments.last() else {
+                    return Err(Error::new(
+                        proc_macro2::Span::call_site(),
+                        "Invalid type path in AgentOutput field",
+                    ));
+                };
+
+                if segment.ident == "Vec" {
                     return Ok(JsonType::Array);
                 }
-                return Err(Error::new(
-                    proc_macro2::Span::call_site(),
-                    format!("Unsupported data type: {type_str}"),
-                ));
+
+                match segment.ident.to_string().as_str() {
+                    "String" | "str" => Ok(JsonType::String),
+                    "i8" | "i32" | "u32" | "u8" | "i64" | "u64" | "i16" | "u16" | "isize"
+                    | "usize" => Ok(JsonType::Integer),
+                    "f64" | "f32" => Ok(JsonType::Number),
+                    "bool" => Ok(JsonType::Boolean),
+                    other => Err(Error::new(
+                        proc_macro2::Span::call_site(),
+                        format!("Unsupported data type: {other}"),
+                    )),
+                }
             }
-        };
-        Ok(json_type)
+            Type::Reference(reference) => self.get_json_type(&reference.elem),
+            Type::Group(group) => self.get_json_type(&group.elem),
+            Type::Paren(paren) => self.get_json_type(&paren.elem),
+            other => Err(Error::new(
+                proc_macro2::Span::call_site(),
+                format!("Unsupported AgentOutput field type: {other:?}"),
+            )),
+        }
     }
 
     fn parse_field_attributes(
@@ -250,15 +294,14 @@ impl OutputParser {
     ) -> Result<FieldSchemaAttr> {
         let attributes = attribute.parse_args::<FieldSchemaAttr>()?;
 
-        // Validate that enum choices match the field type
         if let Some(ref enum_vals) = attributes.choice {
             let invalid_choice = enum_vals.iter().find(|c| {
-                match (c, field_type) {
-                    (super::super::tool::field::Choice::String(_), JsonType::String) => false,
-                    (super::super::tool::field::Choice::Number(_), JsonType::Number) => false,
-                    (super::super::tool::field::Choice::Number(_), JsonType::Integer) => false,
-                    _ => true, // Invalid case
-                }
+                !matches!(
+                    (c, field_type),
+                    (Choice::String(_), JsonType::String)
+                        | (Choice::Number(_), JsonType::Number)
+                        | (Choice::Number(_), JsonType::Integer)
+                )
             });
 
             if invalid_choice.is_some() {
@@ -273,6 +316,13 @@ impl OutputParser {
     }
 }
 
+fn choices_to_json_values(choices: Vec<Choice>) -> Result<Vec<serde_json::Value>> {
+    choices
+        .into_iter()
+        .map(|choice| choice.to_json_value())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,7 +331,7 @@ mod tests {
         let mut parser = OutputParser::default();
         parser.output_data.name = input.ident.to_string();
         parser.output_data.schema._type = JsonType::Object.to_string();
-        parser.parse_struct_attributes(&input.attrs);
+        parser.parse_struct_attributes(&input.attrs).unwrap();
         parser.parse_data(input.data).unwrap();
         parser
     }
@@ -328,9 +378,80 @@ mod tests {
         let mode = parser.output_data.schema.properties.get("mode").unwrap();
         assert_eq!(mode._type, "string");
         assert_eq!(mode._enum.as_ref().unwrap().len(), 2);
+        assert_eq!(
+            mode._enum.as_ref().unwrap()[0],
+            serde_json::Value::String("fast".to_string())
+        );
 
         let age = parser.output_data.schema.properties.get("age").unwrap();
         assert_eq!(age._type, "integer");
+    }
+
+    #[test]
+    fn numeric_choices_serialize_as_json_numbers() {
+        let input: DeriveInput = syn::parse_str(
+            r#"
+            struct MyOutput {
+                #[output(description = "Level", choice = [1, 2, 3])]
+                level: u32,
+            }
+            "#,
+        )
+        .unwrap();
+
+        let parser = build_parser(input);
+        let level = parser.output_data.schema.properties.get("level").unwrap();
+        assert_eq!(level._type, "integer");
+        assert_eq!(
+            level._enum.as_ref().unwrap(),
+            &[
+                serde_json::json!(1),
+                serde_json::json!(2),
+                serde_json::json!(3),
+            ]
+        );
+    }
+
+    #[test]
+    fn u64_choices_serialize_as_json_numbers() {
+        let input: DeriveInput = syn::parse_str(
+            r#"
+            struct MyOutput {
+                #[output(description = "Large id", choice = [10000000000000000000])]
+                id: u64,
+            }
+            "#,
+        )
+        .unwrap();
+
+        let parser = build_parser(input);
+        let id = parser.output_data.schema.properties.get("id").unwrap();
+        assert_eq!(id._type, "integer");
+        assert_eq!(
+            id._enum.as_ref().unwrap(),
+            &[serde_json::json!(10000000000000000000_u64)]
+        );
+    }
+
+    #[test]
+    fn multiline_doc_comments_join_description() {
+        let input: DeriveInput = syn::parse_str(
+            r#"
+            /// First line
+            /// Second line
+            struct MyOutput {
+                #[output(description = "Value")]
+                value: i64,
+            }
+            "#,
+        )
+        .unwrap();
+
+        let parser = build_parser(input);
+        assert_eq!(
+            parser.output_data.description.as_deref(),
+            Some("First line Second line")
+        );
     }
 
     #[test]

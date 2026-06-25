@@ -460,6 +460,10 @@ dependencies = [
 name = "autoagents-derive"
 version = "0.3.7"
 dependencies = [
+ "async-trait",
+ "autoagents",
+ "autoagents-core",
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "schemars 0.8.22",

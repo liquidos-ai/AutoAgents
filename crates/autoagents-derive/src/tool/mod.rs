@@ -2,6 +2,7 @@ mod attr;
 pub(crate) mod field;
 pub(crate) mod input;
 pub(crate) mod json;
+use crate::resolve;
 use attr::ToolAttributes;
 use proc_macro::TokenStream;
 use quote::quote;
@@ -13,8 +14,13 @@ pub(crate) struct ToolParser {}
 impl ToolParser {
     pub fn parse(&self, attr: TokenStream, item: TokenStream) -> TokenStream {
         let tool_attrs = parse_macro_input!(attr as ToolAttributes);
-        // Parse the struct, not a function
         let input_struct = parse_macro_input!(item as syn::ItemStruct);
+
+        let core = match resolve::resolve_core_path() {
+            Ok(core) => core,
+            Err(err) => return err.to_compile_error().into(),
+        };
+        let core = &core;
 
         let struct_name = &input_struct.ident;
         let tool_name_literal = tool_attrs.name.clone();
@@ -22,8 +28,8 @@ impl ToolParser {
         let args_type = tool_attrs.input;
         let output_schema_impl = tool_attrs.output.map(|output_type| {
             quote! {
-                fn output_schema(&self) -> Option<serde_json::Value> {
-                    Some(<#output_type as autoagents::core::tool::ToolOutputT>::io_schema())
+                fn output_schema(&self) -> Option<::serde_json::Value> {
+                    Some(<#output_type as #core::tool::ToolOutputT>::io_schema())
                 }
             }
         });
@@ -31,18 +37,15 @@ impl ToolParser {
         let expanded = quote! {
             #input_struct
 
-            impl autoagents::core::tool::ToolT for #struct_name {
+            impl #core::tool::ToolT for #struct_name {
                 fn name(&self) -> &str {
                     #tool_name_literal
                 }
                 fn description(&self) -> &str {
                     #tool_description
                 }
-                fn args_schema(&self) -> serde_json::Value {
-                    // Get the JSON schema string from the input type
-                    let params_str = <#args_type as autoagents::core::tool::ToolInputT>::io_schema();
-                    serde_json::from_str(params_str)
-                        .expect("Failed to parse parameters schema")
+                fn args_schema(&self) -> ::serde_json::Value {
+                    <#args_type as #core::tool::ToolInputSchema>::io_schema_value().clone()
                 }
                 #output_schema_impl
             }

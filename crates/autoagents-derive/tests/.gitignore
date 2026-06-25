@@ -1,0 +1,2 @@
+# Isolated compile-pass fixtures generate local lock files; compile-fail locks are committed.
+compile-pass-*/Cargo.lock
