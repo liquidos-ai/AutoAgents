@@ -35,12 +35,8 @@ pub fn derive_agent_hooks(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = input.ident;
 
-    let core = match resolve::resolve_core_path() {
-        Ok(core) => core,
-        Err(err) => return err.to_compile_error().into(),
-    };
-    let async_trait = match resolve::resolve_async_trait_path() {
-        Ok(path) => path,
+    let (core, async_trait) = match resolve::resolve_agent_hooks_paths() {
+        Ok(paths) => paths,
         Err(err) => return err.to_compile_error().into(),
     };
     let core = &core;

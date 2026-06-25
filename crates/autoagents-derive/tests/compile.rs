@@ -12,13 +12,6 @@ fn lock_cargo_check() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|p| p.parent())
-        .expect("workspace root")
-}
-
 fn manifest_path(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -26,11 +19,13 @@ fn manifest_path(name: &str) -> PathBuf {
         .join("Cargo.toml")
 }
 
-fn cargo_test_package(package: &str) -> (bool, String) {
+fn cargo_test_manifest(manifest: &Path) -> (bool, String) {
     let _guard = lock_cargo_check();
     let output = Command::new(env!("CARGO"))
-        .current_dir(workspace_root())
-        .args(["test", "-p", package])
+        .current_dir(manifest.parent().expect("manifest parent"))
+        .arg("test")
+        .arg("--manifest-path")
+        .arg(manifest)
         .output()
         .expect("failed to run cargo test");
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -56,7 +51,8 @@ fn cargo_check_manifest(manifest: &Path) -> (bool, String) {
 
 #[test]
 fn compile_pass_facade() {
-    let (success, output) = cargo_test_package("derive-compile-pass-facade");
+    let manifest = manifest_path("compile-pass-facade");
+    let (success, output) = cargo_test_manifest(&manifest);
     assert!(
         success,
         "facade derive macro fixture should compile and pass runtime checks; output: {output}"
@@ -65,7 +61,8 @@ fn compile_pass_facade() {
 
 #[test]
 fn compile_pass_direct_core() {
-    let (success, output) = cargo_test_package("derive-compile-pass-direct-core");
+    let manifest = manifest_path("compile-pass-direct-core");
+    let (success, output) = cargo_test_manifest(&manifest);
     assert!(
         success,
         "direct autoagents-core derive macro fixture should compile and pass runtime checks; output: {output}"
@@ -107,5 +104,9 @@ fn compile_fail_missing_serde_json_dependency() {
     assert!(
         !success,
         "fixture without direct serde_json should fail to compile; output: {output}"
+    );
+    assert!(
+        output.contains("serde_json"),
+        "expected serde_json resolution error, got: {output}"
     );
 }

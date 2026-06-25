@@ -12,8 +12,6 @@ members = [
     "crates/*",
     "examples/*",
     "bindings/python/*",
-    "crates/autoagents-derive/tests/compile-pass-facade",
-    "crates/autoagents-derive/tests/compile-pass-direct-core",
 ]
 
 exclude = [

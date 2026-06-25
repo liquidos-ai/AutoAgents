@@ -1,10 +1,21 @@
 use proc_macro2::Span;
 use quote::format_ident;
-use syn::{Error, Path, PathSegment, Result};
+use syn::{Error, Path, PathArguments, PathSegment, Result};
 
 enum DependencyLayout {
     DirectCore { core: Path },
     Facade { core: Path, async_trait: Path },
+}
+
+/// Resolves core and `async_trait` paths for `#[derive(AgentHooks)]` with a single layout lookup.
+pub(crate) fn resolve_agent_hooks_paths() -> Result<(Path, Path)> {
+    match resolve_layout()? {
+        DependencyLayout::DirectCore { core } => {
+            let async_trait = resolve_direct_async_trait_path()?;
+            Ok((core, async_trait))
+        }
+        DependencyLayout::Facade { core, async_trait } => Ok((core, async_trait)),
+    }
 }
 
 /// Resolves the core crate path for generated code in the consumer crate.
@@ -12,14 +23,6 @@ pub(crate) fn resolve_core_path() -> Result<Path> {
     Ok(match resolve_layout()? {
         DependencyLayout::DirectCore { core } | DependencyLayout::Facade { core, .. } => core,
     })
-}
-
-/// Resolves the `async_trait` attribute path for generated `AgentHooks` impls.
-pub(crate) fn resolve_async_trait_path() -> Result<Path> {
-    match resolve_layout()? {
-        DependencyLayout::DirectCore { .. } => resolve_direct_async_trait_path(),
-        DependencyLayout::Facade { async_trait, .. } => Ok(async_trait),
-    }
 }
 
 fn resolve_layout() -> Result<DependencyLayout> {
@@ -33,12 +36,14 @@ fn resolve_layout() -> Result<DependencyLayout> {
         let facade = crate_name_to_path(facade_name, "autoagents");
         let core = {
             let mut path = facade.clone();
-            path.segments.push(format_ident!("core").into());
+            path.segments
+                .push(path_segment_from_ident(format_ident!("core")));
             path
         };
         let async_trait = {
             let mut path = facade;
-            path.segments.push(format_ident!("async_trait").into());
+            path.segments
+                .push(path_segment_from_ident(format_ident!("async_trait")));
             path
         };
         return Ok(DependencyLayout::Facade { core, async_trait });
@@ -58,8 +63,16 @@ fn resolve_direct_async_trait_path() -> Result<Path> {
         )
     })?;
     let mut path = crate_name_to_path(name, "async-trait");
-    path.segments.push(format_ident!("async_trait").into());
+    path.segments
+        .push(path_segment_from_ident(format_ident!("async_trait")));
     Ok(path)
+}
+
+fn path_segment_from_ident(ident: proc_macro2::Ident) -> PathSegment {
+    PathSegment {
+        ident,
+        arguments: PathArguments::None,
+    }
 }
 
 fn crate_name_to_path(name: proc_macro_crate::FoundCrate, itself_fallback: &str) -> Path {
@@ -73,7 +86,7 @@ fn crate_name_to_path(name: proc_macro_crate::FoundCrate, itself_fallback: &str)
         leading_colon: None,
         segments: {
             let mut segments = syn::punctuated::Punctuated::new();
-            segments.push(PathSegment::from(ident));
+            segments.push(path_segment_from_ident(ident));
             segments
         },
     }
