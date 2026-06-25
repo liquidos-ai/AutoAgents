@@ -18,6 +18,8 @@ pub use write_file::WriteFile;
 
 use std::path::{Path, PathBuf};
 
+use crate::utils::path_sandbox;
+
 pub trait BaseFileTool {
     fn root_dir(&self) -> Option<String>;
 
@@ -38,37 +40,11 @@ pub trait BaseFileTool {
     }
 
     fn ensure_within_root(&self, path: &Path) -> Result<PathBuf, std::io::Error> {
-        fn normalize_path(path: &Path) -> PathBuf {
-            use std::path::Component;
-
-            let mut normalized = PathBuf::default();
-
-            for component in path.components() {
-                match component {
-                    Component::CurDir => {}
-                    Component::ParentDir => {
-                        normalized.pop();
-                    }
-                    _ => normalized.push(component.as_os_str()),
-                }
-            }
-
-            normalized
-        }
-
-        let canonical = path.canonicalize().unwrap_or_else(|_| normalize_path(path));
-
         if let Some(root) = self.root_dir() {
-            let root_canonical = Path::new(&root).canonicalize()?;
-            if !canonical.starts_with(&root_canonical) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    format!("Path {} is outside of root directory", path.display()),
-                ));
-            }
+            path_sandbox::ensure_within_root(path, Path::new(&root))
+        } else {
+            Ok(path_sandbox::canonicalize_or_normalize(path))
         }
-
-        Ok(canonical)
     }
 }
 

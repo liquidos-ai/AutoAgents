@@ -18,6 +18,9 @@ search = ["reqwest", "once_cell"]
 wolfram-alpha = ["reqwest", "once_cell"]
 document-parsing = [
   "reqwest",
+  "futures",
+  "url",
+  "ipnet",
   "pdf-extract",
   "zip",
   "quick-xml",
@@ -44,6 +47,9 @@ quick-xml = { workspace = true, optional = true }
 calamine = { workspace = true, optional = true }
 html2text = { workspace = true, optional = true }
 csv = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
+ipnet = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
 rmcp = { workspace = true, optional = true, features = [
   "client",
   "transport-child-process",
@@ -55,3 +61,5 @@ tokio = { workspace = true }
 
 [dev-dependencies]
 tempfile.workspace = true
+httpmock.workspace = true
+futures.workspace = true

@@ -1,13 +1,20 @@
+use std::path::PathBuf;
+use std::sync::Once;
+
 use autoagents::core::{
     ractor::async_trait,
     tool::{ToolCallError, ToolRuntime, ToolT},
 };
 use autoagents_derive::{ToolInput, tool};
-use log::debug;
+use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::config::DocumentParserConfig;
+use super::source::{DocumentSourceError, fetch_url, load_local_file};
 use super::{DocumentFormat, parsers};
+
+static WARN_UNRESTRICTED_LOCAL: Once = Once::new();
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct DocumentParserArgs {
@@ -27,15 +34,33 @@ pub struct DocumentParserArgs {
     input = DocumentParserArgs,
 )]
 #[derive(Default)]
-pub struct DocumentParser;
+pub struct DocumentParser {
+    config: DocumentParserConfig,
+}
 
 impl DocumentParser {
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    pub fn try_with_config(config: DocumentParserConfig) -> Result<Self, DocumentSourceError> {
+        config.validate()?;
+        Ok(Self { config })
+    }
+
+    pub fn with_allowed_roots(roots: Vec<PathBuf>) -> Self {
+        Self {
+            config: DocumentParserConfig::default().with_allowed_roots(roots),
+        }
+    }
+
+    pub fn with_allowed_hosts(hosts: Vec<String>) -> Result<Self, DocumentSourceError> {
+        Self::try_with_config(DocumentParserConfig::default().with_allowed_hosts(hosts)?)
     }
 
     fn is_url(source: &str) -> bool {
-        source.starts_with("http://") || source.starts_with("https://")
+        starts_with_ignore_ascii_case(source, "https://")
+            || starts_with_ignore_ascii_case(source, "http://")
     }
 
     fn resolve_format(
@@ -59,31 +84,26 @@ impl DocumentParser {
         }
     }
 
-    async fn load_file(path: &str) -> Result<Vec<u8>, ToolCallError> {
-        tokio::fs::read(path)
-            .await
-            .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))
+    fn map_source_error(error: DocumentSourceError) -> ToolCallError {
+        ToolCallError::RuntimeError(Box::new(error))
     }
 
-    async fn fetch_url(url: &str) -> Result<(Vec<u8>, Option<String>), ToolCallError> {
-        let response = reqwest::get(url)
-            .await
-            .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-
-        let filename = response
-            .url()
-            .path_segments()
-            .and_then(|mut segments| segments.next_back())
-            .map(|s| s.to_string());
-
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?
-            .to_vec();
-
-        Ok((bytes, filename))
+    fn warn_if_local_paths_unrestricted(&self) {
+        if self.config.allowed_roots.is_none() {
+            WARN_UNRESTRICTED_LOCAL.call_once(|| {
+                warn!(
+                    "DocumentParser local file paths are unrestricted; configure allowed_roots for agent deployments"
+                );
+            });
+        }
     }
+}
+
+fn starts_with_ignore_ascii_case(value: &str, prefix: &str) -> bool {
+    value
+        .as_bytes()
+        .get(..prefix.len())
+        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(prefix.as_bytes()))
 }
 
 #[async_trait]
@@ -94,11 +114,16 @@ impl ToolRuntime for DocumentParser {
         debug!("DocumentParser executing: source={}", source);
 
         let (bytes, effective_source) = if Self::is_url(&source) {
-            let (bytes, filename) = Self::fetch_url(&source).await?;
+            let (bytes, filename) = fetch_url(&source, &self.config)
+                .await
+                .map_err(Self::map_source_error)?;
             let effective = filename.unwrap_or_else(|| source.clone());
             (bytes, effective)
         } else {
-            let bytes = Self::load_file(&source).await?;
+            self.warn_if_local_paths_unrestricted();
+            let bytes = load_local_file(&source, &self.config)
+                .await
+                .map_err(Self::map_source_error)?;
             (bytes, source.clone())
         };
 
@@ -169,7 +194,7 @@ mod tests {
         file.write_all(b"Hello World").expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser;
+        let parser = DocumentParser::default();
         let args = json!({
             "source": file_path.display().to_string()
         });
@@ -197,7 +222,7 @@ mod tests {
             .expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser;
+        let parser = DocumentParser::default();
         let args = json!({
             "source": file_path.display().to_string()
         });
@@ -216,7 +241,7 @@ mod tests {
             .expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser;
+        let parser = DocumentParser::default();
         let args = json!({
             "source": file_path.display().to_string()
         });
@@ -243,7 +268,7 @@ mod tests {
             .expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser;
+        let parser = DocumentParser::default();
         let args = json!({
             "source": file_path.display().to_string(),
             "format": "csv"
@@ -262,7 +287,52 @@ mod tests {
         file.write_all(b"content").expect("Failed to write");
         drop(file);
 
-        let parser = DocumentParser;
+        let parser = DocumentParser::default();
+        let args = json!({
+            "source": file_path.display().to_string()
+        });
+
+        let result = parser.execute(args).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_parse_blocks_private_url() {
+        let parser = DocumentParser::default();
+        let args = json!({
+            "source": "http://169.254.169.254/latest/meta-data/"
+        });
+
+        let result = parser.execute(args).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_parse_blocks_local_file_outside_allowed_roots() {
+        let allowed_dir = tempdir().expect("allowed dir");
+        let outside_dir = tempdir().expect("outside dir");
+        let outside_file = outside_dir.path().join("secret.txt");
+        std::fs::write(&outside_file, b"secret").expect("write");
+
+        let parser = DocumentParser::with_allowed_roots(vec![allowed_dir.path().to_path_buf()]);
+        let args = json!({
+            "source": outside_file.display().to_string()
+        });
+
+        let result = parser.execute(args).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_parse_rejects_oversized_local_file() {
+        let dir = tempdir().expect("tempdir");
+        let file_path = dir.path().join("large.txt");
+        std::fs::write(&file_path, vec![b'a'; 2048]).expect("write");
+
+        let parser = DocumentParser::try_with_config(
+            DocumentParserConfig::default().with_max_local_file_bytes(1024),
+        )
+        .expect("config");
         let args = json!({
             "source": file_path.display().to_string()
         });
@@ -275,6 +345,8 @@ mod tests {
     fn test_is_url() {
         assert!(DocumentParser::is_url("https://example.com/file.pdf"));
         assert!(DocumentParser::is_url("http://example.com/file.pdf"));
+        assert!(DocumentParser::is_url("HTTPS://example.com/file.pdf"));
+        assert!(DocumentParser::is_url("HTTP://example.com/file.pdf"));
         assert!(!DocumentParser::is_url("/path/to/file.pdf"));
         assert!(!DocumentParser::is_url("file.pdf"));
     }

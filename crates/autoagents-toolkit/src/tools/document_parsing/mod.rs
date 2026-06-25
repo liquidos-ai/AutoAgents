@@ -1,6 +1,23 @@
+//! Document parsing tools with hardened remote and local source loading.
+//!
+//! # Security defaults
+//!
+//! - URL fetching blocks private, loopback, link-local, and metadata destinations unless
+//!   [`DocumentParserConfig::allow_private_networks`] is enabled together with a non-empty
+//!   [`DocumentParserConfig::allowed_hosts`] list. When private networks are allowed,
+//!   hostname-based blocks (for example `localhost` and `.internal`) are bypassed as well.
+//! - Remote downloads and local reads are size-bounded via
+//!   [`DocumentParserConfig::max_download_bytes`] and
+//!   [`DocumentParserConfig::max_local_file_bytes`].
+//! - Local file paths are unrestricted unless
+//!   [`DocumentParserConfig::allowed_roots`] is configured. Agent deployments should always
+//!   set allowed roots explicitly.
+mod config;
 mod parse_document;
 pub(crate) mod parsers;
+mod source;
 
+pub use config::DocumentParserConfig;
 pub use parse_document::DocumentParser;
 
 use std::path::Path;
