@@ -35,11 +35,11 @@ impl InputParser {
             return err.to_compile_error().into();
         }
 
-        let paths = match resolve::resolve_paths() {
-            Ok(paths) => paths,
+        let core = match resolve::resolve_core_path() {
+            Ok(core) => core,
             Err(err) => return err.to_compile_error().into(),
         };
-        let core = &paths.core;
+        let core = &core;
 
         let serialized_data = match serde_json::to_string(&self.root_schema.schema) {
             Ok(data) => data,

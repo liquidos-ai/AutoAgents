@@ -16,11 +16,11 @@ impl ToolParser {
         let tool_attrs = parse_macro_input!(attr as ToolAttributes);
         let input_struct = parse_macro_input!(item as syn::ItemStruct);
 
-        let paths = match resolve::resolve_paths() {
-            Ok(paths) => paths,
+        let core = match resolve::resolve_core_path() {
+            Ok(core) => core,
             Err(err) => return err.to_compile_error().into(),
         };
-        let core = &paths.core;
+        let core = &core;
 
         let struct_name = &input_struct.ident;
         let tool_name_literal = tool_attrs.name.clone();

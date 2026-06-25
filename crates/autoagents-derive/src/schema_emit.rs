@@ -50,7 +50,7 @@ fn validate_number(number: &Number, span: Span) -> Result<()> {
             return Err(Error::new(
                 span,
                 format!(
-                    "schema number `{number}` is out of range for generated schema literals (must fit in i64)"
+                    "schema number `{number}` is out of range for generated schema literals (must be a whole number within ±2^53)"
                 ),
             ));
         }
@@ -59,7 +59,7 @@ fn validate_number(number: &Number, span: Span) -> Result<()> {
             return Err(Error::new(
                 span,
                 format!(
-                    "schema number `{number}` is out of range for generated schema literals (must fit in i64)"
+                    "schema number `{number}` is out of range for generated schema literals (must be a whole number within ±2^53)"
                 ),
             ));
         }
