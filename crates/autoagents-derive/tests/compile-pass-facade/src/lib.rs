@@ -27,9 +27,12 @@ impl ToolRuntime for Addition {
 }
 
 #[derive(Debug, Serialize, Deserialize, AgentOutput)]
+#[strict(true)]
 struct SumOut {
     #[output(description = "The computed sum")]
     value: i64,
+    #[output(description = "Optional note")]
+    note: Option<String>,
 }
 
 #[agent(
@@ -55,7 +58,22 @@ mod smoke_tests {
 
         let output = SumOut::structured_output_format();
         assert_eq!(output["name"], "SumOut");
+        assert_eq!(output["strict"], true);
         assert!(output["schema"]["properties"]["value"].is_object());
+        assert!(
+            output["schema"]["required"]
+                .as_array()
+                .expect("required array")
+                .iter()
+                .any(|field| field == "value")
+        );
+        assert!(
+            !output["schema"]["required"]
+                .as_array()
+                .expect("required array")
+                .iter()
+                .any(|field| field == "note")
+        );
 
         let _agent = AdderAgent;
     }

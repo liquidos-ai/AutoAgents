@@ -7,7 +7,7 @@ use crate::schema_emit;
 use proc_macro::TokenStream;
 use quote::quote;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use strum::{Display, EnumString};
 use syn::{
     Attribute, Data, DataStruct, DeriveInput, Error, Field, Ident, LitStr, Result, Type,
@@ -34,7 +34,7 @@ pub(crate) struct OutputSchema {
     #[serde(rename = "type")]
     _type: String,
     #[serde(default)]
-    properties: HashMap<String, OutputSchemaProperty>,
+    properties: BTreeMap<String, OutputSchemaProperty>,
     #[serde(default)]
     required: Vec<String>,
 }
@@ -64,7 +64,9 @@ impl OutputParser {
         self.output_data.name = struct_ident.to_string();
         self.output_data.schema._type = JsonType::Object.to_string();
 
-        self.parse_struct_attributes(&input.attrs);
+        if let Err(err) = self.parse_struct_attributes(&input.attrs) {
+            return err.to_compile_error().into();
+        }
 
         if let Err(err) = self.parse_data(input.data) {
             return err.to_compile_error().into();
@@ -111,7 +113,7 @@ impl OutputParser {
         TokenStream::from(expanded)
     }
 
-    fn parse_struct_attributes(&mut self, attrs: &[Attribute]) {
+    fn parse_struct_attributes(&mut self, attrs: &[Attribute]) -> Result<()> {
         for attr in attrs {
             if attr.path().is_ident("doc") {
                 // Extract documentation comments as description
@@ -133,12 +135,17 @@ impl OutputParser {
                     }
                 }
             } else if attr.path().is_ident("strict") {
-                // Parse strict attribute
                 if let Ok(strict_value) = attr.parse_args::<syn::LitBool>() {
                     self.output_data.strict = Some(strict_value.value);
+                } else {
+                    return Err(Error::new(
+                        attr.span(),
+                        "`#[strict]` on AgentOutput structs must be a boolean literal, e.g. `#[strict(true)]`",
+                    ));
                 }
             }
         }
+        Ok(())
     }
 
     fn parse_data(&mut self, input: Data) -> Result<()> {
@@ -324,7 +331,7 @@ mod tests {
         let mut parser = OutputParser::default();
         parser.output_data.name = input.ident.to_string();
         parser.output_data.schema._type = JsonType::Object.to_string();
-        parser.parse_struct_attributes(&input.attrs);
+        parser.parse_struct_attributes(&input.attrs).unwrap();
         parser.parse_data(input.data).unwrap();
         parser
     }

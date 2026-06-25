@@ -379,7 +379,6 @@ checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 name = "derive-compile-fail-missing-serde-json"
 version = "0.0.0"
 dependencies = [
- "async-trait",
  "autoagents-core",
  "autoagents-derive",
  "serde",
