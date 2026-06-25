@@ -756,7 +756,10 @@ dependencies = [
  "base64 0.22.1",
  "calamine",
  "csv",
+ "futures",
  "html2text",
+ "httpmock",
+ "ipnet",
  "log",
  "once_cell",
  "pdf-extract",
@@ -769,6 +772,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "toml 1.1.2+spec-1.1.0",
+ "url",
  "walkdir",
  "zip 8.6.0",
 ]
