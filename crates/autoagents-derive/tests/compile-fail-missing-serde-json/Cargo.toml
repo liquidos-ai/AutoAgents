@@ -7,7 +7,6 @@ publish = false
 [dependencies]
 autoagents-core = { path = "../../../autoagents-core" }
 autoagents-derive = { path = "../.." }
-async-trait = "0.1.89"
 serde = { version = "1.0.228", features = ["derive"] }
 
 [workspace]
