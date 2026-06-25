@@ -39,7 +39,6 @@ pub async fn run_interactive_session(
     // Create topic for coding tasks
     let coding_topic = Topic::<Task>::new(CODING_TASK_TOPIC);
 
-    let workspace_root = coding_agent.workspace_root().to_path_buf();
     let react_agent = ReActAgent::new(coding_agent);
 
     // Build the agent
@@ -99,8 +98,7 @@ pub async fn run_interactive_session(
                 println!("\n🔄 Processing your request...\n");
 
                 let task = Task::new(format!(
-                    "[Workspace sandbox: {}]\n{input}",
-                    workspace_root.display()
+                    "[Workspace sandbox: use relative paths from . (workspace root)]\n{input}"
                 ));
 
                 // Publish to topic for all subscribers

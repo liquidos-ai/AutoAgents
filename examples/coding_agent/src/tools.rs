@@ -297,18 +297,17 @@ fn analyze_complexity(sandbox: &FilesystemSandbox, path: &Path) -> Result<String
         return Ok("Complexity Analysis:\nNo source files found.".to_string());
     }
 
-    let file_count = files.len();
+    let mut analyzed_files = 0usize;
     let mut report = String::from("Complexity Analysis:\n");
     let mut total_lines = 0usize;
     let mut total_functions = 0usize;
     let mut total_complexity = 0usize;
 
     for file in files {
-        let content = fs::read_to_string(&file).map_err(|e| {
-            ToolCallError::RuntimeError(
-                format!("Failed to read {}: {}", relative_display(sandbox, &file), e).into(),
-            )
-        })?;
+        let Ok(content) = fs::read_to_string(&file) else {
+            continue;
+        };
+        analyzed_files += 1;
 
         let lines = content.lines().count();
         let functions = count_regex_matches(
@@ -317,7 +316,7 @@ fn analyze_complexity(sandbox: &FilesystemSandbox, path: &Path) -> Result<String
         );
         let decision_points = count_regex_matches(
             &content,
-            r"\b(if|else if|for|while|match|case|catch|&&|\|\|)\b",
+            r"\b(if|else if|for|while|match|case|catch)\b|&&|\|\|",
         );
         let complexity = 1 + decision_points;
 
@@ -334,9 +333,13 @@ fn analyze_complexity(sandbox: &FilesystemSandbox, path: &Path) -> Result<String
         ));
     }
 
+    if analyzed_files == 0 {
+        return Ok("Complexity Analysis:\nNo readable source files found.".to_string());
+    }
+
     report.push_str(&format!(
         "\nTotals:\n  Files: {}\n  Lines: {}\n  Functions: {}\n  Combined estimated cyclomatic complexity: {}\n",
-        file_count,
+        analyzed_files,
         total_lines,
         total_functions,
         total_complexity
@@ -382,11 +385,9 @@ fn analyze_dependencies(sandbox: &FilesystemSandbox, path: &Path) -> Result<Stri
     let mut all_dependencies = Vec::new();
 
     for file in files {
-        let content = fs::read_to_string(&file).map_err(|e| {
-            ToolCallError::RuntimeError(
-                format!("Failed to read {}: {}", relative_display(sandbox, &file), e).into(),
-            )
-        })?;
+        let Ok(content) = fs::read_to_string(&file) else {
+            continue;
+        };
 
         let deps = extract_dependencies(&content);
         if deps.is_empty() {
@@ -616,6 +617,35 @@ mod tests {
             .await
             .expect_err("unknown analysis type should fail");
         assert!(invalid_type.to_string().contains("Invalid analysis type"));
+
+        fs::write(dir.join("binary.dat"), [0u8, 1, 2, 255]).expect("binary fixture");
+        let complexity_with_binary = tool
+            .execute(json!({
+                "path": ".",
+                "analysis_type": "complexity",
+            }))
+            .await
+            .expect("complexity analysis should skip binary files");
+        assert!(
+            complexity_with_binary
+                .as_str()
+                .expect("complexity output should be a string")
+                .contains("Estimated cyclomatic complexity")
+        );
+
+        let dependencies_with_binary = tool
+            .execute(json!({
+                "path": ".",
+                "analysis_type": "dependencies",
+            }))
+            .await
+            .expect("dependency analysis should skip binary files");
+        assert!(
+            dependencies_with_binary
+                .as_str()
+                .expect("dependency output should be a string")
+                .contains("Dependency Analysis")
+        );
 
         let missing_path = tool
             .execute(json!({
