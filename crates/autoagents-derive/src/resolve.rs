@@ -1,6 +1,6 @@
 use proc_macro2::Span;
 use quote::format_ident;
-use syn::{Error, Path, PathArguments, PathSegment, Result};
+use syn::{Error, Path, Result, parse_quote};
 
 enum DependencyLayout {
     DirectCore { core: Path },
@@ -34,18 +34,8 @@ fn resolve_layout() -> Result<DependencyLayout> {
 
     if let Ok(facade_name) = proc_macro_crate::crate_name("autoagents") {
         let facade = crate_name_to_path(facade_name, "autoagents");
-        let core = {
-            let mut path = facade.clone();
-            path.segments
-                .push(path_segment_from_ident(format_ident!("core")));
-            path
-        };
-        let async_trait = {
-            let mut path = facade;
-            path.segments
-                .push(path_segment_from_ident(format_ident!("async_trait")));
-            path
-        };
+        let core = path_with_suffix(&facade, "core");
+        let async_trait = path_with_suffix(&facade, "async_trait");
         return Ok(DependencyLayout::Facade { core, async_trait });
     }
 
@@ -62,34 +52,28 @@ fn resolve_direct_async_trait_path() -> Result<Path> {
             "when using `autoagents-core` directly, `async-trait` must also be a direct dependency for `#[derive(AgentHooks)]`",
         )
     })?;
-    let mut path = crate_name_to_path(name, "async-trait");
-    path.segments
-        .push(path_segment_from_ident(format_ident!("async_trait")));
-    Ok(path)
-}
-
-fn path_segment_from_ident(ident: proc_macro2::Ident) -> PathSegment {
-    PathSegment {
-        ident,
-        arguments: PathArguments::None,
-    }
+    let crate_path = crate_name_to_path(name, "async-trait");
+    Ok(path_with_suffix(&crate_path, "async_trait"))
 }
 
 fn crate_name_to_path(name: proc_macro_crate::FoundCrate, itself_fallback: &str) -> Path {
-    let ident = match name {
-        proc_macro_crate::FoundCrate::Itself => {
-            format_ident!("{}", itself_fallback.replace('-', "_"))
-        }
-        proc_macro_crate::FoundCrate::Name(n) => format_ident!("{}", n.replace('-', "_")),
+    let ident_str = match name {
+        proc_macro_crate::FoundCrate::Itself => itself_fallback.replace('-', "_"),
+        proc_macro_crate::FoundCrate::Name(n) => n.replace('-', "_"),
     };
-    Path {
-        leading_colon: None,
-        segments: {
-            let mut segments = syn::punctuated::Punctuated::new();
-            segments.push(path_segment_from_ident(ident));
-            segments
-        },
-    }
+    let ident = format_ident!("{}", ident_str);
+    parse_quote!(#ident)
+}
+
+fn path_with_suffix(base: &Path, suffix: &str) -> Path {
+    let base_ident = base
+        .segments
+        .last()
+        .expect("resolved crate path must not be empty")
+        .ident
+        .clone();
+    let suffix = format_ident!("{}", suffix);
+    parse_quote!(#base_ident::#suffix)
 }
 
 #[cfg(test)]
@@ -110,5 +94,17 @@ mod tests {
     fn crate_name_to_path_itself_uses_fallback() {
         let path = crate_name_to_path(proc_macro_crate::FoundCrate::Itself, "autoagents-core");
         assert_eq!(path.segments[0].ident, "autoagents_core");
+    }
+
+    #[test]
+    fn path_with_suffix_appends_segment() {
+        let facade = crate_name_to_path(
+            proc_macro_crate::FoundCrate::Name("autoagents".to_string()),
+            "autoagents",
+        );
+        let core = path_with_suffix(&facade, "core");
+        assert_eq!(core.segments.len(), 2);
+        assert_eq!(core.segments[0].ident, "autoagents");
+        assert_eq!(core.segments[1].ident, "core");
     }
 }
