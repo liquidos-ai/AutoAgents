@@ -206,7 +206,7 @@ pub fn validate_http_url(url: &str, allow_private_networks: bool) -> Result<(), 
         }
     }
 
-    let host = parsed.host_str().ok_or_else(|| {
+    let host = parsed.host().ok_or_else(|| {
         McpSecurityError::DisallowedHttpUrl("url must include a host".to_string())
     })?;
 
@@ -214,16 +214,25 @@ pub fn validate_http_url(url: &str, allow_private_networks: bool) -> Result<(), 
         return Ok(());
     }
 
+    let host_label = host.to_string();
     if is_blocked_http_host(host) {
         return Err(McpSecurityError::DisallowedHttpUrl(format!(
-            "connections to private or link-local hosts are not permitted: {host}"
+            "connections to private or link-local hosts are not permitted: {host_label}"
         )));
     }
 
     Ok(())
 }
 
-fn is_blocked_http_host(host: &str) -> bool {
+fn is_blocked_http_host(host: url::Host<&str>) -> bool {
+    match host {
+        url::Host::Domain(name) => is_blocked_http_domain(name),
+        url::Host::Ipv4(v4) => is_private_or_link_local_ip(IpAddr::V4(v4)),
+        url::Host::Ipv6(v6) => is_private_or_link_local_ip(IpAddr::V6(v6)),
+    }
+}
+
+fn is_blocked_http_domain(host: &str) -> bool {
     let host_lower = host.to_ascii_lowercase();
     if matches!(
         host_lower.as_str(),
@@ -252,7 +261,7 @@ fn is_private_or_link_local_ip(ip: IpAddr) -> bool {
                 || v4.is_unspecified()
                 || v4.octets() == [169, 254, 169, 254]
         }
-        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unique_local(),
+        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local(),
     }
 }
 
@@ -307,7 +316,28 @@ fn validate_restricted_arg_value(
 
 /// Returns true when the value should be resolved relative to the config file directory.
 pub fn looks_like_path(value: &str) -> bool {
-    value.contains('/') || value.contains('\\') || value.ends_with(".py") || value.ends_with(".js")
+    if value.is_empty() || value.starts_with('-') {
+        return false;
+    }
+
+    let path = Path::new(value);
+    if path.is_absolute() {
+        return true;
+    }
+
+    if value.starts_with("./") || value.starts_with("../") {
+        return true;
+    }
+
+    if value.ends_with(".py") || value.ends_with(".js") || value.ends_with(".ts") {
+        return true;
+    }
+
+    if value.contains('/') || value.contains('\\') {
+        return path.extension().is_some();
+    }
+
+    false
 }
 
 /// Resolve a relative path against the config file directory.
@@ -442,6 +472,18 @@ mod tests {
     fn rejects_docker_privileged_args() {
         assert!(validate_stdio_args("docker", &["--privileged".to_string()]).is_err());
         assert!(validate_stdio_args("docker", &["-v".to_string(), "/:/mnt".to_string()]).is_err());
+    }
+
+    #[test]
+    fn rejects_ipv6_link_local_http_hosts() {
+        assert!(validate_http_url("http://[fe80::1]/mcp", false).is_err());
+    }
+
+    #[test]
+    fn looks_like_path_distinguishes_flags_from_paths() {
+        assert!(!looks_like_path("--format=json/xml"));
+        assert!(looks_like_path("servers/echo_server.py"));
+        assert!(looks_like_path("./local/script.py"));
     }
 
     #[test]

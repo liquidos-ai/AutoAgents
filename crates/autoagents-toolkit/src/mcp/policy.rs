@@ -1,6 +1,6 @@
 use crate::mcp::security::{
-    McpSecurityError, effective_allowed_commands, validate_command_allowlist, validate_stdio_args,
-    validate_stdio_cwd, validate_stdio_env,
+    DEFAULT_STDIO_ALLOWED_COMMANDS, McpSecurityError, effective_allowed_commands,
+    validate_command_allowlist, validate_stdio_args, validate_stdio_cwd, validate_stdio_env,
 };
 use autoagents::async_trait;
 use std::collections::HashMap;
@@ -54,19 +54,27 @@ impl fmt::Debug for McpSecurityPolicy {
 
 impl Default for McpSecurityPolicy {
     fn default() -> Self {
-        Self::secure_default()
+        Self {
+            allowed_commands: DEFAULT_STDIO_ALLOWED_COMMANDS
+                .iter()
+                .map(|c| (*c).to_string())
+                .collect(),
+            approver: None,
+            allow_private_http_endpoints: false,
+        }
     }
 }
 
 impl McpSecurityPolicy {
     /// Secure-by-default policy: enforce the built-in launcher allowlist and block private HTTP hosts.
-    pub fn secure_default() -> Self {
-        Self {
-            allowed_commands: effective_allowed_commands()
-                .expect("invalid AUTOAGENTS_MCP_STDIO_EXTRA_COMMANDS configuration"),
+    ///
+    /// Also merges entries from `AUTOAGENTS_MCP_STDIO_EXTRA_COMMANDS` when set.
+    pub fn secure_default() -> Result<Self, McpSecurityError> {
+        Ok(Self {
+            allowed_commands: effective_allowed_commands()?,
             approver: None,
             allow_private_http_endpoints: false,
-        }
+        })
     }
 
     /// Permissive policy for trusted local development and tests only.
@@ -181,7 +189,7 @@ mod tests {
 
     #[tokio::test]
     async fn secure_default_rejects_bash() {
-        let policy = McpSecurityPolicy::secure_default();
+        let policy = McpSecurityPolicy::secure_default().unwrap();
         let err = policy
             .authorize_stdio_launch(&launch_spec("bash"), None)
             .await
@@ -200,7 +208,9 @@ mod tests {
 
     #[tokio::test]
     async fn approver_allows_non_allowlisted_command() {
-        let policy = McpSecurityPolicy::secure_default().with_approver(Arc::new(AlwaysApprove));
+        let policy = McpSecurityPolicy::secure_default()
+            .unwrap()
+            .with_approver(Arc::new(AlwaysApprove));
         policy
             .authorize_stdio_launch(&launch_spec("bash"), None)
             .await
@@ -209,7 +219,9 @@ mod tests {
 
     #[tokio::test]
     async fn approver_denied_returns_error() {
-        let policy = McpSecurityPolicy::secure_default().with_approver(Arc::new(AlwaysDeny));
+        let policy = McpSecurityPolicy::secure_default()
+            .unwrap()
+            .with_approver(Arc::new(AlwaysDeny));
         let err = policy
             .authorize_stdio_launch(&launch_spec("bash"), None)
             .await

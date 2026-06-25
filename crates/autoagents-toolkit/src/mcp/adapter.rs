@@ -16,8 +16,8 @@ use crate::mcp::client::{McpError, with_timeout};
 /// MCP Tool Adapter that bridges MCP tools with AutoAgents tool system
 #[derive(Debug)]
 pub struct McpToolAdapter {
-    name: &'static str,
-    description: &'static str,
+    name: String,
+    description: String,
     args_schema: Value,
     service: Arc<RunningService<RoleClient, ClientInfo>>,
     timeout: Duration,
@@ -30,8 +30,6 @@ impl McpToolAdapter {
         service: Arc<RunningService<RoleClient, ClientInfo>>,
         timeout: Duration,
     ) -> Self {
-        let name = tool.name.to_string();
-        let description = tool.description.unwrap_or_default().to_string();
         let args_schema = serde_json::to_value(&tool.input_schema).unwrap_or_else(|_| {
             json!({
                 "type": "object",
@@ -41,8 +39,8 @@ impl McpToolAdapter {
         });
 
         Self {
-            name: Box::leak(name.into_boxed_str()),
-            description: Box::leak(description.into_boxed_str()),
+            name: tool.name.to_string(),
+            description: tool.description.unwrap_or_default().to_string(),
             args_schema,
             service,
             timeout,
@@ -51,17 +49,17 @@ impl McpToolAdapter {
 
     /// Get the tool name as a string reference
     pub fn tool_name(&self) -> &str {
-        self.name
+        &self.name
     }
 }
 
 impl ToolT for McpToolAdapter {
     fn name(&self) -> &str {
-        self.name
+        &self.name
     }
 
     fn description(&self) -> &str {
-        self.description
+        &self.description
     }
 
     fn args_schema(&self) -> Value {

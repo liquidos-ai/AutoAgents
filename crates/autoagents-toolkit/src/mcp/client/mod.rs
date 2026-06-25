@@ -75,14 +75,14 @@ impl std::fmt::Debug for McpToolsManager {
 
 impl Default for McpToolsManager {
     fn default() -> Self {
-        Self::new()
+        Self::with_security_policy_and_base(McpSecurityPolicy::default(), None)
     }
 }
 
 impl McpToolsManager {
     /// Create a new MCP tools manager with secure-default stdio policy.
     pub fn new() -> Self {
-        Self::with_security_policy(McpSecurityPolicy::secure_default())
+        Self::default()
     }
 
     /// Create a manager with a custom security policy.
@@ -115,7 +115,7 @@ impl McpToolsManager {
 
     /// Load MCP configuration from a file and connect to all servers.
     pub async fn from_config_file<P: AsRef<Path>>(path: P) -> Result<Self, McpError> {
-        Self::from_config_file_with_policy(path, McpSecurityPolicy::secure_default()).await
+        Self::from_config_file_with_policy(path, McpSecurityPolicy::secure_default()?).await
     }
 
     /// Load MCP configuration from a file using a custom security policy.
@@ -376,7 +376,7 @@ mod tests {
     }
 
     fn http_without_url_config() -> McpServerConfig {
-        McpServerConfig::new_http("remote".to_string(), String::new())
+        McpServerConfig::new_http("remote".to_string(), String::default())
     }
 
     #[tokio::test]
@@ -442,7 +442,9 @@ mod tests {
 
     #[test]
     fn validate_allows_non_allowlisted_command_when_approver_configured() {
-        let policy = McpSecurityPolicy::secure_default().with_approver(Arc::new(AlwaysApprove));
+        let policy = McpSecurityPolicy::secure_default()
+            .unwrap()
+            .with_approver(Arc::new(AlwaysApprove));
         let config = McpServerConfig::new(
             "custom".to_string(),
             "stdio".to_string(),

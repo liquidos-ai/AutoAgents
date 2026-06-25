@@ -8,8 +8,7 @@ fn python3_available() -> bool {
     Command::new("python3")
         .arg("--version")
         .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+        .is_ok_and(|output| output.status.success())
 }
 
 fn echo_server_path() -> PathBuf {

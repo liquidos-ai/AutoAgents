@@ -57,7 +57,8 @@ fn default_timeout() -> u64 {
 impl McpConfig {
     /// Load MCP configuration from a TOML file with secure-default validation.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
-        Self::from_file_with_policy(path, &McpSecurityPolicy::secure_default())
+        let policy = McpSecurityPolicy::secure_default()?;
+        Self::from_file_with_policy(path, &policy)
     }
 
     /// Load MCP configuration from a TOML file using the provided security policy.
@@ -147,7 +148,7 @@ impl McpServerConfig {
         Self {
             name,
             protocol: "http".to_string(),
-            command: String::new(),
+            command: Default::default(),
             args: Vec::new(),
             env: HashMap::new(),
             cwd: None,
@@ -363,7 +364,7 @@ mod tests {
         );
         assert!(
             valid_config
-                .validate(&McpSecurityPolicy::secure_default(), None)
+                .validate(&McpSecurityPolicy::default(), None)
                 .is_ok()
         );
 
@@ -371,7 +372,7 @@ mod tests {
             McpServerConfig::new("".to_string(), "stdio".to_string(), "python".to_string());
         assert!(
             empty_name
-                .validate(&McpSecurityPolicy::secure_default(), None)
+                .validate(&McpSecurityPolicy::default(), None)
                 .is_err()
         );
 
@@ -379,7 +380,7 @@ mod tests {
             McpServerConfig::new("test".to_string(), "stdio".to_string(), "".to_string());
         assert!(
             empty_command
-                .validate(&McpSecurityPolicy::secure_default(), None)
+                .validate(&McpSecurityPolicy::default(), None)
                 .is_err()
         );
 
@@ -390,16 +391,16 @@ mod tests {
         );
         assert!(
             invalid_protocol
-                .validate(&McpSecurityPolicy::secure_default(), None)
+                .validate(&McpSecurityPolicy::default(), None)
                 .is_err()
         );
     }
 
     #[test]
     fn test_http_config_requires_url() {
-        let config = McpServerConfig::new_http("remote".to_string(), String::new());
+        let config = McpServerConfig::new_http("remote".to_string(), String::default());
         let err = config
-            .validate(&McpSecurityPolicy::secure_default(), None)
+            .validate(&McpSecurityPolicy::default(), None)
             .unwrap_err();
         assert!(err.contains("url is required"));
     }
@@ -410,7 +411,7 @@ mod tests {
             McpServerConfig::new_http("remote".to_string(), "https://example.com/mcp".to_string());
         config.command = "curl".to_string();
         let err = config
-            .validate(&McpSecurityPolicy::secure_default(), None)
+            .validate(&McpSecurityPolicy::default(), None)
             .unwrap_err();
         assert!(err.contains("command must not be set"));
     }
@@ -424,7 +425,7 @@ mod tests {
         );
         config.url = Some("https://example.com".to_string());
         let err = config
-            .validate(&McpSecurityPolicy::secure_default(), None)
+            .validate(&McpSecurityPolicy::default(), None)
             .unwrap_err();
         assert!(err.contains("url must not be set"));
     }
