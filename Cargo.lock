@@ -460,6 +460,10 @@ dependencies = [
 name = "autoagents-derive"
 version = "0.3.7"
 dependencies = [
+ "async-trait",
+ "autoagents",
+ "autoagents-core",
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "schemars 0.8.22",
@@ -2708,6 +2712,28 @@ checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 dependencies = [
  "powerfmt",
  "serde_core",
+]
+
+[[package]]
+name = "derive-compile-pass-direct-core"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "autoagents-core",
+ "autoagents-derive",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "derive-compile-pass-facade"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "autoagents",
+ "autoagents-derive",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,4 +1,6 @@
 use super::field::{Choice, FieldSchemaAttr};
+use crate::resolve;
+use crate::schema_emit;
 use proc_macro::TokenStream;
 use quote::quote;
 use schemars::schema::{
@@ -7,7 +9,7 @@ use schemars::schema::{
 use strum::{Display, EnumString};
 use syn::{
     Attribute, Data, DataStruct, DeriveInput, Error, Field, GenericArgument, Ident, LitStr,
-    PathArguments, Result, Type, parse_macro_input,
+    PathArguments, Result, Type, parse_macro_input, spanned::Spanned,
 };
 
 #[derive(EnumString, Display)]
@@ -26,21 +28,49 @@ impl InputParser {
     pub fn parse(&mut self, input: TokenStream) -> TokenStream {
         let input = parse_macro_input!(input as DeriveInput);
         let struct_ident = input.ident.clone();
+        let struct_span = struct_ident.span();
         self.ident = Some(input.ident);
 
         if let Err(err) = self.parse_data(input.data) {
             return err.to_compile_error().into();
         }
 
-        // Serialize only the SchemaObject to avoid the top-level $schema and definitions
-        // for better compatibility with LLM providers like OpenAI.
-        let serialized_data = serde_json::to_string(&self.root_schema.schema).unwrap();
+        let paths = match resolve::resolve_paths() {
+            Ok(paths) => paths,
+            Err(err) => return err.to_compile_error().into(),
+        };
+        let core = &paths.core;
 
-        let schema_literal = LitStr::new(&serialized_data, struct_ident.span());
+        let serialized_data = match serde_json::to_string(&self.root_schema.schema) {
+            Ok(data) => data,
+            Err(err) => {
+                return Error::new(
+                    struct_span,
+                    format!("failed to serialize tool input schema: {err}"),
+                )
+                .to_compile_error()
+                .into();
+            }
+        };
+
+        let schema_tokens = match schema_emit::schema_str_to_tokens(&serialized_data, struct_span) {
+            Ok(tokens) => tokens,
+            Err(err) => return err.to_compile_error().into(),
+        };
+
+        let schema_literal = LitStr::new(&serialized_data, struct_span);
         let expanded = quote! {
-            impl autoagents::core::tool::ToolInputT for #struct_ident {
+            impl #core::tool::ToolInputT for #struct_ident {
                 fn io_schema() -> &'static str {
                     #schema_literal
+                }
+            }
+
+            impl #core::tool::ToolInputSchema for #struct_ident {
+                fn io_schema_value() -> ::serde_json::Value {
+                    static SCHEMA: ::std::sync::LazyLock<::serde_json::Value> =
+                        ::std::sync::LazyLock::new(|| #schema_tokens);
+                    (*SCHEMA).clone()
                 }
             }
         };
@@ -68,14 +98,18 @@ impl InputParser {
         match &input.fields {
             syn::Fields::Named(fields) => {
                 for field in fields.named.iter() {
-                    let field_name = field
-                        .ident
-                        .as_ref()
-                        .expect("Couldn't get the field name!")
-                        .to_string();
+                    let field_name = field.ident.as_ref().ok_or_else(|| {
+                        Error::new(field.span(), "named fields must have an identifier")
+                    })?;
+                    let field_name = field_name.to_string();
                     let (schema, optional) = self.parse_field(field_name.clone(), field)?;
 
-                    let object = self.root_schema.schema.object.as_mut().unwrap();
+                    let object = self.root_schema.schema.object.as_mut().ok_or_else(|| {
+                        Error::new(
+                            proc_macro2::Span::call_site(),
+                            "internal error: tool input schema object missing",
+                        )
+                    })?;
                     object.properties.insert(field_name.clone(), schema);
                     if !optional {
                         object.required.insert(field_name);

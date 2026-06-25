@@ -1,0 +1,12 @@
+[package]
+name = "derive-compile-pass-facade"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+autoagents = { workspace = true }
+autoagents-derive = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

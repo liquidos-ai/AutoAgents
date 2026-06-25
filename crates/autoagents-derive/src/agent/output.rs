@@ -1,4 +1,6 @@
 use super::super::tool::{field::FieldSchemaAttr, json::JsonType};
+use crate::resolve;
+use crate::schema_emit;
 use proc_macro::TokenStream;
 use quote::{ToTokens, quote};
 use serde::Serialize;
@@ -6,7 +8,7 @@ use std::collections::HashMap;
 use strum::{Display, EnumString};
 use syn::{
     Attribute, Data, DataStruct, DeriveInput, Error, Field, Ident, LitStr, Result, Type,
-    parse_macro_input,
+    parse_macro_input, spanned::Spanned,
 };
 
 #[derive(EnumString, Display)]
@@ -53,31 +55,53 @@ impl OutputParser {
     pub fn parse(&mut self, input: TokenStream) -> TokenStream {
         let input = parse_macro_input!(input as DeriveInput);
         let struct_ident = input.ident.clone();
+        let struct_span = struct_ident.span();
         self.ident = Some(input.ident);
 
-        // Initialize the output data with the struct name
         self.output_data.name = struct_ident.to_string();
         self.output_data.schema._type = JsonType::Object.to_string();
 
-        // Parse the struct attributes for description and strict mode
         self.parse_struct_attributes(&input.attrs);
 
-        // Parse the data structure
-        self.parse_data(input.data).unwrap();
+        if let Err(err) = self.parse_data(input.data) {
+            return err.to_compile_error().into();
+        }
 
-        let serialized_data = serde_json::to_string(&self.output_data).unwrap();
-        let schema_literal = LitStr::new(&serialized_data, struct_ident.span());
+        let paths = match resolve::resolve_paths() {
+            Ok(paths) => paths,
+            Err(err) => return err.to_compile_error().into(),
+        };
+        let core = &paths.core;
+
+        let serialized_data = match serde_json::to_string(&self.output_data) {
+            Ok(data) => data,
+            Err(err) => {
+                return Error::new(
+                    struct_span,
+                    format!("failed to serialize agent output schema: {err}"),
+                )
+                .to_compile_error()
+                .into();
+            }
+        };
+
+        let schema_tokens = match schema_emit::schema_str_to_tokens(&serialized_data, struct_span) {
+            Ok(tokens) => tokens,
+            Err(err) => return err.to_compile_error().into(),
+        };
+
+        let schema_literal = LitStr::new(&serialized_data, struct_span);
 
         let expanded = quote! {
-            impl autoagents::core::agent::AgentOutputT for #struct_ident {
+            impl #core::agent::AgentOutputT for #struct_ident {
                 fn output_schema() -> &'static str {
                     #schema_literal
                 }
 
-                fn structured_output_format() -> serde_json::Value {
-                    let schema_str = Self::output_schema();
-                    serde_json::from_str(schema_str)
-                        .expect("Failed to parse output schema")
+                fn structured_output_format() -> ::serde_json::Value {
+                    static SCHEMA: ::std::sync::LazyLock<::serde_json::Value> =
+                        ::std::sync::LazyLock::new(|| #schema_tokens);
+                    (*SCHEMA).clone()
                 }
             }
         };
@@ -128,13 +152,11 @@ impl OutputParser {
                 let mut has_output_attribute = false;
 
                 for field in fields.named.iter() {
-                    let field_name = field
-                        .ident
-                        .as_ref()
-                        .expect("Couldn't get the field name!")
-                        .to_string();
+                    let field_name = field.ident.as_ref().ok_or_else(|| {
+                        Error::new(field.span(), "named fields must have an identifier")
+                    })?;
+                    let field_name = field_name.to_string();
 
-                    // Check if this field has an #[output()] attribute
                     let has_field_output_attr = field.attrs.iter().any(|attr| {
                         attr.path()
                             .is_ident(OutputAttrIdent::Output.to_string().as_str())
@@ -151,7 +173,6 @@ impl OutputParser {
                         .insert(field_name, output_property);
                 }
 
-                // Validate that at least one field has an #[output()] attribute
                 if !has_output_attribute {
                     return Err(Error::new(
                         proc_macro2::Span::call_site(),
@@ -170,7 +191,6 @@ impl OutputParser {
     }
 
     fn parse_field(&mut self, name: String, field: &Field) -> Result<OutputSchemaProperty> {
-        // Check if field is optional (wrapped in Option<T>)
         let (is_optional, inner_type) = self.extract_option_type(&field.ty);
 
         if !is_optional {
@@ -180,7 +200,6 @@ impl OutputParser {
         let json_type = self.get_json_type(inner_type.unwrap_or(&field.ty))?;
         let mut field_schema: Option<FieldSchemaAttr> = None;
 
-        // Parse field attributes
         for attr in &field.attrs {
             if attr
                 .path()
@@ -199,7 +218,6 @@ impl OutputParser {
                     .map(|choices| choices.iter().map(|choice| choice.to_string()).collect()),
             })
         } else {
-            // Default property without attributes
             Ok(OutputSchemaProperty {
                 _type: json_type.to_string(),
                 description: None,
@@ -230,7 +248,6 @@ impl OutputParser {
             "f64" | "f32" => JsonType::Number,
             "bool" => JsonType::Boolean,
             _ => {
-                // Check if it's a Vec<T>
                 if type_str.starts_with("Vec <") {
                     return Ok(JsonType::Array);
                 }
@@ -250,15 +267,21 @@ impl OutputParser {
     ) -> Result<FieldSchemaAttr> {
         let attributes = attribute.parse_args::<FieldSchemaAttr>()?;
 
-        // Validate that enum choices match the field type
         if let Some(ref enum_vals) = attributes.choice {
             let invalid_choice = enum_vals.iter().find(|c| {
-                match (c, field_type) {
-                    (super::super::tool::field::Choice::String(_), JsonType::String) => false,
-                    (super::super::tool::field::Choice::Number(_), JsonType::Number) => false,
-                    (super::super::tool::field::Choice::Number(_), JsonType::Integer) => false,
-                    _ => true, // Invalid case
-                }
+                !matches!(
+                    (c, field_type),
+                    (
+                        super::super::tool::field::Choice::String(_),
+                        JsonType::String
+                    ) | (
+                        super::super::tool::field::Choice::Number(_),
+                        JsonType::Number
+                    ) | (
+                        super::super::tool::field::Choice::Number(_),
+                        JsonType::Integer
+                    )
+                )
             });
 
             if invalid_choice.is_some() {

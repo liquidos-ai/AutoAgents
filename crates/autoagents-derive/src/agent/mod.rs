@@ -1,3 +1,4 @@
+use crate::resolve;
 use proc_macro::TokenStream;
 use quote::quote;
 use strum::{Display, EnumString};
@@ -109,6 +110,13 @@ impl AgentParser {
     pub fn parse(&self, attr: TokenStream, item: TokenStream) -> TokenStream {
         let agent_attrs = parse_macro_input!(attr as AgentAttributes);
         let input_struct = parse_macro_input!(item as ItemStruct);
+
+        let paths = match resolve::resolve_paths() {
+            Ok(paths) => paths,
+            Err(err) => return err.to_compile_error().into(),
+        };
+        let core = &paths.core;
+
         let struct_name = &input_struct.ident;
         let AgentAttributes {
             name: agent_name_literal,
@@ -133,14 +141,14 @@ impl AgentParser {
         let output_schema_impl = match &output_type {
             Some(output_ty) => {
                 quote! {
-                    fn output_schema(&self) -> Option<serde_json::Value> {
+                    fn output_schema(&self) -> Option<::serde_json::Value> {
                         Some(<#output_ty>::structured_output_format())
                     }
                 }
             }
             None => {
                 quote! {
-                    fn output_schema(&self) -> Option<serde_json::Value> {
+                    fn output_schema(&self) -> Option<::serde_json::Value> {
                         None
                     }
                 }
@@ -150,7 +158,7 @@ impl AgentParser {
         let expanded = quote! {
             #input_struct
 
-            impl autoagents::core::agent::AgentDeriveT for #struct_name {
+            impl #core::agent::AgentDeriveT for #struct_name {
                 type Output = #quoted_output_type;
 
                 fn name(&self) -> &'static str {
@@ -163,10 +171,10 @@ impl AgentParser {
                     #agent_description
                 }
 
-                fn tools(&self) -> Vec<Box<dyn autoagents::core::tool::ToolT>> {
+                fn tools(&self) -> Vec<Box<dyn #core::tool::ToolT>> {
                     vec![
                         #(
-                            Box::new(#tool_initializers) as Box<dyn autoagents::core::tool::ToolT>
+                            Box::new(#tool_initializers) as Box<dyn #core::tool::ToolT>
                         ),*
                     ]
                 }

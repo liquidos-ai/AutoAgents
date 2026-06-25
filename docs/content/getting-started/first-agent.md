@@ -14,10 +14,15 @@ This guide creates a minimal ReAct agent that can call a tool and return a struc
 [dependencies]
 autoagents = { version = "0.3.7", features = ["openai"] }
 autoagents-derive = "0.3.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = "0.1"
 # Optional if you want ready-made tools
 autoagents-toolkit = { version = "0.3.7", features = ["filesystem", "search"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
+
+`serde`, `serde_json`, and `async-trait` must be direct dependencies because generated macro code references their types and attributes.
 
 ## 2) Define a Tool
 
