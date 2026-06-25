@@ -41,9 +41,13 @@ pub(crate) async fn prepare_mutation_path(
     if let Some(parent) = path.parent()
         && parent != sandbox.root()
     {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
+        sandbox.ensure_resolved(parent).map_err(sandbox_error)?;
+
+        if !parent.exists() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
+        }
     }
 
     sandbox.ensure_resolved(&path).map_err(sandbox_error)

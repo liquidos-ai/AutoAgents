@@ -76,52 +76,16 @@ where
             .ensure_resolved(&path)
             .map_err(sandbox_error)?;
 
-        let encoding = "utf8".to_string();
+        let content = fs::read_to_string(&path)
+            .await
+            .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
 
-        match encoding.as_str() {
-            "utf8" | "utf-8" => {
-                let content = fs::read_to_string(&path)
-                    .await
-                    .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-
-                Ok(json!({
-                    "success": true,
-                    "path": path.display().to_string(),
-                    "content": content,
-                    "encoding": encoding
-                }))
-            }
-            "base64" => {
-                let bytes = fs::read(&path)
-                    .await
-                    .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-
-                use base64::{Engine as _, engine::general_purpose::STANDARD};
-                let encoded = STANDARD.encode(bytes);
-
-                Ok(json!({
-                    "success": true,
-                    "path": path.display().to_string(),
-                    "content": encoded,
-                    "encoding": encoding
-                }))
-            }
-            "bytes" => {
-                let bytes = fs::read(&path)
-                    .await
-                    .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-
-                Ok(json!({
-                    "success": true,
-                    "path": path.display().to_string(),
-                    "content": bytes,
-                    "encoding": encoding
-                }))
-            }
-            _ => Err(ToolCallError::RuntimeError(
-                format!("Unsupported encoding: {}", encoding).into(),
-            )),
-        }
+        Ok(json!({
+            "success": true,
+            "path": path.display().to_string(),
+            "content": content,
+            "encoding": "utf8"
+        }))
     }
 }
 

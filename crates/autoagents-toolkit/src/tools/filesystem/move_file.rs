@@ -91,6 +91,8 @@ where
 
         let dest_path = prepare_mutation_path(self.sandbox(), &destination_path).await?;
 
+        let is_directory = src_path.is_dir();
+
         fs::rename(&src_path, &dest_path)
             .await
             .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
@@ -99,7 +101,7 @@ where
             "success": true,
             "source": src_path.display().to_string(),
             "destination": dest_path.display().to_string(),
-            "type": if src_path.is_dir() { "directory" } else { "file" }
+            "type": if is_directory { "directory" } else { "file" }
         }))
     }
 }
@@ -184,6 +186,10 @@ mod tests {
             .await
             .expect("Failed to move directory");
         assert!(result.get("success").and_then(|v| v.as_bool()).unwrap());
+        assert_eq!(
+            result.get("type").and_then(|v| v.as_str()),
+            Some("directory")
+        );
 
         assert!(!src_dir.exists());
         assert!(dest_dir.exists());

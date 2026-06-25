@@ -65,22 +65,7 @@ where
 
         let path = prepare_mutation_path(self.sandbox(), &file_path).await?;
 
-        let encoding = "utf8".to_string();
-
-        let bytes = match encoding.as_str() {
-            "utf8" | "utf-8" => content.into_bytes(),
-            "base64" => {
-                use base64::{Engine as _, engine::general_purpose::STANDARD};
-                STANDARD
-                    .decode(content)
-                    .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?
-            }
-            _ => {
-                return Err(ToolCallError::RuntimeError(
-                    format!("Unsupported encoding: {}", encoding).into(),
-                ));
-            }
-        };
+        let bytes = content.into_bytes();
 
         if append {
             use tokio::fs::OpenOptions;

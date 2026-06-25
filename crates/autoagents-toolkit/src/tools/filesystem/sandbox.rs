@@ -82,7 +82,7 @@ impl FilesystemSandbox {
             return Ok(canonical);
         }
 
-        let mut suffix = PathBuf::new();
+        let mut suffix = PathBuf::default();
         let mut ancestor = path.to_path_buf();
 
         while !ancestor.exists() {
@@ -158,7 +158,7 @@ impl FilesystemSandbox {
 }
 
 fn normalize_joined_path(path: &Path) -> io::Result<PathBuf> {
-    let mut normalized = PathBuf::new();
+    let mut normalized = PathBuf::default();
 
     for component in path.components() {
         match component {
