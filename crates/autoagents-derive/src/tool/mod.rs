@@ -45,7 +45,7 @@ impl ToolParser {
                     #tool_description
                 }
                 fn args_schema(&self) -> ::serde_json::Value {
-                    <#args_type as #core::tool::ToolInputSchema>::io_schema_value()
+                    <#args_type as #core::tool::ToolInputSchema>::io_schema_value().clone()
                 }
                 #output_schema_impl
             }

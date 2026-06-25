@@ -74,11 +74,11 @@ fn validate_number(number: &Number, span: Span) -> Result<()> {
 
 /// Converts a validated `serde_json::Value` into token trees that construct the value at runtime
 /// without parsing JSON strings.
-pub(crate) fn json_value_to_tokens(value: &Value) -> Result<TokenStream> {
+pub(crate) fn json_value_to_tokens(value: &Value, span: Span) -> Result<TokenStream> {
     match value {
         Value::Null => Ok(quote! { ::serde_json::Value::Null }),
         Value::Bool(b) => Ok(quote! { ::serde_json::Value::Bool(#b) }),
-        Value::Number(n) => number_to_tokens(n),
+        Value::Number(n) => number_to_tokens(n, span),
         Value::String(s) => {
             let lit = proc_macro2::Literal::string(s);
             Ok(quote! { ::serde_json::Value::String(#lit.to_string()) })
@@ -86,13 +86,13 @@ pub(crate) fn json_value_to_tokens(value: &Value) -> Result<TokenStream> {
         Value::Array(items) => {
             let elements = items
                 .iter()
-                .map(json_value_to_tokens)
+                .map(|item| json_value_to_tokens(item, span))
                 .collect::<Result<Vec<_>>>()?;
             Ok(quote! {
                 ::serde_json::Value::Array(vec![#(#elements),*])
             })
         }
-        Value::Object(map) => object_to_tokens(map),
+        Value::Object(map) => object_to_tokens(map, span),
     }
 }
 
@@ -105,10 +105,10 @@ pub(crate) fn schema_str_to_tokens(json_str: &str, span: Span) -> Result<TokenSt
         )
     })?;
     validate_json(&value, span)?;
-    json_value_to_tokens(&value)
+    json_value_to_tokens(&value, span)
 }
 
-fn number_to_tokens(n: &Number) -> Result<TokenStream> {
+fn number_to_tokens(n: &Number, span: Span) -> Result<TokenStream> {
     if let Some(i) = n.as_i64() {
         return Ok(quote! {
             ::serde_json::Value::Number(::serde_json::Number::from(#i))
@@ -133,18 +133,18 @@ fn number_to_tokens(n: &Number) -> Result<TokenStream> {
     }
 
     Err(Error::new(
-        Span::call_site(),
+        span,
         format!(
             "schema number `{n}` must be an integer; non-integer numbers are not supported in generated schema literals"
         ),
     ))
 }
 
-fn object_to_tokens(map: &Map<String, Value>) -> Result<TokenStream> {
+fn object_to_tokens(map: &Map<String, Value>, span: Span) -> Result<TokenStream> {
     let mut inserts = Vec::with_capacity(map.len());
     for (key, value) in map {
         let key_lit = proc_macro2::Literal::string(key);
-        let value_tokens = json_value_to_tokens(value)?;
+        let value_tokens = json_value_to_tokens(value, span)?;
         inserts.push(quote! {
             map.insert(#key_lit.to_string(), #value_tokens);
         });
@@ -179,7 +179,7 @@ mod tests {
             "tags": ["a", "b"],
             "meta": { "ok": true }
         });
-        let tokens = json_value_to_tokens(&value).unwrap();
+        let tokens = json_value_to_tokens(&value, Span::call_site()).unwrap();
         let expanded = tokens.to_string();
         assert!(expanded.contains("name"));
         assert!(expanded.contains("tags"));
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn json_value_to_tokens_handles_whole_number_floats() {
         let value = json!(3.0);
-        let tokens = json_value_to_tokens(&value).unwrap();
+        let tokens = json_value_to_tokens(&value, Span::call_site()).unwrap();
         assert!(tokens.to_string().contains("3"));
     }
 

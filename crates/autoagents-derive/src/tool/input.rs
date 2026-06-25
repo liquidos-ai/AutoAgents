@@ -67,10 +67,10 @@ impl InputParser {
             }
 
             impl #core::tool::ToolInputSchema for #struct_ident {
-                fn io_schema_value() -> ::serde_json::Value {
+                fn io_schema_value() -> &'static ::serde_json::Value {
                     static SCHEMA: ::std::sync::LazyLock<::serde_json::Value> =
                         ::std::sync::LazyLock::new(|| #schema_tokens);
-                    (*SCHEMA).clone()
+                    &SCHEMA
                 }
             }
         };
