@@ -290,7 +290,7 @@ fn requires_restricted_value(command: &str, arg: &str) -> bool {
 
     matches!(
         arg.to_ascii_lowercase().as_str(),
-        "-v" | "--volume" | "--mount"
+        "-v" | "--volume" | "--mount" | "--network" | "--pid" | "--ipc"
     )
 }
 
@@ -303,8 +303,19 @@ fn validate_restricted_arg_value(
         return Ok(());
     }
 
+    let flag_lower = flag.to_ascii_lowercase();
     let value_lower = value.to_ascii_lowercase();
-    if value_lower.starts_with('/') || value_lower.contains(":/") {
+
+    if matches!(flag_lower.as_str(), "--network" | "--pid" | "--ipc") && value_lower == "host" {
+        return Err(McpSecurityError::DangerousArgument {
+            command: command.to_string(),
+            arg: format!("{flag} {value}"),
+        });
+    }
+
+    if matches!(flag_lower.as_str(), "-v" | "--volume" | "--mount")
+        && (value_lower.starts_with('/') || value_lower.contains(":/"))
+    {
         return Err(McpSecurityError::DangerousArgument {
             command: command.to_string(),
             arg: format!("{flag} {value}"),
@@ -356,12 +367,6 @@ pub fn validate_resolved_path_within_base(
     config_base: &Path,
 ) -> Result<(), McpSecurityError> {
     let candidate = PathBuf::from(path);
-    let canonical = candidate
-        .canonicalize()
-        .map_err(|_| McpSecurityError::DangerousArgument {
-            command: "stdio".to_string(),
-            arg: format!("path is not accessible: {path}"),
-        })?;
     let canonical_base = config_base.canonicalize().map_err(|_| {
         McpSecurityError::InvalidWorkingDirectory(format!(
             "config base directory is not accessible: {}",
@@ -369,23 +374,41 @@ pub fn validate_resolved_path_within_base(
         ))
     })?;
 
-    if !canonical.starts_with(&canonical_base) {
+    let resolved = if candidate.exists() {
+        candidate
+            .canonicalize()
+            .map_err(|_| McpSecurityError::DangerousArgument {
+                command: "stdio".to_string(),
+                arg: format!("path does not exist or is not accessible: {path}"),
+            })?
+    } else {
+        normalize_lexical_path(&candidate)
+    };
+
+    if !resolved.starts_with(&canonical_base) {
         return Err(McpSecurityError::DangerousArgument {
             command: "stdio".to_string(),
             arg: format!("path escapes config directory: {path}"),
         });
     }
 
-    for component in Path::new(path).components() {
-        if matches!(component, Component::ParentDir) {
-            return Err(McpSecurityError::DangerousArgument {
-                command: "stdio".to_string(),
-                arg: format!("path traversal is not permitted: {path}"),
-            });
+    Ok(())
+}
+
+fn normalize_lexical_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Normal(part) => normalized.push(part),
         }
     }
-
-    Ok(())
+    normalized
 }
 
 #[cfg(test)]
@@ -466,6 +489,13 @@ mod tests {
     #[test]
     fn allows_private_http_hosts_when_enabled() {
         assert!(validate_http_url("http://127.0.0.1/mcp", true).is_ok());
+    }
+
+    #[test]
+    fn rejects_docker_space_separated_network_host() {
+        assert!(
+            validate_stdio_args("docker", &["--network".to_string(), "host".to_string()]).is_err()
+        );
     }
 
     #[test]

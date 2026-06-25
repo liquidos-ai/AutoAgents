@@ -70,11 +70,18 @@ fn split_headers(
 
     for (name, value) in headers {
         if name.eq_ignore_ascii_case("authorization") {
-            let token = value
+            if let Some(token) = value
                 .strip_prefix("Bearer ")
                 .or_else(|| value.strip_prefix("bearer "))
-                .unwrap_or(value);
-            auth_header = Some(token.to_string());
+            {
+                auth_header = Some(token.to_string());
+            } else {
+                let header_name = HeaderName::from_static("authorization");
+                let header_value = HeaderValue::from_str(value).map_err(|e| {
+                    McpError::ConfigError(format!("invalid authorization header value: {e}"))
+                })?;
+                custom_headers.insert(header_name, header_value);
+            }
             continue;
         }
 
@@ -105,5 +112,24 @@ mod tests {
         let (auth, custom) = split_headers(&headers).unwrap();
         assert_eq!(auth.as_deref(), Some("secret-token"));
         assert_eq!(custom.len(), 1);
+    }
+
+    #[test]
+    fn split_headers_preserves_non_bearer_authorization() {
+        let mut headers = HashMap::new();
+        headers.insert(
+            "Authorization".to_string(),
+            "Basic dXNlcjpwYXNz".to_string(),
+        );
+
+        let (auth, custom) = split_headers(&headers).unwrap();
+        assert!(auth.is_none());
+        assert_eq!(custom.len(), 1);
+        assert_eq!(
+            custom
+                .get(&HeaderName::from_static("authorization"))
+                .and_then(|v| v.to_str().ok()),
+            Some("Basic dXNlcjpwYXNz")
+        );
     }
 }
