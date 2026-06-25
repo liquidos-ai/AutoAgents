@@ -5,7 +5,7 @@ use super::super::tool::{
 use crate::resolve;
 use crate::schema_emit;
 use proc_macro::TokenStream;
-use quote::{ToTokens, quote};
+use quote::quote;
 use serde::Serialize;
 use std::collections::HashMap;
 use strum::{Display, EnumString};
@@ -245,25 +245,39 @@ impl OutputParser {
     }
 
     fn get_json_type(&self, field_type: &Type) -> Result<JsonType> {
-        let type_str = field_type.to_token_stream().to_string();
-        let json_type = match type_str.as_str() {
-            "String" | "str" => JsonType::String,
-            "i8" | "i32" | "u32" | "u8" | "i64" | "u64" | "i16" | "u16" | "isize" | "usize" => {
-                JsonType::Integer
-            }
-            "f64" | "f32" => JsonType::Number,
-            "bool" => JsonType::Boolean,
-            _ => {
-                if type_str.starts_with("Vec <") {
+        match field_type {
+            Type::Path(path) => {
+                let Some(segment) = path.path.segments.last() else {
+                    return Err(Error::new(
+                        proc_macro2::Span::call_site(),
+                        "Invalid type path in AgentOutput field",
+                    ));
+                };
+
+                if segment.ident == "Vec" {
                     return Ok(JsonType::Array);
                 }
-                return Err(Error::new(
-                    proc_macro2::Span::call_site(),
-                    format!("Unsupported data type: {type_str}"),
-                ));
+
+                match segment.ident.to_string().as_str() {
+                    "String" | "str" => Ok(JsonType::String),
+                    "i8" | "i32" | "u32" | "u8" | "i64" | "u64" | "i16" | "u16" | "isize"
+                    | "usize" => Ok(JsonType::Integer),
+                    "f64" | "f32" => Ok(JsonType::Number),
+                    "bool" => Ok(JsonType::Boolean),
+                    other => Err(Error::new(
+                        proc_macro2::Span::call_site(),
+                        format!("Unsupported data type: {other}"),
+                    )),
+                }
             }
-        };
-        Ok(json_type)
+            Type::Reference(reference) => self.get_json_type(&reference.elem),
+            Type::Group(group) => self.get_json_type(&group.elem),
+            Type::Paren(paren) => self.get_json_type(&paren.elem),
+            other => Err(Error::new(
+                proc_macro2::Span::call_site(),
+                format!("Unsupported AgentOutput field type: {other:?}"),
+            )),
+        }
     }
 
     fn parse_field_attributes(
