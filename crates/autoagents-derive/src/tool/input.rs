@@ -156,18 +156,7 @@ impl InputParser {
             if let Some(choices) = property.choice {
                 let enum_values = choices
                     .into_iter()
-                    .map(|c| match c {
-                        Choice::String(s) => Ok(serde_json::Value::String(s.value())),
-                        Choice::Number(n) => {
-                            let parsed = n.base10_parse::<i64>().map_err(|_| {
-                                Error::new(
-                                    n.span(),
-                                    "Numeric `choice` value is out of range for i64",
-                                )
-                            })?;
-                            Ok(serde_json::Value::Number(parsed.into()))
-                        }
-                    })
+                    .map(|choice| choice.to_json_value())
                     .collect::<Result<Vec<_>>>()?;
                 schema_obj.enum_values = Some(enum_values);
             }

@@ -3,6 +3,9 @@ use quote::quote;
 use serde_json::{Map, Number, Value};
 use syn::{Error, Result};
 
+/// Largest integer exactly representable as `f64` (2^53).
+const MAX_SAFE_INTEGER_F64: f64 = 9_007_199_254_740_992.0;
+
 /// Validates that a JSON value is well-formed for emission into generated code.
 pub(crate) fn validate_json(value: &Value, span: Span) -> Result<()> {
     match value {
@@ -43,7 +46,16 @@ fn validate_number(number: &Number, span: Span) -> Result<()> {
                 ),
             ));
         }
-        if f < i64::MIN as f64 || f > i64::MAX as f64 {
+        if f.abs() > MAX_SAFE_INTEGER_F64 {
+            return Err(Error::new(
+                span,
+                format!(
+                    "schema number `{number}` is out of range for generated schema literals (must fit in i64)"
+                ),
+            ));
+        }
+        let as_i64 = f as i64;
+        if (as_i64 as f64) != f {
             return Err(Error::new(
                 span,
                 format!(
@@ -110,13 +122,14 @@ fn number_to_tokens(n: &Number) -> Result<TokenStream> {
     if let Some(f) = n.as_f64()
         && f.is_finite()
         && f.fract() == 0.0
-        && f >= i64::MIN as f64
-        && f <= i64::MAX as f64
+        && f.abs() <= MAX_SAFE_INTEGER_F64
     {
         let i = f as i64;
-        return Ok(quote! {
-            ::serde_json::Value::Number(::serde_json::Number::from(#i))
-        });
+        if (i as f64) == f {
+            return Ok(quote! {
+                ::serde_json::Value::Number(::serde_json::Number::from(#i))
+            });
+        }
     }
 
     Err(Error::new(
@@ -190,6 +203,14 @@ mod tests {
     #[test]
     fn validate_json_rejects_out_of_range_whole_number_floats() {
         let value = json!(1e19);
+        let err = validate_json(&value, Span::call_site()).unwrap_err();
+        assert!(err.to_string().contains("out of range"));
+    }
+
+    #[test]
+    fn validate_json_rejects_i64_max_plus_one_whole_float() {
+        let number = Number::from_f64(9223372036854775808.0).expect("finite float");
+        let value = Value::Number(number);
         let err = validate_json(&value, Span::call_site()).unwrap_err();
         assert!(err.to_string().contains("out of range"));
     }

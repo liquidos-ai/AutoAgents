@@ -293,15 +293,7 @@ impl OutputParser {
 fn choices_to_json_values(choices: Vec<Choice>) -> Result<Vec<serde_json::Value>> {
     choices
         .into_iter()
-        .map(|choice| match choice {
-            Choice::String(s) => Ok(serde_json::Value::String(s.value())),
-            Choice::Number(n) => {
-                let parsed = n.base10_parse::<i64>().map_err(|_| {
-                    Error::new(n.span(), "Numeric `choice` value is out of range for i64")
-                })?;
-                Ok(serde_json::Value::Number(parsed.into()))
-            }
-        })
+        .map(|choice| choice.to_json_value())
         .collect()
 }
 
@@ -391,6 +383,27 @@ mod tests {
                 serde_json::json!(2),
                 serde_json::json!(3),
             ]
+        );
+    }
+
+    #[test]
+    fn u64_choices_serialize_as_json_numbers() {
+        let input: DeriveInput = syn::parse_str(
+            r#"
+            struct MyOutput {
+                #[output(description = "Large id", choice = [10000000000000000000])]
+                id: u64,
+            }
+            "#,
+        )
+        .unwrap();
+
+        let parser = build_parser(input);
+        let id = parser.output_data.schema.properties.get("id").unwrap();
+        assert_eq!(id._type, "integer");
+        assert_eq!(
+            id._enum.as_ref().unwrap(),
+            &[serde_json::json!(10000000000000000000_u64)]
         );
     }
 

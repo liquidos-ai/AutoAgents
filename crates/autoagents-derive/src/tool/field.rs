@@ -10,6 +10,28 @@ pub(crate) enum Choice {
     Number(LitInt),
 }
 
+impl Choice {
+    pub(crate) fn to_json_value(&self) -> Result<serde_json::Value> {
+        match self {
+            Self::String(s) => Ok(serde_json::Value::String(s.value())),
+            Self::Number(n) => number_lit_to_json_value(n),
+        }
+    }
+}
+
+fn number_lit_to_json_value(number: &LitInt) -> Result<serde_json::Value> {
+    if let Ok(value) = number.base10_parse::<i64>() {
+        return Ok(serde_json::Value::Number(value.into()));
+    }
+    let value = number.base10_parse::<u64>().map_err(|_| {
+        syn::Error::new(
+            number.span(),
+            "Numeric `choice` value is out of range for u64",
+        )
+    })?;
+    Ok(serde_json::Value::Number(value.into()))
+}
+
 impl Parse for Choice {
     fn parse(input: ParseStream) -> Result<Self> {
         // Otherwise, parse a single literal.
