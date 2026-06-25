@@ -26,13 +26,13 @@ fn manifest_path(name: &str) -> PathBuf {
         .join("Cargo.toml")
 }
 
-fn cargo_check_package(package: &str) -> bool {
+fn cargo_test_package(package: &str) -> bool {
     let _guard = lock_cargo_check();
     Command::new(env!("CARGO"))
         .current_dir(workspace_root())
-        .args(["check", "-p", package])
+        .args(["test", "-p", package])
         .status()
-        .expect("failed to run cargo check")
+        .expect("failed to run cargo test")
         .success()
 }
 
@@ -54,7 +54,7 @@ fn cargo_check_manifest(manifest: &Path) -> (bool, String) {
 #[test]
 fn compile_pass_facade() {
     assert!(
-        cargo_check_package("derive-compile-pass-facade"),
+        cargo_test_package("derive-compile-pass-facade"),
         "facade derive macro fixture should compile"
     );
 }
@@ -62,7 +62,7 @@ fn compile_pass_facade() {
 #[test]
 fn compile_pass_direct_core() {
     assert!(
-        cargo_check_package("derive-compile-pass-direct-core"),
+        cargo_test_package("derive-compile-pass-direct-core"),
         "direct autoagents-core derive macro fixture should compile"
     );
 }

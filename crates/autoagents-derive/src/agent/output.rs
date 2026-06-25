@@ -124,7 +124,12 @@ impl OutputParser {
                 {
                     let doc_value = lit_str.value().trim().to_string();
                     if !doc_value.is_empty() {
-                        self.output_data.description = Some(doc_value);
+                        let description =
+                            self.output_data.description.get_or_insert_with(String::new);
+                        if !description.is_empty() {
+                            description.push(' ');
+                        }
+                        description.push_str(&doc_value);
                     }
                 }
             } else if attr.path().is_ident("strict") {
@@ -404,6 +409,27 @@ mod tests {
         assert_eq!(
             id._enum.as_ref().unwrap(),
             &[serde_json::json!(10000000000000000000_u64)]
+        );
+    }
+
+    #[test]
+    fn multiline_doc_comments_join_description() {
+        let input: DeriveInput = syn::parse_str(
+            r#"
+            /// First line
+            /// Second line
+            struct MyOutput {
+                #[output(description = "Value")]
+                value: i64,
+            }
+            "#,
+        )
+        .unwrap();
+
+        let parser = build_parser(input);
+        assert_eq!(
+            parser.output_data.description.as_deref(),
+            Some("First line Second line")
         );
     }
 

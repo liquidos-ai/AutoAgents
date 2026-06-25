@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use autoagents::async_trait;
 use autoagents::core::agent::AgentOutputT;
 use autoagents::core::tool::{ToolCallError, ToolRuntime, ToolT};
@@ -39,16 +41,22 @@ struct SumOut {
 #[derive(Clone, AgentHooks, Default)]
 struct AdderAgent;
 
-fn main() {
-    let tool = Addition;
-    assert_eq!(tool.name(), "add");
-    let schema = tool.args_schema();
-    assert_eq!(schema["type"], "object");
-    assert_eq!(schema["properties"]["left"]["type"], "integer");
+#[cfg(test)]
+mod smoke_tests {
+    use super::*;
 
-    let output = SumOut::structured_output_format();
-    assert_eq!(output["name"], "SumOut");
-    assert!(output["schema"]["properties"]["value"].is_object());
+    #[test]
+    fn generated_schemas_match_expectations() {
+        let tool = Addition;
+        assert_eq!(tool.name(), "add");
+        let schema = tool.args_schema();
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["properties"]["left"]["type"], "integer");
 
-    let _agent = AdderAgent;
+        let output = SumOut::structured_output_format();
+        assert_eq!(output["name"], "SumOut");
+        assert!(output["schema"]["properties"]["value"].is_object());
+
+        let _agent = AdderAgent;
+    }
 }

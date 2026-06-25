@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use async_trait::async_trait;
 use autoagents_core::agent::AgentOutputT;
 use autoagents_core::tool::{ToolCallError, ToolRuntime, ToolT};
@@ -39,16 +41,22 @@ struct ProductOut {
 #[derive(Clone, AgentHooks, Default)]
 struct MultiplierAgent;
 
-fn main() {
-    let tool = Multiplication;
-    assert_eq!(tool.name(), "multiply");
-    let schema = tool.args_schema();
-    assert_eq!(schema["type"], "object");
-    assert_eq!(schema["properties"]["left"]["type"], "integer");
+#[cfg(test)]
+mod smoke_tests {
+    use super::*;
 
-    let output = ProductOut::structured_output_format();
-    assert_eq!(output["name"], "ProductOut");
-    assert!(output["schema"]["properties"]["value"].is_object());
+    #[test]
+    fn generated_schemas_match_expectations() {
+        let tool = Multiplication;
+        assert_eq!(tool.name(), "multiply");
+        let schema = tool.args_schema();
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["properties"]["left"]["type"], "integer");
 
-    let _agent = MultiplierAgent;
+        let output = ProductOut::structured_output_format();
+        assert_eq!(output["name"], "ProductOut");
+        assert!(output["schema"]["properties"]["value"].is_object());
+
+        let _agent = MultiplierAgent;
+    }
 }
