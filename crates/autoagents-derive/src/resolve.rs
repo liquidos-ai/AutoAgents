@@ -1,6 +1,6 @@
 use proc_macro2::Span;
 use quote::format_ident;
-use syn::{Error, Path, Result};
+use syn::{Error, Path, PathSegment, Result};
 
 enum DependencyLayout {
     DirectCore { core: Path },
@@ -69,7 +69,14 @@ fn crate_name_to_path(name: proc_macro_crate::FoundCrate, itself_fallback: &str)
         }
         proc_macro_crate::FoundCrate::Name(n) => format_ident!("{}", n.replace('-', "_")),
     };
-    Path::from(ident)
+    Path {
+        leading_colon: None,
+        segments: {
+            let mut segments = syn::punctuated::Punctuated::new();
+            segments.push(PathSegment::from(ident));
+            segments
+        },
+    }
 }
 
 #[cfg(test)]

@@ -58,7 +58,7 @@ mod smoke_tests {
 
         let output = SumOut::structured_output_format();
         assert_eq!(output["name"], "SumOut");
-        assert_eq!(output["strict"], true);
+        assert!(output["strict"].as_bool().unwrap());
         assert!(output["schema"]["properties"]["value"].is_object());
         assert!(
             output["schema"]["required"]
