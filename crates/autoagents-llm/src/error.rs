@@ -35,6 +35,7 @@ pub enum LLMError {
         status_code: u16,
         message: String,
         response_body: Box<str>,
+        retry_after: Option<Duration>,
         provider_code: Option<Box<str>>,
     },
     /// Invalid request parameters, format, or client-side HTTP 4xx rejection.
@@ -197,12 +198,14 @@ impl fmt::Debug for LLMError {
                 status_code,
                 message,
                 response_body,
+                retry_after,
                 provider_code,
             } => f
                 .debug_struct("HttpStatusError")
                 .field("status_code", status_code)
                 .field("message", message)
                 .field("response_body", &truncate_for_display(response_body))
+                .field("retry_after", retry_after)
                 .field("provider_code", provider_code)
                 .finish(),
             Self::InvalidRequest {
@@ -280,6 +283,11 @@ pub fn is_retryable(err: &LLMError) -> bool {
 }
 
 /// Default fallbackability predicate shared by the fallback layer.
+///
+/// Unlike [`is_retryable`], every [`LLMError::HttpError`] is fallbackable regardless
+/// of message content so callers can route any transport failure to a backup provider.
+/// Retryability still requires a transport-failure message via
+/// [`is_transport_retryable_message`].
 pub fn is_fallbackable(err: &LLMError) -> bool {
     match err {
         LLMError::RateLimitError { .. } => true,
@@ -349,12 +357,16 @@ fn display_http_status_error(
     status_code: u16,
     message: &str,
     response_body: &str,
+    retry_after: Option<Duration>,
     provider_code: Option<&str>,
 ) -> fmt::Result {
     write!(f, "HTTP Status Error ({status_code}): {message}")?;
     write_truncated_body(f, "Response", response_body)?;
     if let Some(code) = provider_code {
         write!(f, ". Provider code: {code}")?;
+    }
+    if let Some(retry_after) = retry_after {
+        write!(f, ". Retry-After: {}s", retry_after.as_secs())?;
     }
     Ok(())
 }
@@ -423,12 +435,14 @@ impl fmt::Display for LLMError {
                 status_code,
                 message,
                 response_body,
+                retry_after,
                 provider_code,
             } => display_http_status_error(
                 f,
                 *status_code,
                 message,
                 response_body,
+                *retry_after,
                 provider_code.as_deref(),
             ),
             LLMError::InvalidRequest {
@@ -576,6 +590,7 @@ mod tests {
                 status_code: 503,
                 message: "down".into(),
                 response_body: "body".into(),
+                retry_after: None,
                 provider_code: None,
             }
             .is_retryable()
@@ -585,6 +600,7 @@ mod tests {
                 status_code: 400,
                 message: "bad".into(),
                 response_body: "body".into(),
+                retry_after: None,
                 provider_code: None,
             }
             .is_retryable()
@@ -648,6 +664,7 @@ mod tests {
             status_code: 502,
             message: "bad gateway".into(),
             response_body: "html".into(),
+            retry_after: None,
             provider_code: None,
         };
         assert_eq!(http_status.http_status_code(), Some(502));
@@ -710,6 +727,7 @@ mod tests {
                 status_code: 500,
                 message: "fail".into(),
                 response_body: "body".into(),
+                retry_after: None,
                 provider_code: Some("internal".into()),
             },
             LLMError::InvalidRequest {
@@ -758,10 +776,12 @@ mod tests {
             status_code: 500,
             message: "fail".into(),
             response_body: "body".into(),
+            retry_after: Some(Duration::from_secs(120)),
             provider_code: Some("INTERNAL".into()),
         };
         let status_display = status.to_string();
         assert!(status_display.contains("Provider code: INTERNAL"));
+        assert!(status_display.contains("Retry-After: 120s"));
 
         let format_error = LLMError::ResponseFormatError {
             message: "bad json".into(),

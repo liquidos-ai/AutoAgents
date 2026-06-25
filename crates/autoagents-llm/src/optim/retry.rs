@@ -10,8 +10,8 @@
 //!   default policy.
 //! - [`RateLimitError`], retryable [`HttpStatusError`], and transport
 //!   [`HttpError`] values are retried up to `max_attempts − 1` additional times
-//!   with exponential back-off, honoring provider `Retry-After` hints up to
-//!   [`RetryConfig::max_backoff`].
+//!   with exponential back-off, honoring provider `Retry-After` hints on
+//!   [`RateLimitError`] and [`HttpStatusError`] up to [`RetryConfig::max_backoff`].
 //!
 //! # Hot-path overhead
 //! On a successful first attempt the only overhead over a bare provider call
@@ -213,17 +213,19 @@ fn compute_backoff(config: &RetryConfig, attempt: u32) -> Duration {
 
 /// Resolves the sleep duration before the next retry attempt.
 ///
-/// Honors provider-supplied `Retry-After` hints on [`RateLimitError`] by taking
-/// the maximum of the configured exponential back-off and the header value,
-/// capped at [`RetryConfig::max_backoff`].
+/// Honors provider-supplied `Retry-After` hints on [`RateLimitError`] and
+/// [`HttpStatusError`] by taking the maximum of the configured exponential
+/// back-off and the header value, capped at [`RetryConfig::max_backoff`].
 fn resolve_retry_sleep(err: &LLMError, config: &RetryConfig, attempt: u32) -> Duration {
     let backoff = compute_backoff(config, attempt);
-    let sleep_for = match err {
-        LLMError::RateLimitError {
-            retry_after: Some(retry_after),
-            ..
-        } => backoff.max(*retry_after),
-        _ => backoff,
+    let retry_after = match err {
+        LLMError::RateLimitError { retry_after, .. }
+        | LLMError::HttpStatusError { retry_after, .. } => *retry_after,
+        _ => None,
+    };
+    let sleep_for = match retry_after {
+        Some(retry_after) => backoff.max(retry_after),
+        None => backoff,
     };
     sleep_for.min(config.max_backoff)
 }
@@ -497,11 +499,13 @@ mod tests {
                         status_code,
                         message,
                         response_body,
+                        retry_after,
                         provider_code,
                     } => LLMError::HttpStatusError {
                         status_code: *status_code,
                         message: message.clone(),
                         response_body: response_body.clone(),
+                        retry_after: *retry_after,
                         provider_code: provider_code.clone(),
                     },
                     LLMError::InvalidRequest {
@@ -595,6 +599,7 @@ mod tests {
             status_code,
             message: format!("status {status_code}"),
             response_body: "down".into(),
+            retry_after: None,
             provider_code: None,
         }
     }
@@ -602,6 +607,27 @@ mod tests {
     // -----------------------------------------------------------------------
     // Back-off unit tests (no I/O)
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn resolve_retry_sleep_honors_retry_after_on_http_status_error() {
+        let config = RetryConfig {
+            initial_backoff: Duration::from_millis(200),
+            max_backoff: Duration::from_secs(60),
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        let err = LLMError::HttpStatusError {
+            status_code: 503,
+            message: "maintenance".into(),
+            response_body: "body".into(),
+            retry_after: Some(Duration::from_secs(45)),
+            provider_code: None,
+        };
+        assert_eq!(
+            resolve_retry_sleep(&err, &config, 0),
+            Duration::from_secs(45)
+        );
+    }
 
     #[test]
     fn resolve_retry_sleep_honors_retry_after_header() {
@@ -746,6 +772,7 @@ mod tests {
             status_code: 503,
             message: "down".into(),
             response_body: "body".into(),
+            retry_after: None,
             provider_code: None,
         }));
         assert!(default_is_retryable(&LLMError::HttpError(

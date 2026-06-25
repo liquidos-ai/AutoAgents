@@ -49,11 +49,13 @@ fn http_status_error(
     message: String,
     response_body: impl Into<Box<str>>,
     provider_code: Option<Box<str>>,
+    retry_after: Option<Duration>,
 ) -> LLMError {
     LLMError::HttpStatusError {
         status_code,
         message,
         response_body: response_body.into(),
+        retry_after,
         provider_code,
     }
 }
@@ -68,7 +70,7 @@ async fn read_bounded_error_body(response: Response) -> Result<String, LLMError>
     // drained, so the connection may not be reused; that tradeoff is intentional on the
     // error path where bounded memory use matters more than keep-alive reuse.
     if let Some(content_length) = response.content_length()
-        && content_length as usize > MAX_HTTP_ERROR_BODY_BYTES
+        && content_length > MAX_HTTP_ERROR_BODY_BYTES as u64
     {
         return Ok(format!(
             "... [body omitted, Content-Length: {content_length} bytes]"
@@ -151,6 +153,7 @@ fn map_http_status_error(
             message,
             response_body,
             provider_code,
+            retry_after,
         )),
     }
 }
@@ -453,6 +456,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn maps_503_to_http_status_error_with_retry_after() {
+        let err = error_for_status(503, "service unavailable", Some("300")).await;
+        match err {
+            LLMError::HttpStatusError {
+                status_code,
+                retry_after,
+                ..
+            } => {
+                assert_eq!(status_code, 503);
+                assert_eq!(retry_after, Some(Duration::from_secs(300)));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
     async fn maps_plain_text_503_to_http_status_error() {
         let err = error_for_status(503, "service unavailable", None).await;
         match err {
@@ -524,7 +543,7 @@ mod tests {
         match response.content_length() {
             None => {}
             Some(content_length) => assert!(
-                content_length as usize <= MAX_HTTP_ERROR_BODY_BYTES,
+                content_length <= MAX_HTTP_ERROR_BODY_BYTES as u64,
                 "unexpected Content-Length for streaming test: {content_length}"
             ),
         }

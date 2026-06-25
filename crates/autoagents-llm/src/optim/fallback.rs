@@ -80,10 +80,16 @@ impl Default for FallbackConfig {
 
 /// Default fallbackability predicate.
 ///
-/// Falls back on network, provider, response-format, and generic capability
-/// errors as well as typed rate-limit and retryable HTTP status failures.
+/// Falls back on rate-limit, retryable server (5xx/408), all transport
+/// [`HttpError`] values, provider, response-format, no-tool-support, and
+/// generic capability errors.
 ///
-/// Does **not** fall back on auth, invalid-request, or guardrail errors.
+/// Does **not** fall back on auth, invalid-request, JSON/tool-config, or
+/// guardrail errors.
+///
+/// Note: [`is_retryable`] narrows [`HttpError`] to transport-failure messages only;
+/// fallback intentionally keeps every [`HttpError`] eligible so backup providers
+/// can absorb opaque transport failures.
 pub fn default_is_fallbackable(err: &LLMError) -> bool {
     crate::error::is_fallbackable(err)
 }
@@ -457,6 +463,7 @@ mod tests {
                 status_code: 503,
                 message: self.err_msg.clone(),
                 response_body: self.err_msg.clone().into_boxed_str(),
+                retry_after: None,
                 provider_code: None,
             })
         }
