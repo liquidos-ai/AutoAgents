@@ -1,3 +1,4 @@
+use crate::mcp::adapter::McpToolWrapper;
 use crate::mcp::{McpConfig, McpError, McpSecurityPolicy, McpToolsManager};
 use autoagents::core::tool::ToolT;
 use std::path::Path;
@@ -104,38 +105,8 @@ impl McpTools {
         self.get_tools()
             .await
             .into_iter()
-            .map(|tool| Box::new(McpToolWrapper { tool }) as Box<dyn ToolT>)
+            .map(|tool| Box::new(McpToolWrapper::new(tool)) as Box<dyn ToolT>)
             .collect()
-    }
-}
-
-/// A wrapper to allow Arc<dyn ToolT> to be used as Box<dyn ToolT>
-#[derive(Debug)]
-struct McpToolWrapper {
-    tool: Arc<dyn ToolT>,
-}
-
-impl ToolT for McpToolWrapper {
-    fn name(&self) -> &str {
-        self.tool.name()
-    }
-
-    fn description(&self) -> &str {
-        self.tool.description()
-    }
-
-    fn args_schema(&self) -> serde_json::Value {
-        self.tool.args_schema()
-    }
-}
-
-#[autoagents::async_trait]
-impl autoagents::core::tool::ToolRuntime for McpToolWrapper {
-    async fn execute(
-        &self,
-        args: serde_json::Value,
-    ) -> Result<serde_json::Value, autoagents::core::tool::ToolCallError> {
-        self.tool.execute(args).await
     }
 }
 

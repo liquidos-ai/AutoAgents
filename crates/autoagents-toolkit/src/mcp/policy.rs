@@ -54,14 +54,14 @@ impl fmt::Debug for McpSecurityPolicy {
 
 impl Default for McpSecurityPolicy {
     fn default() -> Self {
-        Self {
+        Self::secure_default().unwrap_or_else(|_| Self {
             allowed_commands: DEFAULT_STDIO_ALLOWED_COMMANDS
                 .iter()
                 .map(|c| (*c).to_string())
                 .collect(),
             approver: None,
             allow_private_http_endpoints: false,
-        }
+        })
     }
 }
 

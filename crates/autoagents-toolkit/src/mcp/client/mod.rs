@@ -81,6 +81,9 @@ impl Default for McpToolsManager {
 
 impl McpToolsManager {
     /// Create a new MCP tools manager with secure-default stdio policy.
+    ///
+    /// Reads `AUTOAGENTS_MCP_STDIO_EXTRA_COMMANDS` when set; invalid values fall back
+    /// to the built-in launcher allowlist.
     pub fn new() -> Self {
         Self::default()
     }
@@ -136,10 +139,6 @@ impl McpToolsManager {
 
     /// Connect to all servers defined in the configuration.
     pub async fn connect_servers(&self, config: &McpConfig) -> Result<(), McpError> {
-        config
-            .validate_all(&self.security_policy, self.config_base())
-            .map_err(McpError::ConfigError)?;
-
         let mut pending_connections = Vec::new();
         let mut pending_tools = Vec::new();
 
