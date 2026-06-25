@@ -74,8 +74,8 @@ mod tests {
 
     #[test]
     fn normalize_path_resolves_parent_dirs() {
-        let path = Path::new("/tmp/a/../b/./file.txt");
-        assert_eq!(normalize_path(path), PathBuf::from("/tmp/b/file.txt"));
+        let path = Path::new("workspace/a/../b/./file.txt");
+        assert_eq!(normalize_path(path), PathBuf::from("workspace/b/file.txt"));
     }
 
     #[test]

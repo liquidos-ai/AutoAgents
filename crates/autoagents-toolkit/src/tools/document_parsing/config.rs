@@ -30,7 +30,8 @@ pub struct DocumentParserConfig {
     pub allowed_hosts: Option<Vec<String>>,
     /// When set, only these TCP ports may be used for remote URLs.
     pub allowed_ports: Option<Vec<u16>>,
-    /// When `false`, private, loopback, link-local, and metadata IP ranges are blocked.
+    /// When `false`, private, loopback, link-local, metadata IP ranges, and blocked
+    /// hostnames are rejected unless the host is explicitly allowlisted.
     pub allow_private_networks: bool,
     /// Optional local filesystem roots. When set, local paths must resolve inside one of them.
     pub allowed_roots: Option<Vec<PathBuf>>,

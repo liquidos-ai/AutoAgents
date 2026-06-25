@@ -85,6 +85,10 @@ fn ipv4_from_ipv6_mapped(addr: std::net::Ipv6Addr) -> Option<std::net::Ipv4Addr>
 }
 
 fn host_matches_allowlist(host: &str, allowed_hosts: &[String]) -> bool {
+    if host_to_ip(host).is_some() {
+        return host_matches_allowlist_exact(host, allowed_hosts);
+    }
+
     let host = host.trim_end_matches('.').to_ascii_lowercase();
 
     allowed_hosts.iter().any(|allowed| {
@@ -99,7 +103,19 @@ fn host_matches_allowlist(host: &str, allowed_hosts: &[String]) -> bool {
     })
 }
 
-fn is_blocked_hostname(host: &str) -> bool {
+fn host_matches_allowlist_exact(host: &str, allowed_hosts: &[String]) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    allowed_hosts.iter().any(|allowed| {
+        let allowed = allowed.trim().trim_end_matches('.').to_ascii_lowercase();
+        !allowed.is_empty() && host == allowed
+    })
+}
+
+fn is_blocked_hostname(host: &str, allow_private_networks: bool) -> bool {
+    if allow_private_networks {
+        return false;
+    }
+
     let host = host.trim_end_matches('.').to_ascii_lowercase();
 
     if BLOCKED_HOSTNAMES.iter().any(|blocked| *blocked == host) {
@@ -179,7 +195,7 @@ fn validate_host_name(
     host: &str,
     config: &DocumentParserConfig,
 ) -> Result<(), DocumentSourceError> {
-    if is_blocked_hostname(host) {
+    if is_blocked_hostname(host, config.allow_private_networks) {
         return Err(DocumentSourceError::BlockedHostname(host.to_string()));
     }
 
@@ -196,6 +212,29 @@ fn validate_host_name(
             host: host.to_string(),
             addr,
         });
+    }
+
+    Ok(())
+}
+
+fn validate_ip_literal(
+    addr: IpAddr,
+    display_host: &str,
+    config: &DocumentParserConfig,
+) -> Result<(), DocumentSourceError> {
+    if is_blocked_ip(addr, config.allow_private_networks) {
+        return Err(DocumentSourceError::PrivateNetworkBlocked {
+            host: display_host.to_string(),
+            addr,
+        });
+    }
+
+    if let Some(allowed_hosts) = &config.allowed_hosts
+        && !host_matches_allowlist_exact(display_host, allowed_hosts)
+    {
+        return Err(DocumentSourceError::HostNotAllowed(
+            display_host.to_string(),
+        ));
     }
 
     Ok(())
@@ -232,24 +271,8 @@ pub fn validate_url(url: &Url, config: &DocumentParserConfig) -> Result<(), Docu
 
     match host {
         Host::Domain(domain) => validate_host_name(domain, config)?,
-        Host::Ipv4(addr) => {
-            if is_blocked_ip(IpAddr::V4(addr), config.allow_private_networks) {
-                return Err(DocumentSourceError::PrivateNetworkBlocked {
-                    host: addr.to_string(),
-                    addr: IpAddr::V4(addr),
-                });
-            }
-            validate_host_name(&addr.to_string(), config)?;
-        }
-        Host::Ipv6(addr) => {
-            if is_blocked_ip(IpAddr::V6(addr), config.allow_private_networks) {
-                return Err(DocumentSourceError::PrivateNetworkBlocked {
-                    host: addr.to_string(),
-                    addr: IpAddr::V6(addr),
-                });
-            }
-            validate_host_name(&addr.to_string(), config)?;
-        }
+        Host::Ipv4(addr) => validate_ip_literal(IpAddr::V4(addr), &addr.to_string(), config)?,
+        Host::Ipv6(addr) => validate_ip_literal(IpAddr::V6(addr), &addr.to_string(), config)?,
     }
 
     Ok(())
@@ -441,11 +464,21 @@ mod tests {
     }
 
     #[test]
+    fn host_allowlist_requires_exact_match_for_ip_literals() {
+        let config = DocumentParserConfig::default()
+            .with_allowed_hosts(vec!["8.8".to_string()])
+            .expect("hosts");
+        let error = validate_url_str("http://8.8.8.8/doc.pdf", &config).expect_err("suffix match");
+        assert!(matches!(error, DocumentSourceError::HostNotAllowed(_)));
+    }
+
+    #[test]
     fn private_networks_allowed_when_configured() {
         let config = DocumentParserConfig::default()
             .with_allow_private_networks(true)
-            .with_allowed_hosts(vec!["127.0.0.1".to_string()])
+            .with_allowed_hosts(vec!["127.0.0.1".to_string(), "localhost".to_string()])
             .expect("hosts");
-        validate_url_str("http://127.0.0.1/secret", &config).expect("private allowed");
+        validate_url_str("http://127.0.0.1/secret", &config).expect("loopback IP allowed");
+        validate_url_str("http://localhost/secret", &config).expect("localhost allowed");
     }
 }

@@ -230,25 +230,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fetch_blocks_redirect_to_private_host() {
+    async fn fetch_blocks_redirect_to_disallowed_host() {
         let server = MockServer::start();
         let _mock = server.mock(|when, then| {
             when.method(GET).path("/redirect");
             then.status(302)
-                .header("Location", "http://127.0.0.1/private")
+                .header("Location", "http://example.com/private")
                 .body("");
         });
 
-        let config = DocumentParserConfig::default().with_request_timeout(Duration::from_secs(5));
+        let config = test_config(1024);
         let error = fetch_url(&format!("{}/redirect", server.base_url()), &config)
             .await
-            .expect_err("redirect to private host");
+            .expect_err("redirect to disallowed host");
 
-        assert!(matches!(
-            error,
-            DocumentSourceError::PrivateNetworkBlocked { .. }
-                | DocumentSourceError::BlockedHostname(_)
-        ));
+        assert!(matches!(error, DocumentSourceError::HostNotAllowed(_)));
     }
 
     #[tokio::test]

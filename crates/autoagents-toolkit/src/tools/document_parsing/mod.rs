@@ -4,7 +4,8 @@
 //!
 //! - URL fetching blocks private, loopback, link-local, and metadata destinations unless
 //!   [`DocumentParserConfig::allow_private_networks`] is enabled together with a non-empty
-//!   [`DocumentParserConfig::allowed_hosts`] list.
+//!   [`DocumentParserConfig::allowed_hosts`] list. When private networks are allowed,
+//!   hostname-based blocks (for example `localhost` and `.internal`) are bypassed as well.
 //! - Remote downloads and local reads are size-bounded via
 //!   [`DocumentParserConfig::max_download_bytes`] and
 //!   [`DocumentParserConfig::max_local_file_bytes`].

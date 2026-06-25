@@ -48,10 +48,6 @@ impl DocumentParser {
         Ok(Self { config })
     }
 
-    pub fn with_config(config: DocumentParserConfig) -> Result<Self, DocumentSourceError> {
-        Self::try_with_config(config)
-    }
-
     pub fn with_allowed_roots(roots: Vec<PathBuf>) -> Self {
         Self {
             config: DocumentParserConfig::default().with_allowed_roots(roots),
@@ -302,7 +298,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parse_blocks_private_url() {
-        let parser = DocumentParser::new();
+        let parser = DocumentParser::default();
         let args = json!({
             "source": "http://169.254.169.254/latest/meta-data/"
         });
