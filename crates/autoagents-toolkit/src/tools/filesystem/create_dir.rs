@@ -1,9 +1,10 @@
+use std::path::Path;
+
 use autoagents::core::{
     ractor::async_trait,
     tool::{ToolCallError, ToolRuntime},
 };
 use autoagents_derive::{ToolInput, tool};
-
 use log::debug;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -11,7 +12,7 @@ use tokio::fs;
 
 use autoagents::prelude::ToolT;
 
-use super::BaseFileTool;
+use super::{BaseFileTool, FilesystemSandbox, sandbox_error};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct CreateDirArgs {
@@ -27,26 +28,24 @@ pub struct CreateDirArgs {
     description = "Create a directory in the filesystem. Idempotent: succeeds if the directory already exists.",
     input = CreateDirArgs,
 )]
-#[derive(Default)]
 pub struct CreateDir {
-    root_dir: Option<String>,
+    sandbox: FilesystemSandbox,
 }
 
 impl CreateDir {
-    pub fn new() -> Self {
-        Self { root_dir: None }
+    pub fn new(root: impl AsRef<Path>) -> std::io::Result<Self> {
+        Ok(Self {
+            sandbox: FilesystemSandbox::new(root)?,
+        })
     }
-
-    pub fn new_with_root_dir(root_dir: String) -> Self {
-        Self {
-            root_dir: Some(root_dir),
-        }
+    pub fn with_sandbox(sandbox: FilesystemSandbox) -> Self {
+        Self { sandbox }
     }
 }
 
 impl BaseFileTool for CreateDir {
-    fn root_dir(&self) -> Option<String> {
-        self.root_dir.clone()
+    fn sandbox(&self) -> &FilesystemSandbox {
+        &self.sandbox
     }
 }
 
@@ -63,17 +62,17 @@ where
 
         debug!("CreateDir Executing: directory_path={}", directory_path);
 
-        let path = self.get_relative_path(&directory_path);
-
-        // Ensure path is within root if root is set
-        if self.root_dir().is_some() {
-            self.ensure_within_root(&path)
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-        }
+        let path = self
+            .sandbox()
+            .resolve_relative(&directory_path)
+            .map_err(sandbox_error)?;
+        let path = self
+            .sandbox()
+            .ensure_resolved(&path)
+            .map_err(sandbox_error)?;
 
         use std::io::ErrorKind;
 
-        // For recursive mode, determine created/existed via existence check before mkdir -p.
         let existed_before = fs::metadata(&path).await.is_ok();
 
         let (mut already_existed, mut created) = (false, false);
@@ -97,12 +96,16 @@ where
             }
         }
 
+        let path = self
+            .sandbox()
+            .ensure_resolved(&path)
+            .map_err(sandbox_error)?;
+
         let message = if already_existed {
             "Directory already existed"
         } else if created {
             "Directory created successfully"
         } else {
-            // Extremely rare fallback
             "Directory ensured"
         };
 
@@ -126,9 +129,8 @@ mod tests {
     #[tokio::test]
     async fn test_create_dir_creates_new_directory() {
         let tmp = tempdir().expect("tempdir");
-        let root = tmp.path().to_str().unwrap().to_string();
 
-        let tool = CreateDir::new_with_root_dir(root.clone());
+        let tool = CreateDir::new(tmp.path()).expect("sandbox");
 
         let args = json!({
             "directory_path": "test",
@@ -151,13 +153,11 @@ mod tests {
     #[tokio::test]
     async fn test_create_dir_idempotent_when_already_exists() {
         let tmp = tempdir().expect("tempdir");
-        let root = tmp.path().to_str().unwrap().to_string();
 
-        // Create initial directory using std (outside tool)
         let initial = tmp.path().join("test");
         std::fs::create_dir_all(&initial).expect("create initial dir");
 
-        let tool = CreateDir::new_with_root_dir(root.clone());
+        let tool = CreateDir::new(tmp.path()).expect("sandbox");
 
         let args = json!({
             "directory_path": "test",
@@ -178,11 +178,9 @@ mod tests {
     #[tokio::test]
     async fn test_create_dir_recursive_creates_nested_directories() {
         let tmp = tempdir().expect("tempdir");
-        let root = tmp.path().to_str().unwrap().to_string();
 
-        let tool = CreateDir::new_with_root_dir(root);
+        let tool = CreateDir::new(tmp.path()).expect("sandbox");
 
-        // Note: omit "recursive" to test serde default = false? Here we set true explicitly.
         let args = json!({
             "directory_path": "a/b/c",
             "recursive": true
@@ -204,11 +202,9 @@ mod tests {
     #[tokio::test]
     async fn test_create_dir_recursive_default_field_is_false_when_omitted() {
         let tmp = tempdir().expect("tempdir");
-        let root = tmp.path().to_str().unwrap().to_string();
 
-        let tool = CreateDir::new_with_root_dir(root);
+        let tool = CreateDir::new(tmp.path()).expect("sandbox");
 
-        // Omit "recursive" to ensure serde default kicks in (recursive=false).
         let args = json!({
             "directory_path": "test"
         });
@@ -224,19 +220,15 @@ mod tests {
     #[tokio::test]
     async fn test_create_dir_rejects_path_outside_root() {
         let tmp = tempdir().expect("tempdir");
-        let root = tmp.path().to_str().unwrap().to_string();
 
-        let tool = CreateDir::new_with_root_dir(root);
+        let tool = CreateDir::new(tmp.path()).expect("sandbox");
 
-        // Try to escape root
         let args = json!({
             "directory_path": "../outside",
             "recursive": true
         });
 
         let err = tool.execute(args).await.expect_err("should fail");
-        // We don't assert exact error string because ensure_within_root may format differently,
-        // but we ensure it's a runtime error, not a serde error.
         match err {
             ToolCallError::RuntimeError(_) => {}
             other => panic!("expected RuntimeError, got: {other:?}"),

@@ -1,11 +1,13 @@
+use std::fs;
+use std::path::Path;
+
 use autoagents::async_trait;
 use autoagents::core::tool::{ToolCallError, ToolRuntime, ToolT};
 use autoagents_derive::{ToolInput, tool};
+use autoagents_toolkit::tools::filesystem::FilesystemSandbox;
+use glob::Pattern;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::Path;
-use walkdir::WalkDir;
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct GrepArgs {
@@ -13,66 +15,112 @@ pub struct GrepArgs {
     pattern: String,
     #[input(description = "File glob pattern to search in (e.g., '*.rs')")]
     file_pattern: String,
-    #[input(description = "Base directory to search in")]
-    base_dir: String,
+    #[serde(default = "default_subdirectory")]
+    #[input(description = "Relative subdirectory within the workspace to search in")]
+    subdirectory: String,
+}
+
+fn default_subdirectory() -> String {
+    ".".to_string()
+}
+
+const MAX_MATCH_RESULTS: usize = 50;
+const MAX_FILES_SCANNED: usize = 500;
+
+fn io_sandbox_error(error: std::io::Error) -> ToolCallError {
+    ToolCallError::RuntimeError(Box::new(error))
 }
 
 #[tool(
     name = "GrepTool",
-    description = "Search for content in files using regex patterns",
+    description = "Search for content in files using regex patterns within the workspace sandbox",
     input = GrepArgs,
 )]
-pub struct GrepTool {}
+pub struct GrepTool {
+    sandbox: FilesystemSandbox,
+}
+
+impl GrepTool {
+    pub fn with_sandbox(sandbox: FilesystemSandbox) -> Self {
+        Self { sandbox }
+    }
+}
 
 #[async_trait]
 impl ToolRuntime for GrepTool {
     async fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
         let args: GrepArgs = serde_json::from_value(args)?;
-        println!("🔎 Grepping for: {} in {}", args.pattern, args.file_pattern);
 
         let regex = Regex::new(&args.pattern)
             .map_err(|e| ToolCallError::RuntimeError(format!("Invalid regex: {}", e).into()))?;
 
-        let base_path = Path::new(&args.base_dir);
+        let base_path = self
+            .sandbox
+            .resolve_relative(&args.subdirectory)
+            .map_err(io_sandbox_error)?;
+        let base_path = self
+            .sandbox
+            .ensure_resolved(&base_path)
+            .map_err(io_sandbox_error)?;
+
         if !base_path.exists() {
             return Err(ToolCallError::RuntimeError(
-                format!("Directory {} does not exist", args.base_dir).into(),
+                format!("Subdirectory {} does not exist", base_path.display()).into(),
             ));
         }
 
-        let file_pattern = glob::Pattern::new(&args.file_pattern).map_err(|e| {
+        if !base_path.is_dir() {
+            return Err(ToolCallError::RuntimeError(
+                format!("Subdirectory {} is not a directory", base_path.display()).into(),
+            ));
+        }
+
+        let file_pattern = Pattern::new(&args.file_pattern).map_err(|e| {
             ToolCallError::RuntimeError(format!("Invalid file pattern: {}", e).into())
         })?;
 
         let mut results = Vec::new();
-        let max_results = 50;
+        let mut files_scanned = 0usize;
 
-        for entry in WalkDir::new(&args.base_dir)
-            .follow_links(true)
+        for entry in self
+            .sandbox
+            .walk_dir(&base_path)
             .into_iter()
             .filter_map(|e| e.ok())
         {
-            if results.len() >= max_results {
+            if results.len() >= MAX_MATCH_RESULTS || files_scanned >= MAX_FILES_SCANNED {
                 break;
             }
 
             let path = entry.path();
-            if path.is_file() {
-                let relative_path = path.strip_prefix(&args.base_dir).unwrap_or(path);
-                if file_pattern.matches_path(relative_path)
-                    && let Ok(content) = fs::read_to_string(path)
-                {
-                    for (line_num, line) in content.lines().enumerate() {
-                        if regex.is_match(line) {
-                            results.push(format!(
-                                "{}:{}: {}",
-                                relative_path.display(),
-                                line_num + 1,
-                                line.trim()
-                            ));
-                            if results.len() >= max_results {
-                                break;
-                            }
+            if !path.is_file() {
+                continue;
+            }
+
+            files_scanned += 1;
+
+            let validated_path = self
+                .sandbox
+                .validate_walk_entry(path)
+                .map_err(io_sandbox_error)?;
+
+            let relative_path = validated_path
+                .strip_prefix(self.sandbox.root())
+                .unwrap_or(&validated_path);
+
+            if file_pattern.matches_path(relative_path)
+                && let Ok(content) = fs::read_to_string(&validated_path)
+            {
+                for (line_num, line) in content.lines().enumerate() {
+                    if regex.is_match(line) {
+                        results.push(format!(
+                            "{}:{}: {}",
+                            relative_path.display(),
+                            line_num + 1,
+                            line.trim()
+                        ));
+                        if results.len() >= MAX_MATCH_RESULTS {
+                            break;
                         }
                     }
                 }
@@ -83,9 +131,10 @@ impl ToolRuntime for GrepTool {
             Ok("No matches found.".to_string().into())
         } else {
             Ok(format!(
-                "Found {} matches (showing up to {}):\n{}",
+                "Found {} matches (showing up to {}, scanned up to {} files):\n{}",
                 results.len(),
-                max_results,
+                MAX_MATCH_RESULTS,
+                MAX_FILES_SCANNED,
                 results.join("\n")
             )
             .into())
@@ -95,7 +144,9 @@ impl ToolRuntime for GrepTool {
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct AnalyzeCodeArgs {
-    #[input(description = "Path to the file or directory to analyze")]
+    #[input(
+        description = "Relative path to the file or directory to analyze within the workspace"
+    )]
     path: String,
     #[input(description = "Type of analysis: 'structure', 'complexity', 'dependencies'")]
     analysis_type: String,
@@ -103,28 +154,44 @@ pub struct AnalyzeCodeArgs {
 
 #[tool(
     name = "AnalyzeCodeTool",
-    description = "Analyze code structure, complexity, or dependencies",
+    description = "Analyze code structure, complexity, or dependencies within the workspace sandbox",
     input = AnalyzeCodeArgs,
 )]
-pub struct AnalyzeCodeTool {}
+pub struct AnalyzeCodeTool {
+    sandbox: FilesystemSandbox,
+}
+
+impl AnalyzeCodeTool {
+    pub fn with_sandbox(sandbox: FilesystemSandbox) -> Self {
+        Self { sandbox }
+    }
+}
 
 #[async_trait]
 impl ToolRuntime for AnalyzeCodeTool {
     async fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolCallError> {
         let args: AnalyzeCodeArgs = serde_json::from_value(args)?;
-        println!("🔬 Analyzing code: {} ({})", args.path, args.analysis_type);
 
-        let path = Path::new(&args.path);
+        let path = self
+            .sandbox
+            .resolve_relative(&args.path)
+            .map_err(io_sandbox_error)?;
+
         if !path.exists() {
             return Err(ToolCallError::RuntimeError(
-                format!("Path {} does not exist", args.path).into(),
+                format!("Path {} does not exist", path.display()).into(),
             ));
         }
 
+        let path = self
+            .sandbox
+            .ensure_resolved(&path)
+            .map_err(io_sandbox_error)?;
+
         match args.analysis_type.as_str() {
-            "structure" => Ok(analyze_structure(path)?.into()),
-            "complexity" => Ok(analyze_complexity(path)?.into()),
-            "dependencies" => Ok(analyze_dependencies(path)?.into()),
+            "structure" => Ok(analyze_structure(&self.sandbox, &path)?.into()),
+            "complexity" => Ok(analyze_complexity(&path)?.into()),
+            "dependencies" => Ok(analyze_dependencies(&path)?.into()),
             _ => Err(ToolCallError::RuntimeError(
                 "Invalid analysis type. Choose 'structure', 'complexity', or 'dependencies'".into(),
             )),
@@ -132,7 +199,7 @@ impl ToolRuntime for AnalyzeCodeTool {
     }
 }
 
-fn analyze_structure(path: &Path) -> Result<String, ToolCallError> {
+fn analyze_structure(sandbox: &FilesystemSandbox, path: &Path) -> Result<String, ToolCallError> {
     let mut file_count = 0;
     let mut dir_count = 0;
     let mut total_lines = 0;
@@ -149,19 +216,23 @@ fn analyze_structure(path: &Path) -> Result<String, ToolCallError> {
                 .or_insert(0) += 1;
         }
     } else {
-        for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
+        for entry in sandbox.walk_dir(path).into_iter().filter_map(|e| e.ok()) {
             let entry_path = entry.path();
-            if entry_path.is_file() {
+            let validated_path = sandbox
+                .validate_walk_entry(entry_path)
+                .map_err(io_sandbox_error)?;
+
+            if validated_path.is_file() {
                 file_count += 1;
-                if let Ok(content) = fs::read_to_string(entry_path) {
+                if let Ok(content) = fs::read_to_string(&validated_path) {
                     total_lines += content.lines().count();
                 }
-                if let Some(ext) = entry_path.extension() {
+                if let Some(ext) = validated_path.extension() {
                     *extensions
                         .entry(ext.to_string_lossy().to_string())
                         .or_insert(0) += 1;
                 }
-            } else if entry_path.is_dir() {
+            } else if validated_path.is_dir() && validated_path != path {
                 dir_count += 1;
             }
         }
@@ -183,7 +254,6 @@ fn analyze_structure(path: &Path) -> Result<String, ToolCallError> {
 }
 
 fn analyze_complexity(_path: &Path) -> Result<String, ToolCallError> {
-    // Simplified complexity analysis
     Ok(
         "Complexity analysis: This is a placeholder. In a real implementation, \
         this would calculate cyclomatic complexity, function lengths, and other metrics."
@@ -192,7 +262,6 @@ fn analyze_complexity(_path: &Path) -> Result<String, ToolCallError> {
 }
 
 fn analyze_dependencies(_path: &Path) -> Result<String, ToolCallError> {
-    // Simplified dependency analysis
     Ok(
         "Dependency analysis: This is a placeholder. In a real implementation, \
         this would parse import statements and analyze module dependencies."
@@ -239,11 +308,11 @@ mod tests {
             "needle should not match this glob\n",
         );
 
-        let result = GrepTool {}
+        let result = GrepTool::with_sandbox(FilesystemSandbox::new(&dir).expect("sandbox"))
             .execute(json!({
                 "pattern": "needle",
                 "file_pattern": "src/*.rs",
-                "base_dir": dir.to_string_lossy(),
+                "subdirectory": ".",
             }))
             .await
             .expect("grep should succeed");
@@ -261,45 +330,69 @@ mod tests {
         let dir = temp_fixture_dir("grep-errors");
         write(&dir.join("src/lib.rs"), "fn present() {}\n");
 
-        let no_match = GrepTool {}
+        let tool = GrepTool::with_sandbox(FilesystemSandbox::new(&dir).expect("sandbox"));
+
+        let no_match = tool
             .execute(json!({
                 "pattern": "missing",
                 "file_pattern": "src/*.rs",
-                "base_dir": dir.to_string_lossy(),
+                "subdirectory": ".",
             }))
             .await
             .expect("grep should succeed even when there are no matches");
         assert_eq!(no_match, json!("No matches found."));
 
-        let invalid_regex = GrepTool {}
+        let invalid_regex = tool
             .execute(json!({
                 "pattern": "(",
                 "file_pattern": "src/*.rs",
-                "base_dir": dir.to_string_lossy(),
+                "subdirectory": ".",
             }))
             .await
             .expect_err("invalid regex should fail");
         assert!(invalid_regex.to_string().contains("Invalid regex"));
 
-        let invalid_glob = GrepTool {}
+        let invalid_glob = tool
             .execute(json!({
                 "pattern": "present",
                 "file_pattern": "[*.rs",
-                "base_dir": dir.to_string_lossy(),
+                "subdirectory": ".",
             }))
             .await
             .expect_err("invalid glob should fail");
         assert!(invalid_glob.to_string().contains("Invalid file pattern"));
 
-        let missing_dir = GrepTool {}
+        let missing_dir = tool
             .execute(json!({
                 "pattern": "present",
                 "file_pattern": "*.rs",
-                "base_dir": dir.join("missing").to_string_lossy(),
+                "subdirectory": "missing",
             }))
             .await
             .expect_err("missing directory should fail");
         assert!(missing_dir.to_string().contains("does not exist"));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn grep_tool_rejects_path_outside_workspace() {
+        let dir = temp_fixture_dir("grep-escape");
+        let tool = GrepTool::with_sandbox(FilesystemSandbox::new(&dir).expect("sandbox"));
+
+        let err = tool
+            .execute(json!({
+                "pattern": "needle",
+                "file_pattern": "*.rs",
+                "subdirectory": "../outside",
+            }))
+            .await
+            .expect_err("traversal should fail");
+        assert!(
+            err.to_string().contains("traversal")
+                || err.to_string().contains("not allowed")
+                || err.to_string().contains("RuntimeError")
+        );
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -316,9 +409,11 @@ mod tests {
             "def greet(name):\n    return name\n",
         );
 
-        let structure = AnalyzeCodeTool {}
+        let tool = AnalyzeCodeTool::with_sandbox(FilesystemSandbox::new(&dir).expect("sandbox"));
+
+        let structure = tool
             .execute(json!({
-                "path": dir.to_string_lossy(),
+                "path": ".",
                 "analysis_type": "structure",
             }))
             .await
@@ -329,14 +424,15 @@ mod tests {
         assert!(summary.contains(".rs: 1 files"));
         assert!(summary.contains(".py: 1 files"));
 
-        let single_file_summary = analyze_structure(&dir.join("src/lib.rs"))
+        let sandbox = FilesystemSandbox::new(&dir).expect("sandbox");
+        let single_file_summary = analyze_structure(&sandbox, &dir.join("src/lib.rs"))
             .expect("single-file structure analysis should succeed");
         assert!(single_file_summary.contains("- Files: 1"));
         assert!(single_file_summary.contains(".rs: 1 files"));
 
-        let complexity = AnalyzeCodeTool {}
+        let complexity = tool
             .execute(json!({
-                "path": dir.to_string_lossy(),
+                "path": ".",
                 "analysis_type": "complexity",
             }))
             .await
@@ -348,9 +444,9 @@ mod tests {
                 .contains("cyclomatic complexity")
         );
 
-        let dependencies = AnalyzeCodeTool {}
+        let dependencies = tool
             .execute(json!({
-                "path": dir.to_string_lossy(),
+                "path": ".",
                 "analysis_type": "dependencies",
             }))
             .await
@@ -362,18 +458,18 @@ mod tests {
                 .contains("Dependency analysis")
         );
 
-        let invalid_type = AnalyzeCodeTool {}
+        let invalid_type = tool
             .execute(json!({
-                "path": dir.to_string_lossy(),
+                "path": ".",
                 "analysis_type": "unknown",
             }))
             .await
             .expect_err("unknown analysis type should fail");
         assert!(invalid_type.to_string().contains("Invalid analysis type"));
 
-        let missing_path = AnalyzeCodeTool {}
+        let missing_path = tool
             .execute(json!({
-                "path": dir.join("missing").to_string_lossy(),
+                "path": "missing",
                 "analysis_type": "structure",
             }))
             .await

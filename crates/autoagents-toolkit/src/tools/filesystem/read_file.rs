@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use autoagents::core::{
     ractor::async_trait,
     tool::{ToolCallError, ToolRuntime, ToolT},
@@ -8,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::fs;
 
-use super::BaseFileTool;
+use super::{BaseFileTool, FilesystemSandbox, sandbox_error};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct ReadFileArgs {
@@ -21,26 +23,24 @@ pub struct ReadFileArgs {
     description = "Read the contents of a file from the filesystem",
     input = ReadFileArgs,
 )]
-#[derive(Default)]
 pub struct ReadFile {
-    root_dir: Option<String>,
+    sandbox: FilesystemSandbox,
 }
 
 impl ReadFile {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(root: impl AsRef<Path>) -> std::io::Result<Self> {
+        Ok(Self {
+            sandbox: FilesystemSandbox::new(root)?,
+        })
     }
-
-    pub fn new_with_root_dir(root_dir: String) -> Self {
-        Self {
-            root_dir: Some(root_dir),
-        }
+    pub fn with_sandbox(sandbox: FilesystemSandbox) -> Self {
+        Self { sandbox }
     }
 }
 
 impl BaseFileTool for ReadFile {
-    fn root_dir(&self) -> Option<String> {
-        self.root_dir.clone()
+    fn sandbox(&self) -> &FilesystemSandbox {
+        &self.sandbox
     }
 }
 
@@ -54,9 +54,11 @@ where
 
         debug!("Read File Executing: Source: {}", file_path);
 
-        let path = self.get_relative_path(&file_path);
+        let path = self
+            .sandbox()
+            .resolve_relative(&file_path)
+            .map_err(sandbox_error)?;
 
-        // Validate file exists
         if !path.exists() {
             return Err(ToolCallError::RuntimeError(
                 format!("File does not exist: {}", path.display()).into(),
@@ -69,11 +71,10 @@ where
             ));
         }
 
-        // Ensure path is within root if root is set
-        if self.root_dir().is_some() {
-            self.ensure_within_root(&path)
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-        }
+        let path = self
+            .sandbox()
+            .ensure_resolved(&path)
+            .map_err(sandbox_error)?;
 
         let encoding = "utf8".to_string();
 
@@ -135,15 +136,14 @@ mod tests {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let file_path = temp_dir.path().join("test.txt");
 
-        // Create test file
         let mut file = std::fs::File::create(&file_path).expect("Failed to create test file");
         file.write_all(b"Hello, World!")
             .expect("Failed to write to test file");
         drop(file);
 
-        let read_file = ReadFile::default();
+        let read_file = ReadFile::new(temp_dir.path()).expect("sandbox");
         let args = json!({
-            "file_path": file_path.display().to_string()
+            "file_path": "test.txt"
         });
 
         let result = read_file.execute(args).await.expect("Failed to read file");
@@ -151,16 +151,13 @@ mod tests {
         assert_eq!(content, "Hello, World!");
     }
 
-    // Base64 test removed - feature not implemented in simplified version
-
     #[tokio::test]
     async fn test_read_file_not_exists() {
         let temp_dir = tempdir().expect("Failed to create temp dir");
-        let file_path = temp_dir.path().join("nonexistent.txt");
 
-        let read_file = ReadFile::default();
+        let read_file = ReadFile::new(temp_dir.path()).expect("sandbox");
         let args = json!({
-            "file_path": file_path.display().to_string()
+            "file_path": "nonexistent.txt"
         });
 
         let result = read_file.execute(args).await;
@@ -170,7 +167,6 @@ mod tests {
     #[tokio::test]
     async fn test_read_file_with_root_dir() {
         let temp_dir = tempdir().expect("Failed to create temp dir");
-        let root_dir = temp_dir.path().to_str().unwrap().to_string();
 
         let file_path = temp_dir.path().join("test.txt");
         let mut file = std::fs::File::create(&file_path).expect("Failed to create test file");
@@ -178,7 +174,7 @@ mod tests {
             .expect("Failed to write to test file");
         drop(file);
 
-        let read_file = ReadFile::new_with_root_dir(root_dir);
+        let read_file = ReadFile::new(temp_dir.path()).expect("sandbox");
         let args = json!({
             "file_path": "test.txt"
         });

@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use autoagents::core::{
     ractor::async_trait,
     tool::{ToolCallError, ToolRuntime, ToolT},
@@ -6,11 +8,9 @@ use autoagents_derive::{ToolInput, tool};
 use log::debug;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::path::Path;
 use tokio::fs;
-use walkdir::WalkDir;
 
-use super::BaseFileTool;
+use super::{BaseFileTool, FilesystemSandbox, sandbox_error};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct SearchFileArgs {
@@ -26,37 +26,21 @@ pub struct SearchFileArgs {
     input = SearchFileArgs,
 )]
 pub struct SearchFile {
-    root_dir: Option<String>,
+    sandbox: FilesystemSandbox,
     max_iterations: usize,
 }
 
-impl Default for SearchFile {
-    fn default() -> Self {
-        Self {
-            root_dir: None,
-            max_iterations: 100,
-        }
-    }
-}
-
 impl SearchFile {
-    pub fn new(max_iterations: usize) -> Self {
-        Self {
+    pub fn new(root: impl AsRef<Path>, max_iterations: usize) -> std::io::Result<Self> {
+        Ok(Self {
+            sandbox: FilesystemSandbox::new(root)?,
             max_iterations,
-            ..Self::default()
-        }
+        })
     }
 
-    pub fn new_with_root_dir(root_dir: String) -> Self {
+    pub fn with_sandbox(sandbox: FilesystemSandbox, max_iterations: usize) -> Self {
         Self {
-            root_dir: Some(root_dir),
-            ..Self::default()
-        }
-    }
-
-    pub fn new_with_root_dir_and_max_iterations(root_dir: String, max_iterations: usize) -> Self {
-        Self {
-            root_dir: Some(root_dir),
+            sandbox,
             max_iterations,
         }
     }
@@ -74,11 +58,9 @@ impl SearchFile {
             pattern.to_lowercase()
         };
 
-        // Simple wildcard matching
         let pattern_parts: Vec<&str> = pattern.split('*').collect();
 
         if pattern_parts.len() == 1 {
-            // No wildcards, exact match or contains
             return filename.contains(&pattern);
         }
 
@@ -89,21 +71,16 @@ impl SearchFile {
             }
 
             if i == 0 && !pattern.starts_with('*') {
-                // Pattern doesn't start with *, must match at beginning
                 if !filename.starts_with(part) {
                     return false;
                 }
                 pos = part.len();
             } else if i == pattern_parts.len() - 1 && !pattern.ends_with('*') {
-                // Pattern doesn't end with *, must match at end
                 return filename.ends_with(part);
+            } else if let Some(found_pos) = filename[pos..].find(part) {
+                pos += found_pos + part.len();
             } else {
-                // Find the part in the remaining string
-                if let Some(found_pos) = filename[pos..].find(part) {
-                    pos += found_pos + part.len();
-                } else {
-                    return false;
-                }
+                return false;
             }
         }
 
@@ -115,10 +92,9 @@ impl SearchFile {
         pattern: &str,
         case_sensitive: bool,
     ) -> Result<bool, ToolCallError> {
-        // Only search in text files
         let content = match fs::read_to_string(file_path).await {
             Ok(content) => content,
-            Err(_) => return Ok(false), // Skip binary files
+            Err(_) => return Ok(false),
         };
 
         if case_sensitive {
@@ -130,8 +106,8 @@ impl SearchFile {
 }
 
 impl BaseFileTool for SearchFile {
-    fn root_dir(&self) -> Option<String> {
-        self.root_dir.clone()
+    fn sandbox(&self) -> &FilesystemSandbox {
+        &self.sandbox
     }
 }
 
@@ -148,12 +124,13 @@ where
             directory, pattern
         );
 
-        let dir_path = self.get_relative_path(&directory);
-        let recursive = true;
-        let search_content = false; // Search by filename only
+        let dir_path = self
+            .sandbox()
+            .resolve_relative(&directory)
+            .map_err(sandbox_error)?;
+        let search_content = false;
         let case_sensitive = true;
 
-        // Validate directory exists
         if !dir_path.exists() {
             return Err(ToolCallError::RuntimeError(
                 format!("Directory does not exist: {}", dir_path.display()).into(),
@@ -166,20 +143,16 @@ where
             ));
         }
 
-        // Ensure path is within root if root is set
-        if self.root_dir().is_some() {
-            self.ensure_within_root(&dir_path)
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-        }
+        let dir_path = self
+            .sandbox()
+            .ensure_resolved(&dir_path)
+            .map_err(sandbox_error)?;
 
         let mut results = Vec::new();
         let mut iterations = 0usize;
         let mut iteration_limit_reached = false;
 
-        let mut walker = WalkDir::new(&dir_path);
-        if !recursive {
-            walker = walker.max_depth(1);
-        }
+        let walker = self.sandbox().walk_dir(&dir_path);
 
         for entry in walker.into_iter() {
             if iterations >= self.max_iterations {
@@ -199,15 +172,20 @@ where
                 continue;
             }
 
+            let validated_path = self
+                .sandbox()
+                .validate_walk_entry(path)
+                .map_err(sandbox_error)?;
+
             let file_name = entry.file_name().to_string_lossy().to_string();
             let metadata = entry
                 .metadata()
                 .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
 
             if search_content {
-                if Self::search_content_in_file(path, &pattern, case_sensitive).await? {
+                if Self::search_content_in_file(&validated_path, &pattern, case_sensitive).await? {
                     results.push(json!({
-                        "path": path.display().to_string(),
+                        "path": validated_path.display().to_string(),
                         "name": file_name,
                         "size": metadata.len(),
                         "match_type": "content"
@@ -215,7 +193,7 @@ where
                 }
             } else if Self::matches_pattern(&file_name, &pattern, case_sensitive) {
                 results.push(json!({
-                    "path": path.display().to_string(),
+                    "path": validated_path.display().to_string(),
                     "name": file_name,
                     "size": metadata.len(),
                     "match_type": "filename"
@@ -246,7 +224,6 @@ mod tests {
     async fn test_search_by_filename() {
         let temp_dir = tempdir().expect("Failed to create temp dir");
 
-        // Create test files
         std::fs::write(temp_dir.path().join("test.txt"), "content")
             .expect("Failed to create test.txt");
         std::fs::write(temp_dir.path().join("data.json"), "{}")
@@ -254,11 +231,10 @@ mod tests {
         std::fs::write(temp_dir.path().join("test.rs"), "fn main()")
             .expect("Failed to create test.rs");
 
-        let search_file = SearchFile::default();
+        let search_file = SearchFile::new(temp_dir.path(), 100).expect("sandbox");
         let args = json!({
-            "directory": temp_dir.path().display().to_string(),
-            "pattern": "test*",
-            "recursive": false
+            "directory": ".",
+            "pattern": "test*"
         });
 
         let result = search_file
@@ -266,7 +242,7 @@ mod tests {
             .await
             .expect("Failed to search files");
         let results = result.get("results").and_then(|v| v.as_array()).unwrap();
-        assert_eq!(results.len(), 2); // test.txt and test.rs
+        assert_eq!(results.len(), 2);
     }
 
     #[tokio::test]
@@ -278,9 +254,9 @@ mod tests {
             std::fs::write(path, "content").expect("Failed to create test file");
         }
 
-        let search_file = SearchFile::new(3);
+        let search_file = SearchFile::new(temp_dir.path(), 3).expect("sandbox");
         let args = json!({
-            "directory": temp_dir.path().display().to_string(),
+            "directory": ".",
             "pattern": "test*"
         });
 
@@ -301,14 +277,6 @@ mod tests {
         );
     }
 
-    // Content search test removed - feature not implemented in simplified version
-
-    // Case insensitive test removed - feature not implemented in simplified version
-
-    // Recursive search test removed - feature not implemented in simplified version
-
-    // Max results test removed - feature not fully implemented in simplified version
-
     #[tokio::test]
     async fn test_pattern_matching() {
         assert!(SearchFile::matches_pattern("test.txt", "test*", true));
@@ -317,7 +285,6 @@ mod tests {
         assert!(SearchFile::matches_pattern("test_file.txt", "*file*", true));
         assert!(!SearchFile::matches_pattern("test.txt", "data*", true));
 
-        // Case insensitive
         assert!(SearchFile::matches_pattern("TEST.txt", "test*", false));
         assert!(!SearchFile::matches_pattern("TEST.txt", "test*", true));
     }

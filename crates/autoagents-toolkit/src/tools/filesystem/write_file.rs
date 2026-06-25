@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use autoagents::core::{
     ractor::async_trait,
     tool::{ToolCallError, ToolRuntime, ToolT},
@@ -8,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::fs;
 
-use super::BaseFileTool;
+use super::{BaseFileTool, FilesystemSandbox, prepare_mutation_path};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct WriteFileArgs {
@@ -25,26 +27,25 @@ pub struct WriteFileArgs {
     description = "Write content to a file in the filesystem",
     input = WriteFileArgs,
 )]
-#[derive(Default)]
 pub struct WriteFile {
-    root_dir: Option<String>,
+    sandbox: FilesystemSandbox,
 }
 
 impl WriteFile {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(root: impl AsRef<Path>) -> std::io::Result<Self> {
+        Ok(Self {
+            sandbox: FilesystemSandbox::new(root)?,
+        })
     }
 
-    pub fn new_with_root_dir(root_dir: String) -> Self {
-        Self {
-            root_dir: Some(root_dir),
-        }
+    pub fn with_sandbox(sandbox: FilesystemSandbox) -> Self {
+        Self { sandbox }
     }
 }
 
 impl BaseFileTool for WriteFile {
-    fn root_dir(&self) -> Option<String> {
-        self.root_dir.clone()
+    fn sandbox(&self) -> &FilesystemSandbox {
+        &self.sandbox
     }
 }
 
@@ -62,24 +63,10 @@ where
 
         debug!("Write File Executing: File Path: {}", file_path);
 
-        let path = self.get_relative_path(&file_path);
-
-        // Ensure path is within root if root is set
-        if self.root_dir().is_some() {
-            self.ensure_within_root(&path)
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-        }
-
-        // Create parent directory if it doesn't exist
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .await
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-        }
+        let path = prepare_mutation_path(self.sandbox(), &file_path).await?;
 
         let encoding = "utf8".to_string();
 
-        // Decode content based on encoding
         let bytes = match encoding.as_str() {
             "utf8" | "utf-8" => content.into_bytes(),
             "base64" => {
@@ -95,7 +82,6 @@ where
             }
         };
 
-        // Write or append to file
         if append {
             use tokio::fs::OpenOptions;
             use tokio::io::AsyncWriteExt;
@@ -135,9 +121,9 @@ mod tests {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let file_path = temp_dir.path().join("new_file.txt");
 
-        let write_file = WriteFile::default();
+        let write_file = WriteFile::new(temp_dir.path()).expect("sandbox");
         let args = json!({
-            "file_path": file_path.display().to_string(),
+            "file_path": "new_file.txt",
             "content": "Hello, World!",
             "append": false
         });
@@ -148,7 +134,6 @@ mod tests {
             .expect("Failed to write file");
         assert!(result.get("success").and_then(|v| v.as_bool()).unwrap());
 
-        // Verify file content
         let content = std::fs::read_to_string(&file_path).expect("Failed to read file");
         assert_eq!(content, "Hello, World!");
     }
@@ -158,12 +143,11 @@ mod tests {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let file_path = temp_dir.path().join("test.txt");
 
-        // Create initial file
         std::fs::write(&file_path, "Initial content").expect("Failed to create initial file");
 
-        let write_file = WriteFile::default();
+        let write_file = WriteFile::new(temp_dir.path()).expect("sandbox");
         let args = json!({
-            "file_path": file_path.display().to_string(),
+            "file_path": "test.txt",
             "content": "New content",
             "append": false
         });
@@ -174,21 +158,15 @@ mod tests {
             .expect("Failed to write file");
         assert!(result.get("success").and_then(|v| v.as_bool()).unwrap());
 
-        // Verify file was overwritten
         let content = std::fs::read_to_string(&file_path).expect("Failed to read file");
         assert_eq!(content, "New content");
     }
 
-    // Append test removed - feature not implemented in simplified version
-
-    // Base64 test removed - feature not implemented in simplified version
-
     #[tokio::test]
     async fn test_write_file_with_root_dir() {
         let temp_dir = tempdir().expect("Failed to create temp dir");
-        let root_dir = temp_dir.path().to_str().unwrap().to_string();
 
-        let write_file = WriteFile::new_with_root_dir(root_dir);
+        let write_file = WriteFile::new(temp_dir.path()).expect("sandbox");
         let args = json!({
             "file_path": "test.txt",
             "content": "Test content",

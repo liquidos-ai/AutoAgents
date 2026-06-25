@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use autoagents::core::{
     ractor::async_trait,
     tool::{ToolCallError, ToolRuntime, ToolT},
@@ -8,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::fs;
 
-use super::BaseFileTool;
+use super::{BaseFileTool, FilesystemSandbox, prepare_mutation_path, sandbox_error};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct CopyFileArgs {
@@ -23,26 +25,25 @@ pub struct CopyFileArgs {
     description = "Copy a file from source path to destination path",
     input = CopyFileArgs,
 )]
-#[derive(Default)]
 pub struct CopyFile {
-    root_dir: Option<String>,
+    sandbox: FilesystemSandbox,
 }
 
 impl CopyFile {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(root: impl AsRef<Path>) -> std::io::Result<Self> {
+        Ok(Self {
+            sandbox: FilesystemSandbox::new(root)?,
+        })
     }
 
-    pub fn new_with_root_dir(root_dir: String) -> Self {
-        Self {
-            root_dir: Some(root_dir),
-        }
+    pub fn with_sandbox(sandbox: FilesystemSandbox) -> Self {
+        Self { sandbox }
     }
 }
 
 impl BaseFileTool for CopyFile {
-    fn root_dir(&self) -> Option<String> {
-        self.root_dir.clone()
+    fn sandbox(&self) -> &FilesystemSandbox {
+        &self.sandbox
     }
 }
 
@@ -62,32 +63,23 @@ where
             source_path, destination_path
         );
 
-        let src_path = self.get_relative_path(&source_path);
-        let dest_path = self.get_relative_path(&destination_path);
+        let src_path = self
+            .sandbox()
+            .resolve_relative(&source_path)
+            .map_err(sandbox_error)?;
 
-        // Validate source exists
         if !src_path.exists() {
             return Err(ToolCallError::RuntimeError(
                 format!("Source file does not exist: {}", src_path.display()).into(),
             ));
         }
 
-        // Ensure paths are within root if root is set
-        if self.root_dir().is_some() {
-            self.ensure_within_root(&src_path)
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-            self.ensure_within_root(&dest_path)
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-        }
+        let src_path = self
+            .sandbox()
+            .ensure_resolved(&src_path)
+            .map_err(sandbox_error)?;
+        let dest_path = prepare_mutation_path(self.sandbox(), &destination_path).await?;
 
-        // Create parent directory if it doesn't exist
-        if let Some(parent) = dest_path.parent() {
-            fs::create_dir_all(parent)
-                .await
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-        }
-
-        // Perform the copy
         let bytes_copied = fs::copy(&src_path, &dest_path)
             .await
             .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
@@ -113,23 +105,21 @@ mod tests {
         let src_path = temp_dir.path().join("source.txt");
         let dest_path = temp_dir.path().join("destination.txt");
 
-        // Create source file
         let mut src_file = std::fs::File::create(&src_path).expect("Failed to create source file");
         src_file
             .write_all(b"Hello, World!")
             .expect("Failed to write to source file");
         drop(src_file);
 
-        let copy_file = CopyFile::default();
+        let copy_file = CopyFile::new(temp_dir.path()).expect("sandbox");
         let args = json!({
-            "source_path": src_path.display().to_string(),
-            "destination_path": dest_path.display().to_string()
+            "source_path": "source.txt",
+            "destination_path": "destination.txt"
         });
 
         let result = copy_file.execute(args).await;
         assert!(result.is_ok());
 
-        // Verify destination file exists and has correct content
         let content = std::fs::read_to_string(&dest_path).expect("Failed to read destination file");
         assert_eq!(content, "Hello, World!");
     }
@@ -137,13 +127,11 @@ mod tests {
     #[tokio::test]
     async fn test_copy_file_source_not_exists() {
         let temp_dir = tempdir().expect("Failed to create temp dir");
-        let src_path = temp_dir.path().join("nonexistent.txt");
-        let dest_path = temp_dir.path().join("destination.txt");
 
-        let copy_file = CopyFile::default();
+        let copy_file = CopyFile::new(temp_dir.path()).expect("sandbox");
         let args = json!({
-            "source_path": src_path.display().to_string(),
-            "destination_path": dest_path.display().to_string()
+            "source_path": "nonexistent.txt",
+            "destination_path": "destination.txt"
         });
 
         let result = copy_file.execute(args).await;
@@ -153,7 +141,6 @@ mod tests {
     #[tokio::test]
     async fn test_copy_file_with_root_dir() {
         let temp_dir = tempdir().expect("Failed to create temp dir");
-        let root_dir = temp_dir.path().to_str().unwrap().to_string();
 
         let src_file = temp_dir.path().join("source.txt");
         let mut file = std::fs::File::create(&src_file).expect("Failed to create source file");
@@ -161,7 +148,7 @@ mod tests {
             .expect("Failed to write to source file");
         drop(file);
 
-        let copy_file = CopyFile::new_with_root_dir(root_dir);
+        let copy_file = CopyFile::new(temp_dir.path()).expect("sandbox");
         let args = json!({
             "source_path": "source.txt",
             "destination_path": "dest.txt"

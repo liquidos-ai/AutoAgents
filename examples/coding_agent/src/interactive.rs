@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::agent::CodingAgent;
 use autoagents::core::actor::Topic;
 use autoagents::core::agent::AgentBuilder;
@@ -18,8 +20,15 @@ use tokio_stream::StreamExt;
 
 const CODING_TASK_TOPIC: &str = "coding_task";
 
-pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
+pub async fn run_interactive_session(
+    llm: Arc<dyn LLMProvider>,
+    workspace: PathBuf,
+) -> Result<(), Error> {
+    let coding_agent = CodingAgent::new(&workspace)
+        .map_err(|error| Error::CustomError(format!("failed to build coding agent: {error}")))?;
+
     println!("🚀 Starting Interactive Coding Agent Session");
+    println!("📁 Workspace: {}", coding_agent.workspace_root().display());
     println!("💡 Type 'help' for available commands, 'quit' to exit\n");
 
     // Create memory with larger window for complex tasks
@@ -30,11 +39,11 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
     // Create topic for coding tasks
     let coding_topic = Topic::<Task>::new(CODING_TASK_TOPIC);
 
-    // Create the coding agent
-    let coding_agent = ReActAgent::new(CodingAgent {});
+    let workspace_root = coding_agent.workspace_root().to_path_buf();
+    let react_agent = ReActAgent::new(coding_agent);
 
     // Build the agent
-    let _ = AgentBuilder::new(coding_agent)
+    let _ = AgentBuilder::new(react_agent)
         .llm(llm)
         .runtime(runtime.clone())
         .subscribe(coding_topic.clone())
@@ -87,11 +96,12 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
                 continue;
             }
             _ => {
-                // Process the task
                 println!("\n🔄 Processing your request...\n");
 
-                // Create task and send using the new messaging system
-                let task = Task::new(input);
+                let task = Task::new(format!(
+                    "[Workspace sandbox: {}]\n{input}",
+                    workspace_root.display()
+                ));
 
                 // Publish to topic for all subscribers
                 runtime.publish(&coding_topic, task).await?;
