@@ -757,6 +757,7 @@ dependencies = [
  "calamine",
  "csv",
  "html2text",
+ "http",
  "log",
  "once_cell",
  "pdf-extract",
@@ -769,6 +770,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "toml 1.1.2+spec-1.1.0",
+ "url",
  "walkdir",
  "zip 8.6.0",
 ]

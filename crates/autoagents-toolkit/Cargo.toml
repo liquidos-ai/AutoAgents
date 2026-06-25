@@ -12,7 +12,7 @@ readme.workspace = true
 [features]
 default = []
 full = ["mcp", "filesystem", "search", "wolfram-alpha", "document-parsing"]
-mcp = ["rmcp", "toml"]
+mcp = ["rmcp", "toml", "reqwest", "http", "url"]
 filesystem = []
 search = ["reqwest", "once_cell"]
 wolfram-alpha = ["reqwest", "once_cell"]
@@ -44,6 +44,8 @@ quick-xml = { workspace = true, optional = true }
 calamine = { workspace = true, optional = true }
 html2text = { workspace = true, optional = true }
 csv = { workspace = true, optional = true }
+http = { version = "1.4.1", optional = true }
+url = { version = "2.5.8", optional = true }
 rmcp = { workspace = true, optional = true, features = [
   "client",
   "transport-child-process",
@@ -55,3 +57,4 @@ tokio = { workspace = true }
 
 [dev-dependencies]
 tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

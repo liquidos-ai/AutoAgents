@@ -42,4 +42,6 @@ Enable features in your `Cargo.toml` as needed.
 
 ## MCP
 
-Model Context Protocol (MCP) integrations are available via `autoagents-toolkit::mcp` — load tool definitions from MCP servers and expose them as `ToolT`. See `McpTools` for managing connections and wrapping MCP tools for use by agents.
+Model Context Protocol (MCP) integrations are available via `autoagents-toolkit::mcp` — load tool definitions from MCP servers and expose them as `ToolT`. See [`McpTools`](mcp.md) for managing connections, security policy, and wrapping MCP tools for use by agents.
+
+**Security:** MCP TOML configuration can spawn host processes (stdio) or connect to remote endpoints (HTTP). Treat config files as a trusted code-execution boundary. See [MCP trust model](mcp.md).

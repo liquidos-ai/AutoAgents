@@ -1,26 +1,38 @@
+use crate::mcp::policy::McpSecurityPolicy;
+use crate::mcp::security::{
+    looks_like_path, resolve_path, validate_command_allowlist, validate_command_is_bare_name,
+    validate_http_url, validate_resolved_path_within_base,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// MCP Server configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerConfig {
     /// Server name
     pub name: String,
-    /// Protocol type (stdio, sse, etc.)
+    /// Protocol type (`stdio`, `http`, or legacy `sse`)
     pub protocol: String,
-    /// Command to execute
+    /// Launcher command for stdio transport (bare name only, e.g. `python3`)
+    #[serde(default)]
     pub command: String,
-    /// Arguments for the command
+    /// Arguments for the stdio launcher
     #[serde(default)]
     pub args: Vec<String>,
-    /// Environment variables
+    /// Environment variables for stdio transport
     #[serde(default)]
     pub env: HashMap<String, String>,
-    /// Working directory
+    /// Working directory for stdio transport
     #[serde(default)]
     pub cwd: Option<String>,
-    /// Connection timeout in seconds
+    /// Remote MCP endpoint for `http` / `sse` transports
+    #[serde(default)]
+    pub url: Option<String>,
+    /// HTTP headers for `http` / `sse` transports
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+    /// Per-operation timeout in seconds (connect, list_tools, call_tool)
     #[serde(default = "default_timeout")]
     pub timeout: u64,
 }
@@ -43,11 +55,35 @@ fn default_timeout() -> u64 {
 }
 
 impl McpConfig {
-    /// Load MCP configuration from a TOML file
+    /// Load MCP configuration from a TOML file with secure-default validation.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::from_file_with_policy(path, &McpSecurityPolicy::secure_default())
+    }
+
+    /// Load MCP configuration from a TOML file using the provided security policy.
+    pub fn from_file_with_policy<P: AsRef<Path>>(
+        path: P,
+        policy: &McpSecurityPolicy,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let (mcp, base_dir) = Self::load_from_file(path)?;
+        mcp.validate_all(policy, Some(&base_dir))?;
+        Ok(mcp)
+    }
+
+    /// Parse and resolve a configuration file without validation.
+    pub fn load_from_file<P: AsRef<Path>>(
+        path: P,
+    ) -> Result<(Self, PathBuf), Box<dyn std::error::Error>> {
+        let path = path.as_ref();
         let content = std::fs::read_to_string(path)?;
         let config: Config = toml::from_str(&content)?;
-        Ok(config.mcp)
+        let mut mcp = config.mcp;
+        let base_dir = path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        mcp.resolve_paths(&base_dir);
+        Ok((mcp, base_dir))
     }
 
     /// Create a new empty MCP configuration
@@ -69,10 +105,29 @@ impl McpConfig {
     pub fn server_names(&self) -> Vec<&str> {
         self.servers.iter().map(|s| s.name.as_str()).collect()
     }
+
+    /// Resolve relative filesystem paths against the config file directory.
+    pub fn resolve_paths(&mut self, base_dir: &Path) {
+        for server in &mut self.servers {
+            server.resolve_paths(base_dir);
+        }
+    }
+
+    /// Validate every server entry.
+    pub fn validate_all(
+        &self,
+        policy: &McpSecurityPolicy,
+        config_base: Option<&Path>,
+    ) -> Result<(), String> {
+        for server in &self.servers {
+            server.validate(policy, config_base)?;
+        }
+        Ok(())
+    }
 }
 
 impl McpServerConfig {
-    /// Create a new server configuration
+    /// Create a new stdio server configuration
     pub fn new(name: String, protocol: String, command: String) -> Self {
         Self {
             name,
@@ -81,6 +136,23 @@ impl McpServerConfig {
             args: Vec::new(),
             env: HashMap::new(),
             cwd: None,
+            url: None,
+            headers: HashMap::new(),
+            timeout: default_timeout(),
+        }
+    }
+
+    /// Create a new remote HTTP server configuration
+    pub fn new_http(name: String, url: String) -> Self {
+        Self {
+            name,
+            protocol: "http".to_string(),
+            command: String::new(),
+            args: Vec::new(),
+            env: HashMap::new(),
+            cwd: None,
+            url: Some(url),
+            headers: HashMap::new(),
             timeout: default_timeout(),
         }
     }
@@ -109,19 +181,127 @@ impl McpServerConfig {
         self
     }
 
-    /// Validate the server configuration
-    pub fn validate(&self) -> Result<(), String> {
+    /// Set remote URL for HTTP/SSE transports
+    pub fn with_url(mut self, url: String) -> Self {
+        self.url = Some(url);
+        self
+    }
+
+    /// Set HTTP headers for remote transports
+    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.headers = headers;
+        self
+    }
+
+    /// Resolve relative paths for stdio launch parameters.
+    pub fn resolve_paths(&mut self, base_dir: &Path) {
+        if let Some(cwd) = &self.cwd {
+            self.cwd = Some(resolve_path(base_dir, cwd));
+        }
+
+        self.args = self
+            .args
+            .iter()
+            .map(|arg| {
+                if looks_like_path(arg) {
+                    resolve_path(base_dir, arg)
+                } else {
+                    arg.clone()
+                }
+            })
+            .collect();
+    }
+
+    /// Validate the server configuration under the given security policy.
+    pub fn validate(
+        &self,
+        policy: &McpSecurityPolicy,
+        config_base: Option<&Path>,
+    ) -> Result<(), String> {
         if self.name.is_empty() {
             return Err("Server name cannot be empty".to_string());
         }
 
-        if self.command.is_empty() {
-            return Err("Server command cannot be empty".to_string());
+        if self.timeout == 0 {
+            return Err("Timeout must be greater than zero".to_string());
         }
 
         match self.protocol.as_str() {
-            "stdio" | "sse" | "http" => Ok(()),
-            _ => Err(format!("Unsupported protocol: {}", self.protocol)),
+            "stdio" => self.validate_stdio(policy, config_base),
+            "http" | "sse" => self.validate_http(policy),
+            other => Err(format!("Unsupported protocol: {other}")),
+        }
+    }
+
+    fn validate_stdio(
+        &self,
+        policy: &McpSecurityPolicy,
+        config_base: Option<&Path>,
+    ) -> Result<(), String> {
+        if self.command.is_empty() {
+            return Err("command is required for stdio transport".to_string());
+        }
+
+        if self.url.is_some() {
+            return Err("url must not be set for stdio transport".to_string());
+        }
+
+        validate_command_is_bare_name(&self.command).map_err(|e| e.to_string())?;
+
+        if !policy.defers_allowlist_to_approver() {
+            validate_command_allowlist(&self.command, policy.allowed_commands())
+                .map_err(|e| e.to_string())?;
+        }
+
+        policy
+            .validate_stdio_fields(&self.stdio_launch_spec(), config_base)
+            .map_err(|e| e.to_string())?;
+
+        if let Some(base) = config_base {
+            for arg in &self.args {
+                if looks_like_path(arg) {
+                    validate_resolved_path_within_base(arg, base).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_http(&self, policy: &McpSecurityPolicy) -> Result<(), String> {
+        if !self.command.is_empty() {
+            return Err("command must not be set for http/sse transport".to_string());
+        }
+
+        if !self.args.is_empty() {
+            return Err("args must not be set for http/sse transport".to_string());
+        }
+
+        if self.cwd.is_some() {
+            return Err("cwd must not be set for http/sse transport".to_string());
+        }
+
+        if !self.env.is_empty() {
+            return Err("env must not be set for http/sse transport".to_string());
+        }
+
+        let url = self
+            .url
+            .as_ref()
+            .filter(|url| !url.is_empty())
+            .ok_or_else(|| "url is required for http/sse transport".to_string())?;
+
+        validate_http_url(url, policy.allow_private_http_endpoints()).map_err(|e| e.to_string())
+    }
+
+    /// Build a launch spec for stdio authorization at connect time.
+    pub fn stdio_launch_spec(&self) -> crate::mcp::policy::McpProcessLaunchSpec {
+        crate::mcp::policy::McpProcessLaunchSpec {
+            server_name: self.name.clone(),
+            command: self.command.clone(),
+            args: self.args.clone(),
+            cwd: self.cwd.clone(),
+            env: self.env.clone(),
         }
     }
 }
@@ -181,22 +361,72 @@ mod tests {
             "stdio".to_string(),
             "python".to_string(),
         );
-        assert!(valid_config.validate().is_ok());
+        assert!(
+            valid_config
+                .validate(&McpSecurityPolicy::secure_default(), None)
+                .is_ok()
+        );
 
         let empty_name =
             McpServerConfig::new("".to_string(), "stdio".to_string(), "python".to_string());
-        assert!(empty_name.validate().is_err());
+        assert!(
+            empty_name
+                .validate(&McpSecurityPolicy::secure_default(), None)
+                .is_err()
+        );
 
         let empty_command =
             McpServerConfig::new("test".to_string(), "stdio".to_string(), "".to_string());
-        assert!(empty_command.validate().is_err());
+        assert!(
+            empty_command
+                .validate(&McpSecurityPolicy::secure_default(), None)
+                .is_err()
+        );
 
         let invalid_protocol = McpServerConfig::new(
             "test".to_string(),
             "invalid".to_string(),
             "python".to_string(),
         );
-        assert!(invalid_protocol.validate().is_err());
+        assert!(
+            invalid_protocol
+                .validate(&McpSecurityPolicy::secure_default(), None)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_http_config_requires_url() {
+        let config = McpServerConfig::new_http("remote".to_string(), String::new());
+        let err = config
+            .validate(&McpSecurityPolicy::secure_default(), None)
+            .unwrap_err();
+        assert!(err.contains("url is required"));
+    }
+
+    #[test]
+    fn test_http_config_rejects_command() {
+        let mut config =
+            McpServerConfig::new_http("remote".to_string(), "https://example.com/mcp".to_string());
+        config.command = "curl".to_string();
+        let err = config
+            .validate(&McpSecurityPolicy::secure_default(), None)
+            .unwrap_err();
+        assert!(err.contains("command must not be set"));
+    }
+
+    #[test]
+    fn test_stdio_rejects_url_field() {
+        let mut config = McpServerConfig::new(
+            "stdio".to_string(),
+            "stdio".to_string(),
+            "python3".to_string(),
+        );
+        config.url = Some("https://example.com".to_string());
+        let err = config
+            .validate(&McpSecurityPolicy::secure_default(), None)
+            .unwrap_err();
+        assert!(err.contains("url must not be set"));
     }
 
     #[test]
@@ -230,10 +460,10 @@ args = ["-m", "test_module"]
 timeout = 45
 
 [[mcp.server]]
-name = "another_server"
-protocol = "sse"
-command = "node"
-args = ["server.js"]
+name = "remote"
+protocol = "http"
+url = "https://example.com/mcp"
+timeout = 60
         "#;
 
         let mut temp_file = NamedTempFile::new().unwrap();
@@ -249,10 +479,12 @@ args = ["server.js"]
         assert_eq!(first_server.args, vec!["-m", "test_module"]);
         assert_eq!(first_server.timeout, 45);
 
-        let second_server = config.get_server("another_server").unwrap();
-        assert_eq!(second_server.protocol, "sse");
-        assert_eq!(second_server.command, "node");
-        assert_eq!(second_server.args, vec!["server.js"]);
+        let second_server = config.get_server("remote").unwrap();
+        assert_eq!(second_server.protocol, "http");
+        assert_eq!(
+            second_server.url.as_deref(),
+            Some("https://example.com/mcp")
+        );
     }
 
     #[test]
@@ -287,7 +519,6 @@ command = "python"
 cwd = "{cwd}"
 
 [mcp.server.env]
-PYTHONPATH = "/path/to/modules"
 DEBUG = "1"
         "#,
             cwd = cwd_str
@@ -301,11 +532,24 @@ DEBUG = "1"
         let server = config.get_server("env_server").unwrap();
 
         assert_eq!(server.cwd, Some(cwd_str.to_string()));
-        assert_eq!(
-            server.env.get("PYTHONPATH"),
-            Some(&"/path/to/modules".to_string())
-        );
         assert_eq!(server.env.get("DEBUG"), Some(&"1".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_relative_script_path() {
+        let dir = tempdir().unwrap();
+        let base = dir.path().to_path_buf();
+        let mut config = McpServerConfig::new(
+            "echo".to_string(),
+            "stdio".to_string(),
+            "python3".to_string(),
+        )
+        .with_args(vec!["servers/echo_server.py".to_string()]);
+        config.resolve_paths(&base);
+        assert_eq!(
+            config.args[0],
+            base.join("servers/echo_server.py").to_string_lossy()
+        );
     }
 
     #[test]
@@ -320,6 +564,7 @@ DEBUG = "1"
         assert!(server.args.is_empty());
         assert!(server.env.is_empty());
         assert!(server.cwd.is_none());
+        assert!(server.url.is_none());
     }
 
     #[test]

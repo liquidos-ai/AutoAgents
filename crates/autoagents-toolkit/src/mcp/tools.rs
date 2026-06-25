@@ -1,29 +1,55 @@
-use crate::mcp::{McpConfig, McpError, McpToolsManager};
+use crate::mcp::{McpConfig, McpError, McpSecurityPolicy, McpToolsManager};
 use autoagents::core::tool::ToolT;
 use std::path::Path;
 use std::sync::Arc;
 
 /// A collection of MCP tools that can be used in AutoAgents
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct McpTools {
     manager: Arc<McpToolsManager>,
+}
+
+impl Default for McpTools {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl McpTools {
     /// Create an empty MCP tools instance
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            manager: Arc::new(McpToolsManager::new()),
+        }
     }
 
-    /// Create MCP tools from a configuration file
+    /// Create MCP tools from a configuration file using secure-default policy.
     pub async fn from_config<P: AsRef<Path>>(config_path: P) -> Result<Self, McpError> {
-        let manager = Arc::new(McpToolsManager::from_config_file(config_path).await?);
+        Self::from_config_with_policy(config_path, McpSecurityPolicy::secure_default()).await
+    }
+
+    /// Create MCP tools from a configuration file with a custom security policy.
+    pub async fn from_config_with_policy<P: AsRef<Path>>(
+        config_path: P,
+        security_policy: McpSecurityPolicy,
+    ) -> Result<Self, McpError> {
+        let manager = Arc::new(
+            McpToolsManager::from_config_file_with_policy(config_path, security_policy).await?,
+        );
         Ok(Self { manager })
     }
 
-    /// Create MCP tools from a configuration object
+    /// Create MCP tools from a configuration object using secure-default policy.
     pub async fn from_config_object(config: &McpConfig) -> Result<Self, McpError> {
-        let manager = Arc::new(McpToolsManager::new());
+        Self::from_config_object_with_policy(config, McpSecurityPolicy::secure_default()).await
+    }
+
+    /// Create MCP tools from a configuration object with a custom security policy.
+    pub async fn from_config_object_with_policy(
+        config: &McpConfig,
+        security_policy: McpSecurityPolicy,
+    ) -> Result<Self, McpError> {
+        let manager = Arc::new(McpToolsManager::with_security_policy(security_policy));
         manager.connect_servers(config).await?;
         Ok(Self { manager })
     }
@@ -68,11 +94,7 @@ impl McpTools {
 /// This is used to support the syntax: McpTools::from_config("path/to/config.toml")
 #[macro_export]
 macro_rules! mcp_tools_from_config {
-    ($config_path:expr) => {{
-        // This needs to be handled at runtime since we can't do async in macro expansion
-        // The agent system will need to handle this appropriately
-        $crate::mcp::tools::McpTools::from_config($config_path)
-    }};
+    ($config_path:expr) => {{ $crate::mcp::tools::McpTools::from_config($config_path) }};
 }
 
 // For easier integration with the agent system
@@ -82,10 +104,7 @@ impl McpTools {
         self.get_tools()
             .await
             .into_iter()
-            .map(|tool| {
-                // Create a wrapper that can be boxed
-                Box::new(McpToolWrapper { tool }) as Box<dyn ToolT>
-            })
+            .map(|tool| Box::new(McpToolWrapper { tool }) as Box<dyn ToolT>)
             .collect()
     }
 }

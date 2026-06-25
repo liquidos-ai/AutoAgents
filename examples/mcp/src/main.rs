@@ -8,6 +8,7 @@ use autoagents::llm::{backends::openai::OpenAI, builder::LLMBuilder};
 use autoagents_derive::AgentHooks;
 use autoagents_toolkit::mcp::{McpToolWrapper, McpTools};
 use std::env;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, AgentHooks)]
@@ -17,8 +18,8 @@ pub struct McpAgent {
 
 impl McpAgent {
     pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        // Load MCP tools from config
-        let mcp_tools = McpTools::from_config("./examples/mcp/config.toml").await?;
+        let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config.toml");
+        let mcp_tools = McpTools::from_config(&config_path).await?;
         let tools = mcp_tools.get_tools().await;
 
         Ok(Self { tools })
@@ -44,7 +45,7 @@ impl AgentDeriveT for McpAgent {
     }
 
     fn output_schema(&self) -> Option<serde_json::Value> {
-        None // Simple string output, no schema needed
+        None
     }
 }
 
@@ -53,10 +54,10 @@ impl AgentDeriveT for McpAgent {
 pub async fn main() -> Result<(), Error> {
     env_logger::init();
 
-    // Get API keys from environment
+    // For web search without MCP, use the built-in BraveSearch tool (feature `search`)
+    // with BRAVE_SEARCH_API_KEY instead of an npx-based remote MCP server.
     let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY environment variable not set");
 
-    // Build LLM
     let llm = LLMBuilder::<OpenAI>::new()
         .api_key(&api_key)
         .model("gpt-4o-mini")
@@ -65,12 +66,11 @@ pub async fn main() -> Result<(), Error> {
         .build()
         .expect("Failed to build OpenAI client");
 
-    // Create agent with MCP tools
     let mcp_agent = McpAgent::new()
         .await
-        .map_err(|e| Error::CustomError(format!("Failed to create MCP agent: {}", e)))?;
+        .map_err(|e| Error::CustomError(format!("Failed to create MCP agent: {e}")))?;
 
-    let task_description = "What is the latest news about artificial intelligence?";
+    let task_description = "Use the echo tool to repeat the message: hello from AutoAgents MCP";
 
     let sliding_window_memory = Box::new(SlidingWindowMemory::new(10));
 

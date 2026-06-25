@@ -9,19 +9,27 @@ use rmcp::{
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
+
+use crate::mcp::client::{McpError, with_timeout};
 
 /// MCP Tool Adapter that bridges MCP tools with AutoAgents tool system
 #[derive(Debug)]
 pub struct McpToolAdapter {
-    name: String,
-    description: String,
+    name: &'static str,
+    description: &'static str,
     args_schema: Value,
     service: Arc<RunningService<RoleClient, ClientInfo>>,
+    timeout: Duration,
 }
 
 impl McpToolAdapter {
     /// Create a new MCP tool adapter from an MCP tool and service connection
-    pub fn new(tool: McpTool, service: Arc<RunningService<RoleClient, ClientInfo>>) -> Self {
+    pub fn new(
+        tool: McpTool,
+        service: Arc<RunningService<RoleClient, ClientInfo>>,
+        timeout: Duration,
+    ) -> Self {
         let name = tool.name.to_string();
         let description = tool.description.unwrap_or_default().to_string();
         let args_schema = serde_json::to_value(&tool.input_schema).unwrap_or_else(|_| {
@@ -33,29 +41,27 @@ impl McpToolAdapter {
         });
 
         Self {
-            name,
-            description,
+            name: Box::leak(name.into_boxed_str()),
+            description: Box::leak(description.into_boxed_str()),
             args_schema,
             service,
+            timeout,
         }
     }
 
     /// Get the tool name as a string reference
     pub fn tool_name(&self) -> &str {
-        &self.name
+        self.name
     }
 }
 
 impl ToolT for McpToolAdapter {
     fn name(&self) -> &str {
-        // We need to use Box::leak to convert String to &'static str
-        // This is safe because tools are typically long-lived
-        Box::leak(self.name.clone().into_boxed_str())
+        self.name
     }
 
     fn description(&self) -> &str {
-        // Same approach for description
-        Box::leak(self.description.clone().into_boxed_str())
+        self.description
     }
 
     fn args_schema(&self) -> Value {
@@ -66,7 +72,6 @@ impl ToolT for McpToolAdapter {
 #[async_trait]
 impl ToolRuntime for McpToolAdapter {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        // Convert args to the expected format for MCP
         let arguments = match args.as_object() {
             Some(obj) => Some(obj.clone()),
             None => {
@@ -76,24 +81,32 @@ impl ToolRuntime for McpToolAdapter {
             }
         };
 
-        // Prepare the call tool request
         let request = match arguments {
             Some(arguments) => {
-                CallToolRequestParams::new(self.name.clone()).with_arguments(arguments)
+                CallToolRequestParams::new(self.name.to_string()).with_arguments(arguments)
             }
-            None => CallToolRequestParams::new(self.name.clone()),
+            None => CallToolRequestParams::new(self.name.to_string()),
         };
 
-        // Execute the tool via MCP
-        match self.service.call_tool(request).await {
-            Ok(result) => {
-                // Convert MCP result to our format
-                convert_mcp_result(result)
-            }
+        let service = Arc::clone(&self.service);
+        let timeout = self.timeout;
+
+        match with_timeout(timeout, "call_tool", async {
+            service
+                .call_tool(request)
+                .await
+                .map_err(|e| McpError::GenericError(format!("MCP tool execution failed: {e}")))
+        })
+        .await
+        {
+            Ok(result) => convert_mcp_result(result),
+            Err(McpError::Timeout { operation, millis }) => Err(ToolCallError::RuntimeError(
+                format!("MCP tool '{operation}' timed out after {millis}ms").into(),
+            )),
             Err(e) => {
-                log::error!("MCP tool execution failed for {}: {:?}", self.name, e);
+                log::error!("MCP tool execution failed for {}: {}", self.name, e);
                 Err(ToolCallError::RuntimeError(
-                    format!("MCP tool execution failed: {}", e).into(),
+                    format!("MCP tool execution failed: {e}").into(),
                 ))
             }
         }
@@ -103,48 +116,37 @@ impl ToolRuntime for McpToolAdapter {
 /// Convert MCP CallToolResult to AutoAgents Value format
 fn convert_mcp_result(result: CallToolResult) -> Result<Value, ToolCallError> {
     if result.is_error.unwrap_or(false) {
-        // Handle error case
         let error_msg = result
             .content
             .first()
-            .and_then(|c| {
-                // Try to extract text from content
-                // Since the content structure may vary, we'll be flexible
-                match serde_json::to_value(&c.raw) {
-                    Ok(val) => {
-                        // Try to extract text field from the serialized content
-                        val.get("text")
-                            .and_then(|t| t.as_str())
-                            .map(|s| s.to_string())
-                    }
-                    Err(_) => None,
-                }
+            .and_then(|c| match serde_json::to_value(&c.raw) {
+                Ok(val) => val
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .map(|s| s.to_string()),
+                Err(_) => None,
             })
             .unwrap_or_else(|| "Unknown MCP error".to_string());
 
         return Err(ToolCallError::RuntimeError(
-            format!("MCP tool error: {}", error_msg).into(),
+            format!("MCP tool error: {error_msg}").into(),
         ));
     }
 
-    // Convert successful result
     let mut result_data = HashMap::new();
 
-    // Extract content from the result
     if !result.content.is_empty() {
         let mut contents = Vec::new();
         for content in &result.content {
-            // Serialize the raw content to JSON for flexible handling
             match serde_json::to_value(&content.raw) {
                 Ok(content_json) => {
                     contents.push(content_json);
                 }
                 Err(e) => {
-                    log::warn!("Failed to serialize MCP content: {}", e);
-                    // Fallback to a simple representation
+                    log::warn!("Failed to serialize MCP content: {e}");
                     contents.push(json!({
                         "type": "unknown",
-                        "error": format!("Serialization failed: {}", e)
+                        "error": format!("Serialization failed: {e}")
                     }));
                 }
             }
@@ -152,7 +154,6 @@ fn convert_mcp_result(result: CallToolResult) -> Result<Value, ToolCallError> {
         result_data.insert("content", json!(contents));
     }
 
-    // Add success indicator
     result_data.insert("success", json!(true));
 
     Ok(json!(result_data))

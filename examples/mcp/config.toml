@@ -1,6 +1,7 @@
-# Brave Search MCP Server - provides web search capabilities
+# Local echo MCP server — no remote package downloads at runtime.
 [[mcp.server]]
-name = "brave_search"
+name = "echo"
 protocol = "stdio"
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-brave-search"]
+command = "python3"
+args = ["servers/echo_server.py"]
+timeout = 30
