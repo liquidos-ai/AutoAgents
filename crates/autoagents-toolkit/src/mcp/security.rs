@@ -261,7 +261,14 @@ fn is_private_or_link_local_ip(ip: IpAddr) -> bool {
                 || v4.is_unspecified()
                 || v4.octets() == [169, 254, 169, 254]
         }
-        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local(),
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unique_local()
+                || v6.is_unicast_link_local()
+                || v6
+                    .to_ipv4_mapped()
+                    .is_some_and(|v4| is_private_or_link_local_ip(IpAddr::V4(v4)))
+        }
     }
 }
 
@@ -275,10 +282,12 @@ fn is_dangerous_arg(command: &str, arg: &str) -> bool {
             "-e" | "--eval" | "-p" | "--print" | "-r" | "--require" | "--import"
         ),
         "python" | "python3" => matches!(arg_lower.as_str(), "-c"),
-        "docker" => matches!(
-            arg_lower.as_str(),
-            "--privileged" | "--cap-add" | "--network=host" | "--pid=host" | "--ipc=host"
-        ),
+        "docker" => {
+            matches!(
+                arg_lower.as_str(),
+                "--privileged" | "--cap-add" | "--network=host" | "--pid=host" | "--ipc=host"
+            ) || arg_lower.starts_with("--cap-add=")
+        }
         _ => false,
     }
 }
@@ -489,6 +498,17 @@ mod tests {
     #[test]
     fn allows_private_http_hosts_when_enabled() {
         assert!(validate_http_url("http://127.0.0.1/mcp", true).is_ok());
+    }
+
+    #[test]
+    fn rejects_ipv4_mapped_loopback_http_hosts() {
+        assert!(validate_http_url("http://[::ffff:127.0.0.1]/mcp", false).is_err());
+        assert!(validate_http_url("http://[::ffff:169.254.169.254]/mcp", false).is_err());
+    }
+
+    #[test]
+    fn rejects_docker_cap_add_equals_form() {
+        assert!(validate_stdio_args("docker", &["--cap-add=SYS_ADMIN".to_string()]).is_err());
     }
 
     #[test]

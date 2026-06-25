@@ -70,21 +70,12 @@ impl ToolT for McpToolAdapter {
 #[async_trait]
 impl ToolRuntime for McpToolAdapter {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        let arguments = match args.as_object() {
-            Some(obj) => Some(obj.clone()),
-            None => {
-                return Err(ToolCallError::RuntimeError(
-                    "Arguments must be a JSON object".to_string().into(),
-                ));
-            }
-        };
+        let arguments = args.as_object().ok_or_else(|| {
+            ToolCallError::RuntimeError("Arguments must be a JSON object".to_string().into())
+        })?;
 
-        let request = match arguments {
-            Some(arguments) => {
-                CallToolRequestParams::new(self.name.to_string()).with_arguments(arguments)
-            }
-            None => CallToolRequestParams::new(self.name.to_string()),
-        };
+        let request =
+            CallToolRequestParams::new(self.name.to_string()).with_arguments(arguments.clone());
 
         let service = Arc::clone(&self.service);
         let timeout = self.timeout;
