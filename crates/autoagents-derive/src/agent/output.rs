@@ -248,7 +248,7 @@ impl OutputParser {
         let type_str = field_type.to_token_stream().to_string();
         let json_type = match type_str.as_str() {
             "String" | "str" => JsonType::String,
-            "i32" | "u32" | "u8" | "i64" | "u64" | "i16" | "u16" | "isize" | "usize" => {
+            "i8" | "i32" | "u32" | "u8" | "i64" | "u64" | "i16" | "u16" | "isize" | "usize" => {
                 JsonType::Integer
             }
             "f64" | "f32" => JsonType::Number,

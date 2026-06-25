@@ -203,7 +203,7 @@ impl InputParser {
     fn get_base_json_type(&self, type_str: &str) -> InstanceType {
         match type_str {
             "String" | "str" => InstanceType::String,
-            "i32" | "u32" | "u8" | "i64" | "u64" | "i16" | "u16" | "usize" | "isize" => {
+            "i8" | "i32" | "u32" | "u8" | "i64" | "u64" | "i16" | "u16" | "usize" | "isize" => {
                 InstanceType::Integer
             }
             "f64" | "f32" => InstanceType::Number,
