@@ -756,6 +756,7 @@ dependencies = [
  "base64 0.22.1",
  "calamine",
  "csv",
+ "glob",
  "html2text",
  "log",
  "once_cell",

@@ -5,10 +5,10 @@ use autoagents::core::{
     tool::{ToolCallError, ToolRuntime, ToolT},
 };
 use autoagents_derive::{ToolInput, tool};
+use glob::{MatchOptions, Pattern};
 use log::debug;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::fs;
 
 use super::{BaseFileTool, FilesystemSandbox, sandbox_error};
 
@@ -16,13 +16,20 @@ use super::{BaseFileTool, FilesystemSandbox, sandbox_error};
 pub struct SearchFileArgs {
     #[input(description = "Directory path to search in")]
     directory: String,
-    #[input(description = "Pattern to search for (supports wildcards: * and ?)")]
+    #[input(description = "Filename pattern to search for (supports wildcards: * and ?)")]
     pattern: String,
+    #[serde(default = "default_case_sensitive")]
+    #[input(description = "Whether filename matching is case-sensitive")]
+    case_sensitive: bool,
+}
+
+fn default_case_sensitive() -> bool {
+    true
 }
 
 #[tool(
     name = "search_file",
-    description = "Search for files by name pattern or content in a directory",
+    description = "Search for files by filename pattern in a directory",
     input = SearchFileArgs,
 )]
 pub struct SearchFile {
@@ -46,62 +53,16 @@ impl SearchFile {
     }
 
     fn matches_pattern(filename: &str, pattern: &str, case_sensitive: bool) -> bool {
-        let filename = if case_sensitive {
-            filename.to_string()
-        } else {
-            filename.to_lowercase()
+        let Ok(glob_pattern) = Pattern::new(pattern) else {
+            return false;
         };
 
-        let pattern = if case_sensitive {
-            pattern.to_string()
-        } else {
-            pattern.to_lowercase()
+        let options = MatchOptions {
+            case_sensitive,
+            ..MatchOptions::new()
         };
 
-        let pattern_parts: Vec<&str> = pattern.split('*').collect();
-
-        if pattern_parts.len() == 1 {
-            return filename.contains(&pattern);
-        }
-
-        let mut pos = 0;
-        for (i, part) in pattern_parts.iter().enumerate() {
-            if part.is_empty() {
-                continue;
-            }
-
-            if i == 0 && !pattern.starts_with('*') {
-                if !filename.starts_with(part) {
-                    return false;
-                }
-                pos = part.len();
-            } else if i == pattern_parts.len() - 1 && !pattern.ends_with('*') {
-                return filename.ends_with(part);
-            } else if let Some(found_pos) = filename[pos..].find(part) {
-                pos += found_pos + part.len();
-            } else {
-                return false;
-            }
-        }
-
-        true
-    }
-
-    async fn search_content_in_file(
-        file_path: &Path,
-        pattern: &str,
-        case_sensitive: bool,
-    ) -> Result<bool, ToolCallError> {
-        let content = match fs::read_to_string(file_path).await {
-            Ok(content) => content,
-            Err(_) => return Ok(false),
-        };
-
-        if case_sensitive {
-            Ok(content.contains(pattern))
-        } else {
-            Ok(content.to_lowercase().contains(&pattern.to_lowercase()))
-        }
+        glob_pattern.matches_with(filename, options)
     }
 }
 
@@ -117,7 +78,11 @@ where
     Self: BaseFileTool,
 {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        let SearchFileArgs { directory, pattern } = serde_json::from_value(args)?;
+        let SearchFileArgs {
+            directory,
+            pattern,
+            case_sensitive,
+        } = serde_json::from_value(args)?;
 
         debug!(
             "Search File Executing: Directory: {} - Pattern: {}",
@@ -128,8 +93,6 @@ where
             .sandbox()
             .resolve_relative(&directory)
             .map_err(sandbox_error)?;
-        let search_content = false;
-        let case_sensitive = true;
 
         if !dir_path.exists() {
             return Err(ToolCallError::RuntimeError(
@@ -182,16 +145,7 @@ where
                 .metadata()
                 .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
 
-            if search_content {
-                if Self::search_content_in_file(&validated_path, &pattern, case_sensitive).await? {
-                    results.push(json!({
-                        "path": validated_path.display().to_string(),
-                        "name": file_name,
-                        "size": metadata.len(),
-                        "match_type": "content"
-                    }));
-                }
-            } else if Self::matches_pattern(&file_name, &pattern, case_sensitive) {
+            if Self::matches_pattern(&file_name, &pattern, case_sensitive) {
                 results.push(json!({
                     "path": validated_path.display().to_string(),
                     "name": file_name,
@@ -208,7 +162,8 @@ where
             "max_iterations": self.max_iterations,
             "iterations": iterations,
             "iteration_limit_reached": iteration_limit_reached,
-            "search_type": if search_content { "content" } else { "filename" },
+            "search_type": "filename",
+            "case_sensitive": case_sensitive,
             "count": results.len(),
             "results": results
         }))
@@ -284,6 +239,8 @@ mod tests {
         assert!(SearchFile::matches_pattern("test.txt", "test.txt", true));
         assert!(SearchFile::matches_pattern("test_file.txt", "*file*", true));
         assert!(!SearchFile::matches_pattern("test.txt", "data*", true));
+        assert!(!SearchFile::matches_pattern("stdlib.rs", "lib.rs", true));
+        assert!(SearchFile::matches_pattern("main1.rs", "main?.rs", true));
 
         assert!(SearchFile::matches_pattern("TEST.txt", "test*", false));
         assert!(!SearchFile::matches_pattern("TEST.txt", "test*", true));

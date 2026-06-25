@@ -190,8 +190,8 @@ impl ToolRuntime for AnalyzeCodeTool {
 
         match args.analysis_type.as_str() {
             "structure" => Ok(analyze_structure(&self.sandbox, &path)?.into()),
-            "complexity" => Ok(analyze_complexity(&path)?.into()),
-            "dependencies" => Ok(analyze_dependencies(&path)?.into()),
+            "complexity" => Ok(analyze_complexity(&self.sandbox, &path)?.into()),
+            "dependencies" => Ok(analyze_dependencies(&self.sandbox, &path)?.into()),
             _ => Err(ToolCallError::RuntimeError(
                 "Invalid analysis type. Choose 'structure', 'complexity', or 'dependencies'".into(),
             )),
@@ -253,20 +253,169 @@ fn analyze_structure(sandbox: &FilesystemSandbox, path: &Path) -> Result<String,
     ))
 }
 
-fn analyze_complexity(_path: &Path) -> Result<String, ToolCallError> {
-    Ok(
-        "Complexity analysis: This is a placeholder. In a real implementation, \
-        this would calculate cyclomatic complexity, function lengths, and other metrics."
-            .to_string(),
-    )
+fn collect_source_files(
+    sandbox: &FilesystemSandbox,
+    path: &Path,
+) -> Result<Vec<std::path::PathBuf>, ToolCallError> {
+    let mut files = Vec::new();
+
+    if path.is_file() {
+        files.push(path.to_path_buf());
+        return Ok(files);
+    }
+
+    for entry in sandbox.walk_dir(path).into_iter().filter_map(|e| e.ok()) {
+        let entry_path = entry.path();
+        let validated_path = sandbox
+            .validate_walk_entry(entry_path)
+            .map_err(io_sandbox_error)?;
+
+        if validated_path.is_file() {
+            files.push(validated_path);
+        }
+    }
+
+    Ok(files)
 }
 
-fn analyze_dependencies(_path: &Path) -> Result<String, ToolCallError> {
-    Ok(
-        "Dependency analysis: This is a placeholder. In a real implementation, \
-        this would parse import statements and analyze module dependencies."
-            .to_string(),
-    )
+fn relative_display(sandbox: &FilesystemSandbox, path: &Path) -> String {
+    path.strip_prefix(sandbox.root())
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+fn count_regex_matches(content: &str, pattern: &str) -> usize {
+    Regex::new(pattern)
+        .map(|regex| regex.find_iter(content).count())
+        .unwrap_or(0)
+}
+
+fn analyze_complexity(sandbox: &FilesystemSandbox, path: &Path) -> Result<String, ToolCallError> {
+    let files = collect_source_files(sandbox, path)?;
+    if files.is_empty() {
+        return Ok("Complexity Analysis:\nNo source files found.".to_string());
+    }
+
+    let file_count = files.len();
+    let mut report = String::from("Complexity Analysis:\n");
+    let mut total_lines = 0usize;
+    let mut total_functions = 0usize;
+    let mut total_complexity = 0usize;
+
+    for file in files {
+        let content = fs::read_to_string(&file).map_err(|e| {
+            ToolCallError::RuntimeError(
+                format!("Failed to read {}: {}", relative_display(sandbox, &file), e).into(),
+            )
+        })?;
+
+        let lines = content.lines().count();
+        let functions = count_regex_matches(
+            &content,
+            r"(?m)^\s*(pub\s+)?(async\s+)?fn\s+\w+|^\s*def\s+\w+|^\s*function\s+\w+",
+        );
+        let decision_points = count_regex_matches(
+            &content,
+            r"\b(if|else if|for|while|match|case|catch|&&|\|\|)\b|\?",
+        );
+        let complexity = 1 + decision_points;
+
+        total_lines += lines;
+        total_functions += functions;
+        total_complexity += complexity;
+
+        report.push_str(&format!(
+            "\n{}:\n  Lines: {}\n  Functions: {}\n  Estimated cyclomatic complexity: {}\n",
+            relative_display(sandbox, &file),
+            lines,
+            functions,
+            complexity
+        ));
+    }
+
+    report.push_str(&format!(
+        "\nTotals:\n  Files: {}\n  Lines: {}\n  Functions: {}\n  Combined estimated cyclomatic complexity: {}\n",
+        file_count,
+        total_lines,
+        total_functions,
+        total_complexity
+    ));
+
+    Ok(report)
+}
+
+fn extract_dependencies(content: &str) -> Vec<String> {
+    let patterns = [
+        r"(?m)^\s*use\s+([^;{]+)",
+        r"(?m)^\s*mod\s+(\w+)",
+        r"(?m)^\s*import\s+(.+)",
+        r"(?m)^\s*from\s+([^\s]+)\s+import",
+        r#"(?m)require\(\s*['"]([^'"]+)['"]\s*\)"#,
+    ];
+
+    let mut deps = Vec::new();
+    for pattern in patterns {
+        if let Ok(regex) = Regex::new(pattern) {
+            for cap in regex.captures_iter(content) {
+                if let Some(dep) = cap.get(1) {
+                    let value = dep.as_str().trim();
+                    if !value.is_empty() {
+                        deps.push(value.to_string());
+                    }
+                }
+            }
+        }
+    }
+    deps.sort();
+    deps.dedup();
+    deps
+}
+
+fn analyze_dependencies(sandbox: &FilesystemSandbox, path: &Path) -> Result<String, ToolCallError> {
+    let files = collect_source_files(sandbox, path)?;
+    if files.is_empty() {
+        return Ok("Dependency Analysis:\nNo source files found.".to_string());
+    }
+
+    let mut report = String::from("Dependency Analysis:\n");
+    let mut all_dependencies = Vec::new();
+
+    for file in files {
+        let content = fs::read_to_string(&file).map_err(|e| {
+            ToolCallError::RuntimeError(
+                format!("Failed to read {}: {}", relative_display(sandbox, &file), e).into(),
+            )
+        })?;
+
+        let deps = extract_dependencies(&content);
+        if deps.is_empty() {
+            continue;
+        }
+
+        report.push_str(&format!("\n{}:\n", relative_display(sandbox, &file)));
+        for dep in &deps {
+            report.push_str(&format!("  - {}\n", dep));
+            all_dependencies.push(dep.clone());
+        }
+    }
+
+    all_dependencies.sort();
+    all_dependencies.dedup();
+
+    if all_dependencies.is_empty() {
+        report.push_str("\nNo import/use statements found.");
+    } else {
+        report.push_str(&format!(
+            "\nUnique dependencies ({}):\n",
+            all_dependencies.len()
+        ));
+        for dep in all_dependencies {
+            report.push_str(&format!("  - {}\n", dep));
+        }
+    }
+
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -441,8 +590,9 @@ mod tests {
             complexity
                 .as_str()
                 .expect("complexity output should be a string")
-                .contains("cyclomatic complexity")
+                .contains("Estimated cyclomatic complexity")
         );
+        assert!(complexity.as_str().unwrap().contains("src/lib.rs"));
 
         let dependencies = tool
             .execute(json!({
@@ -455,7 +605,7 @@ mod tests {
             dependencies
                 .as_str()
                 .expect("dependency output should be a string")
-                .contains("Dependency analysis")
+                .contains("Dependency Analysis")
         );
 
         let invalid_type = tool

@@ -16,6 +16,11 @@ use super::{BaseFileTool, FilesystemSandbox, sandbox_error};
 pub struct ListDirArgs {
     #[input(description = "Path of the directory to list")]
     directory_path: String,
+    #[serde(default)]
+    #[input(
+        description = "Whether to include hidden files and directories (names starting with '.')"
+    )]
+    include_hidden: bool,
 }
 
 #[tool(
@@ -50,7 +55,10 @@ where
     Self: BaseFileTool,
 {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        let ListDirArgs { directory_path } = serde_json::from_value(args)?;
+        let ListDirArgs {
+            directory_path,
+            include_hidden,
+        } = serde_json::from_value(args)?;
 
         debug!("List Directory Executing: Directory: {}", directory_path);
 
@@ -75,9 +83,6 @@ where
             .sandbox()
             .ensure_resolved(&dir_path)
             .map_err(sandbox_error)?;
-
-        let include_hidden = false;
-        let filter_extension: Option<String> = None;
 
         let mut entries = Vec::new();
 
@@ -108,18 +113,6 @@ where
                 .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
 
             let is_dir = metadata.is_dir();
-
-            if let Some(ref ext_filter) = filter_extension
-                && !is_dir
-            {
-                if let Some(ext) = validated_path.extension() {
-                    if ext.to_string_lossy() != *ext_filter {
-                        continue;
-                    }
-                } else {
-                    continue;
-                }
-            }
 
             entries.push(json!({
                 "name": file_name,
@@ -201,5 +194,41 @@ mod tests {
 
         let entries = result.get("entries").and_then(|v| v.as_array()).unwrap();
         assert_eq!(entries.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_list_dir_include_hidden() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+
+        std::fs::write(temp_dir.path().join("visible.txt"), "content")
+            .expect("Failed to create visible file");
+        std::fs::write(temp_dir.path().join(".hidden"), "secret")
+            .expect("Failed to create hidden file");
+
+        let list_dir = ListDir::new(temp_dir.path()).expect("sandbox");
+
+        let hidden_excluded = list_dir
+            .execute(json!({ "directory_path": "." }))
+            .await
+            .expect("list should succeed");
+        let excluded = hidden_excluded
+            .get("entries")
+            .and_then(|v| v.as_array())
+            .unwrap();
+        assert_eq!(excluded.len(), 1);
+        assert_eq!(
+            excluded[0].get("name").and_then(|v| v.as_str()),
+            Some("visible.txt")
+        );
+
+        let hidden_included = list_dir
+            .execute(json!({ "directory_path": ".", "include_hidden": true }))
+            .await
+            .expect("list with hidden should succeed");
+        let included = hidden_included
+            .get("entries")
+            .and_then(|v| v.as_array())
+            .unwrap();
+        assert_eq!(included.len(), 2);
     }
 }
