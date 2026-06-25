@@ -15,13 +15,13 @@ pub(crate) struct ResolvedPaths {
 /// Prefers `autoagents-core` when present, otherwise falls back to the `autoagents` facade.
 pub(crate) fn resolve_paths() -> Result<ResolvedPaths> {
     if let Ok(core_name) = proc_macro_crate::crate_name("autoagents-core") {
-        let core = crate_name_to_path(core_name);
+        let core = crate_name_to_path(core_name, "autoagents-core");
         let async_trait = resolve_async_trait_path()?;
         return Ok(ResolvedPaths { core, async_trait });
     }
 
     if let Ok(facade_name) = proc_macro_crate::crate_name("autoagents") {
-        let facade = crate_name_to_path(facade_name);
+        let facade = crate_name_to_path(facade_name, "autoagents");
         let core = {
             let mut path = facade.clone();
             path.segments.push(format_ident!("core").into());
@@ -48,14 +48,16 @@ fn resolve_async_trait_path() -> Result<Path> {
             "when using `autoagents-core` directly, `async-trait` must also be a direct dependency",
         )
     })?;
-    let mut path = crate_name_to_path(name);
+    let mut path = crate_name_to_path(name, "async-trait");
     path.segments.push(format_ident!("async_trait").into());
     Ok(path)
 }
 
-fn crate_name_to_path(name: proc_macro_crate::FoundCrate) -> Path {
+fn crate_name_to_path(name: proc_macro_crate::FoundCrate, itself_fallback: &str) -> Path {
     let ident = match name {
-        proc_macro_crate::FoundCrate::Itself => format_ident!("autoagents_derive"),
+        proc_macro_crate::FoundCrate::Itself => {
+            format_ident!("{}", itself_fallback.replace('-', "_"))
+        }
         proc_macro_crate::FoundCrate::Name(n) => format_ident!("{}", n.replace('-', "_")),
     };
     Path::from(ident)
@@ -67,10 +69,17 @@ mod tests {
 
     #[test]
     fn crate_name_to_path_replaces_hyphens() {
-        let path = crate_name_to_path(proc_macro_crate::FoundCrate::Name(
-            "autoagents-core".to_string(),
-        ));
+        let path = crate_name_to_path(
+            proc_macro_crate::FoundCrate::Name("autoagents-core".to_string()),
+            "autoagents-core",
+        );
         assert_eq!(path.segments.len(), 1);
+        assert_eq!(path.segments[0].ident, "autoagents_core");
+    }
+
+    #[test]
+    fn crate_name_to_path_itself_uses_fallback() {
+        let path = crate_name_to_path(proc_macro_crate::FoundCrate::Itself, "autoagents-core");
         assert_eq!(path.segments[0].ident, "autoagents_core");
     }
 }

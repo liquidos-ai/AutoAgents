@@ -43,6 +43,14 @@ fn validate_number(number: &Number, span: Span) -> Result<()> {
                 ),
             ));
         }
+        if f < i64::MIN as f64 || f > i64::MAX as f64 {
+            return Err(Error::new(
+                span,
+                format!(
+                    "schema number `{number}` is out of range for generated schema literals (must fit in i64)"
+                ),
+            ));
+        }
         return Ok(());
     }
 
@@ -177,5 +185,12 @@ mod tests {
         let value = json!(1.5);
         let err = validate_json(&value, Span::call_site()).unwrap_err();
         assert!(err.to_string().contains("integer"));
+    }
+
+    #[test]
+    fn validate_json_rejects_out_of_range_whole_number_floats() {
+        let value = json!(1e19);
+        let err = validate_json(&value, Span::call_site()).unwrap_err();
+        assert!(err.to_string().contains("out of range"));
     }
 }
