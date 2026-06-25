@@ -54,6 +54,21 @@ let llm: Arc<OpenAI> = LLMBuilder::<OpenAI>::new()
     .build()?;
 ```
 
+Unless you set `.timeout_seconds(...)`, providers apply a default HTTP timeout of **120 seconds** at the reqwest client level. This bounds the full request lifecycle, including reading a streaming response body. For long-running generations, increase the timeout explicitly:
+
+```rust
+LLMBuilder::<OpenAI>::new()
+    .model("gpt-4o")
+    .timeout_seconds(300)
+    .build()?;
+```
+
+### Streaming timeout semantics
+
+- The configured timeout applies from request start through completion of the HTTP body read.
+- `RetryLayer` retries only the initial stream-establishment call; mid-stream chunk errors are not retried automatically.
+- There is no separate idle/chunk-gap timeout in the default client configuration.
+
 Local providers like Ollama:
 
 ```rust

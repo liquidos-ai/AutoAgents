@@ -691,12 +691,12 @@ impl LlamaCppProvider {
                 }
                 //TODO: Get a FIX
                 MessageType::ToolUse(_) | MessageType::ToolResult(_) => {
-                    return Err(LLMError::InvalidRequest(
+                    return Err(LLMError::invalid_request(
                         "MTMD path does not support tool calls".to_string(),
                     ));
                 }
                 MessageType::ImageURL(_) | MessageType::Pdf(_) => {
-                    return Err(LLMError::InvalidRequest(
+                    return Err(LLMError::invalid_request(
                         "MTMD path only supports raw image inputs".to_string(),
                     ));
                 }
@@ -1172,7 +1172,7 @@ impl LlamaCppProvider {
 
         if Self::has_mtmd_media(messages) {
             if tools.is_some() || json_schema.is_some() {
-                return Err(LLMError::InvalidRequest(
+                return Err(LLMError::invalid_request(
                     "MTMD path does not support tools or structured outputs".to_string(),
                 ));
             }
@@ -1222,7 +1222,7 @@ impl LlamaCppProvider {
             }
             #[cfg(not(feature = "mtmd"))]
             {
-                return Err(LLMError::InvalidRequest(
+                return Err(LLMError::invalid_request(
                     "MTMD feature is not enabled for llama.cpp backend".to_string(),
                 ));
             }
@@ -1341,7 +1341,7 @@ impl LlamaCppProvider {
             }
             #[cfg(not(feature = "mtmd"))]
             {
-                return Err(LLMError::InvalidRequest(
+                return Err(LLMError::invalid_request(
                     "MTMD feature is not enabled for llama.cpp backend".to_string(),
                 ));
             }
@@ -1402,7 +1402,7 @@ impl LlamaCppProvider {
             #[cfg(feature = "mtmd")]
             {
                 if tools.is_some() || json_schema.is_some() {
-                    return Err(LLMError::InvalidRequest(
+                    return Err(LLMError::invalid_request(
                         "MTMD path does not support tools or structured outputs".to_string(),
                     ));
                 }
@@ -1420,7 +1420,7 @@ impl LlamaCppProvider {
             }
             #[cfg(not(feature = "mtmd"))]
             {
-                return Err(LLMError::InvalidRequest(
+                return Err(LLMError::invalid_request(
                     "MTMD feature is not enabled for llama.cpp backend".to_string(),
                 ));
             }
@@ -1470,7 +1470,7 @@ impl LlamaCppProvider {
 
         if Self::has_mtmd_media(messages) {
             if tools.is_some() || json_schema.is_some() {
-                return Err(LLMError::InvalidRequest(
+                return Err(LLMError::invalid_request(
                     "MTMD path does not support tools or structured outputs".to_string(),
                 ));
             }
@@ -1490,7 +1490,7 @@ impl LlamaCppProvider {
             }
             #[cfg(not(feature = "mtmd"))]
             {
-                return Err(LLMError::InvalidRequest(
+                return Err(LLMError::invalid_request(
                     "MTMD feature is not enabled for llama.cpp backend".to_string(),
                 ));
             }
@@ -1722,13 +1722,13 @@ fn ensure_supported_messages_for_config(
                         continue;
                     }
                 }
-                return Err(LLMError::InvalidRequest(
+                return Err(LLMError::invalid_request(
                     "llama.cpp backend does not support image inputs without MTMD and mmproj configured"
                         .to_string(),
                 ));
             }
             MessageType::ImageURL(_) | MessageType::Pdf(_) => {
-                return Err(LLMError::InvalidRequest(
+                return Err(LLMError::invalid_request(
                     "llama.cpp backend does not support image URL or PDF inputs".to_string(),
                 ));
             }

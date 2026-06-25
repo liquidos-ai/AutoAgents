@@ -107,7 +107,19 @@ Behavior notes:
 - `jitter`
 - `retryable` predicate
 
-Default policy retries transient/provider/network-style failures and avoids retrying deterministic errors (for example auth/invalid-request style failures).
+Default policy uses typed error classification:
+
+| Error | Retried by default | Fallback by default |
+|-------|-------------------|---------------------|
+| `RateLimitError` (HTTP 429/529) | Yes | Yes |
+| Retryable `HttpStatusError` (408, 5xx) | Yes | Yes |
+| Transport `HttpError` | Yes | Yes |
+| `AuthError`, `InvalidRequest`, `JsonError` | No | No |
+| `ResponseFormatError` (2xx parse failures) | No | Yes |
+| `ProviderError`, `NoToolSupport` | No | Yes |
+| `Generic` (unsupported features) | No | Yes |
+
+`Generic` programming or capability errors are not retried. HTTP status failures are mapped to typed variants (`AuthError`, `RateLimitError`, `HttpStatusError`) rather than `ResponseFormatError`, which remains reserved for malformed payloads on successful HTTP responses.
 
 ## FallbackLayer
 

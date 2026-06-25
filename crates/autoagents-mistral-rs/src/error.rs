@@ -40,7 +40,7 @@ impl From<MistralRsError> for LLMError {
                 LLMError::ProviderError(format!("Inference failed: {}", e))
             }
             MistralRsError::ConfigError(e) => {
-                LLMError::InvalidRequest(format!("Invalid configuration: {}", e))
+                LLMError::invalid_request(format!("Invalid configuration: {}", e))
             }
             MistralRsError::Other(e) => LLMError::ProviderError(format!("Mistral.rs error: {}", e)),
         }

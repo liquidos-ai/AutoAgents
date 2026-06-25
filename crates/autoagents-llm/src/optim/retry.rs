@@ -6,11 +6,12 @@
 //!   before the stream starts delivering items). Mid-stream errors are not
 //!   retried — the caller must restart the stream explicitly.
 //! - [`AuthError`], [`InvalidRequest`], [`JsonError`], [`ToolConfigError`],
-//!   and [`NoToolSupport`] are **never** retried by the default policy (they
-//!   cannot succeed on a subsequent attempt without user intervention).
-//! - [`HttpError`], [`ProviderError`], and [`Generic`] errors that carry
-//!   rate-limit or server-error signals are retried up to
-//!   `max_attempts − 1` additional times with exponential back-off.
+//!   [`ResponseFormatError`], and [`NoToolSupport`] are **never** retried by the
+//!   default policy.
+//! - [`RateLimitError`], retryable [`HttpStatusError`], and transport
+//!   [`HttpError`] values are retried up to `max_attempts − 1` additional times
+//!   with exponential back-off, honoring provider `Retry-After` hints on
+//!   [`RateLimitError`] and [`HttpStatusError`] up to [`RetryConfig::max_backoff`].
 //!
 //! # Hot-path overhead
 //! On a successful first attempt the only overhead over a bare provider call
@@ -82,34 +83,10 @@ impl Default for RetryConfig {
 
 /// Default retryability predicate.
 ///
-/// Retries when the error message contains rate-limit (429) or server-error
-/// (5xx) signals.  Never retries auth, invalid-request, or structural errors.
+/// Retries typed rate-limit and server errors plus retryable transport failures.
+/// Never retries auth, invalid-request, format/parsing, or generic errors.
 pub fn default_is_retryable(err: &LLMError) -> bool {
-    match err {
-        LLMError::HttpError(msg) | LLMError::ProviderError(msg) => {
-            let m = msg.to_lowercase();
-            m.contains("429")
-                || m.contains("500")
-                || m.contains("502")
-                || m.contains("503")
-                || m.contains("504")
-                || m.contains("529") // Anthropic overload
-                || m.contains("rate limit")
-                || m.contains("too many requests")
-                || m.contains("overloaded")
-                || m.contains("server error")
-                || m.contains("service unavailable")
-        }
-        LLMError::Generic(_) => true,
-        LLMError::AuthError(_)
-        | LLMError::InvalidRequest(_)
-        | LLMError::GuardrailBlocked { .. }
-        | LLMError::GuardrailExecutionFailed { .. }
-        | LLMError::ResponseFormatError { .. }
-        | LLMError::JsonError(_)
-        | LLMError::ToolConfigError(_)
-        | LLMError::NoToolSupport(_) => false,
-    }
+    crate::error::is_retryable(err)
 }
 
 // ---------------------------------------------------------------------------
@@ -172,24 +149,50 @@ struct RetryProvider {
 }
 
 // ---------------------------------------------------------------------------
-// Back-off helpers (no external RNG — uses subsecond system-time entropy)
+// Back-off helpers (thread-local xorshift PRNG for full jitter)
 // ---------------------------------------------------------------------------
+
+thread_local! {
+    static JITTER_RNG: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+fn jitter_seed() -> u64 {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::default();
+    std::thread::current().id().hash(&mut hasher);
+    std::ptr::from_ref(&JITTER_RNG).hash(&mut hasher);
+    if let Ok(duration) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        duration.as_nanos().hash(&mut hasher);
+    }
+    hasher.finish().max(1)
+}
+
+fn next_jitter_random() -> u64 {
+    JITTER_RNG.with(|rng| {
+        let mut state = rng.get();
+        if state == 0 {
+            state = jitter_seed();
+        }
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        rng.set(state);
+        state
+    })
+}
 
 /// Full-jitter sleep duration in `[0, ceiling]`.
 ///
-/// Uses `SystemTime::subsec_nanos()` as a cheap entropy source.  Not
-/// cryptographically uniform, but sufficient for back-off anti-thundering-herd.
+/// Uses a per-thread xorshift PRNG so concurrent callers in the same
+/// millisecond still receive independent jitter samples.
 #[inline]
 fn jitter_duration(ceiling: Duration) -> Duration {
     let nanos = ceiling.as_nanos();
     if nanos == 0 {
         return Duration::ZERO;
     }
-    let seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos() as u128;
-    Duration::from_nanos((seed % nanos) as u64)
+    Duration::from_nanos(((next_jitter_random() as u128) % nanos) as u64)
 }
 
 /// Back-off ceiling for zero-based `attempt` index.
@@ -208,15 +211,35 @@ fn compute_backoff(config: &RetryConfig, attempt: u32) -> Duration {
     }
 }
 
+/// Resolves the sleep duration before the next retry attempt.
+///
+/// Honors provider-supplied `Retry-After` hints on [`RateLimitError`] and
+/// [`HttpStatusError`] by taking the maximum of the configured exponential
+/// back-off and the header value, capped at [`RetryConfig::max_backoff`].
+fn resolve_retry_sleep(err: &LLMError, config: &RetryConfig, attempt: u32) -> Duration {
+    let backoff = compute_backoff(config, attempt);
+    let retry_after = match err {
+        LLMError::RateLimitError { retry_after, .. }
+        | LLMError::HttpStatusError { retry_after, .. } => *retry_after,
+        _ => None,
+    };
+    let sleep_for = match retry_after {
+        Some(retry_after) => backoff.max(retry_after),
+        None => backoff,
+    };
+    sleep_for.min(config.max_backoff)
+}
+
 // ---------------------------------------------------------------------------
 // Core retry loop
 // ---------------------------------------------------------------------------
 
 /// Execute `f` up to `config.max_attempts` times.
 ///
-/// Returns immediately on the first `Ok`.  On a retryable `Err` sleeps for
-/// the computed back-off then retries.  On a non-retryable `Err` or when all
-/// attempts are exhausted, returns the error.
+/// Returns immediately on the first `Ok`.  On a retryable `Err`, sleeps for
+/// [`resolve_retry_sleep`] (exponential back-off and/or provider `Retry-After`,
+/// capped at [`RetryConfig::max_backoff`]) then retries.  On a non-retryable
+/// `Err` or when all attempts are exhausted, returns the error.
 ///
 /// # Hot path (first attempt succeeds)
 /// No allocation, no timer — just `f().await` and a match.
@@ -231,13 +254,13 @@ where
         match f().await {
             Ok(v) => return Ok(v),
             Err(e) if attempt + 1 < max && (config.retryable)(&e) => {
-                let backoff = compute_backoff(config, attempt);
+                let sleep_for = resolve_retry_sleep(&e, config, attempt);
                 log::warn!(
-                    "LLM call failed (attempt {}/{}): {e}. Retrying in {backoff:?}.",
+                    "LLM call failed (attempt {}/{}): {e}. Retrying in {sleep_for:?}.",
                     attempt + 1,
                     max,
                 );
-                tokio::time::sleep(backoff).await;
+                tokio::time::sleep(sleep_for).await;
                 attempt += 1;
             }
             Err(e) => return Err(e),
@@ -450,8 +473,50 @@ mod tests {
                     LLMError::HttpError(m) => LLMError::HttpError(m.clone()),
                     LLMError::ProviderError(m) => LLMError::ProviderError(m.clone()),
                     LLMError::Generic(m) => LLMError::Generic(m.clone()),
-                    LLMError::AuthError(m) => LLMError::AuthError(m.clone()),
-                    LLMError::InvalidRequest(m) => LLMError::InvalidRequest(m.clone()),
+                    LLMError::AuthError {
+                        message,
+                        status_code,
+                        response_body,
+                    } => LLMError::AuthError {
+                        message: message.clone(),
+                        status_code: *status_code,
+                        response_body: response_body.clone(),
+                    },
+                    LLMError::RateLimitError {
+                        status_code,
+                        message,
+                        response_body,
+                        retry_after,
+                        provider_code,
+                    } => LLMError::RateLimitError {
+                        status_code: *status_code,
+                        message: message.clone(),
+                        response_body: response_body.clone(),
+                        retry_after: *retry_after,
+                        provider_code: provider_code.clone(),
+                    },
+                    LLMError::HttpStatusError {
+                        status_code,
+                        message,
+                        response_body,
+                        retry_after,
+                        provider_code,
+                    } => LLMError::HttpStatusError {
+                        status_code: *status_code,
+                        message: message.clone(),
+                        response_body: response_body.clone(),
+                        retry_after: *retry_after,
+                        provider_code: provider_code.clone(),
+                    },
+                    LLMError::InvalidRequest {
+                        message,
+                        status_code,
+                        response_body,
+                    } => LLMError::InvalidRequest {
+                        message: message.clone(),
+                        status_code: *status_code,
+                        response_body: response_body.clone(),
+                    },
                     other => LLMError::Generic(other.to_string()),
                 })
             }
@@ -493,7 +558,7 @@ mod tests {
                     text: "done".into(),
                 })
             } else {
-                Err(LLMError::HttpError("503 service unavailable".into()))
+                Err(sample_http_status_error(503))
             }
         }
     }
@@ -505,7 +570,7 @@ mod tests {
             if n >= self.success_after {
                 Ok(vec![vec![1.0, 2.0]])
             } else {
-                Err(LLMError::HttpError("429 rate limit".into()))
+                Err(sample_rate_limit_error())
             }
         }
     }
@@ -519,9 +584,121 @@ mod tests {
         type Config = crate::NoConfig;
     }
 
+    fn sample_rate_limit_error() -> LLMError {
+        LLMError::RateLimitError {
+            status_code: 429,
+            message: "rate limited".into(),
+            response_body: "limit".into(),
+            retry_after: None,
+            provider_code: None,
+        }
+    }
+
+    fn sample_http_status_error(status_code: u16) -> LLMError {
+        LLMError::HttpStatusError {
+            status_code,
+            message: format!("status {status_code}"),
+            response_body: "down".into(),
+            retry_after: None,
+            provider_code: None,
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Back-off unit tests (no I/O)
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn resolve_retry_sleep_honors_retry_after_on_http_status_error() {
+        let config = RetryConfig {
+            initial_backoff: Duration::from_millis(200),
+            max_backoff: Duration::from_secs(60),
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        let err = LLMError::HttpStatusError {
+            status_code: 503,
+            message: "maintenance".into(),
+            response_body: "body".into(),
+            retry_after: Some(Duration::from_secs(45)),
+            provider_code: None,
+        };
+        assert_eq!(
+            resolve_retry_sleep(&err, &config, 0),
+            Duration::from_secs(45)
+        );
+    }
+
+    #[test]
+    fn resolve_retry_sleep_honors_retry_after_header() {
+        let config = RetryConfig {
+            initial_backoff: Duration::from_millis(200),
+            max_backoff: Duration::from_secs(60),
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        let err = LLMError::RateLimitError {
+            status_code: 429,
+            message: "limit".into(),
+            response_body: "body".into(),
+            retry_after: Some(Duration::from_secs(45)),
+            provider_code: None,
+        };
+        assert_eq!(
+            resolve_retry_sleep(&err, &config, 0),
+            Duration::from_secs(45)
+        );
+    }
+
+    #[test]
+    fn resolve_retry_sleep_caps_at_max_backoff() {
+        let config = RetryConfig {
+            initial_backoff: Duration::from_millis(200),
+            max_backoff: Duration::from_secs(30),
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        let err = LLMError::RateLimitError {
+            status_code: 429,
+            message: "limit".into(),
+            response_body: "body".into(),
+            retry_after: Some(Duration::from_secs(86_400)),
+            provider_code: None,
+        };
+        assert_eq!(
+            resolve_retry_sleep(&err, &config, 0),
+            Duration::from_secs(30)
+        );
+    }
+
+    #[test]
+    fn resolve_retry_sleep_uses_backoff_when_retry_after_is_shorter() {
+        let config = RetryConfig {
+            initial_backoff: Duration::from_secs(5),
+            max_backoff: Duration::from_secs(30),
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        let err = LLMError::RateLimitError {
+            status_code: 429,
+            message: "limit".into(),
+            response_body: "body".into(),
+            retry_after: Some(Duration::from_secs(1)),
+            provider_code: None,
+        };
+        assert_eq!(
+            resolve_retry_sleep(&err, &config, 0),
+            Duration::from_secs(5)
+        );
+    }
+
+    #[test]
+    fn jitter_duration_produces_varied_samples() {
+        let ceiling = Duration::from_secs(30);
+        let first = jitter_duration(ceiling);
+        let varied = (1..64).any(|_| jitter_duration(ceiling) != first);
+        assert!(varied, "jitter should produce multiple distinct durations");
+    }
 
     #[test]
     fn backoff_grows_exponentially() {
@@ -581,27 +758,38 @@ mod tests {
 
     #[test]
     fn retryable_errors() {
-        assert!(default_is_retryable(&LLMError::HttpError(
-            "429 rate limit exceeded".into()
-        )));
-        assert!(default_is_retryable(&LLMError::HttpError(
-            "503 service unavailable".into()
-        )));
-        assert!(default_is_retryable(&LLMError::ProviderError(
-            "overloaded".into()
-        )));
-        assert!(default_is_retryable(&LLMError::Generic(
+        assert!(!default_is_retryable(&LLMError::Generic(
             "connection reset".into()
+        )));
+        assert!(default_is_retryable(&LLMError::RateLimitError {
+            status_code: 429,
+            message: "limit".into(),
+            response_body: "body".into(),
+            retry_after: None,
+            provider_code: None,
+        }));
+        assert!(default_is_retryable(&LLMError::HttpStatusError {
+            status_code: 503,
+            message: "down".into(),
+            response_body: "body".into(),
+            retry_after: None,
+            provider_code: None,
+        }));
+        assert!(default_is_retryable(&LLMError::HttpError(
+            "request timed out: operation timed out".into()
+        )));
+        assert!(!default_is_retryable(&LLMError::ProviderError(
+            "overloaded".into()
         )));
     }
 
     #[test]
     fn non_retryable_errors() {
-        assert!(!default_is_retryable(&LLMError::AuthError(
-            "invalid key".into()
+        assert!(!default_is_retryable(&LLMError::missing_api_key(
+            "invalid key"
         )));
-        assert!(!default_is_retryable(&LLMError::InvalidRequest(
-            "bad param".into()
+        assert!(!default_is_retryable(&LLMError::invalid_request(
+            "bad param"
         )));
         assert!(!default_is_retryable(&LLMError::GuardrailBlocked {
             phase: crate::error::GuardrailPhase::Input,
@@ -661,7 +849,7 @@ mod tests {
     #[tokio::test]
     async fn retries_on_retryable_error_and_succeeds() {
         // Fails on attempts 1 and 2, succeeds on attempt 3.
-        let mock = CountingMock::new(3, LLMError::HttpError("429 rate limit".into()));
+        let mock = CountingMock::new(3, sample_rate_limit_error());
         let provider = build_retry(
             mock.clone(),
             RetryConfig {
@@ -679,7 +867,7 @@ mod tests {
 
     #[tokio::test]
     async fn exhausts_attempts_and_returns_last_error() {
-        let mock = CountingMock::new(99, LLMError::HttpError("503 unavailable".into()));
+        let mock = CountingMock::new(99, sample_http_status_error(503));
         let provider = build_retry(
             mock.clone(),
             RetryConfig {
@@ -697,7 +885,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_retryable_error_is_not_retried() {
-        let mock = CountingMock::new(99, LLMError::AuthError("invalid key".into()));
+        let mock = CountingMock::new(99, LLMError::missing_api_key("invalid key".to_string()));
         let provider = build_retry(
             mock.clone(),
             RetryConfig {
@@ -714,7 +902,7 @@ mod tests {
 
     #[tokio::test]
     async fn max_attempts_one_means_no_retry() {
-        let mock = CountingMock::new(99, LLMError::HttpError("429".into()));
+        let mock = CountingMock::new(99, sample_rate_limit_error());
         let provider = build_retry(
             mock.clone(),
             RetryConfig {
@@ -743,7 +931,7 @@ mod tests {
 
     #[tokio::test]
     async fn completion_is_retried() {
-        let mock = CountingMock::new(2, LLMError::HttpError("503".into()));
+        let mock = CountingMock::new(2, sample_http_status_error(503));
         let provider = build_retry(
             mock.clone(),
             RetryConfig {
@@ -761,7 +949,7 @@ mod tests {
 
     #[tokio::test]
     async fn embedding_is_retried() {
-        let mock = CountingMock::new(2, LLMError::HttpError("429 rate limit".into()));
+        let mock = CountingMock::new(2, sample_rate_limit_error());
         let provider = build_retry(
             mock.clone(),
             RetryConfig {
@@ -779,14 +967,14 @@ mod tests {
     #[tokio::test]
     async fn custom_retryable_predicate() {
         // Custom predicate: only retry on auth errors (unusual, but proves override works).
-        let mock = CountingMock::new(3, LLMError::AuthError("retry me".into()));
+        let mock = CountingMock::new(3, LLMError::missing_api_key("retry me".to_string()));
         let provider = build_retry(
             mock.clone(),
             RetryConfig {
                 max_attempts: 5,
                 jitter: false,
                 initial_backoff: Duration::from_millis(1),
-                retryable: |err| matches!(err, LLMError::AuthError(_)),
+                retryable: |err| matches!(err, LLMError::AuthError { .. }),
                 ..RetryConfig::default()
             },
         );
@@ -794,6 +982,65 @@ mod tests {
         let resp = provider.chat(&[msg], None).await.unwrap();
         assert_eq!(resp.text().unwrap(), "ok");
         assert_eq!(mock.call_count(), 3);
+    }
+
+    #[tokio::test]
+    async fn retries_on_http_429_from_provider() {
+        use crate::backends::groq::Groq;
+        use httpmock::{Method::POST, MockServer};
+
+        static ATTEMPTS: AtomicU32 = AtomicU32::new(0);
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(POST).path("/openai/v1/chat/completions");
+            then.respond_with(move |_req| {
+                let attempt = ATTEMPTS.fetch_add(1, Ordering::Relaxed) + 1;
+                if attempt == 1 {
+                    httpmock::HttpMockResponse::builder()
+                        .status(429)
+                        .header("Retry-After", "0")
+                        .body(r#"{"error":{"message":"rate limited"}}"#)
+                        .build()
+                } else {
+                    httpmock::HttpMockResponse::builder()
+                        .status(200)
+                        .body(
+                            r#"{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#,
+                        )
+                        .build()
+                }
+            });
+        });
+
+        let inner = Groq::with_config(
+            "key",
+            Some(format!("{}/openai/v1", server.base_url())),
+            Some("llama3-8b-8192".to_string()),
+            None,
+            None,
+            Some(5),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let provider = RetryLayer::new(RetryConfig {
+            max_attempts: 3,
+            jitter: false,
+            initial_backoff: Duration::from_millis(1),
+            ..RetryConfig::default()
+        })
+        .build_arc(Arc::new(inner) as Arc<dyn LLMProvider>);
+
+        let msg = ChatMessage::user().content("hi").build();
+        let resp = provider.chat(&[msg], None).await.unwrap();
+        assert_eq!(resp.text().as_deref(), Some("ok"));
+        assert_eq!(ATTEMPTS.load(Ordering::Relaxed), 2);
     }
 
     // Verify the FunctionCall import used in mock is available.

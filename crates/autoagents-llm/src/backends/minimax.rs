@@ -4,6 +4,7 @@
 //! OpenAI-compatible API. Supports MiniMax-M2.5 and MiniMax-M2.5-highspeed models.
 
 use crate::builder::LLMBuilder;
+use crate::http::ensure_success;
 use crate::{
     LLMProvider,
     builder::LLMBackend,
@@ -107,7 +108,9 @@ impl ModelsProvider for MiniMax {
         _request: Option<&ModelListRequest>,
     ) -> Result<Box<dyn ModelListResponse>, LLMError> {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing MiniMax API key".to_string()));
+            return Err(LLMError::missing_api_key(
+                "Missing MiniMax API key".to_string(),
+            ));
         }
 
         let url = format!("{}models", MiniMaxConfig::DEFAULT_BASE_URL);
@@ -117,8 +120,8 @@ impl ModelsProvider for MiniMax {
             .get(&url)
             .bearer_auth(&self.api_key)
             .send()
-            .await?
-            .error_for_status()?;
+            .await?;
+        let resp = ensure_success(resp, "MiniMax").await?;
 
         let result = StandardModelListResponse {
             inner: resp.json().await?,
@@ -132,7 +135,7 @@ impl LLMBuilder<MiniMax> {
     /// Builds the MiniMax provider from the configured builder.
     pub fn build(self) -> Result<Arc<MiniMax>, LLMError> {
         let api_key = self.api_key.ok_or_else(|| {
-            LLMError::InvalidRequest("No API key provided for MiniMax".to_string())
+            LLMError::invalid_request("No API key provided for MiniMax".to_string())
         })?;
 
         let minimax = MiniMax::with_config(
@@ -183,7 +186,7 @@ mod tests {
         assert_eq!(provider.model, MiniMaxConfig::DEFAULT_MODEL);
         assert_eq!(provider.max_tokens, Some(200));
         assert_eq!(provider.temperature, Some(0.5));
-        assert_eq!(provider.timeout_seconds, Some(12));
+        assert_eq!(provider.timeout_seconds, 12);
     }
 
     #[test]

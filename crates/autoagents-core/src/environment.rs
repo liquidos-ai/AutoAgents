@@ -21,7 +21,7 @@ pub enum EnvironmentError {
     AlreadyRunning,
 
     #[error("Runtime error: {0}")]
-    RuntimeError(#[from] RuntimeError),
+    RuntimeError(#[from] Box<RuntimeError>),
 
     #[error("Error when consuming receiver")]
     EventError,
@@ -217,7 +217,7 @@ impl Environment {
         manager
             .run_background()
             .await
-            .map_err(EnvironmentError::RuntimeError)?;
+            .map_err(|e| EnvironmentError::RuntimeError(Box::new(e)))?;
         self.launch_state = RuntimeLaunchState::Background;
         Ok(())
     }
@@ -270,12 +270,12 @@ impl Environment {
         self.launch_state = RuntimeLaunchState::Idle;
 
         if let Err(e) = stop_result {
-            return Err(EnvironmentError::RuntimeError(e));
+            return Err(EnvironmentError::RuntimeError(Box::new(e)));
         }
 
         match join_result {
             None | Some(Ok(Ok(()))) => Ok(()),
-            Some(Ok(Err(e))) => Err(EnvironmentError::RuntimeError(e)),
+            Some(Ok(Err(e))) => Err(EnvironmentError::RuntimeError(Box::new(e))),
             Some(Err(e)) => Err(EnvironmentError::JoinError(e)),
         }
     }
@@ -333,7 +333,7 @@ impl Environment {
 
         match handle.now_or_never() {
             Some(Ok(Ok(()))) => Ok(()),
-            Some(Ok(Err(e))) => Err(EnvironmentError::RuntimeError(e)),
+            Some(Ok(Err(e))) => Err(EnvironmentError::RuntimeError(Box::new(e))),
             Some(Err(e)) => Err(EnvironmentError::JoinError(e)),
             None => Err(EnvironmentError::RunResultNotReady),
         }

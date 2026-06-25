@@ -3,6 +3,7 @@
 //! This module provides integration with OpenRouter's LLM models through their API.
 
 use crate::builder::LLMBuilder;
+use crate::http::ensure_success;
 use crate::{
     LLMProvider,
     builder::LLMBackend,
@@ -106,7 +107,7 @@ impl ModelsProvider for OpenRouter {
         _request: Option<&ModelListRequest>,
     ) -> Result<Box<dyn ModelListResponse>, LLMError> {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError(
+            return Err(LLMError::missing_api_key(
                 "Missing OpenRouter API key".to_string(),
             ));
         }
@@ -118,8 +119,8 @@ impl ModelsProvider for OpenRouter {
             .get(&url)
             .bearer_auth(&self.api_key)
             .send()
-            .await?
-            .error_for_status()?;
+            .await?;
+        let resp = ensure_success(resp, "OpenRouter").await?;
 
         let result = StandardModelListResponse {
             inner: resp.json().await?,
@@ -132,7 +133,7 @@ impl ModelsProvider for OpenRouter {
 impl LLMBuilder<OpenRouter> {
     pub fn build(self) -> Result<Arc<OpenRouter>, LLMError> {
         let api_key = self.api_key.ok_or_else(|| {
-            LLMError::InvalidRequest("No API key provided for OpenRouter".to_string())
+            LLMError::invalid_request("No API key provided for OpenRouter".to_string())
         })?;
 
         let openrouter = OpenRouter::with_config(

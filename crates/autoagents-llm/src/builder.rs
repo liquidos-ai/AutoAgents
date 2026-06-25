@@ -83,7 +83,7 @@ impl std::str::FromStr for LLMBackend {
             "azure-openai" => Ok(LLMBackend::AzureOpenAI),
             "openrouter" => Ok(LLMBackend::OpenRouter),
             "minimax" => Ok(LLMBackend::MiniMax),
-            _ => Err(LLMError::InvalidRequest(format!(
+            _ => Err(LLMError::invalid_request(format!(
                 "Unknown LLM backend: {s}"
             ))),
         }
@@ -253,6 +253,9 @@ impl<L: LLMProvider + HasConfig> LLMBuilder<L> {
     }
 
     /// Sets the request timeout in seconds.
+    ///
+    /// When unset, providers resolve to [`DEFAULT_REQUEST_TIMEOUT_SECS`](crate::config::DEFAULT_REQUEST_TIMEOUT_SECS)
+    /// (120 seconds) at build time.
     pub fn timeout_seconds(mut self, timeout_seconds: u64) -> Self {
         self.timeout_seconds = Some(timeout_seconds);
         self

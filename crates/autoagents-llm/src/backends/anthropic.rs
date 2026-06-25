@@ -12,8 +12,10 @@ use crate::{
         StructuredOutputFormat, Tool, ToolChoice, Usage,
     },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
+    config::resolve_request_timeout,
     embedding::EmbeddingProvider,
     error::LLMError,
+    http::ensure_success,
     models::{ModelListRawEntry, ModelListRequest, ModelListResponse, ModelsProvider},
 };
 use async_trait::async_trait;
@@ -451,7 +453,7 @@ impl Anthropic {
             .collect();
 
         if anthropic_messages.is_empty() {
-            return Err(LLMError::InvalidRequest(
+            return Err(LLMError::invalid_request(
                 "At least one non-system message is required".to_string(),
             ));
         }
@@ -547,7 +549,7 @@ impl Anthropic {
     /// * `model` - Model identifier (defaults to "claude-3-sonnet-20240229")
     /// * `max_tokens` - Maximum tokens in response (defaults to 300)
     /// * `temperature` - Sampling temperature (defaults to 0.7)
-    /// * `timeout_seconds` - Request timeout in seconds (defaults to 30)
+    /// * `timeout_seconds` - Request timeout in seconds (defaults to 120)
     /// *
     /// * `thinking_budget_tokens` - Budget tokens for thinking (optional)
     #[allow(clippy::too_many_arguments)]
@@ -563,22 +565,23 @@ impl Anthropic {
         reasoning: Option<bool>,
         thinking_budget_tokens: Option<u32>,
     ) -> Self {
-        let mut builder = Client::builder();
-        if let Some(sec) = timeout_seconds {
-            builder = builder.timeout(std::time::Duration::from_secs(sec));
-        }
+        let timeout_seconds = resolve_request_timeout(timeout_seconds);
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_seconds))
+            .build()
+            .expect("Failed to build reqwest Client");
         Self {
             api_key: api_key.into(),
             model: model.unwrap_or_else(|| "claude-3-sonnet-20240229".to_string()),
             max_tokens: max_tokens.unwrap_or(300),
             temperature: temperature.unwrap_or(0.7),
-            timeout_seconds: timeout_seconds.unwrap_or(30),
+            timeout_seconds,
             top_p,
             top_k,
             tool_choice,
             reasoning: reasoning.unwrap_or(false),
             thinking_budget_tokens,
-            client: builder.build().expect("Failed to build reqwest Client"),
+            client,
         }
     }
 }
@@ -603,7 +606,9 @@ impl ChatProvider for Anthropic {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing Anthropic API key".to_string()));
+            return Err(LLMError::missing_api_key(
+                "Missing Anthropic API key".to_string(),
+            ));
         }
 
         let anthropic_messages = Self::convert_messages_to_anthropic(messages)?;
@@ -641,17 +646,13 @@ impl ChatProvider for Anthropic {
             output_config,
         };
 
-        let mut request = self
+        let request = self
             .client
             .post("https://api.anthropic.com/v1/messages")
             .header("x-api-key", &self.api_key)
             .header("Content-Type", "application/json")
             .header("anthropic-version", "2023-06-01")
             .json(&req_body);
-
-        if self.timeout_seconds > 0 {
-            request = request.timeout(std::time::Duration::from_secs(self.timeout_seconds));
-        }
 
         if log::log_enabled!(log::Level::Trace)
             && let Ok(json) = serde_json::to_string(&req_body)
@@ -663,11 +664,14 @@ impl ChatProvider for Anthropic {
         let resp = request.send().await?;
         log::debug!("Anthropic HTTP status: {}", resp.status());
 
-        let resp = resp.error_for_status()?;
+        let resp = ensure_success(resp, "Anthropic").await?;
 
         let body = resp.text().await?;
-        let json_resp: AnthropicCompleteResponse = serde_json::from_str(&body)
-            .map_err(|e| LLMError::HttpError(format!("Failed to parse JSON: {e}")))?;
+        let json_resp: AnthropicCompleteResponse =
+            serde_json::from_str(&body).map_err(|e| LLMError::ResponseFormatError {
+                message: format!("Failed to decode Anthropic response: {e}"),
+                raw_response: body,
+            })?;
         Ok(Box::new(json_resp))
     }
 
@@ -706,12 +710,14 @@ impl ChatProvider for Anthropic {
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
     {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing Anthropic API key".to_string()));
+            return Err(LLMError::missing_api_key(
+                "Missing Anthropic API key".to_string(),
+            ));
         }
 
         let req_body = self.build_stream_request(messages, json_schema)?;
 
-        let mut request = self
+        let request = self
             .client
             .post("https://api.anthropic.com/v1/messages")
             .header("x-api-key", &self.api_key)
@@ -719,19 +725,8 @@ impl ChatProvider for Anthropic {
             .header("anthropic-version", "2023-06-01")
             .json(&req_body);
 
-        if self.timeout_seconds > 0 {
-            request = request.timeout(std::time::Duration::from_secs(self.timeout_seconds));
-        }
-
         let response = request.send().await?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await?;
-            return Err(LLMError::ResponseFormatError {
-                message: format!("Anthropic API returned error status: {status}"),
-                raw_response: error_text,
-            });
-        }
+        let response = ensure_success(response, "Anthropic").await?;
         Ok(crate::chat::create_sse_stream(
             response,
             parse_anthropic_sse_chunk,
@@ -758,7 +753,9 @@ impl ChatProvider for Anthropic {
     ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError>
     {
         if self.api_key.is_empty() {
-            return Err(LLMError::AuthError("Missing Anthropic API key".to_string()));
+            return Err(LLMError::missing_api_key(
+                "Missing Anthropic API key".to_string(),
+            ));
         }
 
         let anthropic_messages = Self::convert_messages_to_anthropic(messages)?;
@@ -789,17 +786,13 @@ impl ChatProvider for Anthropic {
             output_config: build_output_config(json_schema),
         };
 
-        let mut request = self
+        let request = self
             .client
             .post("https://api.anthropic.com/v1/messages")
             .header("x-api-key", &self.api_key)
             .header("Content-Type", "application/json")
             .header("anthropic-version", "2023-06-01")
             .json(&req_body);
-
-        if self.timeout_seconds > 0 {
-            request = request.timeout(std::time::Duration::from_secs(self.timeout_seconds));
-        }
 
         if log::log_enabled!(log::Level::Trace)
             && let Ok(json) = serde_json::to_string(&req_body)
@@ -811,14 +804,7 @@ impl ChatProvider for Anthropic {
         let response = request.send().await?;
         log::debug!("Anthropic HTTP status: {}", response.status());
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await?;
-            return Err(LLMError::ResponseFormatError {
-                message: format!("Anthropic API returned error status: {status}"),
-                raw_response: error_text,
-            });
-        }
+        let response = ensure_success(response, "Anthropic").await?;
 
         Ok(create_anthropic_tool_stream(response))
     }
@@ -969,6 +955,7 @@ impl ModelsProvider for Anthropic {
             .send()
             .await?;
 
+        let resp = ensure_success(resp, "Anthropic").await?;
         let result: AnthropicModelListResponse = resp.json().await?;
 
         Ok(Box::new(result))
@@ -1147,7 +1134,7 @@ fn parse_anthropic_sse_chunk_with_tools(
 impl LLMBuilder<Anthropic> {
     pub fn build(self) -> Result<Arc<Anthropic>, LLMError> {
         let api_key = self.api_key.ok_or_else(|| {
-            LLMError::InvalidRequest("No API key provided for Anthropic".to_string())
+            LLMError::invalid_request("No API key provided for Anthropic".to_string())
         })?;
 
         let anthro = Anthropic::new(
@@ -1724,6 +1711,29 @@ data: {"type": "ping"}
         );
     }
 
+    #[tokio::test]
+    async fn test_list_models_maps_401_to_auth_error() {
+        let server = httpmock::MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/v1/models");
+            then.status(401)
+                .body(r#"{"error":{"message":"invalid key"}}"#);
+        });
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(format!("{}/v1/models", server.base_url()))
+            .header("x-api-key", "key")
+            .send()
+            .await
+            .expect("request should complete");
+
+        let err = ensure_success(resp, "Anthropic")
+            .await
+            .expect_err("401 should map to AuthError");
+        assert!(matches!(err, LLMError::AuthError { .. }));
+    }
+
     #[test]
     fn test_convert_messages_to_anthropic_rejects_system_only() {
         let messages = [ChatMessage {
@@ -1737,7 +1747,7 @@ data: {"type": "ping"}
 
         assert!(matches!(
             err,
-            LLMError::InvalidRequest(message)
+            LLMError::InvalidRequest { message, .. }
                 if message == "At least one non-system message is required"
         ));
     }
@@ -1826,7 +1836,7 @@ data: {"type": "ping"}
             .chat_with_tools(&[ChatMessage::user().content("hello").build()], None, None)
             .await
             .expect_err("missing api key should fail");
-        assert!(matches!(auth_err, LLMError::AuthError(_)));
+        assert!(matches!(auth_err, LLMError::AuthError { .. }));
 
         let invalid = Anthropic::new("key", None, None, None, None, None, None, None, None, None)
             .chat_with_tools(
@@ -1840,7 +1850,7 @@ data: {"type": "ping"}
             )
             .await
             .expect_err("system-only messages should be rejected");
-        assert!(matches!(invalid, LLMError::InvalidRequest(_)));
+        assert!(matches!(invalid, LLMError::InvalidRequest { .. }));
 
         let stream_auth_err =
             match Anthropic::new("", None, None, None, None, None, None, None, None, None)
@@ -1850,7 +1860,7 @@ data: {"type": "ping"}
                 Ok(_) => panic!("missing api key should fail for chat_stream"),
                 Err(err) => err,
             };
-        assert!(matches!(stream_auth_err, LLMError::AuthError(_)));
+        assert!(matches!(stream_auth_err, LLMError::AuthError { .. }));
 
         let stream_invalid =
             match Anthropic::new("key", None, None, None, None, None, None, None, None, None)
@@ -1867,7 +1877,7 @@ data: {"type": "ping"}
                 Ok(_) => panic!("system-only streaming messages should be rejected"),
                 Err(err) => err,
             };
-        assert!(matches!(stream_invalid, LLMError::InvalidRequest(_)));
+        assert!(matches!(stream_invalid, LLMError::InvalidRequest { .. }));
     }
 
     #[tokio::test]

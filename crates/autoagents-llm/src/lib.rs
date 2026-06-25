@@ -56,6 +56,13 @@ pub mod embedding;
 /// Error types and handling
 pub mod error;
 
+/// Shared configuration constants.
+pub mod config;
+
+/// Centralized HTTP response handling for provider backends.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod http;
+
 /// Evaluator for LLM providers
 pub mod evaluator;
 

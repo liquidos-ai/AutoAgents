@@ -60,10 +60,10 @@ impl From<LlamaCppProviderError> for LLMError {
                 LLMError::ProviderError(format!("Inference failed: {}", e))
             }
             LlamaCppProviderError::Config(e) => {
-                LLMError::InvalidRequest(format!("Invalid configuration: {}", e))
+                LLMError::invalid_request(format!("Invalid configuration: {}", e))
             }
             LlamaCppProviderError::Template(e) => {
-                LLMError::InvalidRequest(format!("Template error: {}", e))
+                LLMError::invalid_request(format!("Template error: {}", e))
             }
             LlamaCppProviderError::Embedding(e) => {
                 LLMError::ProviderError(format!("Embedding failed: {}", e))
