@@ -27,7 +27,7 @@ const DANGEROUS_ENV_VARS: &[&str] = &[
 ];
 
 /// Build the effective stdio command allowlist from defaults and environment.
-pub fn effective_allowed_commands() -> Result<HashSet<String>, McpSecurityError> {
+pub fn effective_allowed_commands() -> HashSet<String> {
     let mut allowed: HashSet<String> = DEFAULT_STDIO_ALLOWED_COMMANDS
         .iter()
         .map(|c| (*c).to_string())
@@ -35,12 +35,17 @@ pub fn effective_allowed_commands() -> Result<HashSet<String>, McpSecurityError>
 
     if let Ok(extra) = env::var(ENV_EXTRA_COMMANDS) {
         for command in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-            validate_command_is_bare_name(command)?;
+            if let Err(err) = validate_command_is_bare_name(command) {
+                log::warn!(
+                    "skipping invalid AUTOAGENTS_MCP_STDIO_EXTRA_COMMANDS entry '{command}': {err}"
+                );
+                continue;
+            }
             allowed.insert(command.to_string());
         }
     }
 
-    Ok(allowed)
+    allowed
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -428,14 +433,14 @@ mod tests {
 
     #[test]
     fn effective_allowed_commands_includes_defaults() {
-        let allowed = effective_allowed_commands().unwrap();
+        let allowed = effective_allowed_commands();
         assert!(allowed.contains("python3"));
         assert!(allowed.contains("npx"));
     }
 
     #[test]
     fn rejects_absolute_command_paths() {
-        let allowed = effective_allowed_commands().unwrap();
+        let allowed = effective_allowed_commands();
         assert!(validate_command_allowlist("/usr/bin/python3", &allowed).is_err());
         assert!(validate_command_allowlist("../../bin/sh", &allowed).is_err());
         assert!(validate_command_allowlist("bin/python", &allowed).is_err());
@@ -443,13 +448,13 @@ mod tests {
 
     #[test]
     fn allows_bare_launcher_names() {
-        let allowed = effective_allowed_commands().unwrap();
+        let allowed = effective_allowed_commands();
         assert!(validate_command_allowlist("python3", &allowed).is_ok());
     }
 
     #[test]
     fn rejects_disallowed_commands() {
-        let allowed = effective_allowed_commands().unwrap();
+        let allowed = effective_allowed_commands();
         assert!(validate_command_allowlist("bash", &allowed).is_err());
         assert!(validate_command_allowlist("sh", &allowed).is_err());
     }

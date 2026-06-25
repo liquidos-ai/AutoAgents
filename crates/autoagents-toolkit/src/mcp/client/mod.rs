@@ -118,7 +118,7 @@ impl McpToolsManager {
 
     /// Load MCP configuration from a file and connect to all servers.
     pub async fn from_config_file<P: AsRef<Path>>(path: P) -> Result<Self, McpError> {
-        Self::from_config_file_with_policy(path, McpSecurityPolicy::secure_default()?).await
+        Self::from_config_file_with_policy(path, McpSecurityPolicy::secure_default()).await
     }
 
     /// Load MCP configuration from a file using a custom security policy.
@@ -202,22 +202,8 @@ impl McpToolsManager {
                 )
                 .await?
             }
-            "http" => {
-                http::connect_http_server(
-                    server_config,
-                    false,
-                    self.security_policy.allow_private_http_endpoints(),
-                )
-                .await?
-            }
-            "sse" => {
-                http::connect_http_server(
-                    server_config,
-                    true,
-                    self.security_policy.allow_private_http_endpoints(),
-                )
-                .await?
-            }
+            "http" => http::connect_http_server(server_config, false).await?,
+            "sse" => http::connect_http_server(server_config, true).await?,
             other => {
                 return Err(McpError::ConfigError(format!(
                     "Unsupported protocol: {other}"
@@ -441,9 +427,7 @@ mod tests {
 
     #[test]
     fn validate_allows_non_allowlisted_command_when_approver_configured() {
-        let policy = McpSecurityPolicy::secure_default()
-            .unwrap()
-            .with_approver(Arc::new(AlwaysApprove));
+        let policy = McpSecurityPolicy::secure_default().with_approver(Arc::new(AlwaysApprove));
         let config = McpServerConfig::new(
             "custom".to_string(),
             "stdio".to_string(),

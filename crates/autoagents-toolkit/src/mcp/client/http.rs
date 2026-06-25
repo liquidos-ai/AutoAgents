@@ -12,14 +12,12 @@ use rmcp::{
 };
 
 use crate::mcp::config::McpServerConfig;
-use crate::mcp::security::validate_http_url;
 
 use super::{McpError, with_timeout};
 
 pub async fn connect_http_server(
     config: &McpServerConfig,
     legacy_sse: bool,
-    allow_private_http_endpoints: bool,
 ) -> Result<Arc<RunningService<RoleClient, ClientInfo>>, McpError> {
     if legacy_sse {
         log::warn!(
@@ -31,8 +29,6 @@ pub async fn connect_http_server(
     let url = config.url.as_ref().ok_or_else(|| {
         McpError::ConfigError("url is required for http/sse transport".to_string())
     })?;
-
-    validate_http_url(url, allow_private_http_endpoints).map_err(McpError::from)?;
 
     let timeout = Duration::from_secs(config.timeout);
     let http_client = Client::builder()

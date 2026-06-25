@@ -57,7 +57,7 @@ fn default_timeout() -> u64 {
 impl McpConfig {
     /// Load MCP configuration from a TOML file with secure-default validation.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
-        let policy = McpSecurityPolicy::secure_default()?;
+        let policy = McpSecurityPolicy::secure_default();
         Self::from_file_with_policy(path, &policy)
     }
 
@@ -599,5 +599,45 @@ DEBUG = "1"
         assert_eq!(original.command, parsed.command);
         assert_eq!(original.args, parsed.args);
         assert_eq!(original.env, parsed.env);
+    }
+
+    #[test]
+    fn test_stdio_args_must_stay_within_config_base() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let base = dir.path();
+        let script_dir = base.join("servers");
+        std::fs::create_dir_all(&script_dir).unwrap();
+        let script = script_dir.join("echo.py");
+        std::fs::write(&script, b"# ok").unwrap();
+
+        let outside = tempdir().unwrap();
+        let outside_script = outside.path().join("evil.py");
+        std::fs::write(&outside_script, b"# evil").unwrap();
+
+        let mut allowed = McpServerConfig::new(
+            "allowed".to_string(),
+            "stdio".to_string(),
+            "python3".to_string(),
+        )
+        .with_args(vec!["servers/echo.py".to_string()]);
+        allowed.resolve_paths(base);
+        allowed
+            .validate(&McpSecurityPolicy::default(), Some(base))
+            .unwrap();
+
+        let mut escaped = McpServerConfig::new(
+            "escaped".to_string(),
+            "stdio".to_string(),
+            "python3".to_string(),
+        )
+        .with_args(vec![outside_script.to_string_lossy().to_string()]);
+        escaped.resolve_paths(base);
+        assert!(
+            escaped
+                .validate(&McpSecurityPolicy::default(), Some(base))
+                .is_err()
+        );
     }
 }

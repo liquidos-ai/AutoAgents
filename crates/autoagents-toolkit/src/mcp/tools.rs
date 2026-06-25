@@ -26,7 +26,7 @@ impl McpTools {
 
     /// Create MCP tools from a configuration file using secure-default policy.
     pub async fn from_config<P: AsRef<Path>>(config_path: P) -> Result<Self, McpError> {
-        Self::from_config_with_policy(config_path, McpSecurityPolicy::secure_default()?).await
+        Self::from_config_with_policy(config_path, McpSecurityPolicy::secure_default()).await
     }
 
     /// Create MCP tools from a configuration file with a custom security policy.
@@ -42,7 +42,7 @@ impl McpTools {
 
     /// Create MCP tools from a configuration object using secure-default policy.
     pub async fn from_config_object(config: &McpConfig) -> Result<Self, McpError> {
-        Self::from_config_object_with_policy(config, McpSecurityPolicy::secure_default()?).await
+        Self::from_config_object_with_policy(config, McpSecurityPolicy::secure_default()).await
     }
 
     /// Create MCP tools from a configuration object with a custom security policy.
