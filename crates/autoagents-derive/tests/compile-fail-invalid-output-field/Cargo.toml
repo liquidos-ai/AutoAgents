@@ -1,0 +1,13 @@
+[package]
+name = "derive-compile-fail-invalid-output-field"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+autoagents-core = { path = "../../../autoagents-core" }
+autoagents-derive = { path = "../.." }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+
+[workspace]

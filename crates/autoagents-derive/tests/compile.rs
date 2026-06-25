@@ -110,3 +110,59 @@ fn compile_fail_missing_serde_json_dependency() {
         "expected serde_json resolution error, got: {output}"
     );
 }
+
+#[test]
+fn compile_fail_missing_async_trait_dependency() {
+    let manifest = manifest_path("compile-fail-missing-async-trait");
+    let (success, output) = cargo_check_manifest(&manifest);
+    assert!(
+        !success,
+        "direct autoagents-core without async-trait should fail AgentHooks derive; output: {output}"
+    );
+    assert!(
+        output.contains("async-trait"),
+        "expected async-trait dependency error, got: {output}"
+    );
+}
+
+#[test]
+fn compile_fail_invalid_strict_attribute() {
+    let manifest = manifest_path("compile-fail-invalid-strict");
+    let (success, output) = cargo_check_manifest(&manifest);
+    assert!(
+        !success,
+        "invalid #[strict] attribute should fail to compile; output: {output}"
+    );
+    assert!(
+        output.contains("boolean literal"),
+        "expected strict attribute validation error, got: {output}"
+    );
+}
+
+#[test]
+fn compile_fail_missing_output_field_attribute() {
+    let manifest = manifest_path("compile-fail-invalid-output-field");
+    let (success, output) = cargo_check_manifest(&manifest);
+    assert!(
+        !success,
+        "AgentOutput without #[output] fields should fail to compile; output: {output}"
+    );
+    assert!(
+        output.contains("at least one field"),
+        "expected missing output attribute error, got: {output}"
+    );
+}
+
+#[test]
+fn compile_fail_mismatched_tool_input_choice_type() {
+    let manifest = manifest_path("compile-fail-invalid-choice");
+    let (success, output) = cargo_check_manifest(&manifest);
+    assert!(
+        !success,
+        "numeric choices on string field should fail to compile; output: {output}"
+    );
+    assert!(
+        output.contains("same type"),
+        "expected choice type validation error, got: {output}"
+    );
+}
