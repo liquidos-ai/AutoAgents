@@ -317,7 +317,7 @@ fn analyze_complexity(sandbox: &FilesystemSandbox, path: &Path) -> Result<String
         );
         let decision_points = count_regex_matches(
             &content,
-            r"\b(if|else if|for|while|match|case|catch|&&|\|\|)\b|\?",
+            r"\b(if|else if|for|while|match|case|catch|&&|\|\|)\b",
         );
         let complexity = 1 + decision_points;
 

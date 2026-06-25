@@ -86,8 +86,8 @@ where
 
         Ok(json!({
             "success": true,
-            "source": src_path.display().to_string(),
-            "destination": dest_path.display().to_string(),
+            "source": self.sandbox().relative_path_display(&src_path),
+            "destination": self.sandbox().relative_path_display(&dest_path),
             "bytes_copied": bytes_copied
         }))
     }

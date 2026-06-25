@@ -41,6 +41,19 @@ impl FilesystemSandbox {
         &self.root
     }
 
+    /// Format a resolved path as a sandbox-relative path for tool output.
+    pub fn relative_path_display(&self, path: &Path) -> String {
+        path.strip_prefix(&self.root)
+            .map(|relative| {
+                if relative.as_os_str().is_empty() {
+                    ".".to_string()
+                } else {
+                    relative.display().to_string()
+                }
+            })
+            .unwrap_or_else(|_| path.display().to_string())
+    }
+
     /// Resolve a user-supplied relative path under the sandbox root.
     pub fn resolve_relative(&self, user_path: &str) -> io::Result<PathBuf> {
         let user_path = user_path.trim();
@@ -277,6 +290,19 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
 
         let _ = fs::remove_file(outside);
+    }
+
+    #[test]
+    fn relative_path_display_strips_sandbox_root() {
+        let tmp = tempdir().expect("tempdir");
+        let nested = tmp.path().join("nested/file.txt");
+        fs::create_dir_all(nested.parent().unwrap()).expect("mkdir");
+        fs::write(&nested, "data").expect("write");
+
+        let sandbox = FilesystemSandbox::new(tmp.path()).expect("sandbox");
+        let resolved = sandbox.ensure_resolved(&nested).expect("resolve");
+        assert_eq!(sandbox.relative_path_display(&resolved), "nested/file.txt");
+        assert_eq!(sandbox.relative_path_display(sandbox.root()), ".");
     }
 
     #[test]

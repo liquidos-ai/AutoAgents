@@ -147,7 +147,7 @@ where
 
             if Self::matches_pattern(&file_name, &pattern, case_sensitive) {
                 results.push(json!({
-                    "path": validated_path.display().to_string(),
+                    "path": self.sandbox().relative_path_display(&validated_path),
                     "name": file_name,
                     "size": metadata.len(),
                     "match_type": "filename"
@@ -157,7 +157,7 @@ where
 
         Ok(json!({
             "success": true,
-            "directory": dir_path.display().to_string(),
+            "directory": self.sandbox().relative_path_display(&dir_path),
             "pattern": pattern,
             "max_iterations": self.max_iterations,
             "iterations": iterations,

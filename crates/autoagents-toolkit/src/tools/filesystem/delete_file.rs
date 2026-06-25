@@ -93,7 +93,7 @@ where
 
         Ok(json!({
             "success": true,
-            "path": file_path.display().to_string(),
+            "path": self.sandbox().relative_path_display(&file_path),
             "type": if is_dir { "directory" } else { "file" },
             "recursive": recursive
         }))

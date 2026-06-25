@@ -99,8 +99,8 @@ where
 
         Ok(json!({
             "success": true,
-            "source": src_path.display().to_string(),
-            "destination": dest_path.display().to_string(),
+            "source": self.sandbox().relative_path_display(&src_path),
+            "destination": self.sandbox().relative_path_display(&dest_path),
             "type": if is_directory { "directory" } else { "file" }
         }))
     }

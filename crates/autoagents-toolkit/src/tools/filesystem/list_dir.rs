@@ -116,7 +116,7 @@ where
 
             entries.push(json!({
                 "name": file_name,
-                "path": validated_path.display().to_string(),
+                "path": self.sandbox().relative_path_display(&validated_path),
                 "is_dir": is_dir,
                 "size": if !is_dir { metadata.len() } else { 0 },
             }));
@@ -124,7 +124,7 @@ where
 
         Ok(json!({
             "success": true,
-            "directory": dir_path.display().to_string(),
+            "directory": self.sandbox().relative_path_display(&dir_path),
             "count": entries.len(),
             "entries": entries
         }))

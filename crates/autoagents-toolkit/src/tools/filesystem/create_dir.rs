@@ -111,7 +111,7 @@ where
 
         Ok(json!({
             "success": true,
-            "path": path.display().to_string(),
+            "path": self.sandbox().relative_path_display(&path),
             "already_existed": already_existed,
             "created": created,
             "recursive": recursive,
