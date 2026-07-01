@@ -1,4 +1,23 @@
-#[cfg(all(feature = "openai", not(target_arch = "wasm32")))]
+// On native targets every backend is available as before. On WASI Preview2
+// (`wasm32-wasip2`) only the OpenAI Responses backend is wired up (via the
+// `wasi-http` feature); the other HTTP backends remain native-only for now.
+//
+// The module-level cfg guards below ensure the OpenAI backend compiles on
+// `wasm32-wasip2` only when the `wasi-http` feature is enabled. The crate-level
+// `compile_error!`s in `lib.rs` make the unsupported combinations fail loudly.
+
+#[cfg(all(
+    feature = "openai",
+    any(
+        not(target_arch = "wasm32"),
+        all(
+            target_arch = "wasm32",
+            target_os = "wasi",
+            target_env = "p2",
+            feature = "wasi-http"
+        )
+    )
+))]
 pub mod openai;
 
 #[cfg(all(feature = "anthropic", not(target_arch = "wasm32")))]

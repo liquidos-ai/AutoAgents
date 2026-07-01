@@ -37,6 +37,24 @@ azure_openai = []
 openrouter = []
 minimax = []
 optim = []
+# WASI Preview2 (`wasm32-wasip2`) HTTP transport for the OpenAI Responses
+# backend via `golem-wasi-http`. Only `openai` + Responses mode is supported, so
+# enabling `wasi-http` implies `openai` (the transport's only consumer); this
+# keeps the `wasi_http` module from becoming dead code when the feature is
+# enabled on its own.
+wasi-http = ["dep:golem-wasi-http", "openai"]
+
+# Examples live under `examples/wasm_smoke/` (a coherent smoke-test suite), so
+# cargo's default flat discovery does not find them; declare them explicitly.
+[[example]]
+name = "wasm_agent"
+path = "examples/wasm_smoke/agent.rs"
+required-features = ["wasi-http", "openai"]
+
+[[example]]
+name = "wasm_mock_server"
+path = "examples/wasm_smoke/mock_server.rs"
+required-features = ["openai"]
 
 [dependencies]
 async-trait = { workspace = true }
@@ -51,6 +69,9 @@ chrono = { workspace = true }
 base64 = { workspace = true }
 either = { workspace = true }
 autoagents-protocol = { workspace = true }
+# `url` is always available so provider base URLs can be parsed without reqwest
+# (required by the WASI Preview2 transport which has no reqwest).
+url = { workspace = true }
 
 # Non-WASM dependencies (only when not targeting wasm32)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -61,6 +82,11 @@ ureq = { workspace = true }
 dirs = { workspace = true }
 bytes = { workspace = true }
 
+# WASI Preview2 (wasm32-wasip2) HTTP transport dependencies. Used only by the
+# `wasi-http` feature for the OpenAI Responses backend.
+[target.'cfg(all(target_arch = "wasm32", target_os = "wasi", target_env = "p2"))'.dependencies]
+golem-wasi-http = { version = "0.2.0", features = ["json"], optional = true }
+
 # Browser WASM dependencies (only when targeting wasm32 outside WASI)
 [target.'cfg(all(target_arch = "wasm32", not(target_os = "wasi")))'.dependencies]
 wasm-bindgen = { workspace = true }
@@ -68,12 +94,12 @@ wasm-bindgen-futures = { workspace = true }
 serde-wasm-bindgen = { workspace = true }
 getrandom = { workspace = true, features = ["wasm_js"] }
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 rstest = "0.26"
 bytes = { workspace = true }
 http = "1.2"
 http-body-util = "0.1"
 hyper = "1.5"
 httpmock = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
