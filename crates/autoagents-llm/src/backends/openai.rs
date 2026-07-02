@@ -1918,6 +1918,21 @@ impl OpenAI {
     }
 }
 
+/// Flushes any remaining buffered bytes as a final SSE event candidate when
+/// the stream reaches EOF without a trailing `\n\n` delimiter.
+#[cfg(wasi_http)]
+fn responses_eof_flush(
+    buffer: &mut Vec<u8>,
+    state: &mut ResponsesStreamState,
+) -> Result<Vec<StreamChunk>, LLMError> {
+    if buffer.is_empty() {
+        return Ok(Vec::new());
+    }
+    let event_bytes = std::mem::take(buffer);
+    let event = String::from_utf8_lossy(&event_bytes).into_owned();
+    parse_responses_sse_event(event.trim(), state)
+}
+
 /// Incremental SSE parser over a WASI HTTP response body; the WASI Preview2
 /// counterpart of [`create_responses_tool_stream`].
 ///
@@ -2001,11 +2016,25 @@ impl Stream for WasiResponsesStream {
                     // loop back to parse the freshly buffered bytes
                 }
                 Ok(None) => {
-                    // EOF. Any trailing bytes without a final `\n\n` delimiter
-                    // are dropped, matching the native `bytes_stream().scan()`
-                    // behavior (which only parses on boundary).
+                    // EOF. Flush any remaining buffered bytes as a final event
+                    // candidate so that a last SSE event without a trailing
+                    // `\n\n` delimiter is still parsed.
                     self.finished = true;
-                    return std::task::Poll::Ready(None);
+                    match responses_eof_flush(&mut self.buffer, &mut self.state) {
+                        Ok(chunks) if chunks.is_empty() => {
+                            return std::task::Poll::Ready(None);
+                        }
+                        Ok(chunks) => {
+                            self.pending.extend(chunks);
+                            if let Some(chunk) = self.pending.pop_front() {
+                                return std::task::Poll::Ready(Some(Ok(chunk)));
+                            }
+                            return std::task::Poll::Ready(None);
+                        }
+                        Err(err) => {
+                            return std::task::Poll::Ready(Some(Err(err)));
+                        }
+                    }
                 }
                 Err(err) => {
                     self.finished = true;
@@ -3218,5 +3247,65 @@ data: [DONE]
         );
         assert!(stream.next().await.is_none());
         stream_mock.assert();
+    }
+
+    // ── EOF flush tests (WASI-only) ──────────────────────────────────
+
+    #[cfg(wasi_http)]
+    #[test]
+    fn test_responses_eof_flush_valid_event() {
+        let mut buffer =
+            b"data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}".to_vec();
+        let mut state = ResponsesStreamState::default();
+
+        let chunks =
+            responses_eof_flush(&mut buffer, &mut state).expect("eof flush should succeed");
+        assert_eq!(chunks.len(), 1);
+        assert!(matches!(&chunks[0], StreamChunk::Text(text) if text == "Hello"));
+        assert!(buffer.is_empty(), "buffer should be cleared after flush");
+    }
+
+    #[cfg(wasi_http)]
+    #[test]
+    fn test_responses_eof_flush_done_with_usage() {
+        let mut buffer =
+            br#"data: {"type":"response.done","response":{"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}}"#
+                .to_vec();
+        let mut state = ResponsesStreamState::default();
+
+        let chunks =
+            responses_eof_flush(&mut buffer, &mut state).expect("eof flush should succeed");
+        assert_eq!(chunks.len(), 2);
+        assert!(matches!(&chunks[0], StreamChunk::Usage(usage) if usage.total_tokens == 5));
+        assert!(
+            matches!(&chunks[1], StreamChunk::Done { stop_reason } if stop_reason == "end_turn")
+        );
+        assert!(buffer.is_empty(), "buffer should be cleared after flush");
+    }
+
+    #[cfg(wasi_http)]
+    #[test]
+    fn test_responses_eof_flush_garbage_event() {
+        let mut buffer = b"data: not-valid-json-trailing-garbage".to_vec();
+        let mut state = ResponsesStreamState::default();
+
+        let err = responses_eof_flush(&mut buffer, &mut state)
+            .expect_err("eof flush should fail on garbage");
+        assert!(err.to_string().contains("not-valid-json-trailing-garbage"));
+        assert!(
+            buffer.is_empty(),
+            "buffer should be cleared after failed flush"
+        );
+    }
+
+    #[cfg(wasi_http)]
+    #[test]
+    fn test_responses_eof_flush_empty_buffer() {
+        let mut buffer = Vec::new();
+        let mut state = ResponsesStreamState::default();
+
+        let chunks = responses_eof_flush(&mut buffer, &mut state)
+            .expect("eof flush on empty buffer should succeed");
+        assert!(chunks.is_empty());
     }
 }
