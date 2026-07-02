@@ -124,9 +124,10 @@ pub(crate) use native::ensure_success;
 /// native and WASI Preview2 status mappers. Falls back to the numeric status when
 /// the reason phrase is unknown or non-standard.
 fn default_error_message(provider: &str, status_code: u16) -> String {
-    let reason = http_reason_phrase(status_code)
-        .map(|phrase| format!("{status_code} {phrase}"))
-        .unwrap_or_else(|| status_code.to_string());
+    let reason = http_reason_phrase(status_code).map_or_else(
+        || status_code.to_string(),
+        |phrase| format!("{status_code} {phrase}"),
+    );
     format!("{provider} API returned error status: {reason}")
 }
 
@@ -135,50 +136,55 @@ fn default_error_message(provider: &str, status_code: u16) -> String {
 /// This mirrors the subset of reason phrases that `reqwest::StatusCode` would
 /// render, without requiring the `reqwest` dependency on WASI targets.
 fn http_reason_phrase(status_code: u16) -> Option<&'static str> {
-    match status_code {
-        400 => Some("Bad Request"),
-        401 => Some("Unauthorized"),
-        402 => Some("Payment Required"),
-        403 => Some("Forbidden"),
-        404 => Some("Not Found"),
-        405 => Some("Method Not Allowed"),
-        406 => Some("Not Acceptable"),
-        407 => Some("Proxy Authentication Required"),
-        408 => Some("Request Timeout"),
-        409 => Some("Conflict"),
-        410 => Some("Gone"),
-        411 => Some("Length Required"),
-        412 => Some("Precondition Failed"),
-        413 => Some("Payload Too Large"),
-        414 => Some("URI Too Long"),
-        415 => Some("Unsupported Media Type"),
-        416 => Some("Range Not Satisfiable"),
-        417 => Some("Expectation Failed"),
-        418 => Some("I'm a teapot"),
-        421 => Some("Misdirected Request"),
-        422 => Some("Unprocessable Entity"),
-        423 => Some("Locked"),
-        424 => Some("Failed Dependency"),
-        425 => Some("Too Early"),
-        426 => Some("Upgrade Required"),
-        428 => Some("Precondition Required"),
-        429 => Some("Too Many Requests"),
-        431 => Some("Request Header Fields Too Large"),
-        451 => Some("Unavailable For Legal Reasons"),
-        500 => Some("Internal Server Error"),
-        501 => Some("Not Implemented"),
-        502 => Some("Bad Gateway"),
-        503 => Some("Service Unavailable"),
-        504 => Some("Gateway Timeout"),
-        505 => Some("HTTP Version Not Supported"),
-        506 => Some("Variant Also Negotiates"),
-        507 => Some("Insufficient Storage"),
-        508 => Some("Loop Detected"),
-        510 => Some("Not Extended"),
-        511 => Some("Network Authentication Required"),
-        529 => Some("Site Is Overloaded"),
-        _ => None,
-    }
+    // Sorted by status code; uses a linear scan because the table is small
+    // (41 entries) and the function is called only on error paths.
+    const PHRASES: &[(u16, &str)] = &[
+        (400, "Bad Request"),
+        (401, "Unauthorized"),
+        (402, "Payment Required"),
+        (403, "Forbidden"),
+        (404, "Not Found"),
+        (405, "Method Not Allowed"),
+        (406, "Not Acceptable"),
+        (407, "Proxy Authentication Required"),
+        (408, "Request Timeout"),
+        (409, "Conflict"),
+        (410, "Gone"),
+        (411, "Length Required"),
+        (412, "Precondition Failed"),
+        (413, "Payload Too Large"),
+        (414, "URI Too Long"),
+        (415, "Unsupported Media Type"),
+        (416, "Range Not Satisfiable"),
+        (417, "Expectation Failed"),
+        (418, "I'm a teapot"),
+        (421, "Misdirected Request"),
+        (422, "Unprocessable Entity"),
+        (423, "Locked"),
+        (424, "Failed Dependency"),
+        (425, "Too Early"),
+        (426, "Upgrade Required"),
+        (428, "Precondition Required"),
+        (429, "Too Many Requests"),
+        (431, "Request Header Fields Too Large"),
+        (451, "Unavailable For Legal Reasons"),
+        (500, "Internal Server Error"),
+        (501, "Not Implemented"),
+        (502, "Bad Gateway"),
+        (503, "Service Unavailable"),
+        (504, "Gateway Timeout"),
+        (505, "HTTP Version Not Supported"),
+        (506, "Variant Also Negotiates"),
+        (507, "Insufficient Storage"),
+        (508, "Loop Detected"),
+        (510, "Not Extended"),
+        (511, "Network Authentication Required"),
+        (529, "Site Is Overloaded"),
+    ];
+    PHRASES
+        .iter()
+        .find(|(code, _)| *code == status_code)
+        .map(|(_, phrase)| *phrase)
 }
 
 /// Maps a non-success HTTP status code and response body to a typed

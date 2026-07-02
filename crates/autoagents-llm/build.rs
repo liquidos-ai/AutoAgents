@@ -14,6 +14,15 @@
 //! script's `#[cfg]` reflects the **host** platform, which would wrongly light
 //! up `native` when cross-compiling to wasm.
 
+/// Env-var name for the target architecture injected by Cargo.
+const ENV_CARGO_CFG_TARGET_ARCH: &str = "CARGO_CFG_TARGET_ARCH";
+/// Env-var name for the target OS injected by Cargo.
+const ENV_CARGO_CFG_TARGET_OS: &str = "CARGO_CFG_TARGET_OS";
+/// Env-var name for the target environment injected by Cargo.
+const ENV_CARGO_CFG_TARGET_ENV: &str = "CARGO_CFG_TARGET_ENV";
+/// Env-var name for the `wasi-http` feature flag.
+const ENV_CARGO_FEATURE_WASI_HTTP: &str = "CARGO_FEATURE_WASI_HTTP";
+
 fn main() {
     // Declare the cfg flags so a typo is a hard build error (Rust 1.80+).
     println!("cargo::rustc-check-cfg=cfg(native)");
@@ -21,10 +30,10 @@ fn main() {
     println!("cargo::rerun-if-changed=build.rs");
 
     // Target platform injected by cargo (not the host); see module docs.
-    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
-    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
-    let wasi_http_feature = std::env::var("CARGO_FEATURE_WASI_HTTP").is_ok();
+    let target_arch = std::env::var(ENV_CARGO_CFG_TARGET_ARCH).unwrap_or_default();
+    let target_os = std::env::var(ENV_CARGO_CFG_TARGET_OS).unwrap_or_default();
+    let target_env = std::env::var(ENV_CARGO_CFG_TARGET_ENV).unwrap_or_default();
+    let wasi_http_feature = std::env::var(ENV_CARGO_FEATURE_WASI_HTTP).is_ok();
 
     if target_arch != "wasm32" {
         println!("cargo::rustc-cfg=native");
