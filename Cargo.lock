@@ -573,6 +573,7 @@ dependencies = [
  "either",
  "futures",
  "getrandom 0.4.2",
+ "golem-wasi-http",
  "http",
  "http-body-util",
  "httpmock",
@@ -590,6 +591,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "ureq 3.3.0",
+ "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
 ]
@@ -3930,6 +3932,25 @@ name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
+
+[[package]]
+name = "golem-wasi-http"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e80794383f6d363e1f756c5ec9fa6ca0459824e54f9eef53b6b03491fb9d166"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "encoding_rs",
+ "http",
+ "mime",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "url",
+ "wasip2",
+]
 
 [[package]]
 name = "guardrails-example"
@@ -12228,6 +12249,9 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
+dependencies = [
+ "bitflags 2.12.1",
+]
 
 [[package]]
 name = "wit-bindgen-core"

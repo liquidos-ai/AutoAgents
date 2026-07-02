@@ -3,29 +3,48 @@
 //! This module provides a generic base for OpenAI-compatible APIs that can be reused
 //! across multiple providers like OpenAI, Mistral, XAI, Groq, DeepSeek, etc.
 
+// `OpenAICompatibleProvider` is used on every target (native chat-completions
+// backends and the WASI Preview2 OpenAI Responses backend), but most of the
+// chat-completions / streaming types and helpers below are unreachable on
+// `wasm32-wasip2`. The module is annotated `#[allow(dead_code)]` at its
+// declaration in `providers/mod.rs` (covering all targets) rather than with a
+// second, wasm-only attribute here, which would duplicate that lint allow.
+
+#[cfg(not(target_arch = "wasm32"))]
 use crate::FunctionCall;
-use crate::chat::{StreamChoice, StreamChunk as ChatStreamChunk, StreamDelta};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::chat::{ChatMessage, ChatRole, MessageType};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::chat::{
+    ChatProvider, StreamChoice, StreamChunk as ChatStreamChunk, StreamDelta, StreamResponse,
+};
 use crate::config::resolve_request_timeout;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::error::LLMError;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::http::ensure_success;
 use crate::{
     ToolCall,
     chat::ChatResponse,
-    chat::{
-        ChatMessage, ChatProvider, ChatRole, MessageType, StreamResponse, StructuredOutputFormat,
-        Tool, ToolChoice, Usage,
-    },
+    chat::{StructuredOutputFormat, Tool, ToolChoice, Usage},
     default_call_type,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use async_trait::async_trait;
+#[cfg(not(target_arch = "wasm32"))]
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use either::*;
+#[cfg(not(target_arch = "wasm32"))]
 use futures::{StreamExt, stream::Stream};
-use reqwest::{Client, Url};
+#[cfg(not(target_arch = "wasm32"))]
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
+#[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashMap;
 use std::marker::PhantomData;
+#[cfg(not(target_arch = "wasm32"))]
 use std::pin::Pin;
+use url::Url;
 
 /// Generic OpenAI-compatible provider
 ///
@@ -49,6 +68,9 @@ pub struct OpenAICompatibleProvider<T: OpenAIProviderConfig> {
     pub embedding_encoding_format: Option<String>,
     pub embedding_dimensions: Option<u32>,
     pub normalize_response: bool,
+    /// Native HTTP client. Only present on non-wasm32 targets; the WASI Preview2
+    /// transport uses `golem-wasi-http` over the `wasi:http` host interface.
+    #[cfg(not(target_arch = "wasm32"))]
     pub client: Client,
     _phantom: PhantomData<T>,
 }
@@ -328,10 +350,14 @@ impl<T: OpenAIProviderConfig> OpenAICompatibleProvider<T> {
         embedding_dimensions: Option<u32>,
     ) -> Self {
         let timeout_seconds = resolve_request_timeout(timeout_seconds);
-        let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(timeout_seconds))
-            .build()
-            .expect("Failed to build reqwest Client");
+        #[cfg(not(target_arch = "wasm32"))]
+        let client = {
+            let _ = timeout_seconds; // silence unused warnings on wasm32 below
+            Client::builder()
+                .timeout(std::time::Duration::from_secs(timeout_seconds))
+                .build()
+                .expect("Failed to build reqwest Client")
+        };
         let extra_body = match extra_body {
             Some(serde_json::Value::Object(map)) => map,
             _ => serde_json::Map::new(), // Should we panic here?
@@ -359,11 +385,17 @@ impl<T: OpenAIProviderConfig> OpenAICompatibleProvider<T> {
             normalize_response: normalize_response.unwrap_or(true),
             embedding_encoding_format,
             embedding_dimensions,
+            #[cfg(not(target_arch = "wasm32"))]
             client,
             _phantom: PhantomData,
         }
     }
 
+    /// Builds the OpenAI-compatible chat message list for a request.
+    ///
+    /// Only used by the native chat-completions / streaming paths; the WASI
+    /// Preview2 transport only supports the Responses API and does not call this.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn prepare_messages(
         &self,
         messages: &[ChatMessage],
@@ -386,6 +418,10 @@ impl<T: OpenAIProviderConfig> OpenAICompatibleProvider<T> {
     }
 }
 
+/// Native chat-completions / streaming transport. These impls and helpers go
+/// through `reqwest` and are only compiled on non-wasm32 targets; the WASI
+/// Preview2 transport uses `golem-wasi-http` over the `wasi:http` host interface.
+#[cfg(not(target_arch = "wasm32"))]
 #[async_trait]
 impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
     /// Perform a chat request with tool calls
@@ -690,6 +726,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
 }
 
 /// State for tracking tool use blocks during OpenAI-compatible streaming
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Default)]
 struct OpenAIToolUseState {
     /// Tool ID
@@ -703,6 +740,7 @@ struct OpenAIToolUseState {
 }
 
 /// Creates an SSE stream that parses OpenAI-compatible tool use events into ChatStreamChunk.
+#[cfg(not(target_arch = "wasm32"))]
 fn create_openai_tool_stream(
     response: reqwest::Response,
 ) -> Pin<Box<dyn Stream<Item = Result<ChatStreamChunk, LLMError>> + Send>> {
@@ -749,6 +787,7 @@ fn create_openai_tool_stream(
     Box::pin(stream)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn find_sse_event_boundary(buffer: &[u8]) -> Option<(usize, usize)> {
     let lf = buffer
         .windows(2)
@@ -767,13 +806,7 @@ fn find_sse_event_boundary(buffer: &[u8]) -> Option<(usize, usize)> {
 }
 
 /// Parses OpenAI-compatible SSE chunks with tool use support.
-///
-/// OpenAI streams tool calls as deltas with:
-/// - `tool_calls[].index` - identifies which tool call
-/// - `tool_calls[].id` - tool call ID (first chunk only)
-/// - `tool_calls[].function.name` - function name (first chunk only)
-/// - `tool_calls[].function.arguments` - partial JSON arguments (streamed)
-/// - `finish_reason: "tool_calls"` - signals completion
+#[cfg(not(target_arch = "wasm32"))]
 fn parse_openai_sse_chunk_with_tools(
     event: &str,
     tool_states: &mut HashMap<usize, OpenAIToolUseState>,
@@ -919,6 +952,7 @@ fn parse_openai_sse_chunk_with_tools(
 }
 
 /// OpenAI streaming chunk structure for tool parsing
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Deserialize)]
 struct OpenAIToolStreamChunk {
     choices: Vec<OpenAIToolStreamChoice>,
@@ -927,12 +961,14 @@ struct OpenAIToolStreamChunk {
     usage: Option<Usage>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Deserialize)]
 struct OpenAIToolStreamChoice {
     delta: OpenAIToolStreamDelta,
     finish_reason: Option<String>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Deserialize)]
 struct OpenAIToolStreamDelta {
     content: Option<String>,
@@ -941,6 +977,7 @@ struct OpenAIToolStreamDelta {
     tool_calls: Option<Vec<OpenAIToolStreamToolCall>>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Deserialize)]
 struct OpenAIToolStreamToolCall {
     index: Option<usize>,
@@ -948,6 +985,7 @@ struct OpenAIToolStreamToolCall {
     function: OpenAIToolStreamFunction,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Deserialize)]
 struct OpenAIToolStreamFunction {
     name: Option<String>,
@@ -956,6 +994,7 @@ struct OpenAIToolStreamFunction {
 }
 
 /// Create OpenAICompatibleChatMessage` that doesn't borrow from any temporary variables
+#[cfg(not(target_arch = "wasm32"))]
 pub fn chat_message_to_openai_message(
     chat_msg: ChatMessage,
 ) -> Result<OpenAIChatMessage<'static>, LLMError> {
@@ -1016,6 +1055,7 @@ pub fn chat_message_to_openai_message(
     Ok(message)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 struct SSEStreamParser {
     event_buffer: Vec<u8>,
     tool_buffer: ToolCall,
@@ -1024,6 +1064,7 @@ struct SSEStreamParser {
     normalize_response: bool,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl SSEStreamParser {
     fn new(normalize_response: bool) -> Self {
         Self {
@@ -1183,6 +1224,7 @@ impl SSEStreamParser {
 /// Creates a structured SSE stream that returns `StreamResponse` objects
 ///
 /// Buffer required to accumulate JSON payload lines that are split across multiple SSE chunks
+#[cfg(not(target_arch = "wasm32"))]
 pub fn create_sse_stream(
     response: reqwest::Response,
     normalize_response: bool,
@@ -1200,7 +1242,7 @@ pub fn create_sse_stream(
     Box::pin(stream)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::chat::FunctionTool;
