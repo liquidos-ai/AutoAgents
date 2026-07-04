@@ -2,31 +2,47 @@
 //!
 //! This module provides integration with OpenAI's GPT models through their API.
 
-use crate::builder::{LLMBackend, LLMBuilder};
+#[cfg(native)]
+use crate::builder::LLMBackend;
+use crate::builder::LLMBuilder;
 use crate::chat::Usage;
+// Available wherever OpenAI streaming is wired up: native (reqwest SSE) and
+// WASI Preview2 + `wasi-http` (blocking `InputStream` SSE).
+#[cfg(any(native, wasi_http))]
+use crate::chat::{StreamChoice, StreamChunk, StreamDelta, StreamResponse};
 use crate::embedding::EmbeddingBuilder;
+#[cfg(native)]
 use crate::http::ensure_success;
+#[cfg(wasi_http)]
+use crate::http::map_http_status_to_error;
+#[cfg(native)]
+use crate::models::StandardModelListResponse;
+#[cfg(native)]
 use crate::providers::openai_compatible::{
-    OpenAIChatMessage, OpenAIChatResponse, OpenAICompatibleProvider, OpenAIProviderConfig,
-    OpenAIResponseFormat, OpenAIStreamOptions, create_sse_stream,
+    OpenAIChatMessage, OpenAIChatResponse, OpenAIResponseFormat, OpenAIStreamOptions,
+    create_sse_stream,
 };
+use crate::providers::openai_compatible::{OpenAICompatibleProvider, OpenAIProviderConfig};
 use crate::{
     FunctionCall, LLMProvider, ToolCall,
     chat::{
-        ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StreamChoice, StreamChunk,
-        StreamDelta, StreamResponse, StructuredOutputFormat, Tool, ToolChoice,
+        ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StructuredOutputFormat,
+        Tool, ToolChoice,
     },
     completion::{CompletionProvider, CompletionRequest, CompletionResponse},
     embedding::EmbeddingProvider,
     error::LLMError,
-    models::{ModelListRequest, ModelListResponse, ModelsProvider, StandardModelListResponse},
+    models::{ModelListRequest, ModelListResponse, ModelsProvider},
 };
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+#[cfg(any(native, wasi_http))]
 use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+#[cfg(any(native, wasi_http))]
 use std::collections::HashMap;
+#[cfg(any(native, wasi_http))]
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -73,6 +89,7 @@ pub struct OpenAI {
 }
 
 /// Legacy chat/completions tool representation.
+#[cfg(native)]
 #[derive(Serialize, Debug)]
 #[serde(untagged)]
 pub enum OpenAITool {
@@ -125,6 +142,7 @@ pub struct ApproximateLocation {
 }
 
 /// Request payload for OpenAI's chat/completions endpoint.
+#[cfg(native)]
 #[derive(Serialize, Debug)]
 pub struct OpenAIAPIChatRequest<'a> {
     pub model: &'a str,
@@ -524,6 +542,10 @@ fn schema_is_nullable(schema: &Value) -> bool {
         .is_some_and(|variants| variants.iter().any(schema_is_nullable))
 }
 
+// Transport-agnostic Responses SSE state machine: `create_responses_tool_stream`
+// (native) and `WasiResponsesStream` (WASI) both feed bytes into the shared
+// parser below.
+#[cfg(any(native, wasi_http))]
 #[derive(Debug, Default)]
 struct ResponsesToolCallState {
     call_id: String,
@@ -533,6 +555,7 @@ struct ResponsesToolCallState {
     started: bool,
 }
 
+#[cfg(any(native, wasi_http))]
 #[derive(Debug, Default)]
 struct ResponsesStreamState {
     tool_states: HashMap<usize, ResponsesToolCallState>,
@@ -604,6 +627,7 @@ impl OpenAI {
     }
 }
 
+#[cfg(native)]
 #[derive(Serialize)]
 struct OpenAIEmbeddingRequest {
     model: String,
@@ -614,16 +638,23 @@ struct OpenAIEmbeddingRequest {
     dimensions: Option<u32>,
 }
 
+#[cfg(native)]
 #[derive(Deserialize, Debug)]
 struct OpenAIEmbeddingData {
     embedding: Vec<f32>,
 }
 
+#[cfg(native)]
 #[derive(Deserialize, Debug)]
 struct OpenAIEmbeddingResponse {
     data: Vec<OpenAIEmbeddingData>,
 }
 
+// `chat_with_tools` / `chat_with_web_search` / `model` are available on every
+// target the OpenAI backend compiles for (native + WASI Preview2). The
+// streaming overrides are native-only; on WASI Preview2 they are absent from
+// this impl block, so the `ChatProvider` trait's default `Generic("... not
+// supported ...")` implementations apply automatically.
 #[async_trait]
 impl ChatProvider for OpenAI {
     async fn chat_with_tools(
@@ -638,8 +669,15 @@ impl ChatProvider for OpenAI {
                     .await
             }
             OpenAIApiMode::ChatCompletions => {
-                self.chat_with_tools_legacy(messages, tools, json_schema)
-                    .await
+                #[cfg(native)]
+                {
+                    self.chat_with_tools_legacy(messages, tools, json_schema)
+                        .await
+                }
+                #[cfg(wasi_http)]
+                {
+                    Err(Self::wasi_unsupported("OpenAI ChatCompletions API mode"))
+                }
             }
         }
     }
@@ -650,6 +688,13 @@ impl ChatProvider for OpenAI {
             .await
     }
 
+    /// Streaming chat: emits text-content deltas as plain `String` chunks.
+    ///
+    /// On native this uses `reqwest` SSE; on WASI Preview2 + `wasi-http` it
+    /// reads the SSE response body via blocking `InputStream` reads. On other
+    /// targets (e.g. WASI Preview1) this override is absent and the trait
+    /// default ("not supported") applies.
+    #[cfg(any(native, wasi_http))]
     async fn chat_stream(
         &self,
         messages: &[ChatMessage],
@@ -673,6 +718,15 @@ impl ChatProvider for OpenAI {
         Ok(Box::pin(content_stream))
     }
 
+    /// Structured streaming: emits [`StreamResponse`] chunks that mimic the
+    /// OpenAI streaming shape (`.choices[0].delta.*` + optional `.usage`).
+    ///
+    /// The `StreamChunk` -> `StreamResponse` mapping is shared across
+    /// transports via [`responses_chunk_stream_to_struct_stream`]; only the
+    /// source of the chunk stream differs (reqwest SSE on native, blocking
+    /// `InputStream` SSE on WASI Preview2 + `wasi-http`). On other targets
+    /// this override is absent and the trait default applies.
+    #[cfg(any(native, wasi_http))]
     async fn chat_stream_struct(
         &self,
         messages: &[ChatMessage],
@@ -682,68 +736,40 @@ impl ChatProvider for OpenAI {
     {
         match self.api_mode {
             OpenAIApiMode::Responses => {
+                // Only the chunk-stream source differs between transports;
+                // the `StreamChunk` -> `StreamResponse` projection is shared.
+                #[cfg(native)]
                 let chunk_stream = self
                     .chat_stream_with_tools_responses(messages, tools, json_schema)
                     .await?;
-                let struct_stream = chunk_stream.filter_map(|result| async move {
-                    match result {
-                        Ok(StreamChunk::Text(content)) => Some(Ok(StreamResponse {
-                            choices: vec![StreamChoice {
-                                delta: StreamDelta {
-                                    content: Some(content),
-                                    reasoning_content: None,
-                                    tool_calls: None,
-                                },
-                            }],
-                            usage: None,
-                        })),
-                        Ok(StreamChunk::ReasoningContent(content)) => Some(Ok(StreamResponse {
-                            choices: vec![StreamChoice {
-                                delta: StreamDelta {
-                                    content: None,
-                                    reasoning_content: Some(content),
-                                    tool_calls: None,
-                                },
-                            }],
-                            usage: None,
-                        })),
-                        Ok(StreamChunk::ToolUseComplete { tool_call, .. }) => {
-                            Some(Ok(StreamResponse {
-                                choices: vec![StreamChoice {
-                                    delta: StreamDelta {
-                                        content: None,
-                                        reasoning_content: None,
-                                        tool_calls: Some(vec![tool_call]),
-                                    },
-                                }],
-                                usage: None,
-                            }))
-                        }
-                        Ok(StreamChunk::Usage(usage)) => Some(Ok(StreamResponse {
-                            choices: vec![StreamChoice {
-                                delta: StreamDelta {
-                                    content: None,
-                                    reasoning_content: None,
-                                    tool_calls: None,
-                                },
-                            }],
-                            usage: Some(usage),
-                        })),
-                        Ok(StreamChunk::Done { .. })
-                        | Ok(StreamChunk::ToolUseStart { .. })
-                        | Ok(StreamChunk::ToolUseInputDelta { .. }) => None,
-                        Err(err) => Some(Err(err)),
-                    }
-                });
-                Ok(Box::pin(struct_stream))
+                #[cfg(wasi_http)]
+                let chunk_stream = self
+                    .chat_stream_with_tools_responses_wasi(messages, tools, json_schema)
+                    .await?;
+                Ok(responses_chunk_stream_to_struct_stream(chunk_stream))
             }
             OpenAIApiMode::ChatCompletions => {
-                self.chat_stream_struct_legacy(messages, tools, json_schema)
-                    .await
+                #[cfg(native)]
+                {
+                    self.chat_stream_struct_legacy(messages, tools, json_schema)
+                        .await
+                }
+                #[cfg(wasi_http)]
+                {
+                    Err(Self::wasi_unsupported("OpenAI ChatCompletions streaming"))
+                }
             }
         }
     }
 
+    /// Tool-aware streaming: emits [`StreamChunk`] events (text/reasoning
+    /// deltas, tool-use start/input/complete, usage, done).
+    ///
+    /// Responses mode is supported on native (reqwest SSE) and WASI Preview2
+    /// + `wasi-http` (blocking `InputStream` SSE). ChatCompletions mode, which
+    /// depends on the `reqwest`-backed `OpenAICompatibleProvider`, remains
+    /// native-only; on WASI Preview2 it returns a clear error.
+    #[cfg(any(native, wasi_http))]
     async fn chat_stream_with_tools(
         &self,
         messages: &[ChatMessage],
@@ -752,21 +778,51 @@ impl ChatProvider for OpenAI {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError> {
         match self.api_mode {
             OpenAIApiMode::Responses => {
-                self.chat_stream_with_tools_responses(messages, tools, json_schema)
-                    .await
+                #[cfg(native)]
+                {
+                    self.chat_stream_with_tools_responses(messages, tools, json_schema)
+                        .await
+                }
+                #[cfg(wasi_http)]
+                {
+                    self.chat_stream_with_tools_responses_wasi(messages, tools, json_schema)
+                        .await
+                }
             }
             OpenAIApiMode::ChatCompletions => {
-                self.provider
-                    .chat_stream_with_tools(messages, tools, json_schema)
-                    .await
+                #[cfg(native)]
+                {
+                    self.provider
+                        .chat_stream_with_tools(messages, tools, json_schema)
+                        .await
+                }
+                #[cfg(wasi_http)]
+                {
+                    Err(Self::wasi_unsupported("OpenAI ChatCompletions streaming"))
+                }
             }
         }
     }
 
     fn model(&self) -> &str {
-        self.provider.model()
+        self.provider.model.as_str()
     }
 }
+
+#[cfg(all(target_arch = "wasm32", target_os = "wasi", target_env = "p2"))]
+impl OpenAI {
+    /// Renders a clear error for API modes / transports that the WASI Preview2
+    /// backend does not implement yet.
+    fn wasi_unsupported(feature: &str) -> LLMError {
+        LLMError::Generic(format!(
+            "{feature} is not supported by the OpenAI WASI Preview2 HTTP backend yet; \
+use a native target for this code path"
+        ))
+    }
+}
+
+// Native-only completion/model-listing impls use `reqwest`, which is
+// unavailable on WASI; streaming trait methods are gated per-method above.
 
 #[async_trait]
 impl CompletionProvider for OpenAI {
@@ -781,6 +837,10 @@ impl CompletionProvider for OpenAI {
     }
 }
 
+// Model listing goes through `reqwest`; gate the override native-only so that
+// on WASI Preview2 the trait's default `list_models` ("List Models not
+// supported") applies.
+#[cfg(native)]
 #[async_trait]
 impl ModelsProvider for OpenAI {
     async fn list_models(
@@ -808,6 +868,20 @@ impl ModelsProvider for OpenAI {
     }
 }
 
+// On WASI Preview2 model listing is not implemented yet; return a clear error
+// so the `LLMProvider` trait bound (which requires `ModelsProvider`) is
+// satisfied.
+#[cfg(wasi_http)]
+#[async_trait]
+impl ModelsProvider for OpenAI {
+    async fn list_models(
+        &self,
+        _request: Option<&ModelListRequest>,
+    ) -> Result<Box<dyn ModelListResponse>, LLMError> {
+        Err(Self::wasi_unsupported("OpenAI model listing"))
+    }
+}
+
 impl LLMProvider for OpenAI {}
 
 impl crate::HasConfig for OpenAI {
@@ -823,7 +897,11 @@ impl OpenAI {
         &self.provider.model
     }
 
-    pub fn base_url(&self) -> &reqwest::Url {
+    /// Native HTTP client; only available on non-wasm32 targets. The WASI
+    /// Preview2 transport uses `golem-wasi-http` over the `wasi:http` host
+    /// interface and does not expose a `reqwest::Client`.
+    #[cfg(native)]
+    pub fn base_url(&self) -> &url::Url {
         &self.provider.base_url
     }
 
@@ -831,10 +909,12 @@ impl OpenAI {
         self.provider.timeout_seconds
     }
 
+    #[cfg(native)]
     pub fn client(&self) -> &reqwest::Client {
         &self.provider.client
     }
 
+    #[cfg(native)]
     fn build_legacy_function_tools(&self, tools: Option<&[Tool]>) -> Option<Vec<OpenAITool>> {
         let mut openai_tools = Vec::new();
         if let Some(tools) = tools {
@@ -877,6 +957,7 @@ impl OpenAI {
         }
     }
 
+    #[cfg(native)]
     fn resolve_legacy_tool_choice_for_request(
         &self,
         tools: &Option<Vec<OpenAITool>>,
@@ -1114,6 +1195,12 @@ impl OpenAI {
         }
     }
 
+    /// Native Responses transport: issues the request over `reqwest` and returns
+    /// the raw [`reqwest::Response`] after ensuring a success status. Used by the
+    /// native streaming path; the non-streaming callers use
+    /// [`send_responses_request_text`](Self::send_responses_request_text) which
+    /// works on both native and WASI Preview2.
+    #[cfg(native)]
     async fn send_responses_request(
         &self,
         body: &OpenAIResponsesRequest,
@@ -1141,6 +1228,67 @@ impl OpenAI {
         ensure_success(response, "OpenAI").await
     }
 
+    /// Sends a non-streaming Responses request and returns the decoded response
+    /// body text after ensuring a success status.
+    ///
+    /// This is the cross-platform transport boundary used by
+    /// [`chat_with_tools_responses`](Self::chat_with_tools_responses) and
+    /// [`chat_with_hosted_tools`](Self::chat_with_hosted_tools). On native it
+    /// reuses the `reqwest` path; on WASI Preview2 it posts via
+    /// `golem-wasi-http` and applies the shared status mapper.
+    async fn send_responses_request_text(
+        &self,
+        body: &OpenAIResponsesRequest,
+    ) -> Result<String, LLMError> {
+        if log::log_enabled!(log::Level::Trace)
+            && let Ok(json) = serde_json::to_string(body)
+        {
+            log::trace!("OpenAI Responses payload: {}", json);
+        }
+
+        #[cfg(native)]
+        {
+            let response = self.send_responses_request(body).await?;
+            log::debug!("OpenAI Responses HTTP status: {}", response.status());
+            response.text().await.map_err(LLMError::from)
+        }
+
+        #[cfg(wasi_http)]
+        {
+            self.send_responses_request_text_wasi(body).await
+        }
+    }
+
+    /// WASI Preview2 transport for non-streaming Responses requests.
+    #[cfg(wasi_http)]
+    async fn send_responses_request_text_wasi(
+        &self,
+        body: &OpenAIResponsesRequest,
+    ) -> Result<String, LLMError> {
+        let url = self.responses_url()?;
+        let json = Self::serialize_request(body)?;
+
+        let response = crate::wasi_http::post_json_bearer(
+            url.as_str(),
+            &self.provider.api_key,
+            &json,
+            self.provider.timeout_seconds,
+        )?;
+        log::debug!("OpenAI Responses HTTP status: {}", response.status);
+
+        if (200..300).contains(&response.status) {
+            return Ok(response.body);
+        }
+
+        let retry_after = crate::http::find_retry_after(&response.headers);
+        Err(map_http_status_to_error(
+            "OpenAI",
+            response.status,
+            response.body,
+            retry_after,
+        ))
+    }
+
     async fn chat_with_tools_responses(
         &self,
         messages: &[ChatMessage],
@@ -1148,8 +1296,7 @@ impl OpenAI {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         let body = self.build_responses_request(messages, tools, json_schema, false)?;
-        let response = self.send_responses_request(&body).await?;
-        let resp_text = response.text().await?;
+        let resp_text = self.send_responses_request_text(&body).await?;
         let json_resp: Result<OpenAIResponsesResponse, serde_json::Error> =
             serde_json::from_str(&resp_text);
         match json_resp {
@@ -1161,6 +1308,7 @@ impl OpenAI {
         }
     }
 
+    #[cfg(native)]
     async fn chat_with_tools_legacy(
         &self,
         messages: &[ChatMessage],
@@ -1219,6 +1367,7 @@ impl OpenAI {
         }
     }
 
+    #[cfg(native)]
     async fn chat_stream_struct_legacy(
         &self,
         messages: &[ChatMessage],
@@ -1267,6 +1416,7 @@ impl OpenAI {
         ))
     }
 
+    #[cfg(native)]
     async fn chat_stream_with_tools_responses(
         &self,
         messages: &[ChatMessage],
@@ -1276,6 +1426,60 @@ impl OpenAI {
         let body = self.build_responses_request(messages, tools, json_schema, true)?;
         let response = self.send_responses_request(&body).await?;
         Ok(create_responses_tool_stream(response))
+    }
+
+    /// WASI Preview2 Responses streaming transport.
+    ///
+    /// Issues a `stream: true` Responses request via the WASI HTTP bindings
+    /// and wraps the response body in [`WasiResponsesStream`], which parses
+    /// SSE events using the same shared parser as the native path
+    /// ([`find_sse_event_boundary`] / [`parse_responses_sse_event`]). On a
+    /// non-success status the body is buffered and mapped through the shared
+    /// [`map_http_status_to_error`](crate::http::map_http_status_to_error),
+    /// mirroring the native `ensure_success` behavior.
+    #[cfg(wasi_http)]
+    async fn chat_stream_with_tools_responses_wasi(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[Tool]>,
+        json_schema: Option<StructuredOutputFormat>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError> {
+        let body = self.build_responses_request(messages, tools, json_schema, true)?;
+
+        if log::log_enabled!(log::Level::Trace)
+            && let Ok(json) = serde_json::to_string(&body)
+        {
+            log::trace!("OpenAI Responses payload: {}", json);
+        }
+
+        let url = self.responses_url()?;
+        let json = Self::serialize_request(&body)?;
+
+        let streaming = crate::wasi_http::post_json_bearer_stream(
+            url.as_str(),
+            &self.provider.api_key,
+            &json,
+            self.provider.timeout_seconds,
+        )?;
+        log::debug!(
+            "OpenAI Responses streaming HTTP status: {}",
+            streaming.status()
+        );
+
+        let status = streaming.status();
+        if !(200..300).contains(&status) {
+            let retry_after = crate::http::find_retry_after(streaming.headers());
+            let error_body = streaming.into_bounded_error_text()?;
+            return Err(map_http_status_to_error(
+                "OpenAI",
+                status,
+                error_body,
+                retry_after,
+            ));
+        }
+
+        let byte_reader = streaming.into_byte_stream()?;
+        Ok(Box::pin(WasiResponsesStream::new(byte_reader)))
     }
 
     async fn chat_with_hosted_tools(
@@ -1293,8 +1497,7 @@ impl OpenAI {
             Some(hosted_tools),
             false,
         );
-        let response = self.send_responses_request(&body).await?;
-        let resp_text = response.text().await?;
+        let resp_text = self.send_responses_request_text(&body).await?;
         let json_resp: Result<OpenAIResponsesResponse, serde_json::Error> =
             serde_json::from_str(&resp_text);
         match json_resp {
@@ -1307,6 +1510,7 @@ impl OpenAI {
     }
 }
 
+#[cfg(any(native, wasi_http))]
 fn find_sse_event_boundary(buffer: &[u8]) -> Option<(usize, usize)> {
     let lf = buffer
         .windows(2)
@@ -1324,6 +1528,7 @@ fn find_sse_event_boundary(buffer: &[u8]) -> Option<(usize, usize)> {
     }
 }
 
+#[cfg(any(native, wasi_http))]
 fn parse_sse_data_payload(event: &str) -> Option<String> {
     let mut payload = String::default();
     for line in event.lines() {
@@ -1343,6 +1548,7 @@ fn parse_sse_data_payload(event: &str) -> Option<String> {
     }
 }
 
+#[cfg(any(native, wasi_http))]
 fn usage_from_value(value: &Value) -> Option<Usage> {
     if let Some(usage_value) = value.get("usage") {
         serde_json::from_value(usage_value.clone()).ok()
@@ -1354,6 +1560,7 @@ fn usage_from_value(value: &Value) -> Option<Usage> {
     }
 }
 
+#[cfg(any(native, wasi_http))]
 fn finalize_responses_stream(
     state: &mut ResponsesStreamState,
     include_done: bool,
@@ -1390,6 +1597,7 @@ fn finalize_responses_stream(
     results
 }
 
+#[cfg(any(native, wasi_http))]
 fn parse_responses_sse_event(
     event: &str,
     state: &mut ResponsesStreamState,
@@ -1434,6 +1642,7 @@ fn parse_responses_sse_event(
     }
 }
 
+#[cfg(any(native, wasi_http))]
 fn parse_responses_text_delta(value: &Value, reasoning: bool) -> Vec<StreamChunk> {
     let Some(delta) = value.get("delta").and_then(Value::as_str) else {
         return Vec::new();
@@ -1449,6 +1658,7 @@ fn parse_responses_text_delta(value: &Value, reasoning: bool) -> Vec<StreamChunk
     }]
 }
 
+#[cfg(any(native, wasi_http))]
 fn responses_output_index(value: &Value) -> usize {
     value
         .get("output_index")
@@ -1456,6 +1666,7 @@ fn responses_output_index(value: &Value) -> usize {
         .unwrap_or(0) as usize
 }
 
+#[cfg(any(native, wasi_http))]
 fn handle_responses_output_item_added(
     value: &Value,
     state: &mut ResponsesStreamState,
@@ -1494,6 +1705,7 @@ fn handle_responses_output_item_added(
     }]
 }
 
+#[cfg(any(native, wasi_http))]
 fn handle_responses_function_call_arguments_delta(
     value: &Value,
     state: &mut ResponsesStreamState,
@@ -1522,6 +1734,7 @@ fn handle_responses_function_call_arguments_delta(
     }]
 }
 
+#[cfg(any(native, wasi_http))]
 fn handle_responses_function_call_completion(
     event_type: &str,
     value: &Value,
@@ -1552,6 +1765,7 @@ fn handle_responses_function_call_completion(
     complete_responses_tool_call(output_index, state)
 }
 
+#[cfg(any(native, wasi_http))]
 fn complete_responses_tool_call(
     output_index: usize,
     state: &mut ResponsesStreamState,
@@ -1577,6 +1791,7 @@ fn complete_responses_tool_call(
     }]
 }
 
+#[cfg(any(native, wasi_http))]
 fn handle_responses_done(value: &Value, state: &mut ResponsesStreamState) -> Vec<StreamChunk> {
     let mut results = Vec::new();
     if let Some(usage) = usage_from_value(value) {
@@ -1586,6 +1801,7 @@ fn handle_responses_done(value: &Value, state: &mut ResponsesStreamState) -> Vec
     results
 }
 
+#[cfg(native)]
 fn create_responses_tool_stream(
     response: reqwest::Response,
 ) -> Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>> {
@@ -1619,6 +1835,214 @@ fn create_responses_tool_stream(
         )
         .flat_map(futures::stream::iter);
     Box::pin(stream)
+}
+
+/// Projects a [`StreamChunk`] stream (the transport-level Responses event
+/// stream) onto the provider-agnostic [`StreamResponse`] shape
+/// (`.choices[0].delta.*` + optional `.usage`).
+///
+/// Shared by the native and WASI streaming paths so both expose identical
+/// `chat_stream_struct` output — only the underlying chunk source differs
+/// (`reqwest` SSE on native, blocking `InputStream` SSE on WASI Preview2).
+#[cfg(any(native, wasi_http))]
+fn responses_chunk_stream_to_struct_stream(
+    chunk_stream: Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>,
+) -> Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>> {
+    let struct_stream = chunk_stream.filter_map(|result| async move {
+        match result {
+            Ok(StreamChunk::Text(content)) => Some(Ok(StreamResponse {
+                choices: vec![StreamChoice {
+                    delta: StreamDelta {
+                        content: Some(content),
+                        reasoning_content: None,
+                        tool_calls: None,
+                    },
+                }],
+                usage: None,
+            })),
+            Ok(StreamChunk::ReasoningContent(content)) => Some(Ok(StreamResponse {
+                choices: vec![StreamChoice {
+                    delta: StreamDelta {
+                        content: None,
+                        reasoning_content: Some(content),
+                        tool_calls: None,
+                    },
+                }],
+                usage: None,
+            })),
+            Ok(StreamChunk::ToolUseComplete { tool_call, .. }) => Some(Ok(StreamResponse {
+                choices: vec![StreamChoice {
+                    delta: StreamDelta {
+                        content: None,
+                        reasoning_content: None,
+                        tool_calls: Some(vec![tool_call]),
+                    },
+                }],
+                usage: None,
+            })),
+            Ok(StreamChunk::Usage(usage)) => Some(Ok(StreamResponse {
+                choices: vec![StreamChoice {
+                    delta: StreamDelta {
+                        content: None,
+                        reasoning_content: None,
+                        tool_calls: None,
+                    },
+                }],
+                usage: Some(usage),
+            })),
+            Ok(StreamChunk::Done { .. })
+            | Ok(StreamChunk::ToolUseStart { .. })
+            | Ok(StreamChunk::ToolUseInputDelta { .. }) => None,
+            Err(err) => Some(Err(err)),
+        }
+    });
+    Box::pin(struct_stream)
+}
+
+/// Shared WASI Preview2 request helpers (URL building + body serialization),
+/// used by both the non-streaming and streaming Responses transports.
+#[cfg(wasi_http)]
+impl OpenAI {
+    /// Builds the responses API URL from the provider's base URL.
+    fn responses_url(&self) -> Result<url::Url, LLMError> {
+        self.provider
+            .base_url
+            .join("responses")
+            .map_err(|e| LLMError::HttpError(e.to_string()))
+    }
+
+    /// Serializes a request body for the WASI transport (shared by streaming
+    /// and non-streaming paths).
+    fn serialize_request(body: &impl serde::Serialize) -> Result<Vec<u8>, LLMError> {
+        serde_json::to_vec(body).map_err(LLMError::from)
+    }
+}
+
+/// Flushes any remaining buffered bytes as a final SSE event candidate when
+/// the stream reaches EOF without a trailing `\n\n` delimiter.
+#[cfg(wasi_http)]
+fn responses_eof_flush(
+    buffer: &mut Vec<u8>,
+    state: &mut ResponsesStreamState,
+) -> Result<Vec<StreamChunk>, LLMError> {
+    if buffer.is_empty() {
+        return Ok(Vec::new());
+    }
+    let event_bytes = std::mem::take(buffer);
+    let event = String::from_utf8_lossy(&event_bytes).into_owned();
+    parse_responses_sse_event(event.trim(), state)
+}
+
+/// Incremental SSE parser over a WASI HTTP response body; the WASI Preview2
+/// counterpart of [`create_responses_tool_stream`].
+///
+/// `InputStream::blocking_read` blocks the current thread (the host multiplexes
+/// other work while blocked), so it is safe to call directly from
+/// [`Stream::poll_next`] with no async runtime — this keeps the stream
+/// compatible with single-threaded WASI components.
+///
+/// On an SSE parse error this stream terminates (fail-fast), unlike the native
+/// path which emits the error and continues. In practice both converge because
+/// OpenAI closes the connection on error/`response.failed` events; a corrupted
+/// state machine should not keep producing.
+#[cfg(wasi_http)]
+struct WasiResponsesStream {
+    byte_reader: crate::wasi_http::WasiResponseStream,
+    buffer: Vec<u8>,
+    state: ResponsesStreamState,
+    pending: std::collections::VecDeque<StreamChunk>,
+    finished: bool,
+}
+
+#[cfg(wasi_http)]
+impl WasiResponsesStream {
+    fn new(byte_reader: crate::wasi_http::WasiResponseStream) -> Self {
+        Self {
+            byte_reader,
+            buffer: Vec::new(),
+            state: ResponsesStreamState::default(),
+            pending: std::collections::VecDeque::new(),
+            finished: false,
+        }
+    }
+}
+
+#[cfg(wasi_http)]
+impl Stream for WasiResponsesStream {
+    type Item = Result<StreamChunk, LLMError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        // Drain previously-parsed chunks first so a single read can yield
+        // multiple events across successive polls.
+        if let Some(chunk) = self.pending.pop_front() {
+            return std::task::Poll::Ready(Some(Ok(chunk)));
+        }
+
+        loop {
+            // Parse every complete SSE event currently buffered.
+            if let Some((pos, delimiter_len)) = find_sse_event_boundary(&self.buffer) {
+                let event_bytes = self.buffer[..pos].to_vec();
+                self.buffer.drain(..pos + delimiter_len);
+                let event = String::from_utf8_lossy(&event_bytes).into_owned();
+                match parse_responses_sse_event(event.trim(), &mut self.state) {
+                    Ok(chunks) => {
+                        self.pending.extend(chunks);
+                        // If this event produced any chunks, hand back the
+                        // first now and keep the rest pending. Otherwise loop
+                        // to parse the next buffered event or read more bytes.
+                        if let Some(chunk) = self.pending.pop_front() {
+                            return std::task::Poll::Ready(Some(Ok(chunk)));
+                        }
+                        continue;
+                    }
+                    Err(err) => {
+                        // Poison the stream: stop reading and surface the error.
+                        self.finished = true;
+                        return std::task::Poll::Ready(Some(Err(err)));
+                    }
+                }
+            }
+
+            // No complete event buffered: pull more bytes (blocking on WASI).
+            if self.finished {
+                return std::task::Poll::Ready(None);
+            }
+            match self.byte_reader.read_chunk() {
+                Ok(Some(bytes)) => {
+                    self.buffer.extend_from_slice(&bytes);
+                    // loop back to parse the freshly buffered bytes
+                }
+                Ok(None) => {
+                    // EOF. Flush any remaining buffered bytes as a final event
+                    // candidate so that a last SSE event without a trailing
+                    // `\n\n` delimiter is still parsed.
+                    self.finished = true;
+                    match responses_eof_flush(&mut self.buffer, &mut self.state) {
+                        Ok(chunks) if chunks.is_empty() => {
+                            return std::task::Poll::Ready(None);
+                        }
+                        Ok(chunks) => {
+                            self.pending.extend(chunks);
+                            if let Some(chunk) = self.pending.pop_front() {
+                                return std::task::Poll::Ready(Some(Ok(chunk)));
+                            }
+                            return std::task::Poll::Ready(None);
+                        }
+                        Err(err) => {
+                            return std::task::Poll::Ready(Some(Err(err)));
+                        }
+                    }
+                }
+                Err(err) => {
+                    self.finished = true;
+                    return std::task::Poll::Ready(Some(Err(err)));
+                }
+            }
+        }
+    }
 }
 
 impl From<&ToolChoice> for OpenAIResponsesToolChoice {
@@ -1681,7 +2105,10 @@ impl LLMBuilder<OpenAI> {
     }
 }
 
-#[cfg(feature = "openai")]
+// Embeddings go over `reqwest`; the WASI Preview2 transport does not implement
+// them in this first pass. Split into a native impl and a WASI stub so the
+// `EmbeddingProvider` trait (which has no default `embed`) is always satisfied.
+#[cfg(all(feature = "openai", not(target_arch = "wasm32")))]
 #[async_trait]
 impl EmbeddingProvider for OpenAI {
     async fn embed(&self, input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
@@ -1727,6 +2154,14 @@ impl EmbeddingProvider for OpenAI {
     }
 }
 
+#[cfg(all(feature = "openai", wasi_http))]
+#[async_trait]
+impl EmbeddingProvider for OpenAI {
+    async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
+        Err(Self::wasi_unsupported("OpenAI embeddings"))
+    }
+}
+
 impl EmbeddingBuilder<OpenAI> {
     /// Build an OpenAI embedding provider.
     pub fn build(self) -> Result<Arc<OpenAI>, LLMError> {
@@ -1767,7 +2202,7 @@ impl EmbeddingBuilder<OpenAI> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::builder::LLMBuilder;
@@ -1779,6 +2214,7 @@ mod tests {
         MockServer,
     };
     use serde_json::json;
+    use std::time::Duration;
 
     fn sample_function_tool() -> Tool {
         Tool {
@@ -2507,12 +2943,12 @@ mod tests {
                     },
                     {
                         "type": "message",
-                        "content": [{ "type": "output_text", "text": "hello responses" }]
+                        "content": [{ "type": "output_text", "text": "hello from mock" }]
                     }
                 ],
                 "usage": {
-                    "prompt_tokens": 2,
-                    "completion_tokens": 3,
+                    "input_tokens": 2,
+                    "output_tokens": 3,
                     "total_tokens": 5
                 }
             }));
@@ -2525,7 +2961,7 @@ mod tests {
             .chat_with_tools(&messages, Some(&tools), Some(sample_schema()))
             .await
             .expect("responses chat should succeed");
-        assert_eq!(response.text().as_deref(), Some("hello responses"));
+        assert_eq!(response.text().as_deref(), Some("hello from mock"));
         assert_eq!(response.thinking().as_deref(), Some("plan"));
         assert_eq!(
             response.tool_calls().expect("tool calls should exist")[0]
@@ -2533,6 +2969,13 @@ mod tests {
                 .name,
             "lookup"
         );
+        assert_eq!(
+            response.tool_calls().expect("tool calls should exist")[0]
+                .function
+                .arguments,
+            "{\"q\":\"value\"}"
+        );
+        assert_eq!(response.usage().map(|usage| usage.total_tokens), Some(5));
         chat_mock.assert();
 
         let stream_mock = server.mock(|when, then| {
@@ -2542,12 +2985,18 @@ mod tests {
             then.status(200)
                 .header("content-type", "text/event-stream")
                 .body(
-                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello \"}\n\n\
-                     data: {\"type\":\"response.reasoning_text.delta\",\"delta\":\"think\"}\n\n\
-                     data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"lookup\",\"arguments\":\"\"}}\n\n\
-                     data: {\"type\":\"response.function_call_arguments.done\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\\\"value\\\"}\"}}\n\n\
-                     data: {\"type\":\"response.done\",\"response\":{\"usage\":{\"input_tokens\":2,\"output_tokens\":3,\"total_tokens\":5}}}\n\n\
-                     data: [DONE]\n\n",
+                    r#"data: {"type":"response.output_text.delta","delta":"hello "}
+
+data: {"type":"response.reasoning_text.delta","delta":"think"}
+
+data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":""}}
+
+data: {"type":"response.function_call_arguments.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"q\":\"value\"}"}}
+
+data: {"type":"response.done","response":{"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}}
+
+data: [DONE]
+"#,
                 );
         });
 
@@ -2634,20 +3083,24 @@ mod tests {
             when.method(POST)
                 .path("/v1/responses")
                 .body_includes("\"stream\":false");
-            then.status(502).body("bad gateway");
+            then.status(429)
+                .header("Retry-After", "5")
+                .body(r#"{"error":"rate limited"}"#);
         });
         let err = provider
             .chat_with_tools(&messages, None, None)
             .await
             .expect_err("error status should fail");
         match err {
-            LLMError::HttpStatusError {
+            LLMError::RateLimitError {
                 status_code,
                 response_body,
+                retry_after,
                 ..
             } => {
-                assert_eq!(status_code, 502);
-                assert_eq!(response_body.as_ref(), "bad gateway");
+                assert_eq!(status_code, 429);
+                assert_eq!(response_body.as_ref(), r#"{"error":"rate limited"}"#);
+                assert_eq!(retry_after, Some(Duration::from_secs(5)));
             }
             other => panic!("unexpected error: {other:?}"),
         }
@@ -2794,5 +3247,65 @@ mod tests {
         );
         assert!(stream.next().await.is_none());
         stream_mock.assert();
+    }
+
+    // ── EOF flush tests (WASI-only) ──────────────────────────────────
+
+    #[cfg(wasi_http)]
+    #[test]
+    fn test_responses_eof_flush_valid_event() {
+        let mut buffer =
+            b"data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}".to_vec();
+        let mut state = ResponsesStreamState::default();
+
+        let chunks =
+            responses_eof_flush(&mut buffer, &mut state).expect("eof flush should succeed");
+        assert_eq!(chunks.len(), 1);
+        assert!(matches!(&chunks[0], StreamChunk::Text(text) if text == "Hello"));
+        assert!(buffer.is_empty(), "buffer should be cleared after flush");
+    }
+
+    #[cfg(wasi_http)]
+    #[test]
+    fn test_responses_eof_flush_done_with_usage() {
+        let mut buffer =
+            br#"data: {"type":"response.done","response":{"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}}"#
+                .to_vec();
+        let mut state = ResponsesStreamState::default();
+
+        let chunks =
+            responses_eof_flush(&mut buffer, &mut state).expect("eof flush should succeed");
+        assert_eq!(chunks.len(), 2);
+        assert!(matches!(&chunks[0], StreamChunk::Usage(usage) if usage.total_tokens == 5));
+        assert!(
+            matches!(&chunks[1], StreamChunk::Done { stop_reason } if stop_reason == "end_turn")
+        );
+        assert!(buffer.is_empty(), "buffer should be cleared after flush");
+    }
+
+    #[cfg(wasi_http)]
+    #[test]
+    fn test_responses_eof_flush_garbage_event() {
+        let mut buffer = b"data: not-valid-json-trailing-garbage".to_vec();
+        let mut state = ResponsesStreamState::default();
+
+        let err = responses_eof_flush(&mut buffer, &mut state)
+            .expect_err("eof flush should fail on garbage");
+        assert!(err.to_string().contains("not-valid-json-trailing-garbage"));
+        assert!(
+            buffer.is_empty(),
+            "buffer should be cleared after failed flush"
+        );
+    }
+
+    #[cfg(wasi_http)]
+    #[test]
+    fn test_responses_eof_flush_empty_buffer() {
+        let mut buffer = Vec::new();
+        let mut state = ResponsesStreamState::default();
+
+        let chunks = responses_eof_flush(&mut buffer, &mut state)
+            .expect("eof flush on empty buffer should succeed");
+        assert!(chunks.is_empty());
     }
 }

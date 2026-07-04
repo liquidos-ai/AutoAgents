@@ -17,8 +17,16 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
+// The OpenAI Responses backend supports a WASI Preview2 (`wasm32-wasip2`)
+// HTTP transport via the `wasi-http` feature using `golem-wasi-http` over the
+// `wasi:http` host interface. The unsupported combinations below produce
+// precise, actionable compile errors.
+
+// 1. Any HTTP provider feature on non-WASI browser wasm (e.g. `wasm32-unknown-unknown`)
+//    is unsupported: there is no socket/HTTP host interface available there.
 #[cfg(all(
     target_arch = "wasm32",
+    not(target_os = "wasi"),
     any(
         feature = "openai",
         feature = "anthropic",
@@ -34,8 +42,72 @@ use serde::{Deserialize, Serialize};
     )
 ))]
 compile_error!(
-    "autoagents-llm HTTP provider backends are not supported on wasm32 targets yet. \
-Use a native host for provider access, or build for a non-wasm target."
+    "autoagents-llm HTTP provider backends are not supported on non-WASI wasm32 targets \
+(such as wasm32-unknown-unknown). Use a native target, or target wasm32-wasip2 with the \
+`wasi-http` feature for the OpenAI Responses backend."
+);
+
+// 2. WASI Preview1 (`wasm32-wasip1`) has no Preview2 HTTP host interface; the only
+//    WASI HTTP transport shipped by this crate requires Preview2.
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "wasi",
+    target_env = "p1",
+    any(
+        feature = "openai",
+        feature = "anthropic",
+        feature = "ollama",
+        feature = "deepseek",
+        feature = "xai",
+        feature = "phind",
+        feature = "google",
+        feature = "groq",
+        feature = "azure_openai",
+        feature = "openrouter",
+        feature = "minimax"
+    )
+))]
+compile_error!(
+    "autoagents-llm HTTP provider backends are not supported on wasm32-wasip1. \
+WASI HTTP requires the Preview2 target (wasm32-wasip2); rebuild with `--target wasm32-wasip2` \
+and the `wasi-http` feature for the OpenAI Responses backend."
+);
+
+// 3. On WASI Preview2 the OpenAI Responses backend requires the `wasi-http` feature
+//    to pull in the `wasip2` HTTP bindings.
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "wasi",
+    target_env = "p2",
+    feature = "openai",
+    not(feature = "wasi-http")
+))]
+compile_error!(
+    "autoagents-llm OpenAI Responses backend on wasm32-wasip2 requires the `wasi-http` feature. \
+Rebuild with `--features openai,wasi-http`."
+);
+
+// 4. Other HTTP providers are not yet wired to the WASI Preview2 transport.
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "wasi",
+    target_env = "p2",
+    any(
+        feature = "anthropic",
+        feature = "ollama",
+        feature = "deepseek",
+        feature = "xai",
+        feature = "phind",
+        feature = "google",
+        feature = "groq",
+        feature = "azure_openai",
+        feature = "openrouter",
+        feature = "minimax"
+    )
+))]
+compile_error!(
+    "autoagents-llm only supports the OpenAI Responses backend on wasm32-wasip2 in this release. \
+Remove the non-openai HTTP provider features, or build for a native target."
 );
 
 /// Backend implementations for supported LLM providers like OpenAI, Anthropic, etc.
@@ -60,7 +132,15 @@ pub mod error;
 pub mod config;
 
 /// Centralized HTTP response handling for provider backends.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(
+    not(target_arch = "wasm32"),
+    all(
+        target_arch = "wasm32",
+        target_os = "wasi",
+        target_env = "p2",
+        feature = "wasi-http"
+    )
+))]
 pub mod http;
 
 /// Evaluator for LLM providers
@@ -82,6 +162,16 @@ pub mod pipeline;
 /// Built-in optimization passes (cache, etc.). Not available on WASM.
 #[cfg(all(not(target_arch = "wasm32"), feature = "optim"))]
 pub mod optim;
+
+/// Direct WASI Preview2 (`wasm32-wasip2`) HTTP transport used by the OpenAI
+/// Responses backend when the `wasi-http` feature is enabled.
+#[cfg(all(
+    target_arch = "wasm32",
+    target_os = "wasi",
+    target_env = "p2",
+    feature = "wasi-http"
+))]
+mod wasi_http;
 
 //Re-export for convenience
 pub use async_trait::async_trait;
