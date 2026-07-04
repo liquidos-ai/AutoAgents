@@ -107,6 +107,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "ureq",
+ "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
 ]
