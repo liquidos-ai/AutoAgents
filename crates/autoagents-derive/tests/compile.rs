@@ -1,168 +1,124 @@
 //! Compile-time integration tests for proc-macro output across dependency layouts.
+//!
+//! Keep these as isolated crates because `autoagents-derive` uses
+//! `proc_macro_crate` to inspect the consuming crate's direct dependencies.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
 
-static CARGO_CHECK_LOCK: Mutex<()> = Mutex::new(());
-
-fn lock_cargo_check() -> std::sync::MutexGuard<'static, ()> {
-    CARGO_CHECK_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+#[derive(Clone, Copy)]
+enum CargoCommand {
+    Check,
+    Test,
 }
 
-fn manifest_path(name: &str) -> PathBuf {
+impl CargoCommand {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Check => "check",
+            Self::Test => "test",
+        }
+    }
+}
+
+struct CompileFixture {
+    name: &'static str,
+    command: CargoCommand,
+    expected_success: bool,
+    expected_output: Option<&'static str>,
+}
+
+fn fixture_dir(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join(name)
-        .join("Cargo.toml")
 }
 
-fn cargo_test_manifest(manifest: &Path) -> (bool, String) {
-    let _guard = lock_cargo_check();
+fn target_dir(name: &str) -> PathBuf {
+    std::env::var_os("CARGO_TARGET_TMPDIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("target"))
+        .join("compile-fixtures")
+        .join(name)
+}
+
+fn cargo_fixture(fixture: &CompileFixture) -> (bool, String) {
+    let fixture_dir = fixture_dir(fixture.name);
+    let manifest = fixture_dir.join("Cargo.toml");
     let output = Command::new(env!("CARGO"))
-        .current_dir(manifest.parent().expect("manifest parent"))
-        .arg("test")
+        .current_dir(&fixture_dir)
+        .arg(fixture.command.as_str())
         .arg("--manifest-path")
-        .arg(manifest)
+        .arg(&manifest)
+        .arg("--target-dir")
+        .arg(target_dir(fixture.name))
         .output()
-        .expect("failed to run cargo test");
+        .unwrap_or_else(|err| {
+            panic!(
+                "failed to run cargo {} for fixture `{}`: {err}",
+                fixture.command.as_str(),
+                fixture.name
+            )
+        });
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let combined = format!("{stdout}{stderr}");
     (output.status.success(), combined)
 }
 
-fn cargo_check_manifest(manifest: &Path) -> (bool, String) {
-    let _guard = lock_cargo_check();
-    let output = Command::new(env!("CARGO"))
-        .current_dir(manifest.parent().expect("manifest parent"))
-        .arg("check")
-        .arg("--manifest-path")
-        .arg(manifest)
-        .output()
-        .expect("failed to run cargo check");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let combined = format!("{stdout}{stderr}");
-    (output.status.success(), combined)
-}
-
 #[test]
-fn compile_pass_facade() {
-    let manifest = manifest_path("compile-pass-facade");
-    let (success, output) = cargo_test_manifest(&manifest);
-    assert!(
-        success,
-        "facade derive macro fixture should compile and pass runtime checks; output: {output}"
-    );
-}
+fn dependency_layout_fixtures() {
+    let fixtures = [
+        CompileFixture {
+            name: "compile-pass-facade",
+            command: CargoCommand::Test,
+            expected_success: true,
+            expected_output: None,
+        },
+        CompileFixture {
+            name: "compile-pass-direct-core",
+            command: CargoCommand::Test,
+            expected_success: true,
+            expected_output: None,
+        },
+        CompileFixture {
+            name: "compile-fail-missing-core",
+            command: CargoCommand::Check,
+            expected_success: false,
+            expected_output: Some(
+                "autoagents-derive requires either `autoagents` or `autoagents-core`",
+            ),
+        },
+        CompileFixture {
+            name: "compile-fail-missing-serde-json",
+            command: CargoCommand::Check,
+            expected_success: false,
+            expected_output: Some("serde_json"),
+        },
+        CompileFixture {
+            name: "compile-fail-missing-async-trait",
+            command: CargoCommand::Check,
+            expected_success: false,
+            expected_output: Some("async-trait"),
+        },
+    ];
 
-#[test]
-fn compile_pass_direct_core() {
-    let manifest = manifest_path("compile-pass-direct-core");
-    let (success, output) = cargo_test_manifest(&manifest);
-    assert!(
-        success,
-        "direct autoagents-core derive macro fixture should compile and pass runtime checks; output: {output}"
-    );
-}
+    for fixture in fixtures {
+        let (success, output) = cargo_fixture(&fixture);
+        assert_eq!(
+            success,
+            fixture.expected_success,
+            "unexpected cargo {} status for fixture `{}`; output: {output}",
+            fixture.command.as_str(),
+            fixture.name
+        );
 
-#[test]
-fn compile_fail_missing_core_dependency() {
-    let manifest = manifest_path("compile-fail-missing-core");
-    let (success, output) = cargo_check_manifest(&manifest);
-    assert!(
-        !success,
-        "fixture without autoagents/autoagents-core should fail to compile"
-    );
-    assert!(
-        output.contains("autoagents-derive requires either `autoagents` or `autoagents-core`"),
-        "unexpected compiler output: {output}"
-    );
-}
-
-#[test]
-fn compile_fail_manual_tool_input_without_derive() {
-    let manifest = manifest_path("compile-fail-missing-tool-input-derive");
-    let (success, output) = cargo_check_manifest(&manifest);
-    assert!(
-        !success,
-        "manual ToolInputT without #[derive(ToolInput)] should fail to compile"
-    );
-    assert!(
-        output.contains("ToolInputSchema"),
-        "expected ToolInputSchema trait bound error, got: {output}"
-    );
-}
-
-#[test]
-fn compile_fail_missing_serde_json_dependency() {
-    let manifest = manifest_path("compile-fail-missing-serde-json");
-    let (success, output) = cargo_check_manifest(&manifest);
-    assert!(
-        !success,
-        "fixture without direct serde_json should fail to compile; output: {output}"
-    );
-    assert!(
-        output.contains("serde_json"),
-        "expected serde_json resolution error, got: {output}"
-    );
-}
-
-#[test]
-fn compile_fail_missing_async_trait_dependency() {
-    let manifest = manifest_path("compile-fail-missing-async-trait");
-    let (success, output) = cargo_check_manifest(&manifest);
-    assert!(
-        !success,
-        "direct autoagents-core without async-trait should fail AgentHooks derive; output: {output}"
-    );
-    assert!(
-        output.contains("async-trait"),
-        "expected async-trait dependency error, got: {output}"
-    );
-}
-
-#[test]
-fn compile_fail_invalid_strict_attribute() {
-    let manifest = manifest_path("compile-fail-invalid-strict");
-    let (success, output) = cargo_check_manifest(&manifest);
-    assert!(
-        !success,
-        "invalid #[strict] attribute should fail to compile; output: {output}"
-    );
-    assert!(
-        output.contains("boolean literal"),
-        "expected strict attribute validation error, got: {output}"
-    );
-}
-
-#[test]
-fn compile_fail_missing_output_field_attribute() {
-    let manifest = manifest_path("compile-fail-invalid-output-field");
-    let (success, output) = cargo_check_manifest(&manifest);
-    assert!(
-        !success,
-        "AgentOutput without #[output] fields should fail to compile; output: {output}"
-    );
-    assert!(
-        output.contains("at least one field"),
-        "expected missing output attribute error, got: {output}"
-    );
-}
-
-#[test]
-fn compile_fail_mismatched_tool_input_choice_type() {
-    let manifest = manifest_path("compile-fail-invalid-choice");
-    let (success, output) = cargo_check_manifest(&manifest);
-    assert!(
-        !success,
-        "numeric choices on string field should fail to compile; output: {output}"
-    );
-    assert!(
-        output.contains("same type"),
-        "expected choice type validation error, got: {output}"
-    );
+        if let Some(expected_output) = fixture.expected_output {
+            assert!(
+                output.contains(expected_output),
+                "fixture `{}` did not emit expected output `{expected_output}`; output: {output}",
+                fixture.name
+            );
+        }
+    }
 }

@@ -132,6 +132,7 @@ url = "2.5.8"
 ipnet = "2.11.0"
 rquickjs = { version = "0.11.0", features = ["futures", "macro"] }
 deno_ast = { version = "0.53.1", features = ["transpiling", "visit"] }
+trybuild = "1.0.117"
 
 [profile.release]
 lto = "thin"      # Enable link-time optimization

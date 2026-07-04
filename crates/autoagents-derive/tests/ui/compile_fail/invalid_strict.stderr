@@ -1,0 +1,5 @@
+error: `#[strict]` on AgentOutput structs must be a boolean literal, e.g. `#[strict(true)]`
+ --> tests/ui/compile_fail/invalid_strict.rs:5:1
+  |
+5 | #[strict("not-a-bool")]
+  | ^

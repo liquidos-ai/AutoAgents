@@ -25,3 +25,4 @@ strum = { workspace = true }
 autoagents = { workspace = true }
 autoagents-core = { workspace = true }
 async-trait = { workspace = true }
+trybuild = { workspace = true }
