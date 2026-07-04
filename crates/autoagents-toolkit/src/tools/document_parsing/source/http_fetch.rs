@@ -192,7 +192,7 @@ mod tests {
             when.method(GET).path("/huge");
             then.status(200)
                 .header("Content-Length", "2048")
-                .body(&"x".repeat(2048));
+                .body("x".repeat(2048));
         });
 
         let error = fetch_url(&format!("{}/huge", server.base_url()), &test_config(1024))
