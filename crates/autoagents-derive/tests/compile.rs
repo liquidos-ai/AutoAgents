@@ -36,8 +36,10 @@ fn fixture_dir(name: &str) -> PathBuf {
 
 fn target_dir(name: &str) -> PathBuf {
     std::env::var_os("CARGO_TARGET_TMPDIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("target"))
+        .map_or_else(
+            || Path::new(env!("CARGO_MANIFEST_DIR")).join("target"),
+            PathBuf::from,
+        )
         .join("compile-fixtures")
         .join(name)
 }
