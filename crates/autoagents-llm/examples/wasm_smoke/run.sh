@@ -72,5 +72,7 @@ fi
 grep -q 'PROVIDER_NON_STREAM_OK' "$stdout_log"
 grep -q 'PROVIDER_STREAM_OK text_delta=true reasoning_delta=true tool_call=true usage=true' "$stdout_log"
 grep -q 'PROVIDER_ERROR_429_OK' "$stdout_log"
+grep -q 'PROVIDER_MODELS_OK count=2 first=gpt-4.1' "$stdout_log"
+grep -q 'PROVIDER_EMBED_OK count=2 dims=3' "$stdout_log"
 
 printf 'WASM_SMOKE_OK\n'

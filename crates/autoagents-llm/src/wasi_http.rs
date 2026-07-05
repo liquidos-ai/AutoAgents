@@ -66,6 +66,29 @@ fn send_post_request(
         .map_err(golem_error_to_llm)
 }
 
+/// Issues a bearer-authenticated `GET` request and returns the underlying
+/// [`golem_wasi_http::Response`] unbuffered.
+fn send_get_request(
+    url: &str,
+    bearer_token: &str,
+    timeout_seconds: u64,
+) -> Result<Response, LLMError> {
+    let parsed_url = url::Url::parse(url)
+        .map_err(|e| LLMError::HttpError(format!("invalid request URL: {e}")))?;
+
+    let client = build_client(timeout_seconds)?;
+
+    if log::log_enabled!(log::Level::Trace) {
+        log::trace!("WASI HTTP GET {url}");
+    }
+
+    client
+        .get(parsed_url)
+        .bearer_auth(bearer_token)
+        .send()
+        .map_err(golem_error_to_llm)
+}
+
 /// Reads an error (non-2xx) response body up to
 /// [`MAX_HTTP_ERROR_BODY_BYTES`](crate::http::MAX_HTTP_ERROR_BODY_BYTES),
 /// mirroring the native `reqwest` transport's `read_bounded_error_body`.
@@ -109,6 +132,26 @@ fn read_bounded_error_body(mut response: Response) -> Result<String, LLMError> {
     Ok(String::from_utf8_lossy(&collected).into_owned())
 }
 
+/// Buffers a response into [`HttpResponseData`], using full-body reads for
+/// success statuses and bounded reads for non-success statuses.
+fn buffer_response(response: Response) -> Result<HttpResponseData, LLMError> {
+    let status = response.status().as_u16();
+    let headers = collect_headers(response.headers());
+
+    let is_success = (200..300).contains(&status);
+    let body = if is_success {
+        response.text().map_err(golem_error_to_llm)?
+    } else {
+        read_bounded_error_body(response)?
+    };
+
+    Ok(HttpResponseData {
+        status,
+        headers,
+        body,
+    })
+}
+
 /// Sends a JSON `POST` request authenticated with a bearer token and returns
 /// the fully buffered response.
 ///
@@ -129,24 +172,18 @@ pub(crate) fn post_json_bearer(
     timeout_seconds: u64,
 ) -> Result<HttpResponseData, LLMError> {
     let response = send_post_request(url, bearer_token, json_body, timeout_seconds)?;
+    buffer_response(response)
+}
 
-    let status = response.status().as_u16();
-    let headers = collect_headers(response.headers());
-
-    let is_success = (200..300).contains(&status);
-    let body = if is_success {
-        // Success: the Responses API returns the complete JSON body.
-        response.text().map_err(golem_error_to_llm)?
-    } else {
-        // Error: bound the body to keep large error pages out of memory.
-        read_bounded_error_body(response)?
-    };
-
-    Ok(HttpResponseData {
-        status,
-        headers,
-        body,
-    })
+/// Sends a bearer-authenticated `GET` request and returns the fully buffered
+/// response.
+pub(crate) fn get_bearer(
+    url: &str,
+    bearer_token: &str,
+    timeout_seconds: u64,
+) -> Result<HttpResponseData, LLMError> {
+    let response = send_get_request(url, bearer_token, timeout_seconds)?;
+    buffer_response(response)
 }
 
 /// Sends a JSON `POST` request and returns the response without buffering the

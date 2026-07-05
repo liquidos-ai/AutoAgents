@@ -2,7 +2,7 @@
 //!
 //! This module provides integration with OpenAI's GPT models through their API.
 
-#[cfg(native)]
+#[cfg(any(native, wasi_http))]
 use crate::builder::LLMBackend;
 use crate::builder::LLMBuilder;
 use crate::chat::Usage;
@@ -15,7 +15,7 @@ use crate::embedding::EmbeddingBuilder;
 use crate::http::ensure_success;
 #[cfg(wasi_http)]
 use crate::http::map_http_status_to_error;
-#[cfg(native)]
+#[cfg(any(native, wasi_http))]
 use crate::models::StandardModelListResponse;
 #[cfg(native)]
 use crate::providers::openai_compatible::{
@@ -627,7 +627,7 @@ impl OpenAI {
     }
 }
 
-#[cfg(native)]
+#[cfg(any(native, wasi_http))]
 #[derive(Serialize)]
 struct OpenAIEmbeddingRequest {
     model: String,
@@ -638,13 +638,13 @@ struct OpenAIEmbeddingRequest {
     dimensions: Option<u32>,
 }
 
-#[cfg(native)]
+#[cfg(any(native, wasi_http))]
 #[derive(Deserialize, Debug)]
 struct OpenAIEmbeddingData {
     embedding: Vec<f32>,
 }
 
-#[cfg(native)]
+#[cfg(any(native, wasi_http))]
 #[derive(Deserialize, Debug)]
 struct OpenAIEmbeddingResponse {
     data: Vec<OpenAIEmbeddingData>,
@@ -837,9 +837,8 @@ impl CompletionProvider for OpenAI {
     }
 }
 
-// Model listing goes through `reqwest`; gate the override native-only so that
-// on WASI Preview2 the trait's default `list_models` ("List Models not
-// supported") applies.
+// Model listing uses the same `/models` endpoint on both native and WASI;
+// only the transport changes.
 #[cfg(native)]
 #[async_trait]
 impl ModelsProvider for OpenAI {
@@ -847,10 +846,7 @@ impl ModelsProvider for OpenAI {
         &self,
         _request: Option<&ModelListRequest>,
     ) -> Result<Box<dyn ModelListResponse>, LLMError> {
-        let url = self
-            .base_url()
-            .join("models")
-            .map_err(|e| LLMError::HttpError(e.to_string()))?;
+        let url = self.models_url()?;
 
         let resp = self
             .client()
@@ -868,9 +864,6 @@ impl ModelsProvider for OpenAI {
     }
 }
 
-// On WASI Preview2 model listing is not implemented yet; return a clear error
-// so the `LLMProvider` trait bound (which requires `ModelsProvider`) is
-// satisfied.
 #[cfg(wasi_http)]
 #[async_trait]
 impl ModelsProvider for OpenAI {
@@ -878,7 +871,33 @@ impl ModelsProvider for OpenAI {
         &self,
         _request: Option<&ModelListRequest>,
     ) -> Result<Box<dyn ModelListResponse>, LLMError> {
-        Err(Self::wasi_unsupported("OpenAI model listing"))
+        let response = crate::wasi_http::get_bearer(
+            self.models_url()?.as_str(),
+            &self.provider.api_key,
+            self.provider.timeout_seconds,
+        )?;
+        log::debug!("OpenAI model-list HTTP status: {}", response.status);
+
+        if !(200..300).contains(&response.status) {
+            let retry_after = crate::http::find_retry_after(&response.headers);
+            return Err(map_http_status_to_error(
+                "OpenAI",
+                response.status,
+                response.body,
+                retry_after,
+            ));
+        }
+
+        let inner: crate::models::StandardModelListResponseInner =
+            serde_json::from_str(&response.body).map_err(|e| LLMError::ResponseFormatError {
+                message: format!("Failed to decode OpenAI model list response: {e}"),
+                raw_response: response.body.clone(),
+            })?;
+
+        Ok(Box::new(StandardModelListResponse {
+            inner,
+            backend: LLMBackend::OpenAI,
+        }))
     }
 }
 
@@ -912,6 +931,22 @@ impl OpenAI {
     #[cfg(native)]
     pub fn client(&self) -> &reqwest::Client {
         &self.provider.client
+    }
+
+    #[cfg(any(native, wasi_http))]
+    fn models_url(&self) -> Result<url::Url, LLMError> {
+        self.provider
+            .base_url
+            .join("models")
+            .map_err(|e| LLMError::HttpError(e.to_string()))
+    }
+
+    #[cfg(any(native, wasi_http))]
+    fn embeddings_url(&self) -> Result<url::Url, LLMError> {
+        self.provider
+            .base_url
+            .join("embeddings")
+            .map_err(|e| LLMError::HttpError(e.to_string()))
     }
 
     #[cfg(native)]
@@ -1922,13 +1957,12 @@ impl OpenAI {
 /// the stream reaches EOF without a trailing `\n\n` delimiter.
 #[cfg(wasi_http)]
 fn responses_eof_flush(
-    buffer: &mut Vec<u8>,
+    event_bytes: Vec<u8>,
     state: &mut ResponsesStreamState,
 ) -> Result<Vec<StreamChunk>, LLMError> {
-    if buffer.is_empty() {
+    if event_bytes.is_empty() {
         return Ok(Vec::new());
     }
-    let event_bytes = std::mem::take(buffer);
     let event = String::from_utf8_lossy(&event_bytes).into_owned();
     parse_responses_sse_event(event.trim(), state)
 }
@@ -2020,7 +2054,8 @@ impl Stream for WasiResponsesStream {
                     // candidate so that a last SSE event without a trailing
                     // `\n\n` delimiter is still parsed.
                     self.finished = true;
-                    match responses_eof_flush(&mut self.buffer, &mut self.state) {
+                    let event_bytes = std::mem::take(&mut self.buffer);
+                    match responses_eof_flush(event_bytes, &mut self.state) {
                         Ok(chunks) if chunks.is_empty() => {
                             return std::task::Poll::Ready(None);
                         }
@@ -2105,9 +2140,8 @@ impl LLMBuilder<OpenAI> {
     }
 }
 
-// Embeddings go over `reqwest`; the WASI Preview2 transport does not implement
-// them in this first pass. Split into a native impl and a WASI stub so the
-// `EmbeddingProvider` trait (which has no default `embed`) is always satisfied.
+// Embeddings use the same `/embeddings` endpoint on both native and WASI;
+// only the transport changes.
 #[cfg(all(feature = "openai", not(target_arch = "wasm32")))]
 #[async_trait]
 impl EmbeddingProvider for OpenAI {
@@ -2131,11 +2165,7 @@ impl EmbeddingProvider for OpenAI {
             dimensions: self.provider.embedding_dimensions,
         };
 
-        let url = self
-            .provider
-            .base_url
-            .join("embeddings")
-            .map_err(|e| LLMError::HttpError(e.to_string()))?;
+        let url = self.embeddings_url()?;
 
         let resp = self
             .provider
@@ -2157,8 +2187,51 @@ impl EmbeddingProvider for OpenAI {
 #[cfg(all(feature = "openai", wasi_http))]
 #[async_trait]
 impl EmbeddingProvider for OpenAI {
-    async fn embed(&self, _input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
-        Err(Self::wasi_unsupported("OpenAI embeddings"))
+    async fn embed(&self, input: Vec<String>) -> Result<Vec<Vec<f32>>, LLMError> {
+        if self.provider.api_key.is_empty() {
+            return Err(LLMError::missing_api_key(
+                "Missing OpenAI API key".to_string(),
+            ));
+        }
+
+        let emb_format = self
+            .provider
+            .embedding_encoding_format
+            .clone()
+            .unwrap_or_else(|| "float".to_string());
+
+        let body = OpenAIEmbeddingRequest {
+            model: self.provider.model.to_string(),
+            input,
+            encoding_format: Some(emb_format),
+            dimensions: self.provider.embedding_dimensions,
+        };
+
+        let response = crate::wasi_http::post_json_bearer(
+            self.embeddings_url()?.as_str(),
+            &self.provider.api_key,
+            &serde_json::to_vec(&body).map_err(LLMError::from)?,
+            self.provider.timeout_seconds,
+        )?;
+        log::debug!("OpenAI embeddings HTTP status: {}", response.status);
+
+        if !(200..300).contains(&response.status) {
+            let retry_after = crate::http::find_retry_after(&response.headers);
+            return Err(map_http_status_to_error(
+                "OpenAI",
+                response.status,
+                response.body,
+                retry_after,
+            ));
+        }
+
+        let json_resp: OpenAIEmbeddingResponse =
+            serde_json::from_str(&response.body).map_err(|e| LLMError::ResponseFormatError {
+                message: format!("Failed to decode OpenAI embeddings response: {e}"),
+                raw_response: response.body.clone(),
+            })?;
+
+        Ok(json_resp.data.into_iter().map(|d| d.embedding).collect())
     }
 }
 
