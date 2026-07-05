@@ -1,4 +1,5 @@
 use clap::{Parser, ValueEnum};
+use std::path::PathBuf;
 use std::sync::Arc;
 mod agent;
 mod interactive;
@@ -16,12 +17,35 @@ enum UseCase {
 struct Args {
     #[arg(short, long, help = "usecase to run")]
     usecase: UseCase,
+    #[arg(
+        long,
+        default_value = ".",
+        help = "Workspace root for all file operations"
+    )]
+    workspace_root: PathBuf,
 }
 
 #[tokio::main]
 #[allow(clippy::result_large_err)]
 async fn main() -> Result<(), Error> {
     let args = Args::parse();
+
+    let workspace_root = args.workspace_root.canonicalize().map_err(|e| {
+        Error::CustomError(format!(
+            "Failed to resolve workspace root {}: {}",
+            args.workspace_root.display(),
+            e
+        ))
+    })?;
+
+    if !workspace_root.is_dir() {
+        return Err(Error::CustomError(format!(
+            "Workspace root must be a directory: {}",
+            workspace_root.display()
+        )));
+    }
+
+    let workspace_root = workspace_root.to_string_lossy().to_string();
 
     // Check if API key is set
     let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
@@ -36,7 +60,7 @@ async fn main() -> Result<(), Error> {
         .expect("Failed to build LLM");
 
     match args.usecase {
-        UseCase::Interactive => interactive::run_interactive_session(llm).await?,
+        UseCase::Interactive => interactive::run_interactive_session(llm, workspace_root).await?,
     }
 
     Ok(())

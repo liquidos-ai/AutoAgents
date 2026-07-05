@@ -40,6 +40,23 @@ Reusable tools are in `autoagents-toolkit`:
 
 Enable features in your `Cargo.toml` as needed.
 
+Filesystem tools should be scoped to an explicit workspace root when exposed to agents:
+
+```rust
+use autoagents_toolkit::tools::filesystem::{DeleteFile, ListDir, ReadFile, WriteFile};
+
+let workspace_root = std::env::current_dir()?.canonicalize()?;
+
+let read_file = ReadFile::new_with_root_dir(workspace_root.display().to_string());
+let write_file = WriteFile::new_with_root_dir(workspace_root.display().to_string());
+let delete_file = DeleteFile::new_with_root_dir(workspace_root.display().to_string());
+let list_dir = ListDir::new_with_root_dir(workspace_root.display().to_string());
+```
+
+Root-scoped tools reject absolute paths, `..` traversal outside the root, and symlink escapes. Directory deletion is non-recursive by default; pass `recursive: true` only when recursive deletion is explicitly intended.
+
+The filesystem constructors named `new()` are also sandboxed to the process current directory by default. Use `new_unrestricted()` only for trusted local workflows where unrestricted host filesystem access is intentional.
+
 ## MCP
 
 Model Context Protocol (MCP) integrations are available via `autoagents-toolkit::mcp` — load tool definitions from MCP servers and expose them as `ToolT`. See `McpTools` for managing connections and wrapping MCP tools for use by agents.

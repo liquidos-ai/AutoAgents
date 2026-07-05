@@ -11,7 +11,7 @@ use tokio::fs;
 
 use autoagents::prelude::ToolT;
 
-use super::BaseFileTool;
+use super::{BaseFileTool, default_root_dir};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct CreateDirArgs {
@@ -27,13 +27,24 @@ pub struct CreateDirArgs {
     description = "Create a directory in the filesystem. Idempotent: succeeds if the directory already exists.",
     input = CreateDirArgs,
 )]
-#[derive(Default)]
 pub struct CreateDir {
     root_dir: Option<String>,
 }
 
+impl Default for CreateDir {
+    fn default() -> Self {
+        Self {
+            root_dir: Some(default_root_dir()),
+        }
+    }
+}
+
 impl CreateDir {
     pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn new_unrestricted() -> Self {
         Self { root_dir: None }
     }
 
@@ -63,13 +74,9 @@ where
 
         debug!("CreateDir Executing: directory_path={}", directory_path);
 
-        let path = self.get_relative_path(&directory_path);
-
-        // Ensure path is within root if root is set
-        if self.root_dir().is_some() {
-            self.ensure_within_root(&path)
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-        }
+        let path = self
+            .resolve_path(&directory_path)
+            .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
 
         use std::io::ErrorKind;
 
@@ -108,7 +115,7 @@ where
 
         Ok(json!({
             "success": true,
-            "path": path.display().to_string(),
+            "path": self.output_path(&path),
             "already_existed": already_existed,
             "created": created,
             "recursive": recursive,
@@ -241,5 +248,47 @@ mod tests {
             ToolCallError::RuntimeError(_) => {}
             other => panic!("expected RuntimeError, got: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_create_dir_rejects_absolute_path_with_root_dir() {
+        let tmp = tempdir().expect("tempdir");
+        let root = tmp.path().to_str().unwrap().to_string();
+
+        let tool = CreateDir::new_with_root_dir(root);
+        let err = tool
+            .execute(json!({
+                "directory_path": tmp.path().join("absolute").display().to_string(),
+                "recursive": false
+            }))
+            .await
+            .expect_err("absolute path should fail");
+
+        match err {
+            ToolCallError::RuntimeError(_) => {}
+            other => panic!("expected RuntimeError, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_create_dir_rejects_symlink_parent_escape_with_root_dir() {
+        let tmp = tempdir().expect("tempdir");
+        let root = tmp.path().join("root");
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&root).expect("create root");
+        std::fs::create_dir_all(&outside).expect("create outside");
+        std::os::unix::fs::symlink(&outside, root.join("outside_link")).expect("create symlink");
+
+        let tool = CreateDir::new_with_root_dir(root.to_string_lossy().to_string());
+        let result = tool
+            .execute(json!({
+                "directory_path": "outside_link/new",
+                "recursive": true
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(!outside.join("new").exists());
     }
 }

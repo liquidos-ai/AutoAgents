@@ -10,7 +10,7 @@ use std::path::Path;
 use tokio::fs;
 use walkdir::WalkDir;
 
-use super::BaseFileTool;
+use super::{BaseFileTool, default_root_dir};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct SearchFileArgs {
@@ -33,7 +33,7 @@ pub struct SearchFile {
 impl Default for SearchFile {
     fn default() -> Self {
         Self {
-            root_dir: None,
+            root_dir: Some(default_root_dir()),
             max_iterations: 100,
         }
     }
@@ -44,6 +44,13 @@ impl SearchFile {
         Self {
             max_iterations,
             ..Self::default()
+        }
+    }
+
+    pub fn new_unrestricted(max_iterations: usize) -> Self {
+        Self {
+            root_dir: None,
+            max_iterations,
         }
     }
 
@@ -148,7 +155,9 @@ where
             directory, pattern
         );
 
-        let dir_path = self.get_relative_path(&directory);
+        let dir_path = self
+            .resolve_path(&directory)
+            .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
         let recursive = true;
         let search_content = false; // Search by filename only
         let case_sensitive = true;
@@ -164,12 +173,6 @@ where
             return Err(ToolCallError::RuntimeError(
                 format!("Path is not a directory: {}", dir_path.display()).into(),
             ));
-        }
-
-        // Ensure path is within root if root is set
-        if self.root_dir().is_some() {
-            self.ensure_within_root(&dir_path)
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
         }
 
         let mut results = Vec::new();
@@ -195,7 +198,7 @@ where
                 continue;
             }
 
-            if entry.file_type().is_dir() {
+            if !entry.file_type().is_file() {
                 continue;
             }
 
@@ -207,7 +210,7 @@ where
             if search_content {
                 if Self::search_content_in_file(path, &pattern, case_sensitive).await? {
                     results.push(json!({
-                        "path": path.display().to_string(),
+                        "path": self.output_path(path),
                         "name": file_name,
                         "size": metadata.len(),
                         "match_type": "content"
@@ -215,7 +218,7 @@ where
                 }
             } else if Self::matches_pattern(&file_name, &pattern, case_sensitive) {
                 results.push(json!({
-                    "path": path.display().to_string(),
+                    "path": self.output_path(path),
                     "name": file_name,
                     "size": metadata.len(),
                     "match_type": "filename"
@@ -225,7 +228,7 @@ where
 
         Ok(json!({
             "success": true,
-            "directory": dir_path.display().to_string(),
+            "directory": self.output_path(&dir_path),
             "pattern": pattern,
             "max_iterations": self.max_iterations,
             "iterations": iterations,
@@ -240,6 +243,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::filesystem::ReadFile;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -254,7 +258,7 @@ mod tests {
         std::fs::write(temp_dir.path().join("test.rs"), "fn main()")
             .expect("Failed to create test.rs");
 
-        let search_file = SearchFile::default();
+        let search_file = SearchFile::new_unrestricted(100);
         let args = json!({
             "directory": temp_dir.path().display().to_string(),
             "pattern": "test*",
@@ -278,7 +282,7 @@ mod tests {
             std::fs::write(path, "content").expect("Failed to create test file");
         }
 
-        let search_file = SearchFile::new(3);
+        let search_file = SearchFile::new_unrestricted(3);
         let args = json!({
             "directory": temp_dir.path().display().to_string(),
             "pattern": "test*"
@@ -320,5 +324,127 @@ mod tests {
         // Case insensitive
         assert!(SearchFile::matches_pattern("TEST.txt", "test*", false));
         assert!(!SearchFile::matches_pattern("TEST.txt", "test*", true));
+    }
+
+    #[tokio::test]
+    async fn test_search_file_rejects_absolute_path_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().to_str().unwrap().to_string();
+
+        let search_file = SearchFile::new_with_root_dir(root_dir);
+        let result = search_file
+            .execute(json!({
+                "directory": temp_dir.path().display().to_string(),
+                "pattern": "*.rs"
+            }))
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_search_file_rooted_output_path_can_feed_read_file() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().to_str().unwrap().to_string();
+
+        std::fs::write(temp_dir.path().join("test.rs"), "fn test() {}")
+            .expect("Failed to create test file");
+
+        let search_file = SearchFile::new_with_root_dir(root_dir.clone());
+        let result = search_file
+            .execute(json!({
+                "directory": ".",
+                "pattern": "*.rs"
+            }))
+            .await
+            .expect("Failed to search files");
+
+        assert_eq!(result.get("directory").and_then(|v| v.as_str()), Some("."));
+
+        let path = result["results"][0]["path"]
+            .as_str()
+            .expect("result path should be a string");
+        assert_eq!(path, "test.rs");
+
+        let read_file = ReadFile::new_with_root_dir(root_dir);
+        let result = read_file
+            .execute(json!({
+                "file_path": path
+            }))
+            .await
+            .expect("searched path should be readable");
+
+        assert_eq!(
+            result.get("content").and_then(|v| v.as_str()),
+            Some("fn test() {}")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_search_file_rejects_traversal_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().join("root");
+        let outside_dir = temp_dir.path().join("outside");
+        std::fs::create_dir_all(&root_dir).expect("Failed to create root");
+        std::fs::create_dir_all(&outside_dir).expect("Failed to create outside");
+
+        let search_file = SearchFile::new_with_root_dir(root_dir.to_string_lossy().to_string());
+        let result = search_file
+            .execute(json!({
+                "directory": "../outside",
+                "pattern": "*.rs"
+            }))
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_search_file_does_not_follow_symlinked_directories() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().join("root");
+        let outside_dir = temp_dir.path().join("outside");
+        std::fs::create_dir_all(&root_dir).expect("Failed to create root");
+        std::fs::create_dir_all(&outside_dir).expect("Failed to create outside");
+        std::fs::write(outside_dir.join("secret.rs"), "fn secret() {}")
+            .expect("Failed to create outside file");
+        std::os::unix::fs::symlink(&outside_dir, root_dir.join("outside_link"))
+            .expect("Failed to create symlink");
+        std::os::unix::fs::symlink(outside_dir.join("secret.rs"), root_dir.join("link.rs"))
+            .expect("Failed to create file symlink");
+
+        let search_file = SearchFile::new_with_root_dir(root_dir.to_string_lossy().to_string());
+        let result = search_file
+            .execute(json!({
+                "directory": ".",
+                "pattern": "*.rs"
+            }))
+            .await
+            .expect("search should succeed");
+
+        assert_eq!(result.get("count").and_then(|v| v.as_u64()), Some(0));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_search_file_rejects_symlink_escape_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().join("root");
+        let outside_dir = temp_dir.path().join("outside");
+        std::fs::create_dir_all(&root_dir).expect("Failed to create root");
+        std::fs::create_dir_all(&outside_dir).expect("Failed to create outside");
+        std::os::unix::fs::symlink(&outside_dir, root_dir.join("outside_link"))
+            .expect("Failed to create symlink");
+
+        let search_file = SearchFile::new_with_root_dir(root_dir.to_string_lossy().to_string());
+        let result = search_file
+            .execute(json!({
+                "directory": "outside_link",
+                "pattern": "*.rs"
+            }))
+            .await;
+
+        assert!(result.is_err());
     }
 }

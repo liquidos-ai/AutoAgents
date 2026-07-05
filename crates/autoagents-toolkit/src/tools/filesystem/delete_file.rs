@@ -8,12 +8,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::fs;
 
-use super::BaseFileTool;
+use super::{BaseFileTool, default_root_dir};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct DeleteFileArgs {
     #[input(description = "Path of the file or directory to delete")]
     path: String,
+    #[serde(default)]
+    #[input(description = "Delete non-empty directories recursively")]
+    recursive: bool,
 }
 
 #[tool(
@@ -21,14 +24,25 @@ pub struct DeleteFileArgs {
     description = "Delete a file or directory from the filesystem",
     input = DeleteFileArgs,
 )]
-#[derive(Default)]
 pub struct DeleteFile {
     root_dir: Option<String>,
+}
+
+impl Default for DeleteFile {
+    fn default() -> Self {
+        Self {
+            root_dir: Some(default_root_dir()),
+        }
+    }
 }
 
 impl DeleteFile {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn new_unrestricted() -> Self {
+        Self { root_dir: None }
     }
 
     pub fn new_with_root_dir(root_dir: String) -> Self {
@@ -50,12 +64,13 @@ where
     Self: BaseFileTool,
 {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        let DeleteFileArgs { path } = serde_json::from_value(args)?;
+        let DeleteFileArgs { path, recursive } = serde_json::from_value(args)?;
 
         debug!("Delete File Executing: Source: {}", path);
 
-        let file_path = self.get_relative_path(&path);
-        let recursive = true; // Always allow recursive deletion for safety
+        let file_path = self
+            .resolve_path(&path)
+            .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
 
         // Validate path exists
         if !file_path.exists() {
@@ -64,13 +79,10 @@ where
             ));
         }
 
-        // Ensure path is within root if root is set
-        if self.root_dir().is_some() {
-            self.ensure_within_root(&file_path)
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-        }
-
-        let is_dir = file_path.is_dir();
+        let metadata = fs::symlink_metadata(&file_path)
+            .await
+            .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
+        let is_dir = metadata.is_dir();
 
         // Delete file or directory
         if is_dir {
@@ -91,8 +103,9 @@ where
 
         Ok(json!({
             "success": true,
-            "path": file_path.display().to_string(),
-            "type": if is_dir { "directory" } else { "file" }
+            "path": self.output_path(&file_path),
+            "type": if is_dir { "directory" } else { "file" },
+            "recursive": recursive
         }))
     }
 }
@@ -116,7 +129,7 @@ mod tests {
 
         assert!(file_path.exists());
 
-        let delete_file = DeleteFile::default();
+        let delete_file = DeleteFile::new_unrestricted();
         let args = json!({
             "path": file_path.display().to_string()
         });
@@ -137,7 +150,7 @@ mod tests {
         std::fs::create_dir_all(&dir_path).expect("Failed to create test directory");
         assert!(dir_path.exists());
 
-        let delete_file = DeleteFile::default();
+        let delete_file = DeleteFile::new_unrestricted();
         let args = json!({
             "path": dir_path.display().to_string()
         });
@@ -151,7 +164,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_delete_directory_recursive() {
+    async fn test_delete_directory_requires_recursive_for_non_empty_directory() {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let dir_path = temp_dir.path().join("test_dir");
         let nested_dir = dir_path.join("nested");
@@ -163,16 +176,36 @@ mod tests {
         assert!(dir_path.exists());
         assert!(file_in_nested.exists());
 
-        let delete_file = DeleteFile::default();
+        let delete_file = DeleteFile::new_unrestricted();
         let args = json!({
-            "path": dir_path.display().to_string(),
-            "recursive": true
+            "path": dir_path.display().to_string()
         });
 
+        let result = delete_file.execute(args).await;
+        assert!(result.is_err());
+        assert!(dir_path.exists());
+        assert!(file_in_nested.exists());
+    }
+
+    #[tokio::test]
+    async fn test_delete_directory_recursive_when_explicit() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let dir_path = temp_dir.path().join("test_dir");
+        let nested_dir = dir_path.join("nested");
+        let file_in_nested = nested_dir.join("file.txt");
+
+        std::fs::create_dir_all(&nested_dir).expect("Failed to create nested directories");
+        std::fs::write(&file_in_nested, "content").expect("Failed to create file in nested dir");
+
+        let delete_file = DeleteFile::new_unrestricted();
         let result = delete_file
-            .execute(args)
+            .execute(json!({
+                "path": dir_path.display().to_string(),
+                "recursive": true
+            }))
             .await
             .expect("Failed to delete directory recursively");
+
         assert!(result.get("success").and_then(|v| v.as_bool()).unwrap());
         assert!(!dir_path.exists());
     }
@@ -182,7 +215,7 @@ mod tests {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let file_path = temp_dir.path().join("nonexistent.txt");
 
-        let delete_file = DeleteFile::default();
+        let delete_file = DeleteFile::new_unrestricted();
         let args = json!({
             "path": file_path.display().to_string()
         });
@@ -210,5 +243,66 @@ mod tests {
             .expect("Failed to delete file");
         assert!(result.get("success").and_then(|v| v.as_bool()).unwrap());
         assert!(!file_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_delete_rejects_absolute_path_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().to_str().unwrap().to_string();
+        let file_path = temp_dir.path().join("test.txt");
+        std::fs::write(&file_path, "content").expect("Failed to create test file");
+
+        let delete_file = DeleteFile::new_with_root_dir(root_dir);
+        let result = delete_file
+            .execute(json!({
+                "path": file_path.display().to_string()
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(file_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_delete_rejects_traversal_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().join("root");
+        std::fs::create_dir_all(&root_dir).expect("Failed to create root");
+        let outside = temp_dir.path().join("outside.txt");
+        std::fs::write(&outside, "content").expect("Failed to create outside file");
+
+        let delete_file = DeleteFile::new_with_root_dir(root_dir.to_string_lossy().to_string());
+        let result = delete_file
+            .execute(json!({
+                "path": "../outside.txt"
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(outside.exists());
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_delete_rejects_symlink_escape_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().join("root");
+        let outside_dir = temp_dir.path().join("outside");
+        std::fs::create_dir_all(&root_dir).expect("Failed to create root");
+        std::fs::create_dir_all(&outside_dir).expect("Failed to create outside");
+        let outside = outside_dir.join("secret.txt");
+        std::fs::write(&outside, "secret").expect("Failed to create secret");
+        std::os::unix::fs::symlink(&outside, root_dir.join("secret_link"))
+            .expect("Failed to create symlink");
+
+        let delete_file = DeleteFile::new_with_root_dir(root_dir.to_string_lossy().to_string());
+        let result = delete_file
+            .execute(json!({
+                "path": "secret_link"
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(outside.exists());
     }
 }

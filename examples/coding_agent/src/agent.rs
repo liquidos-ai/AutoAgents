@@ -40,21 +40,30 @@ As a ReAct agent, you follow this pattern for each task:
 - Always provide clear feedback about what was accomplished
 
 ## Important Constraints
-- All file paths should be relative to the provided base directory
+- All file paths must be relative to the configured workspace root
+- The filesystem tools reject absolute paths and paths that escape the workspace root
 - You cannot execute shell commands or run code directly
 - Focus on file manipulation and code analysis tasks
 - Be explicit about limitations when you cannot complete a request
 
 Remember: You are a systematic problem solver. Think through each step, use your tools effectively, and provide clear, actionable results.",
     tools = [
-        SearchFile::new(100),
-        GrepTool,
-        ReadFile::new(),
-        WriteFile::new(),
-        DeleteFile::new(),
-        ListDir::new(),
-        AnalyzeCodeTool
+        SearchFile::new_with_root_dir_and_max_iterations(self.workspace_root.clone(), 100),
+        GrepTool::new(self.workspace_root.clone()),
+        ReadFile::new_with_root_dir(self.workspace_root.clone()),
+        WriteFile::new_with_root_dir(self.workspace_root.clone()),
+        DeleteFile::new_with_root_dir(self.workspace_root.clone()),
+        ListDir::new_with_root_dir(self.workspace_root.clone()),
+        AnalyzeCodeTool::new(self.workspace_root.clone())
     ],
 )]
 #[derive(Clone, AgentHooks)]
-pub struct CodingAgent {}
+pub struct CodingAgent {
+    workspace_root: String,
+}
+
+impl CodingAgent {
+    pub fn new(workspace_root: String) -> Self {
+        Self { workspace_root }
+    }
+}
