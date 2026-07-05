@@ -3327,57 +3327,49 @@ data: [DONE]
     #[cfg(wasi_http)]
     #[test]
     fn test_responses_eof_flush_valid_event() {
-        let mut buffer =
+        let buffer =
             b"data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}".to_vec();
         let mut state = ResponsesStreamState::default();
 
-        let chunks =
-            responses_eof_flush(&mut buffer, &mut state).expect("eof flush should succeed");
+        let chunks = responses_eof_flush(buffer, &mut state).expect("eof flush should succeed");
         assert_eq!(chunks.len(), 1);
         assert!(matches!(&chunks[0], StreamChunk::Text(text) if text == "Hello"));
-        assert!(buffer.is_empty(), "buffer should be cleared after flush");
     }
 
     #[cfg(wasi_http)]
     #[test]
     fn test_responses_eof_flush_done_with_usage() {
-        let mut buffer =
+        let buffer =
             br#"data: {"type":"response.done","response":{"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}}"#
                 .to_vec();
         let mut state = ResponsesStreamState::default();
 
-        let chunks =
-            responses_eof_flush(&mut buffer, &mut state).expect("eof flush should succeed");
+        let chunks = responses_eof_flush(buffer, &mut state).expect("eof flush should succeed");
         assert_eq!(chunks.len(), 2);
         assert!(matches!(&chunks[0], StreamChunk::Usage(usage) if usage.total_tokens == 5));
         assert!(
             matches!(&chunks[1], StreamChunk::Done { stop_reason } if stop_reason == "end_turn")
         );
-        assert!(buffer.is_empty(), "buffer should be cleared after flush");
     }
 
     #[cfg(wasi_http)]
     #[test]
     fn test_responses_eof_flush_garbage_event() {
-        let mut buffer = b"data: not-valid-json-trailing-garbage".to_vec();
+        let buffer = b"data: not-valid-json-trailing-garbage".to_vec();
         let mut state = ResponsesStreamState::default();
 
-        let err = responses_eof_flush(&mut buffer, &mut state)
-            .expect_err("eof flush should fail on garbage");
+        let err =
+            responses_eof_flush(buffer, &mut state).expect_err("eof flush should fail on garbage");
         assert!(err.to_string().contains("not-valid-json-trailing-garbage"));
-        assert!(
-            buffer.is_empty(),
-            "buffer should be cleared after failed flush"
-        );
     }
 
     #[cfg(wasi_http)]
     #[test]
     fn test_responses_eof_flush_empty_buffer() {
-        let mut buffer = Vec::new();
+        let buffer = Vec::new();
         let mut state = ResponsesStreamState::default();
 
-        let chunks = responses_eof_flush(&mut buffer, &mut state)
+        let chunks = responses_eof_flush(buffer, &mut state)
             .expect("eof flush on empty buffer should succeed");
         assert!(chunks.is_empty());
     }
