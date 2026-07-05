@@ -1,10 +1,10 @@
-error[E0277]: the trait bound `ManualArgs: ToolInputSchema` is not satisfied
+error[E0277]: the trait bound `ManualArgs: autoagents_core::tool::ToolInputSchema` is not satisfied
   --> tests/ui/compile_fail/missing_tool_input_derive.rs:14:70
    |
 14 | #[tool(name = "manual", description = "Manual input schema", input = ManualArgs)]
    |                                                                      ^^^^^^^^^^ unsatisfied trait bound
    |
-help: the trait `ToolInputSchema` is not implemented for `ManualArgs`
+help: the trait `autoagents_core::tool::ToolInputSchema` is not implemented for `ManualArgs`
   --> tests/ui/compile_fail/missing_tool_input_derive.rs:6:1
    |
  6 | struct ManualArgs;

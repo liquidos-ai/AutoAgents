@@ -11,7 +11,6 @@ publish = false
 cuda = ["autoagents-speech/cuda"]
 
 [dependencies]
-autoagents-speech = { workspace = true, features = ["audio-capture", "vad", "parakeet", "pocket-tts", "playback"] }
 tokio = { workspace = true }
 hound = { workspace = true }
 env_logger = { workspace = true }
@@ -22,3 +21,9 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 futures = { workspace = true }
 tokio-stream = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+autoagents-speech = { workspace = true, features = ["audio-capture", "vad", "ort-load-dynamic", "parakeet", "parakeet-load-dynamic", "pocket-tts", "playback"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+autoagents-speech = { workspace = true, features = ["audio-capture", "vad", "parakeet", "pocket-tts", "playback"] }
