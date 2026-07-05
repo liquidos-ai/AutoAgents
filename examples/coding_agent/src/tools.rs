@@ -103,27 +103,29 @@ impl ToolRuntime for GrepTool {
         let max_results = 50;
 
         for entry in WalkDir::new(&base_path).into_iter().filter_map(|e| e.ok()) {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+
             if results.len() >= max_results {
                 break;
             }
 
             let path = entry.path();
-            if path.is_file() {
-                let relative_path = path.strip_prefix(&base_path).unwrap_or(path);
-                if file_pattern.matches_path(relative_path)
-                    && let Ok(content) = fs::read_to_string(path)
-                {
-                    for (line_num, line) in content.lines().enumerate() {
-                        if regex.is_match(line) {
-                            results.push(format!(
-                                "{}:{}: {}",
-                                relative_path.display(),
-                                line_num + 1,
-                                line.trim()
-                            ));
-                            if results.len() >= max_results {
-                                break;
-                            }
+            let relative_path = path.strip_prefix(&base_path).unwrap_or(path);
+            if file_pattern.matches_path(relative_path)
+                && let Ok(content) = fs::read_to_string(path)
+            {
+                for (line_num, line) in content.lines().enumerate() {
+                    if regex.is_match(line) {
+                        results.push(format!(
+                            "{}:{}: {}",
+                            relative_path.display(),
+                            line_num + 1,
+                            line.trim()
+                        ));
+                        if results.len() >= max_results {
+                            break;
                         }
                     }
                 }
@@ -207,7 +209,7 @@ fn analyze_structure(path: &Path) -> Result<String, ToolCallError> {
     } else {
         for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
             let entry_path = entry.path();
-            if entry_path.is_file() {
+            if entry.file_type().is_file() {
                 file_count += 1;
                 if let Ok(content) = fs::read_to_string(entry_path) {
                     total_lines += content.lines().count();
@@ -217,7 +219,7 @@ fn analyze_structure(path: &Path) -> Result<String, ToolCallError> {
                         .entry(ext.to_string_lossy().to_string())
                         .or_insert(0) += 1;
                 }
-            } else if entry_path.is_dir() {
+            } else if entry.file_type().is_dir() {
                 dir_count += 1;
             }
         }
@@ -488,6 +490,8 @@ mod tests {
         write(&outside.join("secret.rs"), "fn secret() {}\n");
         std::os::unix::fs::symlink(&outside, root.join("outside_link"))
             .expect("symlink should create");
+        std::os::unix::fs::symlink(outside.join("secret.rs"), root.join("link.rs"))
+            .expect("file symlink should create");
 
         let output = GrepTool::new(root.to_string_lossy().to_string())
             .execute(json!({
@@ -499,6 +503,32 @@ mod tests {
             .expect("grep should succeed");
 
         assert_eq!(output, json!("No matches found."));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn analyze_tool_does_not_follow_symlinked_files_during_walk() {
+        let dir = temp_fixture_dir("analyze-symlink-file");
+        let root = dir.join("root");
+        let outside = dir.join("outside");
+        fs::create_dir_all(&root).expect("root should create");
+        fs::create_dir_all(&outside).expect("outside should create");
+        write(&outside.join("secret.rs"), "fn secret() {}\n");
+        std::os::unix::fs::symlink(outside.join("secret.rs"), root.join("link.rs"))
+            .expect("file symlink should create");
+
+        let output = AnalyzeCodeTool::new(root.to_string_lossy().to_string())
+            .execute(json!({
+                "path": ".",
+                "analysis_type": "structure",
+            }))
+            .await
+            .expect("analysis should succeed");
+
+        let output = output.as_str().expect("analysis output should be a string");
+        assert!(output.contains("- Files: 0"));
+        assert!(!output.contains(".rs: 1 files"));
         let _ = fs::remove_dir_all(dir);
     }
 

@@ -198,7 +198,7 @@ where
                 continue;
             }
 
-            if entry.file_type().is_dir() {
+            if !entry.file_type().is_file() {
                 continue;
             }
 
@@ -411,6 +411,8 @@ mod tests {
             .expect("Failed to create outside file");
         std::os::unix::fs::symlink(&outside_dir, root_dir.join("outside_link"))
             .expect("Failed to create symlink");
+        std::os::unix::fs::symlink(outside_dir.join("secret.rs"), root_dir.join("link.rs"))
+            .expect("Failed to create file symlink");
 
         let search_file = SearchFile::new_with_root_dir(root_dir.to_string_lossy().to_string());
         let result = search_file
