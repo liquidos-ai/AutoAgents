@@ -275,4 +275,29 @@ mod tests {
         assert!(result.is_err());
         assert!(!outside_dir.join("new.txt").exists());
     }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_write_file_rejects_dangling_symlink_escape_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().join("root");
+        let outside_dir = temp_dir.path().join("outside");
+        std::fs::create_dir_all(&root_dir).expect("Failed to create root");
+        std::fs::create_dir_all(&outside_dir).expect("Failed to create outside");
+        let outside_target = outside_dir.join("new.txt");
+        std::os::unix::fs::symlink(&outside_target, root_dir.join("dangling_link.txt"))
+            .expect("Failed to create dangling symlink");
+
+        let write_file = WriteFile::new_with_root_dir(root_dir.to_string_lossy().to_string());
+        let result = write_file
+            .execute(json!({
+                "file_path": "dangling_link.txt",
+                "content": "outside",
+                "append": false
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(!outside_target.exists());
+    }
 }

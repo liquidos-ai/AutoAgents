@@ -45,6 +45,47 @@ fn deepest_existing_ancestor(path: &Path) -> Option<PathBuf> {
     }
 }
 
+fn symlink_denied(path: &Path, root: &Path) -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        format!(
+            "Path {} contains a symlink inside root directory {}",
+            path.display(),
+            root.display()
+        ),
+    )
+}
+
+fn ensure_no_symlink_components(
+    relative_path: &Path,
+    root_canonical: &Path,
+    root: &Path,
+) -> Result<(), std::io::Error> {
+    let mut current = root_canonical.to_path_buf();
+
+    for component in relative_path.components() {
+        match component {
+            Component::CurDir => continue,
+            Component::ParentDir => return Err(permission_denied(relative_path, root)),
+            Component::Normal(part) => current.push(part),
+            Component::Prefix(_) | Component::RootDir => {
+                return Err(permission_denied(relative_path, root));
+            }
+        }
+
+        match std::fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(symlink_denied(&current, root));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => return Err(error),
+        }
+    }
+
+    Ok(())
+}
+
 /// Ensure `path` resolves inside `root`.
 pub fn ensure_within_root(path: &Path, root: &Path) -> Result<PathBuf, std::io::Error> {
     let canonical = canonicalize_or_normalize(path);
@@ -80,6 +121,11 @@ pub fn resolve_within_root(path: &Path, root: &Path) -> Result<PathBuf, std::io:
     if !normalized.starts_with(&root_canonical) {
         return Err(permission_denied(&joined, root));
     }
+
+    let relative_normalized = normalized
+        .strip_prefix(&root_canonical)
+        .map_err(|_| permission_denied(&joined, root))?;
+    ensure_no_symlink_components(relative_normalized, &root_canonical, root)?;
 
     let existing_ancestor = deepest_existing_ancestor(&joined).ok_or_else(|| {
         std::io::Error::new(
@@ -198,6 +244,48 @@ mod tests {
 
         let result = resolve_within_root(Path::new("outside_link/new.txt"), &root);
         assert!(result.is_err());
+
+        std::fs::remove_dir_all(root).ok();
+        std::fs::remove_dir_all(outside).ok();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn resolve_within_root_rejects_dangling_symlink_escape() {
+        let root = std::env::temp_dir().join("path_sandbox_dangling_symlink_root");
+        let outside = std::env::temp_dir().join("path_sandbox_dangling_symlink_outside");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&outside).ok();
+        std::fs::create_dir_all(&root).expect("create root");
+        std::fs::create_dir_all(&outside).expect("create outside");
+        let outside_target = outside.join("new.txt");
+        std::os::unix::fs::symlink(&outside_target, root.join("dangling_link"))
+            .expect("create dangling symlink");
+
+        let result = resolve_within_root(Path::new("dangling_link"), &root);
+        assert!(result.is_err());
+        assert!(!outside_target.exists());
+
+        std::fs::remove_dir_all(root).ok();
+        std::fs::remove_dir_all(outside).ok();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn resolve_within_root_checks_normalized_path_for_dangling_symlinks() {
+        let root = std::env::temp_dir().join("path_sandbox_normalized_dangling_symlink_root");
+        let outside = std::env::temp_dir().join("path_sandbox_normalized_dangling_symlink_outside");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&outside).ok();
+        std::fs::create_dir_all(&root).expect("create root");
+        std::fs::create_dir_all(&outside).expect("create outside");
+        let outside_target = outside.join("new.txt");
+        std::os::unix::fs::symlink(&outside_target, root.join("dangling_link"))
+            .expect("create dangling symlink");
+
+        let result = resolve_within_root(Path::new("missing/../dangling_link"), &root);
+        assert!(result.is_err());
+        assert!(!outside_target.exists());
 
         std::fs::remove_dir_all(root).ok();
         std::fs::remove_dir_all(outside).ok();
