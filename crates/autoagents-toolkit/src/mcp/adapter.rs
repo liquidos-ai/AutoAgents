@@ -9,20 +9,31 @@ use rmcp::{
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
+
+use super::client::exposed_tool_name;
 
 /// MCP Tool Adapter that bridges MCP tools with AutoAgents tool system
 #[derive(Debug)]
 pub struct McpToolAdapter {
     name: String,
+    mcp_name: String,
     description: String,
     args_schema: Value,
     service: Arc<RunningService<RoleClient, ClientInfo>>,
+    timeout: Duration,
 }
 
 impl McpToolAdapter {
     /// Create a new MCP tool adapter from an MCP tool and service connection
-    pub fn new(tool: McpTool, service: Arc<RunningService<RoleClient, ClientInfo>>) -> Self {
-        let name = tool.name.to_string();
+    pub fn new(
+        server_name: &str,
+        tool: McpTool,
+        service: Arc<RunningService<RoleClient, ClientInfo>>,
+        timeout: Duration,
+    ) -> Self {
+        let mcp_name = tool.name.to_string();
+        let name = exposed_tool_name(server_name, &mcp_name);
         let description = tool.description.unwrap_or_default().to_string();
         let args_schema = serde_json::to_value(&tool.input_schema).unwrap_or_else(|_| {
             json!({
@@ -34,9 +45,11 @@ impl McpToolAdapter {
 
         Self {
             name,
+            mcp_name,
             description,
             args_schema,
             service,
+            timeout,
         }
     }
 
@@ -48,14 +61,11 @@ impl McpToolAdapter {
 
 impl ToolT for McpToolAdapter {
     fn name(&self) -> &str {
-        // We need to use Box::leak to convert String to &'static str
-        // This is safe because tools are typically long-lived
-        Box::leak(self.name.clone().into_boxed_str())
+        &self.name
     }
 
     fn description(&self) -> &str {
-        // Same approach for description
-        Box::leak(self.description.clone().into_boxed_str())
+        &self.description
     }
 
     fn args_schema(&self) -> Value {
@@ -79,22 +89,33 @@ impl ToolRuntime for McpToolAdapter {
         // Prepare the call tool request
         let request = match arguments {
             Some(arguments) => {
-                CallToolRequestParams::new(self.name.clone()).with_arguments(arguments)
+                CallToolRequestParams::new(self.mcp_name.clone()).with_arguments(arguments)
             }
-            None => CallToolRequestParams::new(self.name.clone()),
+            None => CallToolRequestParams::new(self.mcp_name.clone()),
         };
 
         // Execute the tool via MCP
-        match self.service.call_tool(request).await {
+        match tokio::time::timeout(self.timeout, self.service.call_tool(request)).await {
+            Err(_) => Err(ToolCallError::RuntimeError(
+                format!(
+                    "MCP tool execution timed out for {} after {:?}",
+                    self.name, self.timeout
+                )
+                .into(),
+            )),
             Ok(result) => {
-                // Convert MCP result to our format
-                convert_mcp_result(result)
-            }
-            Err(e) => {
-                log::error!("MCP tool execution failed for {}: {:?}", self.name, e);
-                Err(ToolCallError::RuntimeError(
-                    format!("MCP tool execution failed: {}", e).into(),
-                ))
+                match result {
+                    Ok(result) => {
+                        // Convert MCP result to our format
+                        convert_mcp_result(result)
+                    }
+                    Err(e) => {
+                        log::error!("MCP tool execution failed for {}: {:?}", self.name, e);
+                        Err(ToolCallError::RuntimeError(
+                            format!("MCP tool execution failed: {}", e).into(),
+                        ))
+                    }
+                }
             }
         }
     }
@@ -150,6 +171,10 @@ fn convert_mcp_result(result: CallToolResult) -> Result<Value, ToolCallError> {
             }
         }
         result_data.insert("content", json!(contents));
+    }
+
+    if let Some(structured_content) = result.structured_content {
+        result_data.insert("structured_content", json!(structured_content));
     }
 
     // Add success indicator

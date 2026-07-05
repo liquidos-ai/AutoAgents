@@ -6,7 +6,7 @@ use autoagents::core::error::Error;
 use autoagents::core::tool::ToolT;
 use autoagents::llm::{backends::openai::OpenAI, builder::LLMBuilder};
 use autoagents_derive::AgentHooks;
-use autoagents_toolkit::mcp::{McpToolWrapper, McpTools};
+use autoagents_toolkit::mcp::{McpProcessPolicy, McpToolWrapper, McpTools};
 use std::env;
 use std::sync::Arc;
 
@@ -18,7 +18,10 @@ pub struct McpAgent {
 impl McpAgent {
     pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
         // Load MCP tools from config
-        let mcp_tools = McpTools::from_config("./examples/mcp/config.toml").await?;
+        let process_policy = McpProcessPolicy::allow_commands(["mcp-server-brave-search"])?;
+        let mcp_tools =
+            McpTools::from_config_with_process_policy("./examples/mcp/config.toml", process_policy)
+                .await?;
         let tools = mcp_tools.get_tools().await;
 
         Ok(Self { tools })

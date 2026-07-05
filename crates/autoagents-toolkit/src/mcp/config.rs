@@ -1,140 +1,439 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-/// MCP Server configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct McpServerConfig {
-    /// Server name
-    pub name: String,
-    /// Protocol type (stdio, sse, etc.)
-    pub protocol: String,
-    /// Command to execute
-    pub command: String,
-    /// Arguments for the command
-    #[serde(default)]
-    pub args: Vec<String>,
-    /// Environment variables
-    #[serde(default)]
-    pub env: HashMap<String, String>,
-    /// Working directory
-    #[serde(default)]
-    pub cwd: Option<String>,
-    /// Connection timeout in seconds
-    #[serde(default = "default_timeout")]
-    pub timeout: u64,
-}
+const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 
-/// MCP configuration containing all servers
+/// MCP configuration containing all servers.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct McpConfig {
     #[serde(rename = "server")]
     pub servers: Vec<McpServerConfig>,
+    #[serde(skip)]
+    base_dir: Option<PathBuf>,
 }
 
-/// Top-level configuration structure
+/// Top-level configuration structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub mcp: McpConfig,
 }
 
-fn default_timeout() -> u64 {
-    30
+/// MCP server configuration.
+#[derive(Debug, Clone)]
+pub struct McpServerConfig {
+    pub name: String,
+    pub enabled: bool,
+    pub timeout_ms: u64,
+    pub transport: McpServerTransport,
+}
+
+/// Supported MCP transports.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum McpServerTransport {
+    Local(McpLocalServerConfig),
+    Remote(McpRemoteServerConfig),
+    Unsupported { protocol: String },
+}
+
+/// Local stdio MCP server configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpLocalServerConfig {
+    pub command: Vec<String>,
+    pub cwd: Option<String>,
+    pub environment: HashMap<String, String>,
+}
+
+/// Remote Streamable HTTP MCP server configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpRemoteServerConfig {
+    pub url: String,
+    pub headers: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawMcpServerConfig {
+    name: String,
+    #[serde(rename = "type")]
+    transport_type: Option<String>,
+    protocol: Option<String>,
+    command: Option<CommandValue>,
+    #[serde(default)]
+    args: Vec<String>,
+    #[serde(default, alias = "environment")]
+    env: HashMap<String, String>,
+    cwd: Option<String>,
+    url: Option<String>,
+    #[serde(default)]
+    headers: HashMap<String, String>,
+    #[serde(default = "default_enabled")]
+    enabled: bool,
+    #[serde(default)]
+    timeout_ms: Option<u64>,
+    #[serde(default)]
+    timeout: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum CommandValue {
+    String(String),
+    Vec(Vec<String>),
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
+pub fn default_timeout_ms() -> u64 {
+    DEFAULT_TIMEOUT_MS
 }
 
 impl McpConfig {
-    /// Load MCP configuration from a TOML file
+    /// Load MCP configuration from a TOML file.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+        let path = path.as_ref();
         let content = std::fs::read_to_string(path)?;
-        let config: Config = toml::from_str(&content)?;
+        let mut config: Config = toml::from_str(&content)?;
+        config.mcp.base_dir = path.parent().map(Path::to_path_buf);
         Ok(config.mcp)
     }
 
-    /// Create a new empty MCP configuration
+    /// Create a new empty MCP configuration.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Add a server to the configuration
+    /// Add a server to the configuration.
     pub fn add_server(&mut self, server: McpServerConfig) {
         self.servers.push(server);
     }
 
-    /// Get a server by name
+    /// Get a server by name.
     pub fn get_server(&self, name: &str) -> Option<&McpServerConfig> {
-        self.servers.iter().find(|s| s.name == name)
+        self.servers.iter().find(|server| server.name == name)
     }
 
-    /// List all server names
+    /// List all server names.
     pub fn server_names(&self) -> Vec<&str> {
-        self.servers.iter().map(|s| s.name.as_str()).collect()
+        self.servers
+            .iter()
+            .map(|server| server.name.as_str())
+            .collect()
+    }
+
+    /// Base directory used for resolving relative MCP process paths.
+    pub fn base_dir(&self) -> Option<&Path> {
+        self.base_dir.as_deref()
+    }
+
+    /// Set the base directory used for resolving relative process paths.
+    pub fn with_base_dir<P: Into<PathBuf>>(mut self, base_dir: P) -> Self {
+        self.base_dir = Some(base_dir.into());
+        self
     }
 }
 
 impl McpServerConfig {
-    /// Create a new server configuration
+    /// Create a backward-compatible local stdio server configuration.
     pub fn new(name: String, protocol: String, command: String) -> Self {
+        let transport = if protocol == "stdio" {
+            McpServerTransport::Local(McpLocalServerConfig {
+                command: vec![command],
+                cwd: None,
+                environment: HashMap::new(),
+            })
+        } else {
+            McpServerTransport::Unsupported { protocol }
+        };
+
         Self {
             name,
-            protocol,
-            command,
-            args: Vec::new(),
-            env: HashMap::new(),
-            cwd: None,
-            timeout: default_timeout(),
+            enabled: true,
+            timeout_ms: default_timeout_ms(),
+            transport,
         }
     }
 
-    /// Set command arguments
+    /// Create a local stdio MCP server configuration.
+    pub fn local(name: impl Into<String>, command: Vec<String>) -> Self {
+        Self {
+            name: name.into(),
+            enabled: true,
+            timeout_ms: default_timeout_ms(),
+            transport: McpServerTransport::Local(McpLocalServerConfig {
+                command,
+                cwd: None,
+                environment: HashMap::new(),
+            }),
+        }
+    }
+
+    /// Create a remote Streamable HTTP MCP server configuration.
+    pub fn remote(name: impl Into<String>, url: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            enabled: true,
+            timeout_ms: default_timeout_ms(),
+            transport: McpServerTransport::Remote(McpRemoteServerConfig {
+                url: url.into(),
+                headers: HashMap::new(),
+            }),
+        }
+    }
+
+    /// Set local command arguments for backward-compatible callers.
     pub fn with_args(mut self, args: Vec<String>) -> Self {
-        self.args = args;
+        if let McpServerTransport::Local(local) = &mut self.transport {
+            local.command.extend(args);
+        }
         self
     }
 
-    /// Set environment variables
+    /// Set local environment variables.
     pub fn with_env(mut self, env: HashMap<String, String>) -> Self {
-        self.env = env;
+        if let McpServerTransport::Local(local) = &mut self.transport {
+            local.environment = env;
+        }
         self
     }
 
-    /// Set working directory
+    /// Set local working directory.
     pub fn with_cwd<P: AsRef<Path>>(mut self, cwd: P) -> Self {
-        self.cwd = Some(cwd.as_ref().to_string_lossy().to_string());
+        if let McpServerTransport::Local(local) = &mut self.transport {
+            local.cwd = Some(cwd.as_ref().to_string_lossy().to_string());
+        }
         self
     }
 
-    /// Set timeout
-    pub fn with_timeout(mut self, timeout: u64) -> Self {
-        self.timeout = timeout;
+    /// Set timeout in seconds.
+    ///
+    /// This preserves the pre-typed-config builder API semantics. Use
+    /// [`Self::with_timeout_ms`] when configuring millisecond values.
+    pub fn with_timeout(mut self, timeout_secs: u64) -> Self {
+        self.timeout_ms = timeout_secs.saturating_mul(1_000);
         self
     }
 
-    /// Validate the server configuration
+    /// Set timeout in milliseconds.
+    pub fn with_timeout_ms(mut self, timeout_ms: u64) -> Self {
+        self.timeout_ms = timeout_ms;
+        self
+    }
+
+    /// Set whether this server is enabled.
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Set remote HTTP headers.
+    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+        if let McpServerTransport::Remote(remote) = &mut self.transport {
+            remote.headers = headers;
+        }
+        self
+    }
+
+    /// Validate the server configuration.
     pub fn validate(&self) -> Result<(), String> {
-        if self.name.is_empty() {
-            return Err("Server name cannot be empty".to_string());
+        if self.name.trim().is_empty() {
+            return Err("MCP server name cannot be empty".to_string());
         }
 
-        if self.command.is_empty() {
-            return Err("Server command cannot be empty".to_string());
+        if self.timeout_ms == 0 {
+            return Err(format!(
+                "MCP server '{}' timeout_ms must be greater than zero",
+                self.name
+            ));
         }
 
-        match self.protocol.as_str() {
-            "stdio" | "sse" | "http" => Ok(()),
-            _ => Err(format!("Unsupported protocol: {}", self.protocol)),
+        match &self.transport {
+            McpServerTransport::Local(local) => {
+                if local.command.is_empty() || local.command[0].trim().is_empty() {
+                    return Err(format!(
+                        "MCP local server '{}' command cannot be empty",
+                        self.name
+                    ));
+                }
+                Ok(())
+            }
+            McpServerTransport::Remote(remote) => {
+                if remote.url.trim().is_empty() {
+                    return Err(format!(
+                        "MCP remote server '{}' url cannot be empty",
+                        self.name
+                    ));
+                }
+                remote
+                    .url
+                    .parse::<http::Uri>()
+                    .map_err(|error| {
+                        format!("MCP remote server '{}' url is invalid: {error}", self.name)
+                    })
+                    .and_then(|uri| match uri.scheme_str() {
+                        Some("http" | "https") => Ok(()),
+                        Some(scheme) => Err(format!(
+                            "MCP remote server '{}' url scheme '{}' is unsupported",
+                            self.name, scheme
+                        )),
+                        None => Err(format!(
+                            "MCP remote server '{}' url must include http or https scheme",
+                            self.name
+                        )),
+                    })
+            }
+            McpServerTransport::Unsupported { protocol } => Err(format!(
+                "Unsupported MCP protocol '{}'. Use type = 'local' for stdio or type = 'remote' for Streamable HTTP.",
+                protocol
+            )),
         }
     }
+
+    pub fn local_config(&self) -> Option<&McpLocalServerConfig> {
+        match &self.transport {
+            McpServerTransport::Local(local) => Some(local),
+            _ => None,
+        }
+    }
+
+    pub fn remote_config(&self) -> Option<&McpRemoteServerConfig> {
+        match &self.transport {
+            McpServerTransport::Remote(remote) => Some(remote),
+            _ => None,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for McpServerConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawMcpServerConfig::deserialize(deserializer)?;
+        let timeout_ms = raw
+            .timeout_ms
+            .or_else(|| {
+                raw.timeout
+                    .map(|timeout_secs| timeout_secs.saturating_mul(1_000))
+            })
+            .unwrap_or_else(default_timeout_ms);
+
+        let transport = match raw.transport_type.as_deref() {
+            Some("local") => {
+                let command = command_vec(raw.command, raw.args)
+                    .map_err(<D::Error as serde::de::Error>::custom)?;
+                McpServerTransport::Local(McpLocalServerConfig {
+                    command,
+                    cwd: raw.cwd,
+                    environment: raw.env,
+                })
+            }
+            Some("remote") => McpServerTransport::Remote(McpRemoteServerConfig {
+                url: raw.url.ok_or_else(|| {
+                    <D::Error as serde::de::Error>::custom("remote MCP server requires url")
+                })?,
+                headers: raw.headers,
+            }),
+            Some(other) => McpServerTransport::Unsupported {
+                protocol: other.to_string(),
+            },
+            None => match raw.protocol.as_deref() {
+                Some("stdio") => {
+                    let command = command_vec(raw.command, raw.args)
+                        .map_err(<D::Error as serde::de::Error>::custom)?;
+                    McpServerTransport::Local(McpLocalServerConfig {
+                        command,
+                        cwd: raw.cwd,
+                        environment: raw.env,
+                    })
+                }
+                Some(protocol @ ("http" | "https" | "streamable_http")) => {
+                    let url = raw.url.ok_or_else(|| {
+                        <D::Error as serde::de::Error>::custom(format!(
+                            "remote MCP protocol '{protocol}' requires url"
+                        ))
+                    })?;
+                    McpServerTransport::Remote(McpRemoteServerConfig {
+                        url,
+                        headers: raw.headers,
+                    })
+                }
+                Some(protocol) => McpServerTransport::Unsupported {
+                    protocol: protocol.to_string(),
+                },
+                None => {
+                    return Err(<D::Error as serde::de::Error>::custom(
+                        "MCP server requires type or protocol",
+                    ));
+                }
+            },
+        };
+
+        Ok(Self {
+            name: raw.name,
+            enabled: raw.enabled,
+            timeout_ms,
+            transport,
+        })
+    }
+}
+
+impl Serialize for McpServerConfig {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeStruct;
+
+        let mut fields = match &self.transport {
+            McpServerTransport::Local(_) => serializer.serialize_struct("McpServerConfig", 7)?,
+            McpServerTransport::Remote(_) => serializer.serialize_struct("McpServerConfig", 6)?,
+            McpServerTransport::Unsupported { .. } => {
+                serializer.serialize_struct("McpServerConfig", 4)?
+            }
+        };
+        fields.serialize_field("name", &self.name)?;
+        fields.serialize_field("enabled", &self.enabled)?;
+        fields.serialize_field("timeout_ms", &self.timeout_ms)?;
+        match &self.transport {
+            McpServerTransport::Local(local) => {
+                fields.serialize_field("type", "local")?;
+                fields.serialize_field("command", &local.command)?;
+                fields.serialize_field("cwd", &local.cwd)?;
+                fields.serialize_field("environment", &local.environment)?;
+            }
+            McpServerTransport::Remote(remote) => {
+                fields.serialize_field("type", "remote")?;
+                fields.serialize_field("url", &remote.url)?;
+                fields.serialize_field("headers", &remote.headers)?;
+            }
+            McpServerTransport::Unsupported { protocol } => {
+                fields.serialize_field("protocol", protocol)?;
+            }
+        }
+        fields.end()
+    }
+}
+
+fn command_vec(command: Option<CommandValue>, args: Vec<String>) -> Result<Vec<String>, String> {
+    let mut command = match command {
+        Some(CommandValue::String(command)) => vec![command],
+        Some(CommandValue::Vec(command)) => command,
+        None => return Err("local MCP server requires command".to_string()),
+    };
+    command.extend(args);
+    Ok(command)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
-    use tempfile::NamedTempFile;
-    use tempfile::tempdir;
+    use tempfile::{NamedTempFile, tempdir};
 
     #[test]
-    fn test_mcp_server_config_creation() {
+    fn creates_local_config_with_legacy_constructor() {
         let config = McpServerConfig::new(
             "test_server".to_string(),
             "stdio".to_string(),
@@ -142,15 +441,14 @@ mod tests {
         );
 
         assert_eq!(config.name, "test_server");
-        assert_eq!(config.protocol, "stdio");
-        assert_eq!(config.command, "python");
-        assert!(config.args.is_empty());
-        assert!(config.env.is_empty());
-        assert_eq!(config.timeout, 30);
+        assert_eq!(config.timeout_ms, 30_000);
+        let local = config.local_config().expect("local config");
+        assert_eq!(local.command, vec!["python"]);
+        assert!(local.environment.is_empty());
     }
 
     #[test]
-    fn test_mcp_server_config_builder() -> std::io::Result<()> {
+    fn local_builder_sets_options() -> std::io::Result<()> {
         let dir = tempdir()?;
         let cwd = dir.path().to_str().unwrap().to_string();
         let mut env = HashMap::new();
@@ -166,51 +464,61 @@ mod tests {
         .with_cwd(cwd.clone())
         .with_timeout(60);
 
-        assert_eq!(config.name, "builder_test");
-        assert_eq!(config.args, vec!["-m", "my_server"]);
-        assert_eq!(config.env, env);
-        assert_eq!(config.cwd, Some(cwd));
-        assert_eq!(config.timeout, 60);
+        let local = config.local_config().expect("local config");
+        assert_eq!(local.command, vec!["python", "-m", "my_server"]);
+        assert_eq!(local.environment, env);
+        assert_eq!(local.cwd, Some(cwd));
+        assert_eq!(config.timeout_ms, 60_000);
         Ok(())
     }
 
     #[test]
-    fn test_mcp_server_config_validation() {
-        let valid_config = McpServerConfig::new(
-            "valid".to_string(),
-            "stdio".to_string(),
-            "python".to_string(),
+    fn validates_config() {
+        assert!(
+            McpServerConfig::new(
+                "valid".to_string(),
+                "stdio".to_string(),
+                "python".to_string()
+            )
+            .validate()
+            .is_ok()
         );
-        assert!(valid_config.validate().is_ok());
 
-        let empty_name =
-            McpServerConfig::new("".to_string(), "stdio".to_string(), "python".to_string());
-        assert!(empty_name.validate().is_err());
-
-        let empty_command =
-            McpServerConfig::new("test".to_string(), "stdio".to_string(), "".to_string());
-        assert!(empty_command.validate().is_err());
-
-        let invalid_protocol = McpServerConfig::new(
-            "test".to_string(),
-            "invalid".to_string(),
-            "python".to_string(),
+        assert!(
+            McpServerConfig::new("".to_string(), "stdio".to_string(), "python".to_string())
+                .validate()
+                .is_err()
         );
-        assert!(invalid_protocol.validate().is_err());
+
+        assert!(
+            McpServerConfig::new("test".to_string(), "stdio".to_string(), "".to_string())
+                .validate()
+                .is_err()
+        );
+
+        assert!(
+            McpServerConfig::new("test".to_string(), "sse".to_string(), "node".to_string())
+                .validate()
+                .is_err()
+        );
+
+        assert!(
+            McpServerConfig::remote("remote", "https://example.com/mcp")
+                .validate()
+                .is_ok()
+        );
     }
 
     #[test]
-    fn test_mcp_config_operations() {
+    fn config_operations_work() {
         let mut config = McpConfig::default();
         assert!(config.servers.is_empty());
         assert!(config.server_names().is_empty());
 
-        let server = McpServerConfig::new(
-            "test_server".to_string(),
-            "stdio".to_string(),
-            "python".to_string(),
-        );
-        config.add_server(server);
+        config.add_server(McpServerConfig::local(
+            "test_server",
+            vec!["python".to_string()],
+        ));
 
         assert_eq!(config.servers.len(), 1);
         assert_eq!(config.server_names(), vec!["test_server"]);
@@ -219,7 +527,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_from_toml() {
+    fn parses_new_and_legacy_toml() {
         let toml_content = r#"
 [mcp]
 [[mcp.server]]
@@ -230,10 +538,13 @@ args = ["-m", "test_module"]
 timeout = 45
 
 [[mcp.server]]
-name = "another_server"
-protocol = "sse"
-command = "node"
-args = ["server.js"]
+name = "remote_server"
+type = "remote"
+url = "https://example.com/mcp"
+timeout_ms = 5000
+
+[mcp.server.headers]
+Authorization = "Bearer token"
         "#;
 
         let mut temp_file = NamedTempFile::new().unwrap();
@@ -242,26 +553,28 @@ args = ["server.js"]
 
         let config = McpConfig::from_file(temp_file.path()).unwrap();
         assert_eq!(config.servers.len(), 2);
+        assert_eq!(config.base_dir(), temp_file.path().parent());
 
         let first_server = config.get_server("test_server").unwrap();
-        assert_eq!(first_server.protocol, "stdio");
-        assert_eq!(first_server.command, "python");
-        assert_eq!(first_server.args, vec!["-m", "test_module"]);
-        assert_eq!(first_server.timeout, 45);
+        let first_local = first_server.local_config().unwrap();
+        assert_eq!(first_local.command, vec!["python", "-m", "test_module"]);
+        assert_eq!(first_server.timeout_ms, 45_000);
 
-        let second_server = config.get_server("another_server").unwrap();
-        assert_eq!(second_server.protocol, "sse");
-        assert_eq!(second_server.command, "node");
-        assert_eq!(second_server.args, vec!["server.js"]);
+        let second_server = config.get_server("remote_server").unwrap();
+        let remote = second_server.remote_config().unwrap();
+        assert_eq!(remote.url, "https://example.com/mcp");
+        assert_eq!(
+            remote.headers.get("Authorization"),
+            Some(&"Bearer token".to_string())
+        );
     }
 
     #[test]
-    fn test_config_from_invalid_toml() {
+    fn rejects_invalid_toml() {
         let invalid_toml = r#"
 [mcp]
 [[mcp.server]]
 name = "incomplete"
-# Missing required fields
         "#;
 
         let mut temp_file = NamedTempFile::new().unwrap();
@@ -273,7 +586,7 @@ name = "incomplete"
     }
 
     #[test]
-    fn test_config_with_env_vars() {
+    fn parses_environment_aliases() {
         let dir = tempdir().unwrap();
         let cwd_str = dir.path().to_str().unwrap();
 
@@ -282,11 +595,11 @@ name = "incomplete"
 [mcp]
 [[mcp.server]]
 name = "env_server"
-protocol = "stdio"
-command = "python"
+type = "local"
+command = ["python", "-m", "server"]
 cwd = "{cwd}"
 
-[mcp.server.env]
+[mcp.server.environment]
 PYTHONPATH = "/path/to/modules"
 DEBUG = "1"
         "#,
@@ -298,41 +611,29 @@ DEBUG = "1"
         temp_file.flush().unwrap();
 
         let config = McpConfig::from_file(temp_file.path()).unwrap();
-        let server = config.get_server("env_server").unwrap();
+        let local = config
+            .get_server("env_server")
+            .unwrap()
+            .local_config()
+            .unwrap();
 
-        assert_eq!(server.cwd, Some(cwd_str.to_string()));
+        assert_eq!(local.cwd, Some(cwd_str.to_string()));
         assert_eq!(
-            server.env.get("PYTHONPATH"),
+            local.environment.get("PYTHONPATH"),
             Some(&"/path/to/modules".to_string())
         );
-        assert_eq!(server.env.get("DEBUG"), Some(&"1".to_string()));
+        assert_eq!(local.environment.get("DEBUG"), Some(&"1".to_string()));
     }
 
     #[test]
-    fn test_default_values() {
-        let server = McpServerConfig::new(
-            "default_test".to_string(),
-            "stdio".to_string(),
-            "command".to_string(),
-        );
-
-        assert_eq!(server.timeout, 30);
-        assert!(server.args.is_empty());
-        assert!(server.env.is_empty());
-        assert!(server.cwd.is_none());
-    }
-
-    #[test]
-    fn test_config_serialization() {
+    fn serializes_config() {
         let mut env = HashMap::default();
         env.insert("TEST_VAR".to_string(), "test_value".to_string());
 
-        let server = McpServerConfig::new(
-            "serialize_test".to_string(),
-            "stdio".to_string(),
-            "python".to_string(),
+        let server = McpServerConfig::local(
+            "serialize_test",
+            vec!["python".to_string(), "-m".to_string(), "server".to_string()],
         )
-        .with_args(vec!["-m".to_string(), "server".to_string()])
         .with_env(env);
 
         let mut config = McpConfig::default();
@@ -345,13 +646,10 @@ DEBUG = "1"
         let deserialized: Config = toml::from_str(&serialized).unwrap();
 
         assert_eq!(config.servers.len(), deserialized.mcp.servers.len());
-        let original = &config.servers[0];
-        let parsed = &deserialized.mcp.servers[0];
+        let original = config.servers[0].local_config().unwrap();
+        let parsed = deserialized.mcp.servers[0].local_config().unwrap();
 
-        assert_eq!(original.name, parsed.name);
-        assert_eq!(original.protocol, parsed.protocol);
         assert_eq!(original.command, parsed.command);
-        assert_eq!(original.args, parsed.args);
-        assert_eq!(original.env, parsed.env);
+        assert_eq!(original.environment, parsed.environment);
     }
 }

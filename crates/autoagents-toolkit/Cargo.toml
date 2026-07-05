@@ -50,6 +50,7 @@ csv = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 ipnet = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
+http = "1.2"
 rmcp = { workspace = true, optional = true, features = [
   "client",
   "transport-child-process",

@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "filesystem"), allow(dead_code))]
+
 use std::path::{Component, Path, PathBuf};
 
 /// Normalize a path by resolving `.` and `..` components without touching the filesystem.

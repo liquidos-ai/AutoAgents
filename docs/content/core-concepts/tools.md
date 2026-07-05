@@ -59,4 +59,28 @@ The filesystem constructors named `new()` are also sandboxed to the process curr
 
 ## MCP
 
-Model Context Protocol (MCP) integrations are available via `autoagents-toolkit::mcp` — load tool definitions from MCP servers and expose them as `ToolT`. See `McpTools` for managing connections and wrapping MCP tools for use by agents.
+Model Context Protocol (MCP) integrations are available via `autoagents-toolkit::mcp` — load tool definitions from MCP servers and expose them as `ToolT`. AutoAgents supports local stdio servers and remote Streamable HTTP servers.
+
+Local MCP servers execute host processes. Treat MCP config as trusted code and pass an explicit `McpProcessPolicy` before local servers can run:
+
+```rust
+use autoagents_toolkit::mcp::{McpProcessPolicy, McpTools};
+
+let server_bin = std::fs::canonicalize("./mcp-servers/my-server")?;
+let process_policy = McpProcessPolicy::allow_paths([server_bin])?;
+let mcp_tools = McpTools::from_config_with_process_policy("mcp.toml", process_policy).await?;
+```
+
+Remote MCP servers use `type = "remote"` and may include HTTP headers for API-key style authentication. OAuth is intentionally not handled by the toolkit MCP client yet; store and inject credentials from your application boundary.
+
+```toml
+[mcp]
+[[mcp.server]]
+name = "docs"
+type = "remote"
+url = "https://example.com/mcp"
+timeout_ms = 30000
+
+[mcp.server.headers]
+Authorization = "Bearer ${TOKEN}"
+```
