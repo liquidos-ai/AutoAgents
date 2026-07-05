@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::fs;
 
-use super::BaseFileTool;
+use super::{BaseFileTool, default_root_dir};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct MoveFileArgs {
@@ -23,14 +23,25 @@ pub struct MoveFileArgs {
     description = "Move or rename a file or directory",
     input = MoveFileArgs,
 )]
-#[derive(Default)]
 pub struct MoveFile {
     root_dir: Option<String>,
+}
+
+impl Default for MoveFile {
+    fn default() -> Self {
+        Self {
+            root_dir: Some(default_root_dir()),
+        }
+    }
 }
 
 impl MoveFile {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn new_unrestricted() -> Self {
+        Self { root_dir: None }
     }
 
     pub fn new_with_root_dir(root_dir: String) -> Self {
@@ -62,8 +73,12 @@ where
             source_path, destination_path
         );
 
-        let src_path = self.get_relative_path(&source_path);
-        let dest_path = self.get_relative_path(&destination_path);
+        let src_path = self
+            .resolve_path(&source_path)
+            .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
+        let dest_path = self
+            .resolve_path(&destination_path)
+            .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
 
         // Validate source exists
         if !src_path.exists() {
@@ -72,20 +87,14 @@ where
             ));
         }
 
-        // Ensure paths are within root if root is set
-        if self.root_dir().is_some() {
-            self.ensure_within_root(&src_path)
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-            self.ensure_within_root(&dest_path)
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-        }
-
         // Check if destination exists
         if dest_path.exists() {
             return Err(ToolCallError::RuntimeError(
                 format!("Destination already exists: {}", dest_path.display()).into(),
             ));
         }
+
+        let is_dir = src_path.is_dir();
 
         // Create parent directory if it doesn't exist
         if let Some(parent) = dest_path.parent() {
@@ -101,9 +110,9 @@ where
 
         Ok(json!({
             "success": true,
-            "source": src_path.display().to_string(),
-            "destination": dest_path.display().to_string(),
-            "type": if src_path.is_dir() { "directory" } else { "file" }
+            "source": self.output_path(&src_path),
+            "destination": self.output_path(&dest_path),
+            "type": if is_dir { "directory" } else { "file" }
         }))
     }
 }
@@ -128,7 +137,7 @@ mod tests {
 
         assert!(src_path.exists());
 
-        let move_file = MoveFile::default();
+        let move_file = MoveFile::new_unrestricted();
         let args = json!({
             "source_path": src_path.display().to_string(),
             "destination_path": dest_path.display().to_string()
@@ -154,7 +163,7 @@ mod tests {
         // Create file with old name
         std::fs::write(&old_name, "Content").expect("Failed to create file");
 
-        let move_file = MoveFile::default();
+        let move_file = MoveFile::new_unrestricted();
         let args = json!({
             "source_path": old_name.display().to_string(),
             "destination_path": new_name.display().to_string()
@@ -181,7 +190,7 @@ mod tests {
         std::fs::create_dir_all(&src_dir).expect("Failed to create source directory");
         std::fs::write(&file_in_dir, "content").expect("Failed to create file in directory");
 
-        let move_file = MoveFile::default();
+        let move_file = MoveFile::new_unrestricted();
         let args = json!({
             "source_path": src_dir.display().to_string(),
             "destination_path": dest_dir.display().to_string()
@@ -204,7 +213,7 @@ mod tests {
         let src_path = temp_dir.path().join("nonexistent.txt");
         let dest_path = temp_dir.path().join("destination.txt");
 
-        let move_file = MoveFile::default();
+        let move_file = MoveFile::new_unrestricted();
         let args = json!({
             "source_path": src_path.display().to_string(),
             "destination_path": dest_path.display().to_string()
@@ -224,7 +233,7 @@ mod tests {
         std::fs::write(&src_path, "source").expect("Failed to create source file");
         std::fs::write(&dest_path, "destination").expect("Failed to create destination file");
 
-        let move_file = MoveFile::default();
+        let move_file = MoveFile::new_unrestricted();
         let args = json!({
             "source_path": src_path.display().to_string(),
             "destination_path": dest_path.display().to_string()
@@ -253,5 +262,71 @@ mod tests {
 
         assert!(!src_file.exists());
         assert!(temp_dir.path().join("moved.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn test_move_file_rejects_absolute_path_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().to_str().unwrap().to_string();
+        let src_file = temp_dir.path().join("source.txt");
+        std::fs::write(&src_file, "content").expect("Failed to create source file");
+
+        let move_file = MoveFile::new_with_root_dir(root_dir);
+        let result = move_file
+            .execute(json!({
+                "source_path": src_file.display().to_string(),
+                "destination_path": "moved.txt"
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(src_file.exists());
+    }
+
+    #[tokio::test]
+    async fn test_move_file_rejects_traversal_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().join("root");
+        std::fs::create_dir_all(&root_dir).expect("Failed to create root");
+        let src_file = root_dir.join("source.txt");
+        std::fs::write(&src_file, "content").expect("Failed to create source file");
+
+        let move_file = MoveFile::new_with_root_dir(root_dir.to_string_lossy().to_string());
+        let result = move_file
+            .execute(json!({
+                "source_path": "source.txt",
+                "destination_path": "../moved.txt"
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(src_file.exists());
+        assert!(!temp_dir.path().join("moved.txt").exists());
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_move_file_rejects_symlink_parent_escape_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().join("root");
+        let outside_dir = temp_dir.path().join("outside");
+        std::fs::create_dir_all(&root_dir).expect("Failed to create root");
+        std::fs::create_dir_all(&outside_dir).expect("Failed to create outside");
+        let src_file = root_dir.join("source.txt");
+        std::fs::write(&src_file, "content").expect("Failed to create source file");
+        std::os::unix::fs::symlink(&outside_dir, root_dir.join("outside_link"))
+            .expect("Failed to create symlink");
+
+        let move_file = MoveFile::new_with_root_dir(root_dir.to_string_lossy().to_string());
+        let result = move_file
+            .execute(json!({
+                "source_path": "source.txt",
+                "destination_path": "outside_link/moved.txt"
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(src_file.exists());
+        assert!(!outside_dir.join("moved.txt").exists());
     }
 }

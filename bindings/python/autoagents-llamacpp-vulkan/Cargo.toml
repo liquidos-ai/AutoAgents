@@ -9,6 +9,10 @@ publish = false
 [lib]
 name = "_autoagents_llamacpp_vulkan"
 crate-type = ["cdylib"]
+# Python bindings are tested through maturin/pytest. Cargo's Rust lib test
+# harness embeds Python and requires a system libpython at runtime.
+test = false
+doctest = false
 
 [features]
 default = []

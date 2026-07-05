@@ -4,8 +4,52 @@ use autoagents_derive::{ToolInput, tool};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
+
+fn workspace_error(message: impl Into<String>) -> ToolCallError {
+    ToolCallError::RuntimeError(message.into().into())
+}
+
+fn resolve_workspace_path(
+    workspace_root: &Path,
+    requested_path: &str,
+) -> Result<PathBuf, ToolCallError> {
+    let requested_path = Path::new(requested_path);
+    if requested_path.is_absolute() {
+        return Err(workspace_error(format!(
+            "Absolute paths are not allowed inside the workspace: {}",
+            requested_path.display()
+        )));
+    }
+
+    let root = workspace_root.canonicalize().map_err(|e| {
+        workspace_error(format!(
+            "Failed to resolve workspace root {}: {}",
+            workspace_root.display(),
+            e
+        ))
+    })?;
+
+    let candidate = root.join(requested_path);
+    let resolved = candidate.canonicalize().map_err(|e| {
+        workspace_error(format!(
+            "Failed to resolve path {}: {}",
+            candidate.display(),
+            e
+        ))
+    })?;
+
+    if !resolved.starts_with(&root) {
+        return Err(workspace_error(format!(
+            "Path {} escapes workspace root {}",
+            requested_path.display(),
+            root.display()
+        )));
+    }
+
+    Ok(resolved)
+}
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct GrepArgs {
@@ -22,7 +66,17 @@ pub struct GrepArgs {
     description = "Search for content in files using regex patterns",
     input = GrepArgs,
 )]
-pub struct GrepTool {}
+pub struct GrepTool {
+    workspace_root: PathBuf,
+}
+
+impl GrepTool {
+    pub fn new(workspace_root: String) -> Self {
+        Self {
+            workspace_root: PathBuf::from(workspace_root),
+        }
+    }
+}
 
 #[async_trait]
 impl ToolRuntime for GrepTool {
@@ -33,11 +87,12 @@ impl ToolRuntime for GrepTool {
         let regex = Regex::new(&args.pattern)
             .map_err(|e| ToolCallError::RuntimeError(format!("Invalid regex: {}", e).into()))?;
 
-        let base_path = Path::new(&args.base_dir);
-        if !base_path.exists() {
-            return Err(ToolCallError::RuntimeError(
-                format!("Directory {} does not exist", args.base_dir).into(),
-            ));
+        let base_path = resolve_workspace_path(&self.workspace_root, &args.base_dir)?;
+        if !base_path.is_dir() {
+            return Err(workspace_error(format!(
+                "Path {} is not a directory",
+                args.base_dir
+            )));
         }
 
         let file_pattern = glob::Pattern::new(&args.file_pattern).map_err(|e| {
@@ -47,18 +102,14 @@ impl ToolRuntime for GrepTool {
         let mut results = Vec::new();
         let max_results = 50;
 
-        for entry in WalkDir::new(&args.base_dir)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
+        for entry in WalkDir::new(&base_path).into_iter().filter_map(|e| e.ok()) {
             if results.len() >= max_results {
                 break;
             }
 
             let path = entry.path();
             if path.is_file() {
-                let relative_path = path.strip_prefix(&args.base_dir).unwrap_or(path);
+                let relative_path = path.strip_prefix(&base_path).unwrap_or(path);
                 if file_pattern.matches_path(relative_path)
                     && let Ok(content) = fs::read_to_string(path)
                 {
@@ -106,7 +157,17 @@ pub struct AnalyzeCodeArgs {
     description = "Analyze code structure, complexity, or dependencies",
     input = AnalyzeCodeArgs,
 )]
-pub struct AnalyzeCodeTool {}
+pub struct AnalyzeCodeTool {
+    workspace_root: PathBuf,
+}
+
+impl AnalyzeCodeTool {
+    pub fn new(workspace_root: String) -> Self {
+        Self {
+            workspace_root: PathBuf::from(workspace_root),
+        }
+    }
+}
 
 #[async_trait]
 impl ToolRuntime for AnalyzeCodeTool {
@@ -114,17 +175,12 @@ impl ToolRuntime for AnalyzeCodeTool {
         let args: AnalyzeCodeArgs = serde_json::from_value(args)?;
         println!("🔬 Analyzing code: {} ({})", args.path, args.analysis_type);
 
-        let path = Path::new(&args.path);
-        if !path.exists() {
-            return Err(ToolCallError::RuntimeError(
-                format!("Path {} does not exist", args.path).into(),
-            ));
-        }
+        let path = resolve_workspace_path(&self.workspace_root, &args.path)?;
 
         match args.analysis_type.as_str() {
-            "structure" => Ok(analyze_structure(path)?.into()),
-            "complexity" => Ok(analyze_complexity(path)?.into()),
-            "dependencies" => Ok(analyze_dependencies(path)?.into()),
+            "structure" => Ok(analyze_structure(&path)?.into()),
+            "complexity" => Ok(analyze_complexity(&path)?.into()),
+            "dependencies" => Ok(analyze_dependencies(&path)?.into()),
             _ => Err(ToolCallError::RuntimeError(
                 "Invalid analysis type. Choose 'structure', 'complexity', or 'dependencies'".into(),
             )),
@@ -239,11 +295,11 @@ mod tests {
             "needle should not match this glob\n",
         );
 
-        let result = GrepTool {}
+        let result = GrepTool::new(dir.to_string_lossy().to_string())
             .execute(json!({
                 "pattern": "needle",
                 "file_pattern": "src/*.rs",
-                "base_dir": dir.to_string_lossy(),
+                "base_dir": ".",
             }))
             .await
             .expect("grep should succeed");
@@ -261,45 +317,47 @@ mod tests {
         let dir = temp_fixture_dir("grep-errors");
         write(&dir.join("src/lib.rs"), "fn present() {}\n");
 
-        let no_match = GrepTool {}
+        let grep_tool = GrepTool::new(dir.to_string_lossy().to_string());
+
+        let no_match = grep_tool
             .execute(json!({
                 "pattern": "missing",
                 "file_pattern": "src/*.rs",
-                "base_dir": dir.to_string_lossy(),
+                "base_dir": ".",
             }))
             .await
             .expect("grep should succeed even when there are no matches");
         assert_eq!(no_match, json!("No matches found."));
 
-        let invalid_regex = GrepTool {}
+        let invalid_regex = grep_tool
             .execute(json!({
                 "pattern": "(",
                 "file_pattern": "src/*.rs",
-                "base_dir": dir.to_string_lossy(),
+                "base_dir": ".",
             }))
             .await
             .expect_err("invalid regex should fail");
         assert!(invalid_regex.to_string().contains("Invalid regex"));
 
-        let invalid_glob = GrepTool {}
+        let invalid_glob = grep_tool
             .execute(json!({
                 "pattern": "present",
                 "file_pattern": "[*.rs",
-                "base_dir": dir.to_string_lossy(),
+                "base_dir": ".",
             }))
             .await
             .expect_err("invalid glob should fail");
         assert!(invalid_glob.to_string().contains("Invalid file pattern"));
 
-        let missing_dir = GrepTool {}
+        let missing_dir = grep_tool
             .execute(json!({
                 "pattern": "present",
                 "file_pattern": "*.rs",
-                "base_dir": dir.join("missing").to_string_lossy(),
+                "base_dir": "missing",
             }))
             .await
             .expect_err("missing directory should fail");
-        assert!(missing_dir.to_string().contains("does not exist"));
+        assert!(missing_dir.to_string().contains("Failed to resolve path"));
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -316,9 +374,11 @@ mod tests {
             "def greet(name):\n    return name\n",
         );
 
-        let structure = AnalyzeCodeTool {}
+        let analyze_tool = AnalyzeCodeTool::new(dir.to_string_lossy().to_string());
+
+        let structure = analyze_tool
             .execute(json!({
-                "path": dir.to_string_lossy(),
+                "path": ".",
                 "analysis_type": "structure",
             }))
             .await
@@ -334,9 +394,9 @@ mod tests {
         assert!(single_file_summary.contains("- Files: 1"));
         assert!(single_file_summary.contains(".rs: 1 files"));
 
-        let complexity = AnalyzeCodeTool {}
+        let complexity = analyze_tool
             .execute(json!({
-                "path": dir.to_string_lossy(),
+                "path": ".",
                 "analysis_type": "complexity",
             }))
             .await
@@ -348,9 +408,9 @@ mod tests {
                 .contains("cyclomatic complexity")
         );
 
-        let dependencies = AnalyzeCodeTool {}
+        let dependencies = analyze_tool
             .execute(json!({
-                "path": dir.to_string_lossy(),
+                "path": ".",
                 "analysis_type": "dependencies",
             }))
             .await
@@ -362,24 +422,107 @@ mod tests {
                 .contains("Dependency analysis")
         );
 
-        let invalid_type = AnalyzeCodeTool {}
+        let invalid_type = analyze_tool
             .execute(json!({
-                "path": dir.to_string_lossy(),
+                "path": ".",
                 "analysis_type": "unknown",
             }))
             .await
             .expect_err("unknown analysis type should fail");
         assert!(invalid_type.to_string().contains("Invalid analysis type"));
 
-        let missing_path = AnalyzeCodeTool {}
+        let missing_path = analyze_tool
             .execute(json!({
-                "path": dir.join("missing").to_string_lossy(),
+                "path": "missing",
                 "analysis_type": "structure",
             }))
             .await
             .expect_err("missing path should fail");
-        assert!(missing_path.to_string().contains("does not exist"));
+        assert!(missing_path.to_string().contains("Failed to resolve path"));
 
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn grep_tool_rejects_workspace_escapes() {
+        let dir = temp_fixture_dir("grep-sandbox");
+        let root = dir.join("root");
+        let outside = dir.join("outside");
+        fs::create_dir_all(&root).expect("root should create");
+        fs::create_dir_all(&outside).expect("outside should create");
+        write(&outside.join("secret.rs"), "fn secret() {}\n");
+
+        let grep_tool = GrepTool::new(root.to_string_lossy().to_string());
+
+        let absolute = grep_tool
+            .execute(json!({
+                "pattern": "secret",
+                "file_pattern": "*.rs",
+                "base_dir": outside.to_string_lossy(),
+            }))
+            .await
+            .expect_err("absolute path should fail");
+        assert!(absolute.to_string().contains("Absolute paths"));
+
+        let traversal = grep_tool
+            .execute(json!({
+                "pattern": "secret",
+                "file_pattern": "*.rs",
+                "base_dir": "../outside",
+            }))
+            .await
+            .expect_err("traversal should fail");
+        assert!(traversal.to_string().contains("escapes workspace"));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn grep_tool_does_not_follow_symlinks() {
+        let dir = temp_fixture_dir("grep-symlink");
+        let root = dir.join("root");
+        let outside = dir.join("outside");
+        fs::create_dir_all(&root).expect("root should create");
+        fs::create_dir_all(&outside).expect("outside should create");
+        write(&outside.join("secret.rs"), "fn secret() {}\n");
+        std::os::unix::fs::symlink(&outside, root.join("outside_link"))
+            .expect("symlink should create");
+
+        let output = GrepTool::new(root.to_string_lossy().to_string())
+            .execute(json!({
+                "pattern": "secret",
+                "file_pattern": "**/*.rs",
+                "base_dir": ".",
+            }))
+            .await
+            .expect("grep should succeed");
+
+        assert_eq!(output, json!("No matches found."));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn analyze_tool_rejects_symlink_escape() {
+        let dir = temp_fixture_dir("analyze-symlink");
+        let root = dir.join("root");
+        let outside = dir.join("outside");
+        fs::create_dir_all(&root).expect("root should create");
+        fs::create_dir_all(&outside).expect("outside should create");
+        write(&outside.join("secret.rs"), "fn secret() {}\n");
+        std::os::unix::fs::symlink(&outside, root.join("outside_link"))
+            .expect("symlink should create");
+
+        let err = AnalyzeCodeTool::new(root.to_string_lossy().to_string())
+            .execute(json!({
+                "path": "outside_link",
+                "analysis_type": "structure",
+            }))
+            .await
+            .expect_err("symlink escape should fail");
+
+        assert!(err.to_string().contains("escapes workspace"));
         let _ = fs::remove_dir_all(dir);
     }
 }

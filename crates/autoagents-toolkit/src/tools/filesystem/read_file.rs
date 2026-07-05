@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::fs;
 
-use super::BaseFileTool;
+use super::{BaseFileTool, default_root_dir};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct ReadFileArgs {
@@ -21,14 +21,25 @@ pub struct ReadFileArgs {
     description = "Read the contents of a file from the filesystem",
     input = ReadFileArgs,
 )]
-#[derive(Default)]
 pub struct ReadFile {
     root_dir: Option<String>,
+}
+
+impl Default for ReadFile {
+    fn default() -> Self {
+        Self {
+            root_dir: Some(default_root_dir()),
+        }
+    }
 }
 
 impl ReadFile {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn new_unrestricted() -> Self {
+        Self { root_dir: None }
     }
 
     pub fn new_with_root_dir(root_dir: String) -> Self {
@@ -54,7 +65,9 @@ where
 
         debug!("Read File Executing: Source: {}", file_path);
 
-        let path = self.get_relative_path(&file_path);
+        let path = self
+            .resolve_path(&file_path)
+            .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
 
         // Validate file exists
         if !path.exists() {
@@ -69,12 +82,6 @@ where
             ));
         }
 
-        // Ensure path is within root if root is set
-        if self.root_dir().is_some() {
-            self.ensure_within_root(&path)
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-        }
-
         let encoding = "utf8".to_string();
 
         match encoding.as_str() {
@@ -85,7 +92,7 @@ where
 
                 Ok(json!({
                     "success": true,
-                    "path": path.display().to_string(),
+                    "path": self.output_path(&path),
                     "content": content,
                     "encoding": encoding
                 }))
@@ -100,7 +107,7 @@ where
 
                 Ok(json!({
                     "success": true,
-                    "path": path.display().to_string(),
+                    "path": self.output_path(&path),
                     "content": encoded,
                     "encoding": encoding
                 }))
@@ -112,7 +119,7 @@ where
 
                 Ok(json!({
                     "success": true,
-                    "path": path.display().to_string(),
+                    "path": self.output_path(&path),
                     "content": bytes,
                     "encoding": encoding
                 }))
@@ -141,7 +148,7 @@ mod tests {
             .expect("Failed to write to test file");
         drop(file);
 
-        let read_file = ReadFile::default();
+        let read_file = ReadFile::new_unrestricted();
         let args = json!({
             "file_path": file_path.display().to_string()
         });
@@ -158,7 +165,7 @@ mod tests {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let file_path = temp_dir.path().join("nonexistent.txt");
 
-        let read_file = ReadFile::default();
+        let read_file = ReadFile::new_unrestricted();
         let args = json!({
             "file_path": file_path.display().to_string()
         });
@@ -186,5 +193,62 @@ mod tests {
         let result = read_file.execute(args).await.expect("Failed to read file");
         let content = result.get("content").and_then(|v| v.as_str()).unwrap();
         assert_eq!(content, "Test content");
+    }
+
+    #[tokio::test]
+    async fn test_read_file_rejects_absolute_path_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().to_str().unwrap().to_string();
+        let outside = temp_dir.path().join("outside.txt");
+        std::fs::write(&outside, "outside").expect("Failed to create file");
+
+        let read_file = ReadFile::new_with_root_dir(root_dir);
+        let result = read_file
+            .execute(json!({
+                "file_path": outside.display().to_string()
+            }))
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_read_file_rejects_traversal_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().join("root");
+        std::fs::create_dir_all(&root_dir).expect("Failed to create root");
+        std::fs::write(temp_dir.path().join("outside.txt"), "outside")
+            .expect("Failed to create outside file");
+
+        let read_file = ReadFile::new_with_root_dir(root_dir.to_string_lossy().to_string());
+        let result = read_file
+            .execute(json!({
+                "file_path": "../outside.txt"
+            }))
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_read_file_rejects_symlink_escape_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().join("root");
+        let outside_dir = temp_dir.path().join("outside");
+        std::fs::create_dir_all(&root_dir).expect("Failed to create root");
+        std::fs::create_dir_all(&outside_dir).expect("Failed to create outside");
+        std::fs::write(outside_dir.join("secret.txt"), "secret").expect("Failed to create secret");
+        std::os::unix::fs::symlink(&outside_dir, root_dir.join("outside_link"))
+            .expect("Failed to create symlink");
+
+        let read_file = ReadFile::new_with_root_dir(root_dir.to_string_lossy().to_string());
+        let result = read_file
+            .execute(json!({
+                "file_path": "outside_link/secret.txt"
+            }))
+            .await;
+
+        assert!(result.is_err());
     }
 }

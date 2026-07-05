@@ -18,8 +18,12 @@ use tokio_stream::StreamExt;
 
 const CODING_TASK_TOPIC: &str = "coding_task";
 
-pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Error> {
+pub async fn run_interactive_session(
+    llm: Arc<dyn LLMProvider>,
+    workspace_root: String,
+) -> Result<(), Error> {
     println!("🚀 Starting Interactive Coding Agent Session");
+    println!("📁 Workspace root: {}", workspace_root);
     println!("💡 Type 'help' for available commands, 'quit' to exit\n");
 
     // Create memory with larger window for complex tasks
@@ -31,7 +35,7 @@ pub async fn run_interactive_session(llm: Arc<dyn LLMProvider>) -> Result<(), Er
     let coding_topic = Topic::<Task>::new(CODING_TASK_TOPIC);
 
     // Create the coding agent
-    let coding_agent = ReActAgent::new(CodingAgent {});
+    let coding_agent = ReActAgent::new(CodingAgent::new(workspace_root));
 
     // Build the agent
     let _ = AgentBuilder::new(coding_agent)
@@ -196,7 +200,7 @@ fn print_help() {
 📚 Interactive Coding Agent Help
 
 This agent uses the ReAct (Reasoning + Acting) pattern to solve coding tasks.
-It has access to various coding tools for file operations, code execution, and more.
+It has access to coding tools for workspace-scoped file operations and code analysis.
 
 Example tasks you can try:
   - "Write a Python function to calculate fibonacci numbers"
@@ -210,7 +214,7 @@ Commands:
   clear       - Clear the terminal
   quit, q     - Exit the session
 
-💡 The agent can read files, write code, execute commands, and explain concepts!
+💡 The agent can read files, write code, and explain concepts inside the configured workspace.
 "#
     );
 }

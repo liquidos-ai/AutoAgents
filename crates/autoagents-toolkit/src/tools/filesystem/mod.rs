@@ -16,24 +16,59 @@ pub use read_file::ReadFile;
 pub use search_file::SearchFile;
 pub use write_file::WriteFile;
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::utils::path_sandbox;
 
+pub(crate) fn default_root_dir() -> String {
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .to_string_lossy()
+        .into_owned()
+}
+
 pub trait BaseFileTool {
     fn root_dir(&self) -> Option<String>;
+
+    fn resolve_path(&self, file_path: &str) -> Result<PathBuf, std::io::Error> {
+        match self.root_dir() {
+            Some(root) => {
+                let root_path = Path::new(&root);
+                let file_path = Path::new(file_path);
+                path_sandbox::resolve_within_root(file_path, root_path)
+            }
+            None => Ok(Path::new(file_path).to_path_buf()),
+        }
+    }
+
+    fn output_path(&self, path: &Path) -> String {
+        let Some(root) = self.root_dir() else {
+            return path.display().to_string();
+        };
+
+        let Ok(root_canonical) = Path::new(&root).canonicalize() else {
+            return path.display().to_string();
+        };
+
+        match path.strip_prefix(&root_canonical) {
+            Ok(relative) if relative.as_os_str().is_empty() => ".".to_string(),
+            Ok(relative) => relative.display().to_string(),
+            Err(_) => path.display().to_string(),
+        }
+    }
 
     fn get_relative_path(&self, file_path: &str) -> PathBuf {
         match self.root_dir() {
             Some(root) => {
                 let root_path = Path::new(&root);
                 let file_path = Path::new(file_path);
-
-                if file_path.is_absolute() {
-                    file_path.to_path_buf()
-                } else {
-                    root_path.join(file_path)
-                }
+                let relative_path = file_path
+                    .components()
+                    .filter(|component| {
+                        !matches!(component, Component::Prefix(_) | Component::RootDir)
+                    })
+                    .collect::<PathBuf>();
+                root_path.join(relative_path)
             }
             None => Path::new(file_path).to_path_buf(),
         }
@@ -84,7 +119,7 @@ mod tests {
             root: Some("/home/user".to_string()),
         };
         let path = tool.get_relative_path("/absolute/path.txt");
-        assert_eq!(path, PathBuf::from("/absolute/path.txt"));
+        assert_eq!(path, PathBuf::from("/home/user/absolute/path.txt"));
     }
 
     #[test]
@@ -122,5 +157,38 @@ mod tests {
         let result = tool.ensure_within_root(&path);
         assert!(result.is_ok());
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_resolve_path_with_root_rejects_absolute_path() {
+        let dir = std::env::temp_dir();
+        let tool = TestFileTool {
+            root: Some(dir.to_string_lossy().to_string()),
+        };
+        let result = tool.resolve_path("/etc/passwd");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_path_no_root_preserves_parent_traversal_for_missing_target() {
+        let tool = TestFileTool { root: None };
+        let path = tool
+            .resolve_path("../missing-file-autoagents.txt")
+            .expect("unrestricted path should resolve");
+        assert_eq!(path, PathBuf::from("../missing-file-autoagents.txt"));
+    }
+
+    #[test]
+    fn test_output_path_with_root_returns_relative_path() {
+        let dir = std::env::temp_dir().join("output_path_root");
+        std::fs::create_dir_all(dir.join("nested")).expect("create temp dir");
+        let tool = TestFileTool {
+            root: Some(dir.to_string_lossy().to_string()),
+        };
+
+        let output = tool.output_path(&dir.canonicalize().expect("canonical root").join("nested"));
+        assert_eq!(output, "nested");
+
+        std::fs::remove_dir_all(dir).ok();
     }
 }

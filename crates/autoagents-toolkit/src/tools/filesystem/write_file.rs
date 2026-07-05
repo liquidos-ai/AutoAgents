@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::fs;
 
-use super::BaseFileTool;
+use super::{BaseFileTool, default_root_dir};
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
 pub struct WriteFileArgs {
@@ -25,14 +25,25 @@ pub struct WriteFileArgs {
     description = "Write content to a file in the filesystem",
     input = WriteFileArgs,
 )]
-#[derive(Default)]
 pub struct WriteFile {
     root_dir: Option<String>,
+}
+
+impl Default for WriteFile {
+    fn default() -> Self {
+        Self {
+            root_dir: Some(default_root_dir()),
+        }
+    }
 }
 
 impl WriteFile {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn new_unrestricted() -> Self {
+        Self { root_dir: None }
     }
 
     pub fn new_with_root_dir(root_dir: String) -> Self {
@@ -62,13 +73,9 @@ where
 
         debug!("Write File Executing: File Path: {}", file_path);
 
-        let path = self.get_relative_path(&file_path);
-
-        // Ensure path is within root if root is set
-        if self.root_dir().is_some() {
-            self.ensure_within_root(&path)
-                .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
-        }
+        let path = self
+            .resolve_path(&file_path)
+            .map_err(|e| ToolCallError::RuntimeError(Box::new(e)))?;
 
         // Create parent directory if it doesn't exist
         if let Some(parent) = path.parent() {
@@ -118,7 +125,7 @@ where
 
         Ok(json!({
             "success": true,
-            "path": path.display().to_string(),
+            "path": self.output_path(&path),
             "bytes_written": bytes.len(),
             "mode": if append { "append" } else { "overwrite" }
         }))
@@ -135,7 +142,7 @@ mod tests {
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let file_path = temp_dir.path().join("new_file.txt");
 
-        let write_file = WriteFile::default();
+        let write_file = WriteFile::new_unrestricted();
         let args = json!({
             "file_path": file_path.display().to_string(),
             "content": "Hello, World!",
@@ -161,7 +168,7 @@ mod tests {
         // Create initial file
         std::fs::write(&file_path, "Initial content").expect("Failed to create initial file");
 
-        let write_file = WriteFile::default();
+        let write_file = WriteFile::new_unrestricted();
         let args = json!({
             "file_path": file_path.display().to_string(),
             "content": "New content",
@@ -206,5 +213,66 @@ mod tests {
 
         let content = std::fs::read_to_string(&file_path).expect("Failed to read file");
         assert_eq!(content, "Test content");
+    }
+
+    #[tokio::test]
+    async fn test_write_file_rejects_absolute_path_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().to_str().unwrap().to_string();
+        let file_path = temp_dir.path().join("test.txt");
+
+        let write_file = WriteFile::new_with_root_dir(root_dir);
+        let result = write_file
+            .execute(json!({
+                "file_path": file_path.display().to_string(),
+                "content": "Test content",
+                "append": false
+            }))
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_write_file_rejects_traversal_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().join("root");
+        std::fs::create_dir_all(&root_dir).expect("Failed to create root");
+
+        let write_file = WriteFile::new_with_root_dir(root_dir.to_string_lossy().to_string());
+        let result = write_file
+            .execute(json!({
+                "file_path": "../outside.txt",
+                "content": "outside",
+                "append": false
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(!temp_dir.path().join("outside.txt").exists());
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn test_write_file_rejects_symlink_parent_escape_with_root_dir() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let root_dir = temp_dir.path().join("root");
+        let outside_dir = temp_dir.path().join("outside");
+        std::fs::create_dir_all(&root_dir).expect("Failed to create root");
+        std::fs::create_dir_all(&outside_dir).expect("Failed to create outside");
+        std::os::unix::fs::symlink(&outside_dir, root_dir.join("outside_link"))
+            .expect("Failed to create symlink");
+
+        let write_file = WriteFile::new_with_root_dir(root_dir.to_string_lossy().to_string());
+        let result = write_file
+            .execute(json!({
+                "file_path": "outside_link/new.txt",
+                "content": "outside",
+                "append": false
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(!outside_dir.join("new.txt").exists());
     }
 }
