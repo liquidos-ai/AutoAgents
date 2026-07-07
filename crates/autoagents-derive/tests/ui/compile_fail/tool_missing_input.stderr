@@ -1,0 +1,7 @@
+error: Missing attribute: input
+ --> tests/ui/compile_fail/tool_missing_input.rs:4:1
+  |
+4 | #[tool(name = "missing-input", description = "Tool without an input type")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `tool` (in Nightly builds, run with -Z macro-backtrace for more info)

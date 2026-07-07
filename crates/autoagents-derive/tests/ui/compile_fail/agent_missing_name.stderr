@@ -1,0 +1,7 @@
+error: Missing attribute: name
+ --> tests/ui/compile_fail/agent_missing_name.rs:4:1
+  |
+4 | #[agent(description = "Agent without a name")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `agent` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -3,6 +3,8 @@ use autoagents_core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
 use autoagents_derive::tool;
 use serde_json::Value;
 
+// `#[tool]` requires an input type that implements both generated schema traits.
+// Implementing only `ToolInputT` is not enough for runtime schema exposure.
 struct ManualArgs;
 
 impl ToolInputT for ManualArgs {
