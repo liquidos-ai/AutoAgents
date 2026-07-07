@@ -155,6 +155,7 @@ pub mod models;
 
 mod protocol;
 pub mod providers;
+mod request_diagnostics;
 
 /// Composable optimization pipeline for LLM providers.
 pub mod pipeline;

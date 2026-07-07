@@ -425,10 +425,11 @@ impl ChatProvider for XAI {
             search_parameters: Some(&search_parameters),
         };
 
-        if log::log_enabled!(log::Level::Trace)
-            && let Ok(json) = serde_json::to_string(&body)
-        {
-            log::trace!("XAI request payload: {json}");
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "{}",
+                crate::request_diagnostics::summarize_json_request("XAI", "chat request", &body)
+            );
         }
 
         let resp = self

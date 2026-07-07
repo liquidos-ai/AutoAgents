@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::{self, File};
+use std::fmt;
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 
 /// Key used to store the default provider in the secret store
@@ -11,12 +14,21 @@ const DEFAULT_PROVIDER_KEY: &str = "default";
 ///
 /// Provides functionality to store, retrieve, and manage secrets
 /// in a JSON file located in the user's home directory.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct SecretStore {
     /// Map of secret keys to their values
     secrets: HashMap<String, String>,
     /// Path to the secrets file
     file_path: PathBuf,
+}
+
+impl fmt::Debug for SecretStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SecretStore")
+            .field("secret_count", &self.secrets.len())
+            .field("file_path", &self.file_path)
+            .finish()
+    }
 }
 
 impl SecretStore {
@@ -29,7 +41,12 @@ impl SecretStore {
     ///
     /// * `io::Result<Self>` - A new SecretStore instance or an IO error
     pub fn new() -> io::Result<Self> {
-        let home_dir = dirs::home_dir().expect("Could not find home directory");
+        let home_dir = dirs::home_dir().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "could not find home directory for SecretStore",
+            )
+        })?;
         let file_path = home_dir.join(".llm").join("secrets.json");
 
         if let Some(parent) = file_path.parent() {
@@ -55,7 +72,15 @@ impl SecretStore {
             Ok(mut file) => {
                 let mut contents = String::default();
                 file.read_to_string(&mut contents)?;
-                self.secrets = serde_json::from_str(&contents).unwrap_or_default();
+                self.secrets = serde_json::from_str(&contents).map_err(|err| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "failed to parse secret store JSON at {}: {err}",
+                            self.file_path.display()
+                        ),
+                    )
+                })?;
                 Ok(())
             }
             Err(ref e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -75,8 +100,20 @@ impl SecretStore {
         }
 
         let contents = serde_json::to_string_pretty(&self.secrets)?;
-        let mut file = File::create(&self.file_path)?;
+        let mut options = OpenOptions::new();
+        options.create(true).write(true).truncate(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+
+        let mut file = options.open(&self.file_path)?;
         file.write_all(contents.as_bytes())?;
+        file.sync_all()?;
+
+        #[cfg(unix)]
+        {
+            fs::set_permissions(&self.file_path, fs::Permissions::from_mode(0o600))?;
+        }
+
         Ok(())
     }
 
@@ -161,6 +198,8 @@ impl SecretStore {
 mod tests {
     use super::*;
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use tempfile::tempdir;
 
@@ -401,8 +440,11 @@ mod tests {
         };
 
         let result = store.load();
-        assert!(result.is_ok());
-        assert!(store.secrets.is_empty()); // Should default to empty HashMap
+        assert!(matches!(
+            result,
+            Err(ref err) if err.kind() == io::ErrorKind::InvalidData
+        ));
+        assert!(store.secrets.is_empty());
     }
 
     #[test]
@@ -472,9 +514,13 @@ mod tests {
 
     #[test]
     fn test_secret_store_debug_impl() {
-        let (store, _) = create_temp_secret_store();
+        let (mut store, _) = create_temp_secret_store();
+        store.set("api_key", "secret123").unwrap();
         let debug_str = format!("{store:?}");
         assert!(debug_str.contains("SecretStore"));
+        assert!(debug_str.contains("secret_count"));
+        assert!(!debug_str.contains("api_key"));
+        assert!(!debug_str.contains("secret123"));
     }
 
     #[test]
@@ -497,6 +543,17 @@ mod tests {
         assert!(file_path.exists());
         let file_content = fs::read_to_string(&file_path).unwrap();
         let _parsed: serde_json::Value = serde_json::from_str(&file_content).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_secret_store_save_uses_user_only_permissions() {
+        let (mut store, file_path) = create_temp_secret_store();
+
+        store.set("api_key", "secret123").unwrap();
+
+        let permissions = fs::metadata(&file_path).unwrap().permissions();
+        assert_eq!(permissions.mode() & 0o777, 0o600);
     }
 
     #[test]

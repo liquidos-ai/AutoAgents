@@ -545,10 +545,15 @@ impl Ollama {
             think: self.think,
         };
 
-        if log::log_enabled!(log::Level::Trace)
-            && let Ok(json) = serde_json::to_string(&req_body)
-        {
-            log::trace!("Ollama request payload (tools): {json}");
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "{}",
+                crate::request_diagnostics::summarize_json_request(
+                    "Ollama",
+                    "tools request",
+                    &req_body
+                )
+            );
         }
 
         let url = format!("{}/api/chat", self.base_url);
