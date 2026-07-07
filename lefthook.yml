@@ -2,23 +2,26 @@ pre-commit:
   parallel: true
   commands:
     fmt:
-      run: cargo fmt -- --check
+      run: cargo fmt --all -- --check
       stage_fixed: true
 
     clippy:
-      run: cargo clippy --workspace --all-targets -- -D warnings
+      run: cargo clippy --workspace --all-targets --features full -- -D warnings
 
     test:
-      run: cargo test --features "full"
+      run: cargo test --workspace --features full --exclude autoagents-mistral-rs
 
     check:
-      run: cargo check --all-features --all-targets
+      run: cargo check --workspace --all-targets --no-default-features
+
+    release-check:
+      run: make release-check
 
     python-bindings:
-      glob: "{bindings/python/**,Makefile,scripts/python-bindings/**,.github/workflows/ci-chek.yml,lefthook.yml}"
+      glob: "{bindings/python/**,Makefile,scripts/release/**,.github/workflows/*.yml,lefthook.yml}"
       run: make python-bindings-test
 
 #pre-push:
 #  commands:
 #    doc:
-#      run: cargo doc --all-features --no-deps
+#      run: cargo doc --no-deps --features full -p autoagents -p autoagents-core -p autoagents-llm -p autoagents-derive -p autoagents-protocol -p autoagents-toolkit -p autoagents-guardrails -p autoagents-qdrant -p autoagents-speech -p autoagents-telemetry

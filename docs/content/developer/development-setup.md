@@ -39,7 +39,7 @@ lefthook install
 cargo build --release
 
 # Run tests to verify setup
-cargo test --all-features
+cargo test --workspace --features default --exclude autoagents-mistral-rs
 ```
 
 ### Python Bindings Development Setup
@@ -126,7 +126,7 @@ cd AutoAgents
 cargo build --workspace --features full
 
 # Run tests
-cargo test --all-features
+cargo test --workspace --features default --exclude autoagents-mistral-rs
 
 # Check git hooks are installed (for development)
 lefthook run pre-commit
@@ -138,13 +138,14 @@ The project uses LeftHook to manage Git hooks that ensure code quality:
 
 ### Pre-commit Hooks
 - **Formatting**: `cargo fmt --check` - Ensures consistent code formatting
-- **Linting**: `cargo clippy --all-features --all-targets -- -D warnings` - Catches common mistakes
-- **Testing**: `cargo test --all-features` - Runs the test suite
-- **Type Checking**: `cargo check --all-features --all-targets` - Validates compilation
+- **Linting**: `cargo clippy --workspace --all-targets --features full -- -D warnings` - Catches common mistakes
+- **Testing**: `cargo test --workspace --features full --exclude autoagents-mistral-rs` - Runs the main test suite
+- **Type Checking**: `cargo check --workspace --all-targets --no-default-features` - Validates minimal-feature compilation
+- **Release metadata**: `make release-check` - Catches version drift before release work
 
 ### Pre-push Hooks
-- **Full Testing**: `cargo test --all-features --release` - Comprehensive test suite
-- **Documentation**: `cargo doc --all-features --no-deps` - Ensures docs build correctly
+- **Full Testing**: `cargo test --workspace --features full --exclude autoagents-mistral-rs` - Comprehensive test suite
+- **Documentation**: `cargo doc --no-deps --features full -p autoagents -p autoagents-core -p autoagents-llm -p autoagents-derive -p autoagents-protocol -p autoagents-toolkit -p autoagents-guardrails -p autoagents-qdrant -p autoagents-speech -p autoagents-telemetry` - Ensures docs build correctly on the standard Linux toolchain
 
 ## Running Tests with Coverage
 

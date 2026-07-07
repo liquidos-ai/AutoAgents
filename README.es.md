@@ -49,26 +49,26 @@ AutoAgents es un framework modular multiagente para construir sistemas inteligen
 
 ### Proveedores en la nube
 
-| Proveedor        | Chat | Streaming | Llamadas a herramientas | Notas multimodales |
-| ---------------- | ---- | --------- | ----------------------- | ------------------ |
-| **OpenAI**       | ✅   | ✅        | ✅                      | URLs de imagen e imágenes en línea en completions de chat; los PDF vía Responses API se rechazan con un error tipado. |
-| **OpenRouter**   | ✅   | ✅        | ✅                      | Entradas de imagen compatibles con OpenAI; los PDF se rechazan con un error tipado. |
-| **Anthropic**    | ✅   | ✅        | ✅                      | Imágenes, URLs de imagen y PDF usan bloques de contenido de mensaje de Anthropic. |
-| **DeepSeek**     | ✅   | ✅        | ✅                      | Entradas de imagen compatibles con OpenAI; los PDF se rechazan con un error tipado. |
-| **xAI**          | ✅   | ✅        | No                      | Chat solo de texto; la entrada multimodal devuelve `LLMError::InvalidRequest`. Las llamadas a herramientas devuelven `LLMError::NoToolSupport`. |
-| **Phind**        | ✅   | No*       | No                      | Chat solo de texto; la entrada multimodal devuelve `LLMError::InvalidRequest`. Las llamadas a herramientas devuelven `LLMError::NoToolSupport`. |
-| **Groq**         | ✅   | ✅        | ✅                      | Entradas de imagen compatibles con OpenAI; los PDF se rechazan con un error tipado. |
-| **Google**       | ✅   | ✅        | ✅                      | Se admiten imágenes en línea y PDF; las URLs de imagen se rechazan con un error tipado. |
-| **Azure OpenAI** | ✅   | No*       | ✅                      | Se admiten URLs de imagen; los PDF y las imágenes en línea sin procesar se rechazan con errores tipados. |
-| **MiniMax**      | ✅   | ✅        | ✅                      | Entradas de imagen compatibles con OpenAI; los PDF se rechazan con un error tipado. |
+| Proveedor | Feature | Chat | Streaming | Llamadas a herramientas | Salida estructurada | Visión / multimodal |
+| --- | --- | --- | --- | --- | --- | --- |
+| **OpenAI** | `openai` | Sí | Sí | Sí | Sí | URLs de imagen e imágenes en línea; los PDF se rechazan con un error tipado. |
+| **OpenRouter** | `openrouter` | Sí | Sí | Sí | Sí | Entradas de imagen compatibles con OpenAI; los PDF se rechazan con un error tipado. |
+| **Anthropic** | `anthropic` | Sí | Sí | Sí | Sí | Imágenes, URLs de imagen y PDF usan bloques de contenido de Anthropic. |
+| **DeepSeek** | `deepseek` | Sí | Sí | Sí | Sí | Entradas de imagen compatibles con OpenAI; los PDF se rechazan con un error tipado. |
+| **xAI** | `xai` | Sí | Sí | No | Depende del modelo | Chat solo de texto; la entrada multimodal devuelve `LLMError::InvalidRequest`. |
+| **Phind** | `phind` | Sí | No* | No | No | Chat solo de texto; la entrada multimodal devuelve `LLMError::InvalidRequest`. |
+| **Groq** | `groq` | Sí | Sí | Sí | Sí | Entradas de imagen compatibles con OpenAI; los PDF se rechazan con un error tipado. |
+| **Google** | `google` | Sí | Sí | Sí | Sí | Imágenes en línea y PDF; las URLs de imagen se rechazan con un error tipado. |
+| **Azure OpenAI** | `azure_openai` | Sí | No* | Sí | Sí | URLs de imagen; los PDF y las imágenes en línea sin procesar se rechazan con errores tipados. |
+| **MiniMax** | `minimax` | Sí | Sí | Sí | No | Entradas de imagen compatibles con OpenAI; los PDF se rechazan con un error tipado. |
 
 ### Proveedores locales
 
-| Proveedor      | Estado |
-| -------------- | ------ |
-| **Ollama**     | ✅     |
-| **Mistral-rs** | ✅     |
-| **Llama-Cpp**  | ✅     |
+| Proveedor | Crate / Feature | Chat | Streaming | Llamadas a herramientas | Salida estructurada | Visión / multimodal | Inferencia local |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **Ollama** | `ollama` | Sí | Sí | Sí | Sí | Depende del modelo | Sí, mediante servidor Ollama |
+| **Mistral-rs** | `autoagents-mistral-rs` | Sí | Sí | Sí | Sí | Modelos de visión compatibles | Sí, runtime embebido |
+| **Llama-Cpp** | `autoagents-llamacpp` | Sí | Sí | Sí | Sí | Modelos de visión con archivos projector | Sí, runtime embebido |
 
 ### Proveedores experimentales
 

@@ -49,26 +49,26 @@ AutoAgents ist ein modulares Multi-Agenten-Framework zum Aufbau intelligenter Sy
 
 ### Cloud-Anbieter
 
-| Anbieter          | Chat | Streaming | Tool-Aufrufe | Multimodale Hinweise |
-| ----------------- | ---- | --------- | ------------ | -------------------- |
-| **OpenAI**        | ✅   | ✅        | ✅           | Bild-URLs und Inline-Bilder in Chat-Completions; PDFs über die Responses API werden mit typisiertem Fehler abgelehnt. |
-| **OpenRouter**    | ✅   | ✅        | ✅           | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
-| **Anthropic**     | ✅   | ✅        | ✅           | Bilder, Bild-URLs und PDFs nutzen Anthropic-Nachrichteninhaltsblöcke. |
-| **DeepSeek**      | ✅   | ✅        | ✅           | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
-| **xAI**           | ✅   | ✅        | Nein         | Nur Text-Chat; multimodale Eingaben geben `LLMError::InvalidRequest` zurück. Tool-Aufrufe geben `LLMError::NoToolSupport` zurück. |
-| **Phind**         | ✅   | Nein*     | Nein         | Nur Text-Chat; multimodale Eingaben geben `LLMError::InvalidRequest` zurück. Tool-Aufrufe geben `LLMError::NoToolSupport` zurück. |
-| **Groq**          | ✅   | ✅        | ✅           | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
-| **Google**        | ✅   | ✅        | ✅           | Inline-Bilder und PDFs werden unterstützt; Bild-URLs werden mit typisiertem Fehler abgelehnt. |
-| **Azure OpenAI**  | ✅   | Nein*     | ✅           | Bild-URLs werden unterstützt; PDFs und rohe Inline-Bilder werden mit typisierten Fehlern abgelehnt. |
-| **MiniMax**       | ✅   | ✅        | ✅           | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
+| Anbieter | Feature | Chat | Streaming | Tool-Aufrufe | Strukturierte Ausgabe | Vision / Multimodal |
+| --- | --- | --- | --- | --- | --- | --- |
+| **OpenAI** | `openai` | Ja | Ja | Ja | Ja | Bild-URLs und Inline-Bilder; PDFs werden mit typisiertem Fehler abgelehnt. |
+| **OpenRouter** | `openrouter` | Ja | Ja | Ja | Ja | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
+| **Anthropic** | `anthropic` | Ja | Ja | Ja | Ja | Bilder, Bild-URLs und PDFs nutzen Anthropic-Inhaltsblöcke. |
+| **DeepSeek** | `deepseek` | Ja | Ja | Ja | Ja | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
+| **xAI** | `xai` | Ja | Ja | Nein | Modellabhängig | Nur Text-Chat; multimodale Eingaben geben `LLMError::InvalidRequest` zurück. |
+| **Phind** | `phind` | Ja | Nein* | Nein | Nein | Nur Text-Chat; multimodale Eingaben geben `LLMError::InvalidRequest` zurück. |
+| **Groq** | `groq` | Ja | Ja | Ja | Ja | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
+| **Google** | `google` | Ja | Ja | Ja | Ja | Inline-Bilder und PDFs; Bild-URLs werden mit typisiertem Fehler abgelehnt. |
+| **Azure OpenAI** | `azure_openai` | Ja | Nein* | Ja | Ja | Bild-URLs; PDFs und rohe Inline-Bilder werden mit typisierten Fehlern abgelehnt. |
+| **MiniMax** | `minimax` | Ja | Ja | Ja | Nein | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
 
 ### Lokale Anbieter
 
-| Anbieter      | Status |
-| ------------ | ------ |
-| **Ollama**   | ✅     |
-| **Mistral-rs** | ✅   |
-| **Llama-Cpp** | ✅    |
+| Anbieter | Crate / Feature | Chat | Streaming | Tool-Aufrufe | Strukturierte Ausgabe | Vision / Multimodal | Lokale Inferenz |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **Ollama** | `ollama` | Ja | Ja | Ja | Ja | Modellabhängig | Ja, über Ollama-Server |
+| **Mistral-rs** | `autoagents-mistral-rs` | Ja | Ja | Ja | Ja | Vision-Modelle unterstützt | Ja, eingebettete Runtime |
+| **Llama-Cpp** | `autoagents-llamacpp` | Ja | Ja | Ja | Ja | Vision-Modelle mit Projector-Dateien | Ja, eingebettete Runtime |
 
 ### Experimentelle Anbieter
 

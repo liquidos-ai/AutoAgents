@@ -14,17 +14,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
-struct WriteArgs { path: String, contents: String }
+struct AddArgs { left: i64, right: i64 }
 
-#[tool(name = "write_file", description = "Write text to a file", input = WriteArgs)]
-struct WriteFile;
+#[tool(name = "add", description = "Add two integers", input = AddArgs)]
+struct Add;
 
 #[async_trait]
-impl ToolRuntime for WriteFile {
+impl ToolRuntime for Add {
     async fn execute(&self, args: Value) -> Result<Value, ToolCallError> {
-        let a: WriteArgs = serde_json::from_value(args)?;
-        std::fs::write(a.path, a.contents).map_err(|e| ToolCallError::RuntimeError(e.into()))?;
-        Ok(serde_json::json!({"ok": true}))
+        let a: AddArgs = serde_json::from_value(args)?;
+        Ok(serde_json::json!({ "result": a.left + a.right }))
     }
 }
 ```

@@ -6,9 +6,9 @@ This example shows a minimal local agent setup with an optimization pipeline in 
 
 - A single composed `LLMPipeline`: `Guardrails -> Cache -> LlamaCpp`
 - Local model provider via:
-  - `Qwen/Qwen3-VL-2B-Instruct-GGUF`
-  - `Qwen3VL-2B-Instruct-Q8_0.gguf`
-  - `mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf`
+  - `Qwen/Qwen3-VL-8B-Instruct-GGUF`
+  - `Qwen3VL-8B-Instruct-Q8_0.gguf`
+  - `mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf`
 - A very small agent flow: read one prompt, run once, print response
 
 ## Safety + Optimization

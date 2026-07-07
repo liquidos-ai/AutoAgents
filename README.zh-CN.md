@@ -49,26 +49,26 @@ AutoAgents 是一个用于在 Rust 中构建智能系统的模块化多智能体
 
 ### 云端提供方
 
-| 提供方          | 对话 | 流式 | 工具调用 | 多模态说明 |
-| --------------- | ---- | ---- | -------- | ---------- |
-| **OpenAI**      | ✅   | ✅   | ✅       | 聊天补全支持图片 URL 和内联图片；通过 Responses API 的 PDF 会以类型化错误拒绝。 |
-| **OpenRouter**  | ✅   | ✅   | ✅       | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
-| **Anthropic**   | ✅   | ✅   | ✅       | 图片、图片 URL 和 PDF 使用 Anthropic 消息内容块。 |
-| **DeepSeek**    | ✅   | ✅   | ✅       | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
-| **xAI**         | ✅   | ✅   | 否       | 仅支持纯文本对话；多模态输入返回 `LLMError::InvalidRequest`。工具调用返回 `LLMError::NoToolSupport`。 |
-| **Phind**       | ✅   | 否*  | 否       | 仅支持纯文本对话；多模态输入返回 `LLMError::InvalidRequest`。工具调用返回 `LLMError::NoToolSupport`。 |
-| **Groq**        | ✅   | ✅   | ✅       | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
-| **Google**      | ✅   | ✅   | ✅       | 支持内联图片和 PDF；图片 URL 会以类型化错误拒绝。 |
-| **Azure OpenAI** | ✅  | 否*  | ✅       | 支持图片 URL；PDF 和原始内联图片会以类型化错误拒绝。 |
-| **MiniMax**     | ✅   | ✅   | ✅       | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
+| 提供方 | Feature | 对话 | 流式 | 工具调用 | 结构化输出 | 视觉 / 多模态 |
+| --- | --- | --- | --- | --- | --- | --- |
+| **OpenAI** | `openai` | 是 | 是 | 是 | 是 | 图片 URL 和内联图片；PDF 会以类型化错误拒绝。 |
+| **OpenRouter** | `openrouter` | 是 | 是 | 是 | 是 | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
+| **Anthropic** | `anthropic` | 是 | 是 | 是 | 是 | 图片、图片 URL 和 PDF 使用 Anthropic 内容块。 |
+| **DeepSeek** | `deepseek` | 是 | 是 | 是 | 是 | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
+| **xAI** | `xai` | 是 | 是 | 否 | 取决于模型 | 仅支持纯文本对话；多模态输入返回 `LLMError::InvalidRequest`。 |
+| **Phind** | `phind` | 是 | 否* | 否 | 否 | 仅支持纯文本对话；多模态输入返回 `LLMError::InvalidRequest`。 |
+| **Groq** | `groq` | 是 | 是 | 是 | 是 | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
+| **Google** | `google` | 是 | 是 | 是 | 是 | 支持内联图片和 PDF；图片 URL 会以类型化错误拒绝。 |
+| **Azure OpenAI** | `azure_openai` | 是 | 否* | 是 | 是 | 支持图片 URL；PDF 和原始内联图片会以类型化错误拒绝。 |
+| **MiniMax** | `minimax` | 是 | 是 | 是 | 否 | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
 
 ### 本地提供方
 
-| 提供方       | 状态 |
-| ------------ | ---- |
-| **Ollama**   | ✅   |
-| **Mistral-rs** | ✅ |
-| **Llama-Cpp** | ✅ |
+| 提供方 | Crate / Feature | 对话 | 流式 | 工具调用 | 结构化输出 | 视觉 / 多模态 | 本地推理 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **Ollama** | `ollama` | 是 | 是 | 是 | 是 | 取决于模型 | 是，通过 Ollama 服务 |
+| **Mistral-rs** | `autoagents-mistral-rs` | 是 | 是 | 是 | 是 | 支持视觉模型 | 是，嵌入式运行时 |
+| **Llama-Cpp** | `autoagents-llamacpp` | 是 | 是 | 是 | 是 | 通过 projector 文件支持视觉模型 | 是，嵌入式运行时 |
 
 ### 实验性提供方
 

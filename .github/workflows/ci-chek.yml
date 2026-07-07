@@ -27,12 +27,22 @@ jobs:
       contents: read
       pull-requests: write
     runs-on: ubuntu-latest
+    env:
+      # Reuse Cargo artifacts across clippy, tests, no-default checks, and WASI
+      # checks within this matrix lane. Separate lanes still get isolated target
+      # dirs so feature modes cannot contaminate each other.
+      CARGO_TARGET_DIR: target/ci-${{ matrix.mode }}
 
     strategy:
       fail-fast: false
       matrix:
-        features:
-          - full #This will test all the LLM Providers
+        include:
+          - mode: full
+            cargo_args: --features full
+          - mode: default
+            cargo_args: --features default
+          - mode: no-default
+            cargo_args: --no-default-features
 
     steps:
       - name: Checkout
@@ -65,36 +75,121 @@ jobs:
         run: cargo fmt -- --check
 
       - name: Run clippy
-        run: |
-          if [ -z "${{ matrix.features }}" ]; then
-            CARGO_TARGET_DIR=target/ci-clippy cargo clippy --workspace --all-targets --no-default-features -- -D warnings
-          else
-            CARGO_TARGET_DIR=target/ci-clippy cargo clippy --workspace --all-targets --features "${{ matrix.features }}" -- -D warnings
-          fi
-          rm -rf target/ci-clippy
+        run: cargo clippy --workspace --all-targets ${{ matrix.cargo_args }} -- -D warnings
 
       - name: Run tests
         run: |
-          if [ -z "${{ matrix.features }}" ]; then
-            CARGO_TARGET_DIR=target/ci-test cargo test --features default --workspace \
-              --exclude autoagents-mistral-rs
-          else
-            CARGO_TARGET_DIR=target/ci-test cargo test --workspace --features "${{ matrix.features }}" \
-              --exclude autoagents-mistral-rs
-          fi
-          rm -rf target/ci-test
+          cargo test --workspace ${{ matrix.cargo_args }} \
+            --exclude autoagents-mistral-rs
 
       - name: Run cargo check
-        run: |
-          CARGO_TARGET_DIR=target/ci-check cargo check --workspace --all-targets --no-default-features
-          rm -rf target/ci-check
+        if: matrix.mode == 'no-default'
+        run: cargo check --workspace --all-targets --no-default-features
 
       - name: Run WASI compatibility checks
         run: |
-          CARGO_TARGET_DIR=target/ci-wasi cargo check -p autoagents-core --target wasm32-wasip1
-          CARGO_TARGET_DIR=target/ci-wasi cargo check -p autoagents-core --features codeact --target wasm32-wasip1
-          CARGO_TARGET_DIR=target/ci-wasi cargo check -p autoagents-llm --target wasm32-wasip1
-          rm -rf target/ci-wasi
+          cargo check -p autoagents-core --target wasm32-wasip1
+          cargo check -p autoagents-core --features codeact --target wasm32-wasip1
+          cargo check -p autoagents-llm --target wasm32-wasip1
+
+  release_validation:
+    name: Release validation
+    runs-on: ubuntu-latest
+    env:
+      # Release validation compiles docs, examples, and smoke binaries. Keeping
+      # one target dir lets later commands reuse dependencies from earlier ones.
+      CARGO_TARGET_DIR: target/release-validation
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libasound2-dev pkg-config
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check release metadata
+        run: make release-check
+
+      - name: Build rustdoc
+        run: |
+          cargo doc --no-deps --features full \
+            -p autoagents \
+            -p autoagents-core \
+            -p autoagents-llm \
+            -p autoagents-derive \
+            -p autoagents-protocol \
+            -p autoagents-toolkit \
+            -p autoagents-guardrails \
+            -p autoagents-qdrant \
+            -p autoagents-speech \
+            -p autoagents-telemetry
+
+      - name: Smoke test autoagents-mistral-rs
+        run: |
+          cargo test -p autoagents-mistral-rs
+          cargo check -p mistral_rs
+
+      - name: Compile documented examples
+        run: |
+          cargo check -p basic-example
+          cargo check -p coding_agent
+          cargo check -p safe_local_agent
+          cargo check -p mistral_rs
+          cargo check -p mcp-example
+          cargo check -p vector-store-in-memory
+          cargo check -p vector-store-qdrant
+
+      - name: Smoke documented CLI help
+        run: |
+          cargo run -p coding_agent -- --help
+          cargo run -p mistral_rs -- --help
+
+  wasi_provider_smoke:
+    name: WASI provider smoke
+    runs-on: ubuntu-latest
+    env:
+      # The smoke script builds both the mock server and WASI component; use a
+      # stable target dir so those artifacts are found and reused inside the job.
+      CARGO_TARGET_DIR: target/ci-wasi-provider
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+
+      - name: Install WASI smoke prerequisites
+        run: |
+          rustup target add wasm32-wasip2
+          cargo install wasm-component-ld --locked
+          curl -L https://github.com/bytecodealliance/wasmtime/releases/download/v36.0.2/wasmtime-v36.0.2-x86_64-linux.tar.xz | tar -xJ
+          echo "$PWD/wasmtime-v36.0.2-x86_64-linux" >> "$GITHUB_PATH"
+
+      - name: Run WASI provider smoke
+        run: crates/autoagents-llm/examples/wasm_smoke/run.sh
 
   python_bindings_py:
     name: Python Bindings (Python Coverage)

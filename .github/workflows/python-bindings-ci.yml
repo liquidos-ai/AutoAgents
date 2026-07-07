@@ -8,9 +8,25 @@ on:
       - opened
       - synchronize
       - reopened
+    paths:
+      - "bindings/python/**"
+      - "crates/**/Cargo.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Makefile"
+      - "scripts/release/**"
+      - ".github/workflows/python-bindings-ci.yml"
+      - ".github/workflows/python-bindings.yml"
+      - ".github/workflows/ci-chek.yml"
+      - "README.md"
+      - "RELEASE.md"
+      - "docs/content/getting-started/python-bindings.md"
+      - "docs/content/developer/**"
   workflow_dispatch:
 
 permissions:
+  # Validation-only workflow: no id-token permission, no artifact upload, and
+  # no PyPI/GitHub Release publish step. Publishing lives in python-bindings.yml.
   contents: read
 
 concurrency:
@@ -24,14 +40,15 @@ env:
 
 # ── Build strategy ────────────────────────────────────────────────────────────
 # Match the release publishing build matrix so packaging issues are caught in
-# PR validation before a release tag is pushed.
+# PR validation before a release tag is pushed. This workflow intentionally
+# leaves wheels/sdists in the runner workspace only; it must not upload or
+# publish package artifacts.
 # ─────────────────────────────────────────────────────────────────────────────
 
 jobs:
   # ── Linux x86_64 (wheel packages only) ───────────────────────────────────
   build-linux-x86_64:
     name: Linux x86_64
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
     runs-on: ubuntu-24.04
 
     steps:
@@ -98,7 +115,6 @@ jobs:
   # ── Linux aarch64 (CPU only — Vulkan/CUDA not cross-compiled) ────────────
   build-linux-aarch64:
     name: Linux aarch64
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
     runs-on: ubuntu-24.04-arm
 
     steps:
@@ -165,7 +181,6 @@ jobs:
   # ── Build source distributions for all python binding packages ────────────
   build-sdists:
     name: Build all sdists
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
     runs-on: ubuntu-24.04
 
     steps:
@@ -249,7 +264,6 @@ jobs:
   # ── macOS (CPU + Metal, Intel x86_64 and Apple Silicon arm64) ────────────
   build-macos:
     name: macOS ${{ matrix.runner }}
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'feature/v')
     runs-on: ${{ matrix.runner }}
 
     strategy:
