@@ -3,7 +3,7 @@ use autoagents_llm::{HasConfig, LLMProvider};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyCapsule;
-use std::ffi::CString;
+use std::ffi::CStr;
 use std::sync::Arc;
 
 /// Opaque wrapper around a built LLM provider. Passed to `PyAgentBuilder.llm()`.
@@ -23,25 +23,18 @@ impl PyLLMProvider {
     }
 }
 
-const LLM_PROVIDER_CAPSULE_NAME: &str = "autoagents_py._autoagents_py.LLMProvider";
-
-fn llm_provider_capsule_name() -> PyResult<CString> {
-    CString::new(LLM_PROVIDER_CAPSULE_NAME)
-        .map_err(|_| PyRuntimeError::new_err("invalid llm provider capsule name"))
-}
+const LLM_PROVIDER_CAPSULE_NAME: &CStr = c"autoagents_py._autoagents_py.LLMProvider";
 
 fn llm_provider_to_capsule<'py>(
     py: Python<'py>,
     inner: Arc<dyn LLMProvider>,
 ) -> PyResult<Bound<'py, PyCapsule>> {
-    let name = llm_provider_capsule_name()?;
-    PyCapsule::new(py, inner, Some(name))
+    PyCapsule::new_with_value(py, inner, LLM_PROVIDER_CAPSULE_NAME)
 }
 
 fn llm_provider_from_capsule(capsule: &Bound<'_, PyCapsule>) -> PyResult<Arc<dyn LLMProvider>> {
-    let name = llm_provider_capsule_name()?;
     let pointer = capsule
-        .pointer_checked(Some(name.as_c_str()))
+        .pointer_checked(Some(LLM_PROVIDER_CAPSULE_NAME))
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     let provider = unsafe { pointer.cast::<Arc<dyn LLMProvider>>().as_ref() };
     Ok(Arc::clone(provider))
@@ -634,7 +627,8 @@ mod tests {
         init_python();
         Python::attach(|py| {
             let module = PyModule::new(py, "foreign_capsule_mod").expect("module should create");
-            let capsule = PyCapsule::new(py, 42_u32, None).expect("foreign capsule should build");
+            let capsule = PyCapsule::new_with_value(py, 42_u32, c"foreign_capsule_mod.Foreign")
+                .expect("foreign capsule should build");
             let err = match _llm_provider_from_capsule(&capsule) {
                 Ok(_) => panic!("foreign capsule should fail"),
                 Err(err) => err,

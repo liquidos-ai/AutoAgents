@@ -1,5 +1,7 @@
+#![allow(unused_imports)]
+
 use async_trait::async_trait;
-use autoagents_core::tool::{ToolCallError, ToolInputT, ToolRuntime, ToolT};
+use autoagents_core::tool::{ToolCallError, ToolInputSchema, ToolInputT, ToolRuntime, ToolT};
 use autoagents_derive::tool;
 use serde_json::Value;
 

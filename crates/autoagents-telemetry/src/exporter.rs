@@ -45,14 +45,14 @@ impl SpanExporterWrapper {
         }
     }
 
-    fn force_flush(&mut self) -> OTelSdkResult {
+    fn force_flush(&self) -> OTelSdkResult {
         match self {
             SpanExporterWrapper::Otlp(exporter) => exporter.force_flush(),
             SpanExporterWrapper::Stdout(exporter) => exporter.force_flush(),
         }
     }
 
-    fn shutdown_with_timeout(&mut self, timeout: Duration) -> OTelSdkResult {
+    fn shutdown_with_timeout(&self, timeout: Duration) -> OTelSdkResult {
         match self {
             SpanExporterWrapper::Otlp(exporter) => exporter.shutdown_with_timeout(timeout),
             SpanExporterWrapper::Stdout(exporter) => exporter.shutdown_with_timeout(timeout),
@@ -143,9 +143,9 @@ impl SpanExporter for MultiSpanExporter {
         result
     }
 
-    fn shutdown_with_timeout(&mut self, timeout: Duration) -> OTelSdkResult {
+    fn shutdown_with_timeout(&self, timeout: Duration) -> OTelSdkResult {
         let mut result = Ok(());
-        for exporter in &mut self.exporters {
+        for exporter in &self.exporters {
             if let Err(err) = exporter.shutdown_with_timeout(timeout) {
                 result = Err(err);
             }
@@ -153,9 +153,9 @@ impl SpanExporter for MultiSpanExporter {
         result
     }
 
-    fn force_flush(&mut self) -> OTelSdkResult {
+    fn force_flush(&self) -> OTelSdkResult {
         let mut result = Ok(());
-        for exporter in &mut self.exporters {
+        for exporter in &self.exporters {
             if let Err(err) = exporter.force_flush() {
                 result = Err(err);
             }
@@ -305,7 +305,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multi_span_exporter_export_and_flush() {
-        let mut exporter =
+        let exporter =
             MultiSpanExporter::new(vec![SpanExporterWrapper::Stdout(StdoutSpanExporter)]);
         exporter.export(Vec::new()).await.expect("export ok");
         exporter.force_flush().expect("flush ok");

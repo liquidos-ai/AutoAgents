@@ -20,4 +20,4 @@ extension-module = ["pyo3/extension-module"]
 
 [dependencies]
 autoagents-llamacpp-py-core = { path = "../autoagents-llamacpp-core" }
-pyo3 = { version = "0.28.2", features = ["abi3-py39"] }
+pyo3 = { version = "0.29.0", features = ["abi3-py39"] }

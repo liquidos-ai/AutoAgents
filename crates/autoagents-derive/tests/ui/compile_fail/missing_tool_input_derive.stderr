@@ -1,11 +1,11 @@
 error[E0277]: the trait bound `ManualArgs: ToolInputSchema` is not satisfied
-  --> tests/ui/compile_fail/missing_tool_input_derive.rs:16:70
+  --> tests/ui/compile_fail/missing_tool_input_derive.rs:18:70
    |
-16 | #[tool(name = "manual", description = "Manual input schema", input = ManualArgs)]
+18 | #[tool(name = "manual", description = "Manual input schema", input = ManualArgs)]
    |                                                                      ^^^^^^^^^^ unsatisfied trait bound
    |
 help: the trait `ToolInputSchema` is not implemented for `ManualArgs`
-  --> tests/ui/compile_fail/missing_tool_input_derive.rs:8:1
+  --> tests/ui/compile_fail/missing_tool_input_derive.rs:10:1
    |
- 8 | struct ManualArgs;
+10 | struct ManualArgs;
    | ^^^^^^^^^^^^^^^^^
