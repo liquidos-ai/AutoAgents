@@ -23,7 +23,9 @@
 
 use autoagents_llm::backends::openai::{OpenAI, OpenAIApiMode};
 use autoagents_llm::chat::{ChatMessage, ChatProvider};
+use autoagents_llm::embedding::EmbeddingProvider;
 use autoagents_llm::error::LLMError;
+use autoagents_llm::models::ModelsProvider;
 use futures::StreamExt;
 use serde_json::{Map, Value, json};
 
@@ -93,6 +95,8 @@ async fn run() -> Result<(), LLMError> {
     )
     .await?;
     run_stream_smoke(&provider, cfg.strict_mock_expectations, &cfg.stream_prompt).await?;
+    run_model_list_smoke(&provider, cfg.strict_mock_expectations).await?;
+    run_embeddings_smoke(&provider, cfg.strict_mock_expectations).await?;
 
     if cfg.run_error_test {
         run_error_smoke(&provider).await?;
@@ -100,6 +104,70 @@ async fn run() -> Result<(), LLMError> {
         println!("PROVIDER_ERROR_429_SKIPPED");
     }
 
+    Ok(())
+}
+
+/// Lists models through the public provider trait and validates the response.
+async fn run_model_list_smoke(
+    provider: &OpenAI,
+    strict_mock_expectations: bool,
+) -> Result<(), LLMError> {
+    let response = provider.list_models(None).await?;
+    let models = response.get_models();
+    if strict_mock_expectations {
+        let expected = vec!["gpt-4.1".to_string(), "gpt-4o-mini".to_string()];
+        if models != expected {
+            return Err(LLMError::ResponseFormatError {
+                message: format!("unexpected model list from mock server: {models:?}"),
+                raw_response: format!("{models:?}"),
+            });
+        }
+    } else if models.is_empty() {
+        return Err(LLMError::ResponseFormatError {
+            message: "real API model list was empty".to_string(),
+            raw_response: String::default(),
+        });
+    }
+
+    println!(
+        "PROVIDER_MODELS_OK count={} first={}",
+        models.len(),
+        models.first().cloned().unwrap_or_default()
+    );
+    Ok(())
+}
+
+/// Runs an embeddings request through the public provider trait and validates the response.
+async fn run_embeddings_smoke(
+    provider: &OpenAI,
+    strict_mock_expectations: bool,
+) -> Result<(), LLMError> {
+    let embeddings = provider
+        .embed(vec!["alpha".to_string(), "beta".to_string()])
+        .await?;
+    if strict_mock_expectations {
+        let expected = vec![vec![0.1_f32, 0.2, 0.3], vec![0.4_f32, 0.5, 0.6]];
+        if embeddings != expected {
+            return Err(LLMError::ResponseFormatError {
+                message: format!("unexpected embeddings from mock server: {embeddings:?}"),
+                raw_response: format!("{embeddings:?}"),
+            });
+        }
+    } else if embeddings.is_empty() || embeddings.iter().any(|embedding| embedding.is_empty()) {
+        return Err(LLMError::ResponseFormatError {
+            message: "real API embeddings response was empty".to_string(),
+            raw_response: format!("{embeddings:?}"),
+        });
+    }
+
+    println!(
+        "PROVIDER_EMBED_OK count={} dims={}",
+        embeddings.len(),
+        embeddings
+            .first()
+            .map(|embedding| embedding.len())
+            .unwrap_or(0)
+    );
     Ok(())
 }
 

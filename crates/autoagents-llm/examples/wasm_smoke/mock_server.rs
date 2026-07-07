@@ -299,6 +299,34 @@ data: [DONE]
                 &[],
             )
         }
+    } else if method == "GET" && path == "/v1/models" {
+        send_response(
+            stream,
+            200,
+            "application/json",
+            br#"{
+  "data": [
+    { "id": "gpt-4.1", "created": 1 },
+    { "id": "gpt-4o-mini", "created": 2 }
+  ]
+}
+"#,
+            &[],
+        )
+    } else if method == "POST" && path == "/v1/embeddings" {
+        send_response(
+            stream,
+            200,
+            "application/json",
+            br#"{
+  "data": [
+    { "embedding": [0.1, 0.2, 0.3] },
+    { "embedding": [0.4, 0.5, 0.6] }
+  ]
+}
+"#,
+            &[],
+        )
     } else {
         send_response(
             stream,
