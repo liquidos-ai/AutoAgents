@@ -126,21 +126,16 @@ impl SecretStore {
         #[cfg(unix)]
         options.mode(0o600);
 
-        let mut file = options.open(&temp_path)?;
+        let write_result = (|| -> io::Result<()> {
+            let mut file = options.open(&temp_path)?;
+            file.write_all(contents.as_bytes())?;
+            file.sync_all()
+        })();
 
-        if let Err(error) = file.write_all(contents.as_bytes()) {
-            drop(file);
+        if let Err(error) = write_result {
             let _ = fs::remove_file(&temp_path);
             return Err(error);
         }
-
-        if let Err(error) = file.sync_all() {
-            drop(file);
-            let _ = fs::remove_file(&temp_path);
-            return Err(error);
-        }
-
-        drop(file);
 
         #[cfg(unix)]
         if let Err(error) = fs::set_permissions(&temp_path, fs::Permissions::from_mode(0o600)) {
