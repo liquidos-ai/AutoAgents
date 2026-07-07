@@ -72,6 +72,7 @@ RUST_COVERAGE_OUTPUT_DIR := $(CURDIR)/target/tarpaulin-workspace
 	coverage-rust \
 	release-check \
 	python-bindings-clean \
+	python-bindings-clean-installed \
 	python-bindings-check-tools \
 	python-bindings-install-test-deps \
 	python-bindings-check-test-deps \
@@ -87,6 +88,7 @@ RUST_COVERAGE_OUTPUT_DIR := $(CURDIR)/target/tarpaulin-workspace
 	python-bindings-build-metal \
 	python-bindings-build-vulkan \
 	python-bindings-test \
+	python-bindings-test-coverage \
 	python-bindings-test-clean
 
 help:
@@ -94,6 +96,7 @@ help:
 		'Available targets:' \
 		'  coverage-rust              Run the workspace-wide Rust Tarpaulin coverage report' \
 		'  release-check              Validate release metadata and version consistency' \
+		'  python-bindings-clean-installed Remove installed Python binding artifacts without deleting Rust target cache' \
 		'  python-bindings-build-base        Build and install the core Python binding' \
 		'  python-bindings-build-guardrails  Build and install the guardrails Python binding' \
 		'  python-bindings-build-llamacpp    Build and install the llama.cpp Python binding' \
@@ -107,6 +110,7 @@ help:
 		'  python-bindings-build-metal  Clean, build CPU bindings, then Metal variants' \
 		'  python-bindings-build-vulkan Clean, build CPU bindings, then llama.cpp Vulkan variant' \
 		'  python-bindings-test         Incrementally build CPU bindings, then run Python binding tests' \
+		'  python-bindings-test-coverage Incrementally build CPU bindings, then run Python binding tests with coverage' \
 		'  python-bindings-test-clean   Clean, build CPU bindings, then run Python binding tests'
 
 coverage-rust:
@@ -124,12 +128,14 @@ coverage-rust:
 release-check:
 	"$(PYTHON)" scripts/release/check_version_consistency.py
 
-python-bindings-clean:
+python-bindings-clean: python-bindings-clean-installed
 	rm -rf "$(CURDIR)/target/python-bindings" \
 		"$(CURDIR)/target/python-cuda" \
 		"$(CURDIR)/target/python-metal" \
 		"$(CURDIR)/target/python-vulkan" \
 		"$(CURDIR)/.pytest_cache"
+
+python-bindings-clean-installed:
 	find "$(PYTHON_BINDINGS_DIR)" \
 		-type d \( -name "__pycache__" -o -name ".pytest_cache" \) \
 		-prune -exec rm -rf {} +
@@ -258,6 +264,17 @@ python-bindings-test: python-bindings-build-fast python-bindings-check-test-deps
 	PYTHONPATH="$(PYTHON_BINDINGS_PYTHONPATH):$${PYTHONPATH:-}" \
 	"$(PYTHON)" -m pytest \
 		-c "$(PYTHON_BINDINGS_PYTEST_CONFIG)" \
+		$(PYTHON_BINDINGS_TEST_PATHS)
+
+python-bindings-test-coverage: python-bindings-check-test-deps
+	$(MAKE) python-bindings-clean-installed
+	$(MAKE) python-bindings-build-fast
+	PYTHONPATH="$(PYTHON_BINDINGS_PYTHONPATH):$${PYTHONPATH:-}" \
+	"$(PYTHON)" -m pytest \
+		-c "$(PYTHON_BINDINGS_PYTEST_CONFIG)" \
+		--cov \
+		--cov-config "$(PYTHON_BINDINGS_DIR)/.coveragerc" \
+		--cov-report term-missing:skip-covered \
 		$(PYTHON_BINDINGS_TEST_PATHS)
 
 python-bindings-test-clean: python-bindings-build python-bindings-check-test-deps
