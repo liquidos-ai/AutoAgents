@@ -191,7 +191,10 @@ impl ChatProvider for Phind {
         });
 
         if log::log_enabled!(log::Level::Trace) {
-            log::trace!("Phind request payload: {payload}");
+            log::trace!(
+                "{}",
+                crate::request_diagnostics::summarize_value("Phind", "chat request", &payload)
+            );
         }
 
         let headers = Self::create_headers()?;

@@ -486,10 +486,15 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
                 request = request.header(key, value);
             }
         }
-        if log::log_enabled!(log::Level::Trace)
-            && let Ok(json) = serde_json::to_string(&body)
-        {
-            log::trace!("{} request payload: {}", T::PROVIDER_NAME, json);
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "{}",
+                crate::request_diagnostics::summarize_json_request(
+                    T::PROVIDER_NAME,
+                    "chat request",
+                    &body
+                )
+            );
         }
         let response = request.send().await?;
         log::debug!("{} HTTP status: {}", T::PROVIDER_NAME, response.status());
@@ -605,10 +610,15 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
                 request = request.header(key, value);
             }
         }
-        if log::log_enabled!(log::Level::Trace)
-            && let Ok(json) = serde_json::to_string(&body)
-        {
-            log::trace!("{} request payload: {}", T::PROVIDER_NAME, json);
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "{}",
+                crate::request_diagnostics::summarize_json_request(
+                    T::PROVIDER_NAME,
+                    "stream request",
+                    &body
+                )
+            );
         }
         let response = request.send().await?;
         log::debug!("{} HTTP status: {}", T::PROVIDER_NAME, response.status());
@@ -698,13 +708,14 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
             }
         }
 
-        if log::log_enabled!(log::Level::Trace)
-            && let Ok(json) = serde_json::to_string(&body)
-        {
+        if log::log_enabled!(log::Level::Trace) {
             log::trace!(
-                "{} streaming with tools request: {}",
-                T::PROVIDER_NAME,
-                json
+                "{}",
+                crate::request_diagnostics::summarize_json_request(
+                    T::PROVIDER_NAME,
+                    "streaming tools request",
+                    &body
+                )
             );
         }
 

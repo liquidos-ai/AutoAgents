@@ -469,10 +469,15 @@ impl ChatProvider for AzureOpenAI {
             response_format,
         };
 
-        if log::log_enabled!(log::Level::Trace)
-            && let Ok(json) = serde_json::to_string(&body)
-        {
-            log::trace!("Azure OpenAI request payload: {}", json);
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "{}",
+                crate::request_diagnostics::summarize_json_request(
+                    "Azure OpenAI",
+                    "chat request",
+                    &body
+                )
+            );
         }
 
         let mut url = self

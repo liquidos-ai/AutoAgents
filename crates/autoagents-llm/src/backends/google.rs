@@ -30,10 +30,13 @@ use crate::{
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use futures::stream::Stream;
-use reqwest::Client;
+use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+
+const DEFAULT_GOOGLE_API_BASE_URL: &str = "https://generativelanguage.googleapis.com";
+const GOOGLE_API_KEY_HEADER: &str = "x-goog-api-key";
 
 /// Client for interacting with Google's Gemini API.
 ///
@@ -55,6 +58,8 @@ pub struct Google {
     pub top_p: Option<f32>,
     /// Top-k sampling parameter
     pub top_k: Option<u32>,
+    /// Base URL for the Gemini API.
+    api_base_url: String,
     /// HTTP client for making API requests
     client: Client,
 }
@@ -476,8 +481,17 @@ impl Google {
             timeout_seconds,
             top_p,
             top_k,
+            api_base_url: DEFAULT_GOOGLE_API_BASE_URL.to_string(),
             client,
         }
+    }
+
+    fn model_endpoint_url(&self, model: &str, method: &str) -> Result<Url, LLMError> {
+        let raw_url = format!(
+            "{}/v1beta/models/{model}:{method}",
+            self.api_base_url.trim_end_matches('/')
+        );
+        Url::parse(&raw_url).map_err(|err| LLMError::HttpError(err.to_string()))
     }
 
     /// Sends a chat request to Google's Gemini API with tools.
@@ -518,19 +532,26 @@ impl Google {
             tools: google_tools,
         };
 
-        if log::log_enabled!(log::Level::Trace)
-            && let Ok(json) = serde_json::to_string(&req_body)
-        {
-            log::trace!("Google Gemini request payload (tool): {json}");
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "{}",
+                crate::request_diagnostics::summarize_json_request(
+                    "Google Gemini",
+                    "chat request",
+                    &req_body
+                )
+            );
         }
 
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
-            model = self.model,
-            key = self.api_key
-        );
+        let url = self.model_endpoint_url(&self.model, "generateContent")?;
 
-        let resp = self.client.post(&url).json(&req_body).send().await?;
+        let resp = self
+            .client
+            .post(url)
+            .header(GOOGLE_API_KEY_HEADER, &self.api_key)
+            .json(&req_body)
+            .send()
+            .await?;
 
         log::debug!("Google Gemini HTTP status (tool): {}", resp.status());
 
@@ -621,13 +642,27 @@ impl ChatProvider for Google {
             tools: None,
         };
 
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={key}",
-            model = self.model,
-            key = self.api_key
-        );
+        let mut url = self.model_endpoint_url(&self.model, "streamGenerateContent")?;
+        url.query_pairs_mut().append_pair("alt", "sse");
 
-        let response = self.client.post(&url).json(&req_body).send().await?;
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "{}",
+                crate::request_diagnostics::summarize_json_request(
+                    "Google Gemini",
+                    "stream request",
+                    &req_body
+                )
+            );
+        }
+
+        let response = self
+            .client
+            .post(url)
+            .header(GOOGLE_API_KEY_HEADER, &self.api_key)
+            .json(&req_body)
+            .send()
+            .await?;
 
         let response = ensure_success(response, "Google").await?;
 
@@ -689,12 +724,15 @@ impl EmbeddingProvider for Google {
                 },
             };
 
-            let url = format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={}",
-                self.api_key
-            );
+            let url = self.model_endpoint_url("text-embedding-004", "embedContent")?;
 
-            let resp = self.client.post(&url).json(&req_body).send().await?;
+            let resp = self
+                .client
+                .post(url)
+                .header(GOOGLE_API_KEY_HEADER, &self.api_key)
+                .json(&req_body)
+                .send()
+                .await?;
             let resp = ensure_success(resp, "Google").await?;
 
             let embedding_resp: GoogleEmbeddingResponse = resp.json().await?;
@@ -928,7 +966,23 @@ impl EmbeddingBuilder<Google> {
 mod tests {
     use super::*;
     use crate::chat::{FunctionTool, Tool};
+    use futures::StreamExt;
+    use httpmock::{Method::POST, MockServer};
     use serde_json::json;
+
+    fn test_google_provider(server: &MockServer) -> Google {
+        let mut provider = Google::new(
+            "secret-key",
+            Some("gemini-test".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        provider.api_base_url = server.base_url();
+        provider
+    }
 
     #[test]
     fn test_google_function_declaration_from_tool() {
@@ -1281,5 +1335,105 @@ mod tests {
         let response: GoogleChatResponse = serde_json::from_value(payload)
             .expect("response without usageMetadata must still deserialize");
         assert!(response.usage().is_none());
+    }
+
+    #[test]
+    fn test_google_model_endpoint_url_does_not_include_api_key() {
+        let server = MockServer::start();
+        let provider = test_google_provider(&server);
+
+        let url = provider
+            .model_endpoint_url("gemini-test", "generateContent")
+            .expect("url should build");
+
+        assert_eq!(
+            url.as_str(),
+            format!(
+                "{}/v1beta/models/gemini-test:generateContent",
+                server.base_url()
+            )
+        );
+        assert!(url.query().is_none());
+        assert!(!url.as_str().contains("secret-key"));
+        assert!(!url.as_str().contains("key="));
+    }
+
+    #[tokio::test]
+    async fn test_google_chat_sends_api_key_header_not_query_param() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-test:generateContent")
+                .header(GOOGLE_API_KEY_HEADER, "secret-key");
+            then.status(200).json_body(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{ "text": "ok" }]
+                    }
+                }]
+            }));
+        });
+        let provider = test_google_provider(&server);
+        let messages = [ChatMessage::user().content("hello").build()];
+
+        let response = provider
+            .chat(&messages, None)
+            .await
+            .expect("chat should succeed");
+
+        assert_eq!(response.text().as_deref(), Some("ok"));
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_google_stream_keeps_alt_query_and_sends_api_key_header() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-test:streamGenerateContent")
+                .query_param("alt", "sse")
+                .header(GOOGLE_API_KEY_HEADER, "secret-key");
+            then.status(200)
+                .body("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]}}]}\n\n");
+        });
+        let provider = test_google_provider(&server);
+        let messages = [ChatMessage::user().content("hello").build()];
+
+        let mut stream = provider
+            .chat_stream(&messages, None)
+            .await
+            .expect("stream should start");
+
+        let first = stream
+            .next()
+            .await
+            .expect("stream should emit")
+            .expect("stream item should decode");
+        assert_eq!(first, "ok");
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_google_embeddings_send_api_key_header_not_query_param() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/text-embedding-004:embedContent")
+                .header(GOOGLE_API_KEY_HEADER, "secret-key");
+            then.status(200).json_body(json!({
+                "embedding": {
+                    "values": [0.1, 0.2]
+                }
+            }));
+        });
+        let provider = test_google_provider(&server);
+
+        let embeddings = provider
+            .embed(vec!["hello".to_string()])
+            .await
+            .expect("embedding should succeed");
+
+        assert_eq!(embeddings, vec![vec![0.1, 0.2]]);
+        mock.assert();
     }
 }

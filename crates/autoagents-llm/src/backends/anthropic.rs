@@ -654,10 +654,15 @@ impl ChatProvider for Anthropic {
             .header("anthropic-version", "2023-06-01")
             .json(&req_body);
 
-        if log::log_enabled!(log::Level::Trace)
-            && let Ok(json) = serde_json::to_string(&req_body)
-        {
-            log::trace!("Anthropic request payload: {}", json);
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "{}",
+                crate::request_diagnostics::summarize_json_request(
+                    "Anthropic",
+                    "chat request",
+                    &req_body
+                )
+            );
         }
 
         log::debug!("Anthropic request: POST /v1/messages");
@@ -794,10 +799,15 @@ impl ChatProvider for Anthropic {
             .header("anthropic-version", "2023-06-01")
             .json(&req_body);
 
-        if log::log_enabled!(log::Level::Trace)
-            && let Ok(json) = serde_json::to_string(&req_body)
-        {
-            log::trace!("Anthropic streaming request payload: {}", json);
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "{}",
+                crate::request_diagnostics::summarize_json_request(
+                    "Anthropic",
+                    "streaming tools request",
+                    &req_body
+                )
+            );
         }
 
         log::debug!("Anthropic request: POST /v1/messages (streaming with tools)");

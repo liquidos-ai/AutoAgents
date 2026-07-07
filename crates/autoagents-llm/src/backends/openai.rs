@@ -1252,10 +1252,15 @@ impl OpenAI {
             .bearer_auth(&self.provider.api_key)
             .json(body);
 
-        if log::log_enabled!(log::Level::Trace)
-            && let Ok(json) = serde_json::to_string(body)
-        {
-            log::trace!("OpenAI Responses payload: {}", json);
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "{}",
+                crate::request_diagnostics::summarize_json_request(
+                    "OpenAI",
+                    "responses request",
+                    body
+                )
+            );
         }
 
         let response = request.send().await?;
@@ -1275,10 +1280,15 @@ impl OpenAI {
         &self,
         body: &OpenAIResponsesRequest,
     ) -> Result<String, LLMError> {
-        if log::log_enabled!(log::Level::Trace)
-            && let Ok(json) = serde_json::to_string(body)
-        {
-            log::trace!("OpenAI Responses payload: {}", json);
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "{}",
+                crate::request_diagnostics::summarize_json_request(
+                    "OpenAI",
+                    "responses request",
+                    body
+                )
+            );
         }
 
         #[cfg(native)]
@@ -1382,10 +1392,11 @@ impl OpenAI {
             .post(url)
             .bearer_auth(&self.provider.api_key)
             .json(&body);
-        if log::log_enabled!(log::Level::Trace)
-            && let Ok(json) = serde_json::to_string(&body)
-        {
-            log::trace!("OpenAI request payload: {}", json);
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "{}",
+                crate::request_diagnostics::summarize_json_request("OpenAI", "chat request", &body)
+            );
         }
         let response = request.send().await?;
         log::debug!("OpenAI HTTP status: {}", response.status());
@@ -1481,10 +1492,15 @@ impl OpenAI {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError> {
         let body = self.build_responses_request(messages, tools, json_schema, true)?;
 
-        if log::log_enabled!(log::Level::Trace)
-            && let Ok(json) = serde_json::to_string(&body)
-        {
-            log::trace!("OpenAI Responses payload: {}", json);
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "{}",
+                crate::request_diagnostics::summarize_json_request(
+                    "OpenAI",
+                    "responses stream request",
+                    &body
+                )
+            );
         }
 
         let url = self.responses_url()?;

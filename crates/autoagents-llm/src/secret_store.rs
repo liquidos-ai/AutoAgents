@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::{self, File};
+use std::fmt;
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
 
 /// Key used to store the default provider in the secret store
 const DEFAULT_PROVIDER_KEY: &str = "default";
@@ -11,12 +14,21 @@ const DEFAULT_PROVIDER_KEY: &str = "default";
 ///
 /// Provides functionality to store, retrieve, and manage secrets
 /// in a JSON file located in the user's home directory.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct SecretStore {
     /// Map of secret keys to their values
     secrets: HashMap<String, String>,
     /// Path to the secrets file
     file_path: PathBuf,
+}
+
+impl fmt::Debug for SecretStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SecretStore")
+            .field("secret_count", &self.secrets.len())
+            .field("file_path", &self.file_path)
+            .finish()
+    }
 }
 
 impl SecretStore {
@@ -29,20 +41,45 @@ impl SecretStore {
     ///
     /// * `io::Result<Self>` - A new SecretStore instance or an IO error
     pub fn new() -> io::Result<Self> {
-        let home_dir = dirs::home_dir().expect("Could not find home directory");
-        let file_path = home_dir.join(".llm").join("secrets.json");
+        let mut store = Self::new_empty()?;
+        store.load()?;
+        Ok(store)
+    }
+
+    /// Creates an empty SecretStore at the default path without loading the existing file.
+    ///
+    /// This is intended for explicit recovery flows when the on-disk JSON is corrupt and
+    /// callers want to overwrite it by setting new values or calling [`SecretStore::reset`].
+    pub fn new_empty() -> io::Result<Self> {
+        let file_path = Self::default_file_path()?;
 
         if let Some(parent) = file_path.parent() {
             fs::create_dir_all(parent)?;
         }
 
-        let mut store = SecretStore {
+        Ok(SecretStore {
             secrets: HashMap::new(),
             file_path,
-        };
+        })
+    }
 
-        store.load()?;
+    /// Replaces the default secret store file with an empty valid store.
+    ///
+    /// Use this for deliberate recovery from corrupt or unwanted local secret files.
+    pub fn reset() -> io::Result<Self> {
+        let store = Self::new_empty()?;
+        store.save()?;
         Ok(store)
+    }
+
+    fn default_file_path() -> io::Result<PathBuf> {
+        let home_dir = dirs::home_dir().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "could not find home directory for SecretStore",
+            )
+        })?;
+        Ok(home_dir.join(".llm").join("secrets.json"))
     }
 
     /// Loads secrets from the file system
@@ -55,7 +92,15 @@ impl SecretStore {
             Ok(mut file) => {
                 let mut contents = String::default();
                 file.read_to_string(&mut contents)?;
-                self.secrets = serde_json::from_str(&contents).unwrap_or_default();
+                self.secrets = serde_json::from_str(&contents).map_err(|err| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "failed to parse secret store JSON at {}: {err}",
+                            self.file_path.display()
+                        ),
+                    )
+                })?;
                 Ok(())
             }
             Err(ref e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -75,9 +120,77 @@ impl SecretStore {
         }
 
         let contents = serde_json::to_string_pretty(&self.secrets)?;
-        let mut file = File::create(&self.file_path)?;
-        file.write_all(contents.as_bytes())?;
+        let temp_path = self.temp_file_path()?;
+        let mut options = OpenOptions::new();
+        options.create_new(true).write(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+
+        let write_result = (|| -> io::Result<()> {
+            let mut file = options.open(&temp_path)?;
+            file.write_all(contents.as_bytes())?;
+            file.sync_all()
+        })();
+
+        if let Err(error) = write_result {
+            let _ = fs::remove_file(&temp_path);
+            return Err(error);
+        }
+
+        #[cfg(unix)]
+        if let Err(error) = fs::set_permissions(&temp_path, fs::Permissions::from_mode(0o600)) {
+            let _ = fs::remove_file(&temp_path);
+            return Err(error);
+        }
+
+        if let Err(error) = fs::rename(&temp_path, &self.file_path) {
+            let _ = fs::remove_file(&temp_path);
+            return Err(error);
+        }
+
+        if let Some(parent) = self.file_path.parent() {
+            sync_directory(parent)?;
+        }
+
         Ok(())
+    }
+
+    fn temp_file_path(&self) -> io::Result<PathBuf> {
+        let parent = self.file_path.parent().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "secret store path has no parent directory: {}",
+                    self.file_path.display()
+                ),
+            )
+        })?;
+        let file_name = self.file_path.file_name().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "secret store path has no file name: {}",
+                    self.file_path.display()
+                ),
+            )
+        })?;
+        let file_name = file_name.to_string_lossy();
+        let process_id = std::process::id();
+
+        for attempt in 0..100 {
+            let candidate = parent.join(format!(".{file_name}.tmp.{process_id}.{attempt}"));
+            if !candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+
+        Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!(
+                "could not allocate temporary secret store path near {}",
+                self.file_path.display()
+            ),
+        ))
     }
 
     /// Sets a secret value for the given key
@@ -157,10 +270,22 @@ impl SecretStore {
     }
 }
 
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> io::Result<()> {
+    File::open(path)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_path: &Path) -> io::Result<()> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use tempfile::tempdir;
 
@@ -401,8 +526,47 @@ mod tests {
         };
 
         let result = store.load();
-        assert!(result.is_ok());
-        assert!(store.secrets.is_empty()); // Should default to empty HashMap
+        assert!(matches!(
+            result,
+            Err(ref err) if err.kind() == io::ErrorKind::InvalidData
+        ));
+        assert!(store.secrets.is_empty());
+    }
+
+    #[test]
+    fn test_secret_store_can_recover_from_invalid_json_with_empty_store() {
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("invalid.json");
+        fs::write(&file_path, "invalid json content").unwrap();
+
+        let mut store = SecretStore {
+            secrets: HashMap::new(),
+            file_path: file_path.clone(),
+        };
+
+        let result = store.load();
+        assert!(matches!(
+            result,
+            Err(ref err) if err.kind() == io::ErrorKind::InvalidData
+        ));
+
+        let mut recovery_store = SecretStore {
+            secrets: HashMap::new(),
+            file_path: file_path.clone(),
+        };
+        recovery_store
+            .set("replacement_key", "replacement_value")
+            .unwrap();
+
+        let mut reloaded = SecretStore {
+            secrets: HashMap::new(),
+            file_path,
+        };
+        reloaded.load().unwrap();
+        assert_eq!(
+            reloaded.get("replacement_key"),
+            Some(&"replacement_value".to_string())
+        );
     }
 
     #[test]
@@ -472,9 +636,13 @@ mod tests {
 
     #[test]
     fn test_secret_store_debug_impl() {
-        let (store, _) = create_temp_secret_store();
+        let (mut store, _) = create_temp_secret_store();
+        store.set("api_key", "secret123").unwrap();
         let debug_str = format!("{store:?}");
         assert!(debug_str.contains("SecretStore"));
+        assert!(debug_str.contains("secret_count"));
+        assert!(!debug_str.contains("api_key"));
+        assert!(!debug_str.contains("secret123"));
     }
 
     #[test]
@@ -497,6 +665,41 @@ mod tests {
         assert!(file_path.exists());
         let file_content = fs::read_to_string(&file_path).unwrap();
         let _parsed: serde_json::Value = serde_json::from_str(&file_content).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_secret_store_save_uses_user_only_permissions() {
+        let (mut store, file_path) = create_temp_secret_store();
+
+        store.set("api_key", "secret123").unwrap();
+
+        let permissions = fs::metadata(&file_path).unwrap().permissions();
+        assert_eq!(permissions.mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn test_secret_store_save_failure_keeps_existing_file() {
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("secrets.json");
+        fs::write(&file_path, r#"{"old_key":"old_value"}"#).unwrap();
+
+        for attempt in 0..100 {
+            let temp_path = temp_dir.path().join(format!(
+                ".secrets.json.tmp.{}.{attempt}",
+                std::process::id()
+            ));
+            fs::write(temp_path, "occupied").unwrap();
+        }
+
+        let mut store = SecretStore {
+            secrets: HashMap::new(),
+            file_path: file_path.clone(),
+        };
+        store.set("new_key", "new_value").unwrap_err();
+
+        let contents = fs::read_to_string(file_path).unwrap();
+        assert_eq!(contents, r#"{"old_key":"old_value"}"#);
     }
 
     #[test]
