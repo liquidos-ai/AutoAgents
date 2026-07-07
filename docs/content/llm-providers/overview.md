@@ -1,38 +1,40 @@
 # Overview
 
-AutoAgents supports a wide range of LLM providers, allowing you to choose the best fit for your use case:
+AutoAgents supports cloud and local LLM providers behind the same agent-facing
+interfaces. Provider support can still vary by model and upstream API behavior,
+so this matrix describes the current AutoAgents code paths.
 
 ### Cloud Providers
 
-| Provider         | Chat | Streaming | Tool Calls |
-|------------------|------|-----------|------------|
-| **OpenAI**       | ✅   | ✅        | ✅         |
-| **OpenRouter**   | ✅   | ✅        | ✅         |
-| **Anthropic**    | ✅   | ✅        | ✅         |
-| **DeepSeek**     | ✅   | ✅        | ✅         |
-| **xAI**          | ✅   | ✅        | No         |
-| **Phind**        | ✅   | No*       | No         |
-| **Groq**         | ✅   | ✅        | ✅         |
-| **Google**       | ✅   | ✅        | ✅         |
-| **Azure OpenAI** | ✅   | No*       | ✅         |
-| **MiniMax**      | ✅   | ✅        | ✅         |
+| Provider | Feature | Chat | Streaming | Tool Calls | Structured Output | Vision / Multimodal |
+| --- | --- | --- | --- | --- | --- | --- |
+| OpenAI | `openai` | Yes | Yes | Yes | Yes | Image URLs and inline images; PDFs are rejected with a typed error. |
+| OpenRouter | `openrouter` | Yes | Yes | Yes | Yes | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
+| Anthropic | `anthropic` | Yes | Yes | Yes | Yes | Images, image URLs, and PDFs use Anthropic content blocks. |
+| DeepSeek | `deepseek` | Yes | Yes | Yes | Yes | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
+| xAI | `xai` | Yes | Yes | No | Model-dependent | Text-only chat; multimodal input returns `LLMError::InvalidRequest`. |
+| Phind | `phind` | Yes | No* | No | No | Text-only chat; multimodal input returns `LLMError::InvalidRequest`. |
+| Groq | `groq` | Yes | Yes | Yes | Yes | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
+| Google | `google` | Yes | Yes | Yes | Yes | Inline images and PDFs; image URLs are rejected with a typed error. |
+| Azure OpenAI | `azure_openai` | Yes | No* | Yes | Yes | Image URLs; PDFs and raw inline images are rejected with typed errors. |
+| MiniMax | `minimax` | Yes | Yes | Yes | No | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
 
 ### Local Providers
 
-| Provider       | Status               |
-| -------------- | -------------------- |
-| **Ollama**     | ✅                   |
-| **Mistral-rs** | ✅                   |
-| **Llama-Cpp**  | ✅                   |
+| Provider | Crate / Feature | Chat | Streaming | Tool Calls | Structured Output | Vision / Multimodal | Local Inference |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Ollama | `ollama` | Yes | Yes | Yes | Yes | Model-dependent | Yes, via Ollama server |
+| Mistral-rs | `autoagents-mistral-rs` | Yes | Yes | Yes | Yes | Vision models supported | Yes, embedded runtime |
+| Llama-Cpp | `autoagents-llamacpp` | Yes | Yes | Yes | Yes | Vision models supported with projector files | Yes, embedded runtime |
 
 ### Experimental Providers
 
 Checkout https://github.com/liquidos-ai/AutoAgents-Experimental-Backends
 
-| Provider       | Status               |
-| -------------- | -------------------- |
-| **Burn**       | ⚠️ Experimental      |
-| **Onnx**       | ⚠️ Experimental      |
+| Provider | Status |
+| --- | --- |
+| Burn | Experimental |
+| Onnx | Experimental |
 
 _Provider support is actively expanding based on community needs._
 
@@ -103,61 +105,3 @@ All LLM backends implement the unified `LLMProvider` trait; chat/completion/embe
 sub‑traits. This keeps agents provider‑agnostic.
 
 For optimization layers (cache/retry/fallback), see [Optimization Pipelines](./optimization-pipelines.md).
-
-## Capability Snapshot
-
-This snapshot reflects the current code paths in `autoagents-llm` and may vary by specific model or provider changes.
-
-- OpenAI
-    - Chat + Streaming: Yes
-    - Tool Calls: Yes
-    - Structured Output (JSON Schema): Yes
-    - Embeddings: Yes
-    - Notes: Some options vary by model; check provider docs.
-
-- Anthropic (Claude)
-    - Chat + Streaming: Yes
-    - Tool Calls: Yes (Anthropic tool-use format)
-    - Structured Output: Not standardized; return text + tool events
-    - Embeddings: No
-
-- Groq (OpenAI-compatible)
-    - Chat + Streaming: Yes
-    - Tool Calls: Yes
-    - Structured Output: Yes
-    - Embeddings: No (not implemented)
-
-- OpenRouter (OpenAI-compatible)
-    - Chat + Streaming: Yes
-    - Tool Calls: Yes
-    - Structured Output: Yes
-    - Embeddings: No (not implemented)
-
-- xAI
-    - Chat + Streaming: Yes
-    - Tool Calls: No. Tool requests return `LLMError::NoToolSupport`.
-    - Multimodal: Text-only chat; multimodal input returns `LLMError::InvalidRequest`.
-    - Structured Output: Model-dependent JSON schema support
-    - Embeddings: Yes
-
-- Phind
-    - Chat: Yes
-    - Streaming: No dedicated `chat_stream` implementation; the default trait method returns `LLMError::Generic`.
-    - Tool Calls: No. Tool requests return `LLMError::NoToolSupport`.
-    - Multimodal: Text-only chat; multimodal input returns `LLMError::InvalidRequest`.
-    - Embeddings: No (not implemented)
-
-- Google
-    - Chat + Streaming: Yes
-    - Tool Calls: Yes
-    - Structured Output: Yes
-    - Multimodal: Inline images and PDFs are supported; image URLs return `LLMError::InvalidRequest`.
-
-- Azure OpenAI
-    - Chat: Yes
-    - Streaming: No dedicated `chat_stream` implementation; the default trait method returns `LLMError::Generic`.
-    - Tool Calls: Yes
-    - Multimodal: Image URLs are supported; PDFs and raw inline images return `LLMError::InvalidRequest`.
-
-For other providers (DeepSeek, Ollama, local inference backends), consult their module docs and service documentation;
-support can vary by model and API.

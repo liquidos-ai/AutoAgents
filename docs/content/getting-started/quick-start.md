@@ -34,8 +34,8 @@ Add the core crate and macros. Enable a provider feature (e.g., `openai`) to use
 ```toml
 # Cargo.toml
 [dependencies]
-autoagents = { version = "0.3.5", features = ["openai"] }
-autoagents-derive = "0.3.5"
+autoagents = { version = "0.3.7", features = ["openai"] }
+autoagents-derive = "0.3.7"
 anyhow = "1"
 serde_json = "1"
 tokio = "1"
@@ -46,7 +46,7 @@ Used by this example: `anyhow::Result`, `#[tokio::main]`, and `serde_json` (requ
 Optional tools (filesystem, search) live in `autoagents-toolkit`:
 
 ```toml
-autoagents-toolkit = { version = "0.3.5", features = ["filesystem", "search"] }
+autoagents-toolkit = { version = "0.3.7", features = ["filesystem", "search"] }
 ```
 
 Provider features available on `autoagents`: `openai`, `anthropic`, `openrouter`, `groq`, `google`, `azure_openai`, `xai`, `deepseek`, `ollama`. Use only what you need.

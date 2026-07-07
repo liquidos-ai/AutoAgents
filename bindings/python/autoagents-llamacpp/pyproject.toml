@@ -10,6 +10,26 @@ description = "Official Python bindings for AutoAgents Llama.cpp backend (CPU)"
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
 dependencies = ["autoagents-py==0.3.7"]
+authors = [{ name = "Sai Vishwak Korimerla", email = "vishwak@liquidos.ai" }]
+maintainers = [{ name = "Sai Vishwak Korimerla", email = "vishwak@liquidos.ai" }]
+classifiers = [
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Documentation = "https://liquidos-ai.github.io/AutoAgents/"
+Repository = "https://github.com/liquidos-ai/AutoAgents"
+Issues = "https://github.com/liquidos-ai/AutoAgents/issues"
+Releases = "https://github.com/liquidos-ai/AutoAgents/releases"
 
 [tool.maturin]
 module-name = "autoagents_llamacpp._autoagents_llamacpp"

@@ -49,26 +49,26 @@ AutoAgents é um framework modular multiagente para construir sistemas inteligen
 
 ### Provedores em nuvem
 
-| Provedor         | Chat | Streaming | Chamadas de ferramentas | Notas multimodais |
-| ---------------- | ---- | --------- | ----------------------- | ----------------- |
-| **OpenAI**       | ✅   | ✅        | ✅                      | URLs de imagem e imagens inline em chat completions; PDFs via Responses API são rejeitados com erro tipado. |
-| **OpenRouter**   | ✅   | ✅        | ✅                      | Entradas de imagem compatíveis com OpenAI; PDFs são rejeitados com erro tipado. |
-| **Anthropic**    | ✅   | ✅        | ✅                      | Imagens, URLs de imagem e PDFs usam blocos de conteúdo de mensagem da Anthropic. |
-| **DeepSeek**     | ✅   | ✅        | ✅                      | Entradas de imagem compatíveis com OpenAI; PDFs são rejeitados com erro tipado. |
-| **xAI**          | ✅   | ✅        | Não                     | Chat somente texto; entrada multimodal retorna `LLMError::InvalidRequest`. Chamadas de ferramentas retornam `LLMError::NoToolSupport`. |
-| **Phind**        | ✅   | Não*      | Não                     | Chat somente texto; entrada multimodal retorna `LLMError::InvalidRequest`. Chamadas de ferramentas retornam `LLMError::NoToolSupport`. |
-| **Groq**         | ✅   | ✅        | ✅                      | Entradas de imagem compatíveis com OpenAI; PDFs são rejeitados com erro tipado. |
-| **Google**       | ✅   | ✅        | ✅                      | Imagens inline e PDFs são suportados; URLs de imagem são rejeitadas com erro tipado. |
-| **Azure OpenAI** | ✅   | Não*      | ✅                      | URLs de imagem são suportadas; PDFs e imagens inline brutas são rejeitados com erros tipados. |
-| **MiniMax**      | ✅   | ✅        | ✅                      | Entradas de imagem compatíveis com OpenAI; PDFs são rejeitados com erro tipado. |
+| Provedor | Feature | Chat | Streaming | Chamadas de ferramentas | Saída estruturada | Visão / multimodal |
+| --- | --- | --- | --- | --- | --- | --- |
+| **OpenAI** | `openai` | Sim | Sim | Sim | Sim | URLs de imagem e imagens inline; PDFs são rejeitados com erro tipado. |
+| **OpenRouter** | `openrouter` | Sim | Sim | Sim | Sim | Entradas de imagem compatíveis com OpenAI; PDFs são rejeitados com erro tipado. |
+| **Anthropic** | `anthropic` | Sim | Sim | Sim | Sim | Imagens, URLs de imagem e PDFs usam blocos de conteúdo da Anthropic. |
+| **DeepSeek** | `deepseek` | Sim | Sim | Sim | Sim | Entradas de imagem compatíveis com OpenAI; PDFs são rejeitados com erro tipado. |
+| **xAI** | `xai` | Sim | Sim | Não | Depende do modelo | Chat somente texto; entrada multimodal retorna `LLMError::InvalidRequest`. |
+| **Phind** | `phind` | Sim | Não* | Não | Não | Chat somente texto; entrada multimodal retorna `LLMError::InvalidRequest`. |
+| **Groq** | `groq` | Sim | Sim | Sim | Sim | Entradas de imagem compatíveis com OpenAI; PDFs são rejeitados com erro tipado. |
+| **Google** | `google` | Sim | Sim | Sim | Sim | Imagens inline e PDFs; URLs de imagem são rejeitadas com erro tipado. |
+| **Azure OpenAI** | `azure_openai` | Sim | Não* | Sim | Sim | URLs de imagem; PDFs e imagens inline brutas são rejeitados com erros tipados. |
+| **MiniMax** | `minimax` | Sim | Sim | Sim | Não | Entradas de imagem compatíveis com OpenAI; PDFs são rejeitados com erro tipado. |
 
 ### Provedores locais
 
-| Provedor      | Status |
-| ------------- | ------ |
-| **Ollama**    | ✅     |
-| **Mistral-rs**| ✅     |
-| **Llama-Cpp** | ✅     |
+| Provedor | Crate / Feature | Chat | Streaming | Chamadas de ferramentas | Saída estruturada | Visão / multimodal | Inferência local |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **Ollama** | `ollama` | Sim | Sim | Sim | Sim | Depende do modelo | Sim, via servidor Ollama |
+| **Mistral-rs** | `autoagents-mistral-rs` | Sim | Sim | Sim | Sim | Modelos de visão suportados | Sim, runtime embutido |
+| **Llama-Cpp** | `autoagents-llamacpp` | Sim | Sim | Sim | Sim | Modelos de visão com arquivos projector | Sim, runtime embutido |
 
 ### Provedores experimentais
 

@@ -6,10 +6,15 @@ const COMPILE_FAIL_FIXTURES: &[&str] = &[
     "tests/ui/compile_fail/invalid_choice.rs",
     "tests/ui/compile_fail/invalid_output_field.rs",
     "tests/ui/compile_fail/invalid_strict.rs",
-    "tests/ui/compile_fail/missing_tool_input_derive.rs",
     "tests/ui/compile_fail/tool_missing_input.rs",
     "tests/ui/compile_fail/unsupported_agent_output_type.rs",
 ];
+
+// rustc has changed whether this diagnostic prints `ToolInputSchema` or the
+// fully-qualified `autoagents_core::tool::ToolInputSchema`. Keep it registered
+// here, but assert the behavior with substring checks in `tests/compile.rs`.
+const VERSION_SENSITIVE_COMPILE_FAIL_FIXTURES: &[&str] =
+    &["tests/ui/compile_fail/missing_tool_input_derive.rs"];
 
 #[test]
 fn compile_fail_diagnostics() {
@@ -25,6 +30,7 @@ fn compile_fail_fixtures_are_registered() {
     let compile_fail_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/ui/compile_fail");
     let registered = COMPILE_FAIL_FIXTURES
         .iter()
+        .chain(VERSION_SENSITIVE_COMPILE_FAIL_FIXTURES.iter())
         .map(|fixture| fixture.to_string())
         .collect::<BTreeSet<_>>();
     let discovered = std::fs::read_dir(&compile_fail_dir)

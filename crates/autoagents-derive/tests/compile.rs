@@ -25,7 +25,7 @@ struct CompileFixture {
     name: &'static str,
     command: CargoCommand,
     expected_success: bool,
-    expected_output: Option<&'static str>,
+    expected_output: &'static [&'static str],
 }
 
 fn fixture_dir(name: &str) -> PathBuf {
@@ -75,33 +75,39 @@ fn dependency_layout_fixtures() {
             name: "compile-pass-facade",
             command: CargoCommand::Test,
             expected_success: true,
-            expected_output: None,
+            expected_output: &[],
         },
         CompileFixture {
             name: "compile-pass-direct-core",
             command: CargoCommand::Test,
             expected_success: true,
-            expected_output: None,
+            expected_output: &[],
         },
         CompileFixture {
             name: "compile-fail-missing-core",
             command: CargoCommand::Check,
             expected_success: false,
-            expected_output: Some(
+            expected_output: &[
                 "autoagents-derive requires either `autoagents` or `autoagents-core`",
-            ),
+            ],
         },
         CompileFixture {
             name: "compile-fail-missing-serde-json",
             command: CargoCommand::Check,
             expected_success: false,
-            expected_output: Some("serde_json"),
+            expected_output: &["serde_json"],
         },
         CompileFixture {
             name: "compile-fail-missing-async-trait",
             command: CargoCommand::Check,
             expected_success: false,
-            expected_output: Some("async-trait"),
+            expected_output: &["async-trait"],
+        },
+        CompileFixture {
+            name: "compile-fail-missing-tool-input-schema",
+            command: CargoCommand::Check,
+            expected_success: false,
+            expected_output: &["ManualArgs", "ToolInputSchema"],
         },
     ];
 
@@ -115,7 +121,7 @@ fn dependency_layout_fixtures() {
             fixture.name
         );
 
-        if let Some(expected_output) = fixture.expected_output {
+        for expected_output in fixture.expected_output {
             assert!(
                 output.contains(expected_output),
                 "fixture `{}` did not emit expected output `{expected_output}`; output: {output}",

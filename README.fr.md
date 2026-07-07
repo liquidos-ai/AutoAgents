@@ -49,26 +49,26 @@ AutoAgents est un framework multi-agents modulaire pour construire des systèmes
 
 ### Fournisseurs cloud
 
-| Fournisseur      | Chat | Streaming | Appels d'outils | Notes multimodales |
-| ---------------- | ---- | --------- | --------------- | ------------------ |
-| **OpenAI**       | ✅   | ✅        | ✅              | URLs d'image et images inline dans les completions de chat ; les PDF via l'API Responses sont rejetés avec une erreur typée. |
-| **OpenRouter**   | ✅   | ✅        | ✅              | Entrées d'image compatibles OpenAI ; les PDF sont rejetés avec une erreur typée. |
-| **Anthropic**    | ✅   | ✅        | ✅              | Images, URLs d'image et PDF utilisent les blocs de contenu de message Anthropic. |
-| **DeepSeek**     | ✅   | ✅        | ✅              | Entrées d'image compatibles OpenAI ; les PDF sont rejetés avec une erreur typée. |
-| **xAI**          | ✅   | ✅        | Non             | Chat texte uniquement ; l'entrée multimodale renvoie `LLMError::InvalidRequest`. Les appels d'outils renvoient `LLMError::NoToolSupport`. |
-| **Phind**        | ✅   | Non*      | Non             | Chat texte uniquement ; l'entrée multimodale renvoie `LLMError::InvalidRequest`. Les appels d'outils renvoient `LLMError::NoToolSupport`. |
-| **Groq**         | ✅   | ✅        | ✅              | Entrées d'image compatibles OpenAI ; les PDF sont rejetés avec une erreur typée. |
-| **Google**       | ✅   | ✅        | ✅              | Images inline et PDF pris en charge ; les URLs d'image sont rejetées avec une erreur typée. |
-| **Azure OpenAI** | ✅   | Non*      | ✅              | URLs d'image prises en charge ; les PDF et images inline brutes sont rejetés avec des erreurs typées. |
-| **MiniMax**      | ✅   | ✅        | ✅              | Entrées d'image compatibles OpenAI ; les PDF sont rejetés avec une erreur typée. |
+| Fournisseur | Feature | Chat | Streaming | Appels d'outils | Sortie structurée | Vision / multimodal |
+| --- | --- | --- | --- | --- | --- | --- |
+| **OpenAI** | `openai` | Oui | Oui | Oui | Oui | URLs d'image et images inline ; les PDF sont rejetés avec une erreur typée. |
+| **OpenRouter** | `openrouter` | Oui | Oui | Oui | Oui | Entrées d'image compatibles OpenAI ; les PDF sont rejetés avec une erreur typée. |
+| **Anthropic** | `anthropic` | Oui | Oui | Oui | Oui | Images, URLs d'image et PDF utilisent les blocs de contenu Anthropic. |
+| **DeepSeek** | `deepseek` | Oui | Oui | Oui | Oui | Entrées d'image compatibles OpenAI ; les PDF sont rejetés avec une erreur typée. |
+| **xAI** | `xai` | Oui | Oui | Non | Selon le modèle | Chat texte uniquement ; l'entrée multimodale renvoie `LLMError::InvalidRequest`. |
+| **Phind** | `phind` | Oui | Non* | Non | Non | Chat texte uniquement ; l'entrée multimodale renvoie `LLMError::InvalidRequest`. |
+| **Groq** | `groq` | Oui | Oui | Oui | Oui | Entrées d'image compatibles OpenAI ; les PDF sont rejetés avec une erreur typée. |
+| **Google** | `google` | Oui | Oui | Oui | Oui | Images inline et PDF ; les URLs d'image sont rejetées avec une erreur typée. |
+| **Azure OpenAI** | `azure_openai` | Oui | Non* | Oui | Oui | URLs d'image ; les PDF et images inline brutes sont rejetés avec des erreurs typées. |
+| **MiniMax** | `minimax` | Oui | Oui | Oui | Non | Entrées d'image compatibles OpenAI ; les PDF sont rejetés avec une erreur typée. |
 
 ### Fournisseurs locaux
 
-| Fournisseur   | Statut |
-| ------------ | ------ |
-| **Ollama**   | ✅     |
-| **Mistral-rs** | ✅   |
-| **Llama-Cpp** | ✅    |
+| Fournisseur | Crate / Feature | Chat | Streaming | Appels d'outils | Sortie structurée | Vision / multimodal | Inférence locale |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **Ollama** | `ollama` | Oui | Oui | Oui | Oui | Selon le modèle | Oui, via serveur Ollama |
+| **Mistral-rs** | `autoagents-mistral-rs` | Oui | Oui | Oui | Oui | Modèles vision pris en charge | Oui, runtime embarqué |
+| **Llama-Cpp** | `autoagents-llamacpp` | Oui | Oui | Oui | Oui | Modèles vision avec fichiers projector | Oui, runtime embarqué |
 
 ### Fournisseurs expérimentaux
 

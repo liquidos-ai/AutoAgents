@@ -1,0 +1,13 @@
+[package]
+name = "derive-compile-fail-missing-tool-input-schema"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+autoagents-core = { path = "../../../autoagents-core" }
+autoagents-derive = { path = "../.." }
+async-trait = "0.1.89"
+serde_json = "1.0.149"
+
+[workspace]

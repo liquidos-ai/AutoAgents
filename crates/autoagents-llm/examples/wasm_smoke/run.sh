@@ -4,7 +4,19 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 CRATE_DIR="$ROOT_DIR/crates/autoagents-llm"
 BASE_URL="http://127.0.0.1:18765/v1"
-WASM_PATH="$ROOT_DIR/target/wasm32-wasip2/debug/examples/wasm_agent.wasm"
+
+if [[ -n "${CARGO_TARGET_DIR:-}" ]]; then
+  if [[ "$CARGO_TARGET_DIR" = /* ]]; then
+    TARGET_DIR="$CARGO_TARGET_DIR"
+  else
+    TARGET_DIR="$ROOT_DIR/$CARGO_TARGET_DIR"
+  fi
+else
+  TARGET_DIR="$ROOT_DIR/target"
+fi
+
+MOCK_SERVER_PATH="$TARGET_DIR/debug/examples/wasm_mock_server"
+WASM_PATH="$TARGET_DIR/wasm32-wasip2/debug/examples/wasm_agent.wasm"
 
 missing=()
 command -v cargo >/dev/null 2>&1 || missing+=(cargo)
@@ -32,8 +44,15 @@ trap cleanup EXIT
 
 (
   cd "$ROOT_DIR"
-  cargo run -p autoagents-llm --features openai,wasi-http --example wasm_mock_server
-) >"$server_log" 2>&1 &
+  cargo build -p autoagents-llm --features openai,wasi-http --example wasm_mock_server
+  # Link as a WebAssembly *component* (not a plain module): the `wasi:http`
+  # imports the agent uses are component-model interfaces, so the default
+  # module linker would fail to resolve them at runtime.
+  RUSTFLAGS='-C linker=wasm-component-ld' \
+    cargo build -p autoagents-llm --target wasm32-wasip2 --features wasi-http,openai --example wasm_agent
+)
+
+"$MOCK_SERVER_PATH" >"$server_log" 2>&1 &
 server_pid=$!
 
 for _ in {1..300}; do
@@ -55,12 +74,6 @@ fi
 
 (
   cd "$ROOT_DIR"
-  # Link as a WebAssembly *component* (not a plain module): the `wasi:http`
-  # imports the agent uses are component-model interfaces, so the default
-  # module linker would fail to resolve them at runtime.
-  RUSTFLAGS='-C linker=wasm-component-ld' \
-    cargo build -p autoagents-llm --target wasm32-wasip2 --features wasi-http,openai --example wasm_agent
-
   wasmtime run -W component-model=y -S http=true \
     --env BASE_URL="$BASE_URL" \
     --env OPENAI_API_KEY=sk-test \

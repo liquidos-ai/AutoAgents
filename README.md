@@ -51,26 +51,26 @@ model with structured tool calling, configurable memory, and pluggable LLM backe
 
 ### Cloud Providers
 
-| Provider         | Chat | Streaming | Tool Calls | Multimodal Notes |
-| ---------------- | ---- | --------- | ---------- | ---------------- |
-| **OpenAI**       | ✅   | ✅        | ✅         | Image URLs and inline images in chat completions; PDFs via Responses API are rejected with a typed error. |
-| **OpenRouter**   | ✅   | ✅        | ✅         | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
-| **Anthropic**    | ✅   | ✅        | ✅         | Images, image URLs, and PDFs use Anthropic message content blocks. |
-| **DeepSeek**     | ✅   | ✅        | ✅         | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
-| **xAI**          | ✅   | ✅        | No         | Text-only chat; multimodal input returns `LLMError::InvalidRequest`. Tool calls return `LLMError::NoToolSupport`. |
-| **Phind**        | ✅   | No*       | No         | Text-only chat; multimodal input returns `LLMError::InvalidRequest`. Tool calls return `LLMError::NoToolSupport`. |
-| **Groq**         | ✅   | ✅        | ✅         | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
-| **Google**       | ✅   | ✅        | ✅         | Inline images and PDFs are supported; image URLs are rejected with a typed error. |
-| **Azure OpenAI** | ✅   | No*       | ✅         | Image URLs are supported; PDFs and raw inline images are rejected with typed errors. |
-| **MiniMax**      | ✅   | ✅        | ✅         | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
+| Provider | Feature | Chat | Streaming | Tool Calls | Structured Output | Vision / Multimodal |
+| --- | --- | --- | --- | --- | --- | --- |
+| **OpenAI** | `openai` | Yes | Yes | Yes | Yes | Image URLs and inline images; PDFs are rejected with a typed error. |
+| **OpenRouter** | `openrouter` | Yes | Yes | Yes | Yes | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
+| **Anthropic** | `anthropic` | Yes | Yes | Yes | Yes | Images, image URLs, and PDFs use Anthropic content blocks. |
+| **DeepSeek** | `deepseek` | Yes | Yes | Yes | Yes | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
+| **xAI** | `xai` | Yes | Yes | No | Model-dependent | Text-only chat; multimodal input returns `LLMError::InvalidRequest`. |
+| **Phind** | `phind` | Yes | No* | No | No | Text-only chat; multimodal input returns `LLMError::InvalidRequest`. |
+| **Groq** | `groq` | Yes | Yes | Yes | Yes | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
+| **Google** | `google` | Yes | Yes | Yes | Yes | Inline images and PDFs; image URLs are rejected with a typed error. |
+| **Azure OpenAI** | `azure_openai` | Yes | No* | Yes | Yes | Image URLs; PDFs and raw inline images are rejected with typed errors. |
+| **MiniMax** | `minimax` | Yes | Yes | Yes | No | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
 
 ### Local Providers
 
-| Provider       | Status |
-| -------------- | ------ |
-| **Ollama**     | ✅     |
-| **Mistral-rs** | ✅     |
-| **Llama-Cpp**  | ✅     |
+| Provider | Crate / Feature | Chat | Streaming | Tool Calls | Structured Output | Vision / Multimodal | Local Inference |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **Ollama** | `ollama` | Yes | Yes | Yes | Yes | Model-dependent | Yes, via Ollama server |
+| **Mistral-rs** | `autoagents-mistral-rs` | Yes | Yes | Yes | Yes | Vision models supported | Yes, embedded runtime |
+| **Llama-Cpp** | `autoagents-llamacpp` | Yes | Yes | Yes | Yes | Vision models supported with projector files | Yes, embedded runtime |
 
 ### Experimental Providers
 
