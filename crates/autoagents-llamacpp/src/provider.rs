@@ -515,14 +515,8 @@ impl ChatTemplateResult {
         if !self.force_pure_content
             && let Some((content, reasoning_content)) = parse_native_channel_content_partial(text)
         {
-            let message = match reasoning_content {
-                Some(reasoning_content) if !reasoning_content.is_empty() => {
-                    json!({ "content": content, "reasoning_content": reasoning_content })
-                }
-                _ => json!({ "content": content }),
-            };
-            return serde_json::to_string(&message)
-                .map_err(|err| LlamaCppProviderError::Template(err.to_string()));
+            let message = content_message_value(content, reasoning_content);
+            return Ok(message.to_string());
         }
 
         let mut grammar_source;
@@ -556,15 +550,9 @@ impl ChatTemplateResult {
         } else {
             self.extract_response_reasoning_content(&mut content)
         };
-        let message = match reasoning_content {
-            Some(reasoning_content) if !reasoning_content.is_empty() => {
-                json!({ "content": content, "reasoning_content": reasoning_content })
-            }
-            _ => json!({ "content": content }),
-        };
+        let message = content_message_value(content, reasoning_content);
 
-        serde_json::to_string(&message)
-            .map_err(|err| LlamaCppProviderError::Template(err.to_string()))
+        Ok(message.to_string())
     }
 
     fn parse_partial_response_oaicompat(
@@ -585,15 +573,8 @@ impl ChatTemplateResult {
         if !self.force_pure_content
             && let Some((content, reasoning_content)) = parse_native_channel_content_partial(text)
         {
-            let message = match reasoning_content {
-                Some(reasoning_content) if !reasoning_content.is_empty() => {
-                    json!({ "content": content, "reasoning_content": reasoning_content })
-                }
-                _ => json!({ "content": content }),
-            };
-            return serde_json::to_string(&message)
-                .map(Some)
-                .map_err(|err| LlamaCppProviderError::Template(err.to_string()));
+            let message = content_message_value(content, reasoning_content);
+            return Ok(Some(message.to_string()));
         }
 
         if self.grammar.is_some() {
@@ -607,10 +588,8 @@ impl ChatTemplateResult {
                 if let Some(reasoning_content) =
                     reasoning_content.filter(|reasoning_content| !reasoning_content.is_empty())
                 {
-                    let message = json!({ "content": "", "reasoning_content": reasoning_content });
-                    return serde_json::to_string(&message)
-                        .map(Some)
-                        .map_err(|err| LlamaCppProviderError::Template(err.to_string()));
+                    let message = content_message_value(String::default(), Some(reasoning_content));
+                    return Ok(Some(message.to_string()));
                 }
                 return Ok(None);
             };
@@ -622,15 +601,8 @@ impl ChatTemplateResult {
             } else {
                 payload
             };
-            let message = match reasoning_content {
-                Some(reasoning_content) if !reasoning_content.is_empty() => {
-                    json!({ "content": content, "reasoning_content": reasoning_content })
-                }
-                _ => json!({ "content": content }),
-            };
-            return serde_json::to_string(&message)
-                .map(Some)
-                .map_err(|err| LlamaCppProviderError::Template(err.to_string()));
+            let message = content_message_value(content, reasoning_content);
+            return Ok(Some(message.to_string()));
         }
 
         Ok(None)
@@ -723,6 +695,20 @@ impl ChatTemplateResult {
     }
 }
 
+fn content_message_value(content: String, reasoning_content: Option<String>) -> Value {
+    let mut message = serde_json::Map::new();
+    message.insert("content".to_string(), Value::String(content));
+    if let Some(reasoning_content) =
+        reasoning_content.filter(|reasoning_content| !reasoning_content.is_empty())
+    {
+        message.insert(
+            "reasoning_content".to_string(),
+            Value::String(reasoning_content),
+        );
+    }
+    Value::Object(message)
+}
+
 #[derive(Debug, Deserialize)]
 struct OpenAICompatMessage {
     content: Option<StringOrJson>,
@@ -787,7 +773,7 @@ struct StreamMappingState {
 
 fn append_or_diff_string(previous: &str, current_or_delta: &str) -> String {
     if current_or_delta.is_empty() {
-        return String::new();
+        return String::default();
     }
     if previous.is_empty() {
         return current_or_delta.to_string();
@@ -796,7 +782,7 @@ fn append_or_diff_string(previous: &str, current_or_delta: &str) -> String {
         return delta.to_string();
     }
     if previous.starts_with(current_or_delta) {
-        return String::new();
+        return String::default();
     }
     current_or_delta.to_string()
 }
@@ -1510,7 +1496,7 @@ impl LlamaCppProvider {
             };
             let result = tokio::task::spawn_blocking(
                 move || -> Result<(GenerationResult, String), LlamaCppProviderError> {
-                    let parsed_stream_state = Arc::new(Mutex::new(String::new()));
+                    let parsed_stream_state = Arc::new(Mutex::new(String::default()));
                     let parsed_stream_emitted_for_callback = parsed_stream_emitted.clone();
                     let on_delta: Option<DeltaCallback> = if stream_final_message {
                         let template_result_for_callback = template_result.clone();
@@ -2162,32 +2148,10 @@ fn parse_tool_response_message_with_allowed_tools(
     text: &str,
     allowed_tools: Option<&[String]>,
 ) -> Result<Option<Value>, LlamaCppProviderError> {
-    if let Some(message) = parse_native_channel_tool_calls(text)? {
-        return Ok(filter_tool_message_by_allowed_tools(message, allowed_tools));
-    }
-    if let Some(message) = parse_tool_calls_args_tag(text)? {
-        return Ok(filter_tool_message_by_allowed_tools(message, allowed_tools));
-    }
-    if let Some(message) = parse_gemma4_tool_calls(text)? {
-        return Ok(filter_tool_message_by_allowed_tools(message, allowed_tools));
-    }
-    if let Some(message) = parse_generic_function_tag_tool_calls(text)? {
-        return Ok(filter_tool_message_by_allowed_tools(message, allowed_tools));
-    }
-    if let Some(message) = parse_functionary_tool_calls(text)? {
-        return Ok(filter_tool_message_by_allowed_tools(message, allowed_tools));
-    }
-    if let Some(message) = parse_kimi_k2_tool_calls(text)? {
-        return Ok(filter_tool_message_by_allowed_tools(message, allowed_tools));
-    }
-    if let Some(message) = parse_lfm2_tool_calls(text)? {
-        return Ok(filter_tool_message_by_allowed_tools(message, allowed_tools));
-    }
-    if let Some(message) = parse_gigachat_v3_tool_calls(text)? {
-        return Ok(filter_tool_message_by_allowed_tools(message, allowed_tools));
-    }
-    if let Some(message) = parse_deepseek_dsml_tool_calls(text)? {
-        return Ok(filter_tool_message_by_allowed_tools(message, allowed_tools));
+    for parser in TOOL_RESPONSE_PARSERS {
+        if let Some(message) = parser(text)? {
+            return Ok(filter_tool_message_by_allowed_tools(message, allowed_tools));
+        }
     }
 
     let Some(json_text) = extract_json_payload(text) else {
@@ -2231,6 +2195,20 @@ fn parse_tool_response_message_with_allowed_tools(
 
     Ok(None)
 }
+
+type ToolResponseParser = fn(&str) -> Result<Option<Value>, LlamaCppProviderError>;
+
+const TOOL_RESPONSE_PARSERS: &[ToolResponseParser] = &[
+    parse_native_channel_tool_calls,
+    parse_tool_calls_args_tag,
+    parse_gemma4_tool_calls,
+    parse_generic_function_tag_tool_calls,
+    parse_functionary_tool_calls,
+    parse_kimi_k2_tool_calls,
+    parse_lfm2_tool_calls,
+    parse_gigachat_v3_tool_calls,
+    parse_deepseek_dsml_tool_calls,
+];
 
 fn is_openai_compat_single_tool_call(value: &Value, allowed_tools: Option<&[String]>) -> bool {
     let Some(object) = value.as_object() else {
@@ -2776,7 +2754,7 @@ fn parse_generic_tagged_arguments(
             .map_or(text.len(), |offset| value_start + offset);
         let value_text = text[value_start..value_end].trim();
         let value = if value_text.is_empty() {
-            Value::String(String::new())
+            Value::String(String::default())
         } else if let Ok(value) = serde_json::from_str::<Value>(value_text) {
             value
         } else {
@@ -2932,7 +2910,7 @@ fn quote_unquoted_object_keys(text: &str) -> String {
             }
             ch if expecting_key && ch.is_whitespace() => output.push(ch),
             ch if expecting_key && is_gemma4_unquoted_key_start(ch) => {
-                let mut key = String::new();
+                let mut key = String::with_capacity(16);
                 key.push(ch);
                 while let Some(next) = chars.peek().copied() {
                     if is_gemma4_unquoted_key_char(next) {
@@ -3312,73 +3290,97 @@ fn normalize_lfm2_python_literal(text: &str) -> Result<String, LlamaCppProviderE
                 output.push(ch);
             }
             '\'' => {
-                let mut quoted = String::new();
-                let mut escaped = false;
-                let mut closed = false;
-                for inner in chars.by_ref() {
-                    if escaped {
-                        match inner {
-                            '\\' => quoted.push('\\'),
-                            '\'' => quoted.push('\''),
-                            '"' => quoted.push('"'),
-                            'n' => quoted.push('\n'),
-                            'r' => quoted.push('\r'),
-                            't' => quoted.push('\t'),
-                            other => {
-                                quoted.push('\\');
-                                quoted.push(other);
-                            }
-                        }
-                        escaped = false;
-                    } else if inner == '\\' {
-                        escaped = true;
-                    } else if inner == '\'' {
-                        closed = true;
-                        break;
-                    } else {
-                        quoted.push(inner);
-                    }
-                }
-                if escaped {
-                    return Err(LlamaCppProviderError::Template(
-                        "LFM2 quoted string ends with an escape".to_string(),
-                    ));
-                }
-                if !closed {
-                    return Err(LlamaCppProviderError::Template(
-                        "LFM2 quoted string is missing a closing quote".to_string(),
-                    ));
-                }
-                let encoded = serde_json::to_string(&quoted).map_err(|err| {
-                    LlamaCppProviderError::Template(format!(
-                        "LFM2 quoted string could not be encoded as JSON: {err}"
-                    ))
-                })?;
-                output.push_str(&encoded);
+                push_lfm2_single_quoted_json(&mut output, &mut chars)?;
             }
             ch if ch.is_ascii_alphabetic() || ch == '_' => {
-                let mut ident = String::new();
-                ident.push(ch);
-                while let Some(next) = chars.peek().copied() {
-                    if next.is_ascii_alphanumeric() || next == '_' {
-                        ident.push(next);
-                        chars.next();
-                    } else {
-                        break;
-                    }
-                }
-                match ident.as_str() {
-                    "True" => output.push_str("true"),
-                    "False" => output.push_str("false"),
-                    "None" => output.push_str("null"),
-                    _ => output.push_str(&ident),
-                }
+                push_lfm2_identifier(&mut output, ch, &mut chars);
             }
             _ => output.push(ch),
         }
     }
 
     Ok(remove_lfm2_json_trailing_commas(&output))
+}
+
+fn push_lfm2_single_quoted_json(
+    output: &mut String,
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+) -> Result<(), LlamaCppProviderError> {
+    let quoted = parse_lfm2_single_quoted(chars)?;
+    let encoded = serde_json::to_string(&quoted).map_err(|err| {
+        LlamaCppProviderError::Template(format!(
+            "LFM2 quoted string could not be encoded as JSON: {err}"
+        ))
+    })?;
+    output.push_str(&encoded);
+    Ok(())
+}
+
+fn parse_lfm2_single_quoted(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+) -> Result<String, LlamaCppProviderError> {
+    let mut quoted = String::with_capacity(16);
+    let mut escaped = false;
+
+    for inner in chars.by_ref() {
+        if escaped {
+            push_lfm2_escaped_char(&mut quoted, inner);
+            escaped = false;
+        } else if inner == '\\' {
+            escaped = true;
+        } else if inner == '\'' {
+            return Ok(quoted);
+        } else {
+            quoted.push(inner);
+        }
+    }
+
+    if escaped {
+        return Err(LlamaCppProviderError::Template(
+            "LFM2 quoted string ends with an escape".to_string(),
+        ));
+    }
+    Err(LlamaCppProviderError::Template(
+        "LFM2 quoted string is missing a closing quote".to_string(),
+    ))
+}
+
+fn push_lfm2_escaped_char(output: &mut String, ch: char) {
+    match ch {
+        '\\' => output.push('\\'),
+        '\'' => output.push('\''),
+        '"' => output.push('"'),
+        'n' => output.push('\n'),
+        'r' => output.push('\r'),
+        't' => output.push('\t'),
+        other => {
+            output.push('\\');
+            output.push(other);
+        }
+    }
+}
+
+fn push_lfm2_identifier(
+    output: &mut String,
+    first: char,
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+) {
+    let mut ident = String::with_capacity(8);
+    ident.push(first);
+    while let Some(next) = chars.peek().copied() {
+        if next.is_ascii_alphanumeric() || next == '_' {
+            ident.push(next);
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    match ident.as_str() {
+        "True" => output.push_str("true"),
+        "False" => output.push_str("false"),
+        "None" => output.push_str("null"),
+        _ => output.push_str(&ident),
+    }
 }
 
 fn remove_lfm2_json_trailing_commas(text: &str) -> String {
@@ -7516,7 +7518,7 @@ mod tests {
     fn test_chat_template_result_parses_content_and_tool_json() {
         let content_result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,
@@ -7539,7 +7541,7 @@ mod tests {
 
         let tool_result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,
@@ -7959,7 +7961,7 @@ mod tests {
     fn test_tool_response_parsing_extracts_reasoning_from_content_envelope() {
         let result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,
@@ -8468,7 +8470,7 @@ content
         for case in cases {
             let result = ChatTemplateResult {
                 prompt: "prompt".to_string(),
-                generation_prompt: String::new(),
+                generation_prompt: String::default(),
                 force_pure_content: false,
                 is_continuation: false,
                 add_bos: true,
@@ -8533,7 +8535,7 @@ content
     fn test_gpt_oss_partial_streaming_diffs_reasoning_content_and_tool_call() {
         let result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,
@@ -8618,7 +8620,7 @@ content
     fn test_chat_template_result_parses_gpt_oss_final_and_reasoning_channels() {
         let result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,
@@ -8749,7 +8751,7 @@ content
     fn test_partial_response_parsing_waits_for_complete_structured_json() {
         let result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,
@@ -8784,7 +8786,7 @@ content
     fn test_structured_response_parsing_preserves_reasoning_before_json() {
         let result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,
@@ -8924,7 +8926,7 @@ content
     fn test_partial_response_parsing_streams_complete_native_tool_call() {
         let result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,
@@ -8964,7 +8966,7 @@ content
     fn test_complete_chat_response_stop_detects_structured_content() {
         let result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,
@@ -8997,7 +8999,7 @@ content
     fn test_complete_chat_response_stop_detects_complete_tool_call() {
         let result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,
@@ -9033,7 +9035,7 @@ content
     fn test_complete_chat_response_stop_ignores_reasoning_only_native_channel() {
         let result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,
@@ -9086,7 +9088,7 @@ content
     fn test_chat_template_result_extracts_reasoning_content() {
         let result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,
@@ -9114,7 +9116,7 @@ content
     fn test_gemma4_reasoning_cleanup_matches_channel_parser() {
         let result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,
@@ -9144,7 +9146,7 @@ content
     fn test_gemma4_tool_call_reasoning_cleanup_matches_channel_parser() {
         let result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,
@@ -9177,7 +9179,7 @@ content
     fn test_reasoning_only_chat_template_streams_final_message_delta() {
         let result = ChatTemplateResult {
             prompt: "prompt".to_string(),
-            generation_prompt: String::new(),
+            generation_prompt: String::default(),
             force_pure_content: false,
             is_continuation: false,
             add_bos: true,

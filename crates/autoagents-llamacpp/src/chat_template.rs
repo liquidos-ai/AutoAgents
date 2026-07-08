@@ -46,7 +46,7 @@ pub(crate) enum GrammarTrigger {
     Token(i32),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct RenderedChat {
     pub(crate) prompt: String,
     pub(crate) generation_prompt: String,
@@ -149,67 +149,132 @@ pub(crate) fn render_chat_template(
     grammar: Option<String>,
     tokens: &TemplateTokens,
 ) -> Result<RenderedChat, LlamaCppProviderError> {
-    let caps = TemplateCapabilities::analyze(&template.source);
-    let prepared = prepare_template_inputs(config, messages, tools, caps.server_caps)?;
-    let kwargs = chat_template_kwargs(config)?;
-    let enable_thinking = resolve_enable_thinking(config, &kwargs)?;
-
-    let env = chat_template_environment(&template.source)?;
-    let tmpl = env
-        .get_template("chat")
-        .map_err(|err| LlamaCppProviderError::Template(format!("Chat template missing: {err}")))?;
-
-    let prompt_enable_thinking = if config.force_pure_content {
-        false
-    } else {
-        enable_thinking.unwrap_or(true)
-    };
-    let root_context = build_template_context(
+    RenderChatTemplateRequest {
         config,
-        prepared.messages,
-        prepared.tools_value,
-        kwargs,
-        tokens,
-        prompt_enable_thinking,
-    );
-
-    let mut prompt_context = root_context.clone();
-    set_add_generation_prompt(
-        &mut prompt_context,
-        config.add_generation_prompt && prepared.continuation.is_none(),
-    );
-    let mut prompt = render_template_context(&tmpl, prompt_context, tokens).map_err(|err| {
-        LlamaCppProviderError::Template(format!("Failed to render chat template: {err}"))
-    })?;
-    let mut generation_prompt = render_generation_prompt(
-        config,
-        &caps,
-        &tmpl,
-        &root_context,
-        prepared.continuation,
-        &prepared.continuation_messages,
-        prepared.continuation_prepared_messages,
-        &mut prompt,
-        prompt_enable_thinking,
-        tokens,
-    )?;
-    caps.apply_prompt_workarounds(
-        &mut prompt,
-        &mut generation_prompt,
-        config.add_generation_prompt,
-    );
-
-    Ok(rendered_chat_result(
-        config,
-        &caps,
+        template,
+        messages,
         tools,
         json_schema,
         grammar,
-        prompt,
-        generation_prompt,
-        prepared.continuation.is_some(),
         tokens,
-    ))
+    }
+    .render()
+}
+
+struct RenderChatTemplateRequest<'a> {
+    config: &'a LlamaCppConfig,
+    template: &'a TemplateSource,
+    messages: &'a [ChatMessage],
+    tools: Option<&'a [Tool]>,
+    json_schema: Option<&'a StructuredOutputFormat>,
+    grammar: Option<String>,
+    tokens: &'a TemplateTokens,
+}
+
+impl RenderChatTemplateRequest<'_> {
+    fn render(self) -> Result<RenderedChat, LlamaCppProviderError> {
+        let caps = TemplateCapabilities::analyze(&self.template.source);
+        let prepared =
+            prepare_template_inputs(self.config, self.messages, self.tools, caps.server_caps)?;
+        let kwargs = chat_template_kwargs(self.config)?;
+        let prompt_enable_thinking =
+            prompt_enable_thinking(self.config, resolve_enable_thinking(self.config, &kwargs)?);
+        let env = chat_template_environment(&self.template.source)?;
+        let tmpl = env.get_template("chat").map_err(|err| {
+            LlamaCppProviderError::Template(format!("Chat template missing: {err}"))
+        })?;
+        let PreparedTemplateInputs {
+            messages,
+            continuation,
+            continuation_messages,
+            continuation_prepared_messages,
+            tools_value,
+        } = prepared;
+        let root_context = build_template_context(
+            self.config,
+            messages,
+            tools_value,
+            kwargs,
+            self.tokens,
+            prompt_enable_thinking,
+        );
+        self.render_with_context(TemplateRenderContext {
+            caps,
+            continuation,
+            continuation_messages,
+            continuation_prepared_messages,
+            root_context,
+            tmpl: &tmpl,
+            prompt_enable_thinking,
+        })
+    }
+
+    fn render_with_context(
+        self,
+        context: TemplateRenderContext<'_>,
+    ) -> Result<RenderedChat, LlamaCppProviderError> {
+        let mut prompt = render_prompt(
+            context.tmpl,
+            context.root_context.clone(),
+            self.config.add_generation_prompt && context.continuation.is_none(),
+            self.tokens,
+        )?;
+        let mut generation_prompt = render_generation_prompt(
+            self.config,
+            &context.caps,
+            context.tmpl,
+            &context.root_context,
+            context.continuation,
+            &context.continuation_messages,
+            context.continuation_prepared_messages,
+            &mut prompt,
+            context.prompt_enable_thinking,
+            self.tokens,
+        )?;
+        context.caps.apply_prompt_workarounds(
+            &mut prompt,
+            &mut generation_prompt,
+            self.config.add_generation_prompt,
+        );
+
+        Ok(rendered_chat_result(
+            self.config,
+            &context.caps,
+            self.tools,
+            self.json_schema,
+            self.grammar,
+            prompt,
+            generation_prompt,
+            context.continuation.is_some(),
+            self.tokens,
+        ))
+    }
+}
+
+struct TemplateRenderContext<'a> {
+    caps: TemplateCapabilities,
+    continuation: Option<LlamaCppChatContinuation>,
+    continuation_messages: Vec<ServerChatMessage>,
+    continuation_prepared_messages: Vec<Value>,
+    root_context: Map<String, Value>,
+    tmpl: &'a Template<'a, 'a>,
+    prompt_enable_thinking: bool,
+}
+
+fn prompt_enable_thinking(config: &LlamaCppConfig, enable_thinking: Option<bool>) -> bool {
+    !config.force_pure_content && enable_thinking.unwrap_or(true)
+}
+
+fn render_prompt(
+    tmpl: &Template<'_, '_>,
+    mut context: Map<String, Value>,
+    add_generation_prompt: bool,
+    tokens: &TemplateTokens,
+) -> Result<String, LlamaCppProviderError> {
+    set_add_generation_prompt(&mut context, add_generation_prompt);
+    render_template_context(tmpl, context, tokens).map_err(|err| {
+        LlamaCppProviderError::Template(format!("Failed to render chat template: {err}"))
+    })
 }
 
 struct PreparedTemplateInputs {
@@ -378,7 +443,9 @@ fn build_template_context(
 
     let mut kwargs_object = Map::new();
     for (key, value) in kwargs {
-        root_context.insert(key.clone(), value.clone());
+        if key != "enable_thinking" {
+            root_context.insert(key.clone(), value.clone());
+        }
         kwargs_object.insert(key, value);
     }
     root_context.insert("kwargs".to_string(), Value::Object(kwargs_object.clone()));
@@ -413,7 +480,8 @@ fn render_generation_prompt(
     prompt_enable_thinking: bool,
     tokens: &TemplateTokens,
 ) -> Result<String, LlamaCppProviderError> {
-    if continuation == Some(LlamaCppChatContinuation::Reasoning)
+    if !config.force_pure_content
+        && continuation == Some(LlamaCppChatContinuation::Reasoning)
         && !continuation_messages.is_empty()
     {
         return render_reasoning_continuation_prompt(
@@ -499,12 +567,13 @@ fn generation_prompt_suffix(
     root_context: Map<String, Value>,
     tokens: &TemplateTokens,
 ) -> Result<String, LlamaCppProviderError> {
-    let no_gen_prompt =
-        render_template_context(tmpl, root_context.clone(), tokens).map_err(|err| {
-            LlamaCppProviderError::Template(format!(
-                "Failed to render chat template without generation prompt: {err}"
-            ))
-        })?;
+    let mut no_gen_context = root_context.clone();
+    set_add_generation_prompt(&mut no_gen_context, false);
+    let no_gen_prompt = render_template_context(tmpl, no_gen_context, tokens).map_err(|err| {
+        LlamaCppProviderError::Template(format!(
+            "Failed to render chat template without generation prompt: {err}"
+        ))
+    })?;
     let mut gen_context = root_context;
     set_add_generation_prompt(&mut gen_context, true);
     let gen_prompt = render_template_context(tmpl, gen_context, tokens).map_err(|err| {
@@ -592,11 +661,22 @@ fn resolve_enable_thinking(
 ) -> Result<Option<bool>, LlamaCppProviderError> {
     match kwargs.get("enable_thinking") {
         Some(Value::Bool(value)) => Ok(Some(*value)),
-        Some(Value::String(_)) => Ok(config.enable_thinking),
+        Some(Value::String(value)) => resolve_enable_thinking_string(config, value),
         Some(_) => Err(LlamaCppProviderError::Template(
             "invalid type for `enable_thinking` (expected boolean)".to_string(),
         )),
         None => Ok(config.enable_thinking),
+    }
+}
+
+fn resolve_enable_thinking_string(
+    config: &LlamaCppConfig,
+    value: &str,
+) -> Result<Option<bool>, LlamaCppProviderError> {
+    match value.trim() {
+        "true" => Ok(Some(true)),
+        "false" => Ok(Some(false)),
+        _ => Ok(config.enable_thinking),
     }
 }
 
@@ -660,45 +740,61 @@ fn pycompat_string_method(
     method: &str,
     args: &[JinjaValue],
 ) -> Result<JinjaValue, JinjaError> {
-    match method {
-        "startswith" | "endswith" => pycompat_string_predicate(text, method, args),
-        "strip" | "lstrip" | "rstrip" => pycompat_string_trim(text, method, args),
-        "split" => pycompat_string_split(text, args),
-        "lower" | "upper" => pycompat_string_case(text, method, args),
-        "replace" => pycompat_string_replace(text, args),
-        _ => Err(JinjaError::from(ErrorKind::UnknownMethod)),
-    }
-}
-
-fn pycompat_string_predicate(
-    text: &str,
-    method: &str,
-    args: &[JinjaValue],
-) -> Result<JinjaValue, JinjaError> {
-    let needle = string_arg(method, args, 0)?;
-    ensure_arg_count(method, args, 1)?;
-    let value = match method {
-        "startswith" => text.starts_with(needle),
-        "endswith" => text.ends_with(needle),
-        _ => unreachable!("predicate dispatcher only passes supported methods"),
+    let Some(handler) = pycompat_string_handler(method) else {
+        return Err(JinjaError::from(ErrorKind::UnknownMethod));
     };
-    Ok(JinjaValue::from(value))
+    handler(text, args)
 }
 
-fn pycompat_string_trim(
-    text: &str,
-    method: &str,
-    args: &[JinjaValue],
-) -> Result<JinjaValue, JinjaError> {
-    ensure_max_arg_count(method, args, 1)?;
+type PycompatStringHandler = fn(&str, &[JinjaValue]) -> Result<JinjaValue, JinjaError>;
+
+fn pycompat_string_handler(method: &str) -> Option<PycompatStringHandler> {
+    PYCOMPAT_STRING_METHODS
+        .iter()
+        .find(|(name, _)| *name == method)
+        .map(|(_, handler)| *handler)
+}
+
+const PYCOMPAT_STRING_METHODS: &[(&str, PycompatStringHandler)] = &[
+    ("startswith", pycompat_string_startswith),
+    ("endswith", pycompat_string_endswith),
+    ("strip", pycompat_string_strip),
+    ("lstrip", pycompat_string_lstrip),
+    ("rstrip", pycompat_string_rstrip),
+    ("split", pycompat_string_split),
+    ("lower", pycompat_string_lower),
+    ("upper", pycompat_string_upper),
+    ("replace", pycompat_string_replace),
+];
+
+fn pycompat_string_startswith(text: &str, args: &[JinjaValue]) -> Result<JinjaValue, JinjaError> {
+    let prefix = string_arg("startswith", args, 0)?;
+    ensure_arg_count("startswith", args, 1)?;
+    Ok(JinjaValue::from(text.starts_with(prefix)))
+}
+
+fn pycompat_string_endswith(text: &str, args: &[JinjaValue]) -> Result<JinjaValue, JinjaError> {
+    let suffix = string_arg("endswith", args, 0)?;
+    ensure_arg_count("endswith", args, 1)?;
+    Ok(JinjaValue::from(text.ends_with(suffix)))
+}
+
+fn pycompat_string_strip(text: &str, args: &[JinjaValue]) -> Result<JinjaValue, JinjaError> {
+    ensure_max_arg_count("strip", args, 1)?;
     let chars = optional_string_arg(args, 0)?;
-    let value = match method {
-        "strip" => strip_chars(text, chars),
-        "lstrip" => lstrip_chars(text, chars),
-        "rstrip" => rstrip_chars(text, chars),
-        _ => unreachable!("trim dispatcher only passes supported methods"),
-    };
-    Ok(JinjaValue::from(value))
+    Ok(JinjaValue::from(strip_chars(text, chars)))
+}
+
+fn pycompat_string_lstrip(text: &str, args: &[JinjaValue]) -> Result<JinjaValue, JinjaError> {
+    ensure_max_arg_count("lstrip", args, 1)?;
+    let chars = optional_string_arg(args, 0)?;
+    Ok(JinjaValue::from(lstrip_chars(text, chars)))
+}
+
+fn pycompat_string_rstrip(text: &str, args: &[JinjaValue]) -> Result<JinjaValue, JinjaError> {
+    ensure_max_arg_count("rstrip", args, 1)?;
+    let chars = optional_string_arg(args, 0)?;
+    Ok(JinjaValue::from(rstrip_chars(text, chars)))
 }
 
 fn pycompat_string_split(text: &str, args: &[JinjaValue]) -> Result<JinjaValue, JinjaError> {
@@ -708,18 +804,14 @@ fn pycompat_string_split(text: &str, args: &[JinjaValue]) -> Result<JinjaValue, 
     Ok(JinjaValue::from_iter(split_string(text, sep, maxsplit)))
 }
 
-fn pycompat_string_case(
-    text: &str,
-    method: &str,
-    args: &[JinjaValue],
-) -> Result<JinjaValue, JinjaError> {
-    ensure_arg_count(method, args, 0)?;
-    let value = match method {
-        "lower" => text.to_lowercase(),
-        "upper" => text.to_uppercase(),
-        _ => unreachable!("case dispatcher only passes supported methods"),
-    };
-    Ok(JinjaValue::from(value))
+fn pycompat_string_lower(text: &str, args: &[JinjaValue]) -> Result<JinjaValue, JinjaError> {
+    ensure_arg_count("lower", args, 0)?;
+    Ok(JinjaValue::from(text.to_lowercase()))
+}
+
+fn pycompat_string_upper(text: &str, args: &[JinjaValue]) -> Result<JinjaValue, JinjaError> {
+    ensure_arg_count("upper", args, 0)?;
+    Ok(JinjaValue::from(text.to_uppercase()))
 }
 
 fn pycompat_string_replace(text: &str, args: &[JinjaValue]) -> Result<JinjaValue, JinjaError> {
@@ -1195,7 +1287,7 @@ mod tests {
             ..Default::default()
         };
         let template = explicit_template_source(
-            "{{ enable_thinking is string }}:{{ enable_thinking }}:{{ custom_label }}",
+            "{{ enable_thinking is boolean }}:{{ enable_thinking }}:{{ kwargs['enable_thinking'] is string }}:{{ kwargs['enable_thinking'] }}:{{ custom_label }}",
         );
 
         let rendered = render_chat_template(
@@ -1209,7 +1301,35 @@ mod tests {
         )
         .expect("template should render");
 
-        assert_eq!(rendered.prompt, "true:true:\"server-style\"");
+        assert_eq!(rendered.prompt, "true:true:true:true:\"server-style\"");
+    }
+
+    #[test]
+    fn string_enable_thinking_false_disables_top_level_prompt_flag() {
+        let config = LlamaCppConfig {
+            extra_body: Some(json!({
+                "chat_template_kwargs": {
+                    "enable_thinking": "false"
+                }
+            })),
+            ..Default::default()
+        };
+        let template = explicit_template_source(
+            "{% if enable_thinking %}<think>{% endif %}{{ kwargs['enable_thinking'] is string }}:{{ kwargs['enable_thinking'] }}:{{ messages[0]['content'] }}",
+        );
+
+        let rendered = render_chat_template(
+            &config,
+            &template,
+            &[user_message("solve")],
+            None,
+            None,
+            None,
+            &empty_tokens(),
+        )
+        .expect("template should render");
+
+        assert_eq!(rendered.prompt, "true:false:solve");
     }
 
     #[test]
@@ -1841,6 +1961,41 @@ mod tests {
     }
 
     #[test]
+    fn force_pure_content_reasoning_continuation_uses_content_prefill() {
+        let config = LlamaCppConfig {
+            continue_final_message: LlamaCppChatContinuation::Reasoning,
+            force_pure_content: true,
+            ..Default::default()
+        };
+        let template = explicit_template_source(
+            "{% for message in messages %}{{ message['role'] }}:{{ message['content'] }}\n{% endfor %}{% if add_generation_prompt %}<|assistant|>{% endif %}{# <think></think> #}",
+        );
+        let assistant = ChatMessage {
+            role: ChatRole::Assistant,
+            message_type: MessageType::Text,
+            content: "plan".to_string(),
+        };
+
+        let rendered = render_chat_template(
+            &config,
+            &template,
+            &[user_message("hi"), assistant],
+            None,
+            None,
+            Some("root ::= \"{}\"".to_string()),
+            &empty_tokens(),
+        )
+        .expect("pure content continuation should render");
+
+        assert_eq!(rendered.prompt, "user:hi\nassistant:plan\n");
+        assert_eq!(rendered.generation_prompt, "assistant:plan\n");
+        assert!(rendered.force_pure_content);
+        assert!(rendered.is_continuation);
+        assert!(!rendered.prompt.contains("<think>"));
+        assert_eq!(rendered.reasoning_format, None);
+    }
+
+    #[test]
     fn continue_final_message_reasoning_rejects_unknown_template_markers() {
         let config = LlamaCppConfig {
             continue_final_message: LlamaCppChatContinuation::Reasoning,
@@ -1958,6 +2113,28 @@ mod tests {
 
         assert_eq!(rendered.prompt, "true:true|user:hi");
         assert_eq!(rendered.generation_prompt, "");
+    }
+
+    #[test]
+    fn generation_prompt_baseline_defines_add_generation_prompt_false() {
+        let config = LlamaCppConfig::default();
+        let template = explicit_template_source(
+            "{% if add_generation_prompt is not defined %}{{ raise_exception('missing add_generation_prompt') }}{% endif %}{% for message in messages %}{{ message['content'] }}{% endfor %}{% if add_generation_prompt %}assistant:{% endif %}",
+        );
+
+        let rendered = render_chat_template(
+            &config,
+            &template,
+            &[user_message("hi")],
+            None,
+            None,
+            Some("root ::= \"{}\"".to_string()),
+            &empty_tokens(),
+        )
+        .expect("baseline and generation template contexts should render");
+
+        assert_eq!(rendered.prompt, "hiassistant:");
+        assert_eq!(rendered.generation_prompt, "assistant:");
     }
 
     #[test]
