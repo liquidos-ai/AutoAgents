@@ -2,10 +2,7 @@
 
 use crate::models::ModelSource;
 use llama_cpp_2::model::params::LlamaSplitMode;
-use serde::{
-    Deserialize, Deserializer, Serialize, Serializer,
-    de::{self},
-};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use serde_json::{Value, json};
 
 /// Serializable split mode wrapper for llama.cpp.

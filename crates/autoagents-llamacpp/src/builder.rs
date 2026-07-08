@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn builder_sets_named_tool_choice() {
-        let builder = LlamaCppProviderBuilder::new()
+        let builder = LlamaCppProviderBuilder::default()
             .model_path("model.gguf")
             .tool_choice_function("lookup");
         let config = builder.config_builder.build();

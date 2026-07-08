@@ -206,18 +206,14 @@ async fn main() -> Result<(), Error> {
                 event = event_stream.next(), if !events_done => {
                     match event {
                         Some(Event::StreamChunk { chunk, .. }) => match chunk {
-                            StreamChunk::ReasoningContent(content) => {
-                                if !content.is_empty() {
-                                    saw_reasoning_event = true;
-                                    reasoning_output.push_str(&content);
-                                    println!("\nreasoning event: {content}");
-                                }
+                            StreamChunk::ReasoningContent(content) if !content.is_empty() => {
+                                saw_reasoning_event = true;
+                                reasoning_output.push_str(&content);
+                                println!("\nreasoning event: {content}");
                             }
-                            StreamChunk::Text(content) => {
-                                if !content.is_empty() {
-                                    saw_text_event = true;
-                                    println!("\ntext event: {content}");
-                                }
+                            StreamChunk::Text(content) if !content.is_empty() => {
+                                saw_text_event = true;
+                                println!("\ntext event: {content}");
                             }
                             _ => {}
                         },

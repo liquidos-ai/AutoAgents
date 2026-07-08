@@ -3,20 +3,20 @@ use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
 use autoagents_llm::{FunctionCall, ToolCall};
 use serde_json::{Map, Value, json};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ServerChatToolCall {
     pub(crate) name: String,
     pub(crate) arguments: String,
     pub(crate) id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ServerChatContentPart {
     pub(crate) part_type: String,
     pub(crate) text: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ServerChatMessage {
     pub(crate) role: String,
     pub(crate) content: String,
@@ -57,18 +57,6 @@ impl Default for ServerTemplateCaps {
 }
 
 impl ServerChatMessage {
-    fn empty(role: impl Into<String>) -> Self {
-        Self {
-            role: role.into(),
-            content: String::new(),
-            content_parts: Vec::new(),
-            tool_calls: Vec::new(),
-            reasoning_content: String::new(),
-            tool_name: String::new(),
-            tool_call_id: String::new(),
-        }
-    }
-
     #[allow(dead_code)]
     pub(crate) fn render_content(&self, delimiter: &str) -> String {
         if !self.content.is_empty() {
@@ -111,7 +99,7 @@ impl ServerChatMessage {
         } else if !self.content.is_empty() {
             object.insert("content".to_string(), Value::String(self.content.clone()));
         } else {
-            object.insert("content".to_string(), Value::String(String::new()));
+            object.insert("content".to_string(), Value::String(String::default()));
         }
 
         if !self.tool_calls.is_empty() {
@@ -170,7 +158,7 @@ impl ServerChatMessage {
             return self.content.clone();
         }
 
-        let mut text = String::new();
+        let mut text = String::default();
         let mut last_was_media_marker = false;
         for part in &self.content_parts {
             match part.part_type.as_str() {
@@ -202,9 +190,11 @@ pub(crate) fn messages_from_autoagents(
             .iter()
             .any(|message| matches!(message.role, ChatRole::System))
     {
-        let mut msg = ServerChatMessage::empty("system");
-        msg.content = system_prompt.clone();
-        values.push(msg);
+        values.push(ServerChatMessage {
+            role: "system".to_string(),
+            content: system_prompt.clone(),
+            ..Default::default()
+        });
     }
 
     for message in messages {
@@ -381,7 +371,7 @@ fn build_gemma4_model_turn(messages: &[Value], start: usize) -> (Value, usize) {
     let tool_calls = first
         .get("tool_calls")
         .cloned()
-        .unwrap_or_else(|| Value::Array(Vec::new()));
+        .unwrap_or_else(|| Value::Array(Vec::default()));
     let reasoning_content = first.get("reasoning_content").cloned();
     let tool_call_names = tool_calls
         .as_array()
@@ -518,14 +508,20 @@ fn base_message(message: &ChatMessage) -> ServerChatMessage {
         ChatRole::Assistant => "assistant",
         ChatRole::Tool => "tool",
     };
-    let mut msg = ServerChatMessage::empty(role);
-    if matches!(
+    let content = if matches!(
         message.message_type,
         MessageType::Text | MessageType::ToolUse(_)
     ) {
-        msg.content = message.content.clone();
+        message.content.clone()
+    } else {
+        String::default()
+    };
+
+    ServerChatMessage {
+        role: role.to_string(),
+        content,
+        ..Default::default()
     }
-    msg
 }
 
 fn append_text_and_media_marker(msg: &mut ServerChatMessage, text: &str, marker: &str) {
@@ -542,10 +538,12 @@ fn append_text_and_media_marker(msg: &mut ServerChatMessage, text: &str, marker:
 }
 
 fn tool_result_message(tool_call: &ToolCall) -> ServerChatMessage {
-    let mut msg = ServerChatMessage::empty("tool");
-    msg.content = tool_call.function.arguments.clone();
-    msg.tool_call_id = tool_call.id.clone();
-    msg
+    ServerChatMessage {
+        role: "tool".to_string(),
+        content: tool_call.function.arguments.clone(),
+        tool_call_id: tool_call.id.clone(),
+        ..Default::default()
+    }
 }
 
 fn server_tool_call_from_tool_call(
@@ -623,7 +621,7 @@ fn require_non_null_content(messages: &mut [Value]) {
                 .is_some_and(|calls| !calls.is_empty())
             && !object.contains_key("content")
         {
-            object.insert("content".to_string(), Value::String(String::new()));
+            object.insert("content".to_string(), Value::String(String::default()));
         }
     }
 }
@@ -697,7 +695,7 @@ mod tests {
         let message = ChatMessage {
             role: ChatRole::Assistant,
             message_type: MessageType::ToolUse(vec![tool_call()]),
-            content: String::new(),
+            content: String::default(),
         };
 
         let messages = messages_from_autoagents(&LlamaCppConfig::default(), &[message])
@@ -711,16 +709,12 @@ mod tests {
     fn omits_empty_tool_call_id_in_openai_compat_json() {
         let message = ServerChatMessage {
             role: "assistant".to_string(),
-            content: String::new(),
-            content_parts: Vec::new(),
             tool_calls: vec![ServerChatToolCall {
                 name: "lookup".to_string(),
                 arguments: "{}".to_string(),
-                id: String::new(),
+                ..Default::default()
             }],
-            reasoning_content: String::new(),
-            tool_name: String::new(),
-            tool_call_id: String::new(),
+            ..Default::default()
         };
 
         let value = message.to_json_oaicompat(false);
@@ -731,7 +725,10 @@ mod tests {
 
     #[test]
     fn empty_message_content_defaults_to_empty_string() {
-        let message = ServerChatMessage::empty("assistant");
+        let message = ServerChatMessage {
+            role: "assistant".to_string(),
+            ..Default::default()
+        };
 
         let value = message.to_json_oaicompat(false);
 
@@ -775,15 +772,11 @@ mod tests {
     fn text_only_parts_can_render_as_typed_content() {
         let message = ServerChatMessage {
             role: "user".to_string(),
-            content: String::new(),
             content_parts: vec![ServerChatContentPart {
                 part_type: "text".to_string(),
                 text: "caption".to_string(),
             }],
-            tool_calls: Vec::new(),
-            reasoning_content: String::new(),
-            tool_name: String::new(),
-            tool_call_id: String::new(),
+            ..Default::default()
         };
 
         let typed = render_messages_to_json(

@@ -282,7 +282,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
         let mut turn_state = engine.turn_state(&context);
         let max_turns = self.config().max_turns;
         let mut accumulated_tool_calls = Vec::new();
-        let mut final_response = String::new();
+        let mut final_response = String::default();
         for turn_index in 0..max_turns {
             let result = engine
                 .run_turn(self, task, &context, &mut turn_state, turn_index, max_turns)
@@ -290,7 +290,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
 
             match result {
                 crate::agent::executor::TurnResult::Complete(output) => {
-                    final_response = output.response.clone();
+                    final_response.clone_from(&output.response);
                     accumulated_tool_calls.extend(output.tool_calls);
                     accumulated_tool_calls = dedupe_tool_calls(accumulated_tool_calls);
 
@@ -352,8 +352,8 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
 
         let producer = async move {
             let mut accumulated_tool_calls = Vec::new();
-            let mut final_response = String::new();
-            let mut final_reasoning_content = String::new();
+            let mut final_response = String::default();
+            let mut final_reasoning_content = String::default();
 
             for turn_index in 0..max_turns {
                 let turn_stream = engine
@@ -378,7 +378,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                                     let _ = tx
                                         .send(Ok(ReActAgentOutput {
                                             response: content,
-                                            tool_calls: Vec::new(),
+                                            tool_calls: Vec::default(),
                                             done: false,
                                         }))
                                         .await;
@@ -424,8 +424,8 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
 
                 match result {
                     crate::agent::executor::TurnResult::Complete(output) => {
-                        final_response = output.response.clone();
-                        final_reasoning_content = output.reasoning_content.clone();
+                        final_response.clone_from(&output.response);
+                        final_reasoning_content.clone_from(&output.reasoning_content);
                         accumulated_tool_calls.extend(output.tool_calls);
                         accumulated_tool_calls = dedupe_tool_calls(accumulated_tool_calls);
                         break;
