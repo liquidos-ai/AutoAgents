@@ -1,0 +1,112 @@
+name: Release Rust Crates
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run cargo publish --dry-run instead of publishing"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  publish:
+    name: Publish crates.io packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+
+      - name: Publish Rust crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          crates=(
+            autoagents-derive
+            autoagents-protocol
+            autoagents-llm
+            autoagents-llamacpp
+            autoagents-mistral-rs
+            autoagents-core
+            autoagents-toolkit
+            autoagents-guardrails
+            autoagents-qdrant
+            autoagents-speech
+            autoagents-telemetry
+            autoagents
+          )
+
+          dry_run=0
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+            dry_run=1
+          fi
+
+          if [ "$dry_run" = "1" ]; then
+            publish_args=()
+            for crate in "${crates[@]}"; do
+              publish_args+=("-p" "$crate")
+            done
+
+            cargo publish --dry-run "${publish_args[@]}"
+            exit 0
+          fi
+
+          if [ "$dry_run" = "0" ] && [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo "CARGO_REGISTRY_TOKEN is required for crates.io publishing"
+            exit 1
+          fi
+
+          publish_crate() {
+            crate="$1"
+            publish_output="$(mktemp)"
+
+            for attempt in 1 2 3 4 5; do
+              if cargo publish -p "$crate" 2>&1 | tee "$publish_output"; then
+                rm -f "$publish_output"
+                return
+              fi
+
+              if grep -qiE "already (uploaded|exists)|previously uploaded" "$publish_output"; then
+                echo "$crate is already published; continuing"
+                rm -f "$publish_output"
+                return
+              fi
+
+              if [ "$attempt" = "5" ]; then
+                echo "Failed to publish $crate after $attempt attempts"
+                rm -f "$publish_output"
+                return 1
+              fi
+
+              echo "Publish for $crate failed; waiting for crates.io index propagation before retry $((attempt + 1))"
+              sleep 60
+            done
+          }
+
+          for crate in "${crates[@]}"; do
+            publish_crate "$crate"
+          done

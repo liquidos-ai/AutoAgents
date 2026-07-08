@@ -1,4 +1,4 @@
-name: Python Bindings
+name: Release Python Bindings
 
 on:
   push:
