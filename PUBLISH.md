@@ -43,12 +43,12 @@ cargo publish --dry-run \
   -p autoagents-llamacpp \
   -p autoagents-mistral-rs \
   -p autoagents-core \
-  -p autoagents-toolkit \
   -p autoagents-guardrails \
   -p autoagents-qdrant \
   -p autoagents-speech \
   -p autoagents-telemetry \
-  -p autoagents
+  -p autoagents \
+  -p autoagents-toolkit
 ```
 
 This dry run covers the full Rust crates.io release set:
@@ -59,12 +59,12 @@ This dry run covers the full Rust crates.io release set:
 - `autoagents-llamacpp`
 - `autoagents-mistral-rs`
 - `autoagents-core`
-- `autoagents-toolkit`
 - `autoagents-guardrails`
 - `autoagents-qdrant`
 - `autoagents-speech`
 - `autoagents-telemetry`
 - `autoagents`
+- `autoagents-toolkit`
 
 The workspace `default-members` list intentionally excludes `autoagents-llamacpp`, `autoagents-mistral-rs`, and `autoagents-speech` for normal root-level development commands. The Rust release workflow still publishes those crates.
 

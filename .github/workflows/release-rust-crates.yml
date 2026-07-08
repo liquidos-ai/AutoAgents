@@ -52,12 +52,12 @@ jobs:
             autoagents-llamacpp
             autoagents-mistral-rs
             autoagents-core
-            autoagents-toolkit
             autoagents-guardrails
             autoagents-qdrant
             autoagents-speech
             autoagents-telemetry
             autoagents
+            autoagents-toolkit
           )
 
           dry_run=0

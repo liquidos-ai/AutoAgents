@@ -6,11 +6,11 @@ default-members = [
     "crates/autoagents-protocol",
     "crates/autoagents-llm",
     "crates/autoagents-core",
-    "crates/autoagents-toolkit",
     "crates/autoagents-guardrails",
     "crates/autoagents-qdrant",
     "crates/autoagents-telemetry",
     "crates/autoagents",
+    "crates/autoagents-toolkit",
 ]
 members = ["crates/*", "examples/*", "bindings/python/*"]
 
