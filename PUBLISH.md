@@ -1,4 +1,4 @@
-# Cargo Publish Guide for AutoAgents
+# Publish Guide for AutoAgents
 
 **Follow the below instructions in sequence**
 
@@ -10,9 +10,9 @@ git pull origin main
 git checkout -b feature/vx.x.x
 ```
 
-2. Update the Cargo.toml `[workspace.package]` version and `[workspace.dependencies]` version. We use SemVer versions.
-   Update the pyproject.toml version and dependencies version and variants
-   Run `Cargo update` and `make python-bindings-build` or `make python-bindings-build-cuda`
+2. Update the Cargo.toml `[workspace.package]` version and `[workspace.dependencies]` versions. We use SemVer versions.
+   Update the pyproject.toml versions, dependency versions, and variants.
+   Run `cargo update` and `make python-bindings-build` or `make python-bindings-build-cuda`.
 
 3. Commit the release changes on the release branch:
 
@@ -33,97 +33,61 @@ git checkout main
 git pull origin main
 ```
 
-7. Publish to Crates.io from `main` (MAINTAIN the order)
+7. Validate the Rust crates from `main`:
 
 ```shell
-cd crates/autoagents-derive
-cargo publish --dry-run # Test first
-cargo publish
+cargo publish --dry-run \
+  -p autoagents-derive \
+  -p autoagents-protocol \
+  -p autoagents-llm \
+  -p autoagents-llamacpp \
+  -p autoagents-mistral-rs \
+  -p autoagents-core \
+  -p autoagents-guardrails \
+  -p autoagents-qdrant \
+  -p autoagents-speech \
+  -p autoagents-telemetry \
+  -p autoagents \
+  -p autoagents-toolkit
 ```
 
-```shell
-cd crates/autoagents-protocol
-cargo publish --dry-run # Test first
-cargo publish
-```
+This dry run covers the full Rust crates.io release set:
 
-```shell
-cd ../autoagents-llm
-cargo publish --dry-run
-cargo publish
-```
+- `autoagents-derive`
+- `autoagents-protocol`
+- `autoagents-llm`
+- `autoagents-llamacpp`
+- `autoagents-mistral-rs`
+- `autoagents-core`
+- `autoagents-guardrails`
+- `autoagents-qdrant`
+- `autoagents-speech`
+- `autoagents-telemetry`
+- `autoagents`
+- `autoagents-toolkit`
 
-```shell
-cd ../autoagents-llamacpp
-cargo publish --dry-run
-cargo publish
-```
+The workspace `default-members` list intentionally excludes `autoagents-llamacpp`, `autoagents-mistral-rs`, and `autoagents-speech` for normal root-level development commands. The Rust release workflow still publishes those crates.
 
----
-```shell
-cd ../autoagents-mistral-rs
-cargo publish --dry-run
-cargo publish
-```
----
+8. Publish Rust crates from GitHub Actions.
 
-```shell
-cd ../autoagents-core
-cargo publish --dry-run
-cargo publish
-```
+Run the `Release Rust Crates` workflow manually with `dry_run=true` before tagging if you want a CI dry run. Pushing the `vx.x.x` tag publishes the full Rust crates.io release set in dependency order. The workflow requires the `CARGO_REGISTRY_TOKEN` repository secret for real publishing.
 
-```shell
-cd ../autoagents
-cargo publish --dry-run
-cargo publish
-```
-
-```shell
-cd ../autoagents-toolkit
-cargo publish --dry-run
-cargo publish
-```
-
-```shell
-cd ../autoagents-qdrant
-cargo publish --dry-run
-cargo publish
-```
-
-```shell
-cd ../autoagents-speech
-cargo publish --dry-run
-cargo publish
-```
-
-```shell
-cd ../autoagents-telemetry
-cargo publish --dry-run
-cargo publish
-```
-
-```shell
-cd ../autoagents-guardrails
-cargo publish --dry-run
-cargo publish
-```
-
----
-
-8. Build Python packages locally before tagging
+9. Build Python packages locally before tagging.
 
 ```shell
 # Build manylinux wheels (CPU variants)
 make python-bindings-build
 ```
+
 This builds:
+
 - `autoagents` base wheel
 - `autoagents-guardrails` wheel
 - `autoagents-llamacpp` CPU wheel
 - `autoagents-mistral-rs` CPU wheel
 
-To Test the cuda version run
+To test the CUDA version, run:
+
 ```shell
 make python-bindings-build-cuda
 ```
@@ -131,13 +95,12 @@ make python-bindings-build-cuda
 #### Note
 
 - The `Python Bindings CI` GitHub Actions workflow runs on PRs to validate the Python packaging matrix before merge.
-- The Python bindings are published via GitHub Actions only when a `v*` tag is pushed.
+- The `Release Python Bindings` GitHub Actions workflow publishes Python bindings when a `v*` tag is pushed.
 - Use the local build commands above to validate the Python bindings before creating the release tag.
 
-9. Create the release tag on the merged `main` commit:
+10. Create the release tag on the merged `main` commit:
 
 ```shell
-cd ../.. # Back to project root
 git tag -a vx.x.x -m "Release vx.x.x
 
 Features:
@@ -153,4 +116,7 @@ Improvements:
 git push origin vx.x.x
 ```
 
-10. Pushing the `vx.x.x` tag triggers the Python bindings workflow and publishes the Python packages from GitHub Actions.
+11. Pushing the `vx.x.x` tag triggers both release workflows:
+
+- `Release Rust Crates` publishes the full Rust crates.io release set.
+- `Release Python Bindings` publishes the Python packages from GitHub Actions.

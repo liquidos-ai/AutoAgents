@@ -2,11 +2,15 @@
 resolver = "2"
 
 default-members = [
-    "crates/autoagents",
-    "crates/autoagents-core",
-    "crates/autoagents-llm",
     "crates/autoagents-derive",
     "crates/autoagents-protocol",
+    "crates/autoagents-llm",
+    "crates/autoagents-core",
+    "crates/autoagents-guardrails",
+    "crates/autoagents-qdrant",
+    "crates/autoagents-telemetry",
+    "crates/autoagents",
+    "crates/autoagents-toolkit",
 ]
 members = ["crates/*", "examples/*", "bindings/python/*"]
 
