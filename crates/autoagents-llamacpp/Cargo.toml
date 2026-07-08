@@ -16,8 +16,8 @@ vulkan = ["llama-cpp-2/vulkan"]
 mtmd = ["llama-cpp-2/mtmd"]
 
 [dependencies]
-llama-cpp-2 = { version = "=0.1.146", default-features = false }
-llama-cpp-sys-2 = { version = "=0.1.146", default-features = false }
+llama-cpp-2 = { version = "=0.1.151", default-features = false, features = ["common"] }
+llama-cpp-sys-2 = { version = "=0.1.151", default-features = false, features = ["common"] }
 autoagents-llm = { workspace = true }
 async-trait = { workspace = true }
 hf-hub = { workspace = true, default-features = false, features = ["ureq"] }
@@ -28,6 +28,8 @@ futures = { workspace = true }
 rand = { workspace = true }
 log = { workspace = true }
 encoding_rs.workspace = true
+minijinja = { workspace = true }
+chrono = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

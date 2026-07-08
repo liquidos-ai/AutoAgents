@@ -1,9 +1,11 @@
 //! Type conversions between AutoAgents types and llama.cpp types.
 
+#[cfg(test)]
 use crate::error::LlamaCppProviderError;
 use autoagents_llm::ToolCall;
 use autoagents_llm::chat::{ChatMessage, ChatResponse, ChatRole, MessageType, Usage};
 use llama_cpp_2::model::AddBos;
+#[cfg(test)]
 use serde_json::{Value, json};
 use std::fmt;
 
@@ -60,6 +62,7 @@ pub(crate) struct PromptData {
     pub add_bos: AddBos,
 }
 
+#[cfg(test)]
 fn convert_role(role: &ChatRole) -> String {
     match role {
         ChatRole::System => "system".to_string(),
@@ -123,6 +126,7 @@ pub(crate) fn build_fallback_prompt(messages: &[ChatMessage]) -> String {
     prompt
 }
 
+#[cfg(test)]
 fn build_openai_message_value(message: &ChatMessage) -> Result<Value, LlamaCppProviderError> {
     if let MessageType::ToolUse(tool_calls) = &message.message_type {
         let mut tool_values = Vec::with_capacity(tool_calls.len());
@@ -149,6 +153,7 @@ fn build_openai_message_value(message: &ChatMessage) -> Result<Value, LlamaCppPr
     }))
 }
 
+#[cfg(test)]
 pub(crate) fn build_openai_messages_json(
     messages: &[ChatMessage],
 ) -> Result<String, LlamaCppProviderError> {
