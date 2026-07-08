@@ -6,9 +6,10 @@ use autoagents_core::one_or_many::OneOrMany;
 use autoagents_core::vector_store::request::{Filter, FilterError};
 use autoagents_core::vector_store::{
     DEFAULT_VECTOR_NAME, NamedVectorDocument, NamedVectorPayloadDocument, PayloadDocument,
-    PreparedDocument, PreparedNamedVectorPayloadDocument, PreparedPayloadDocument,
-    VectorSearchRequest, VectorStoreError, VectorStoreIndex, embed_documents,
-    embed_named_documents, embed_named_payload_documents, embed_payload_documents, normalize_id,
+    PreparedDocument, PreparedNamedVectorDocument, PreparedNamedVectorPayloadDocument,
+    PreparedPayloadDocument, VectorSearchRequest, VectorStoreError, VectorStoreIndex,
+    embed_documents, embed_named_documents, embed_named_payload_documents, embed_payload_documents,
+    normalize_id,
 };
 use qdrant_client::Payload;
 use qdrant_client::Qdrant;
@@ -208,6 +209,35 @@ impl QdrantVectorStore {
             .collect()
     }
 
+    fn point_for_named_payload_document(
+        doc: PreparedNamedVectorPayloadDocument,
+    ) -> Result<PointStruct, VectorStoreError> {
+        let source_id = doc.id.clone();
+        let payload = Payload::try_from(shaped_payload(
+            source_id.clone(),
+            doc.raw,
+            doc.payload_fields,
+        ))
+        .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
+        let point_id = Self::stable_point_id(&source_id);
+
+        Ok(PointStruct::new(point_id, doc.vectors, payload))
+    }
+
+    fn point_for_named_document(
+        doc: PreparedNamedVectorDocument,
+    ) -> Result<PointStruct, VectorStoreError> {
+        let source_id = doc.id.clone();
+        let payload = Payload::try_from(serde_json::json!({
+            "raw": doc.raw,
+            "source_id": source_id,
+        }))
+        .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
+        let point_id = Self::stable_point_id(&doc.id);
+
+        Ok(PointStruct::new(point_id, doc.vectors, payload))
+    }
+
     pub async fn insert_payload_documents<T>(
         &self,
         documents: Vec<PayloadDocument<T>>,
@@ -315,15 +345,7 @@ impl QdrantVectorStore {
 
         let mut points = Vec::new();
         for doc in prepared {
-            let source_id = doc.id.clone();
-            let payload = Payload::try_from(shaped_payload(
-                source_id.clone(),
-                doc.raw,
-                doc.payload_fields,
-            ))
-            .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
-            let point_id = Self::stable_point_id(&source_id);
-            points.push(PointStruct::new(point_id, doc.vectors, payload));
+            points.push(Self::point_for_named_payload_document(doc)?);
         }
 
         let request = UpsertPointsBuilder::new(self.collection_name.clone(), points).build();
@@ -524,14 +546,7 @@ impl VectorStoreIndex for QdrantVectorStore {
 
         let mut points = Vec::new();
         for doc in prepared {
-            let source_id = doc.id.clone();
-            let payload = Payload::try_from(serde_json::json!({
-                "raw": doc.raw,
-                "source_id": source_id,
-            }))
-            .map_err(|err| VectorStoreError::DatastoreError(Box::new(err)))?;
-            let point_id = Self::stable_point_id(&source_id);
-            points.push(PointStruct::new(point_id, doc.vectors, payload));
+            points.push(Self::point_for_named_document(doc)?);
         }
 
         let request = UpsertPointsBuilder::new(self.collection_name.clone(), points).build();
@@ -703,6 +718,7 @@ mod tests {
     use autoagents_core::embeddings::Embedding;
     use autoagents_core::one_or_many::OneOrMany;
     use autoagents_core::vector_store::request::{Filter, SearchFilter};
+    use qdrant_client::qdrant::{vectors, vectors_config};
     use std::sync::Arc;
 
     #[test]
@@ -778,6 +794,86 @@ mod tests {
         let dims = QdrantVectorStore::named_dimensions(&vectors);
         assert_eq!(dims.get("a"), Some(&2));
         assert_eq!(dims.get("b"), Some(&1));
+    }
+
+    #[test]
+    fn test_named_collection_request_uses_named_vector_params() {
+        let request = QdrantVectorStore::named_collection_request(
+            "docs",
+            &HashMap::from([("title".to_string(), 2_u64), ("body".to_string(), 3_u64)]),
+        );
+
+        let vectors_config = request.vectors_config.expect("vectors config");
+        let vectors_config::Config::ParamsMap(params) =
+            vectors_config.config.expect("named vector params map")
+        else {
+            panic!("expected named vector params map");
+        };
+
+        assert_eq!(request.collection_name, "docs");
+        assert_eq!(params.map["title"].size, 2);
+        assert_eq!(params.map["body"].size, 3);
+        assert_eq!(params.map["title"].distance, Distance::Cosine as i32);
+        assert_eq!(params.map["body"].distance, Distance::Cosine as i32);
+    }
+
+    #[test]
+    fn test_named_document_point_uses_named_vectors_and_source_payload() {
+        let doc = PreparedNamedVectorDocument {
+            id: "doc-1".to_string(),
+            raw: serde_json::json!({"name":"alpha"}),
+            vectors: HashMap::from([
+                ("title".to_string(), vec![0.1_f32, 0.2_f32]),
+                ("body".to_string(), vec![0.3_f32, 0.4_f32, 0.5_f32]),
+            ]),
+        };
+
+        let point = QdrantVectorStore::point_for_named_document(doc).unwrap();
+        let vectors::VectorsOptions::Vectors(named) = point
+            .vectors
+            .expect("vectors")
+            .vectors_options
+            .expect("named vectors")
+        else {
+            panic!("expected named vectors");
+        };
+
+        assert_eq!(
+            named.vectors["title"].clone().try_into_dense().unwrap(),
+            vec![0.1, 0.2]
+        );
+        assert_eq!(
+            named.vectors["body"].clone().try_into_dense().unwrap(),
+            vec![0.3, 0.4, 0.5]
+        );
+        assert_eq!(
+            QdrantVectorStore::decode_id(&point.payload).as_deref(),
+            Some("doc-1")
+        );
+    }
+
+    #[test]
+    fn test_named_payload_point_mirrors_payload_fields() {
+        let doc = PreparedNamedVectorPayloadDocument {
+            id: "doc-2".to_string(),
+            raw: serde_json::json!({
+                "workspace_id": "ws-1",
+                "body": "alpha"
+            }),
+            payload_fields: HashMap::from([
+                ("workspace_id".to_string(), serde_json::json!("ws-1")),
+                ("raw".to_string(), serde_json::json!("ignored")),
+            ]),
+            vectors: HashMap::from([("body".to_string(), vec![0.1_f32, 0.2_f32])]),
+        };
+
+        let point = QdrantVectorStore::point_for_named_payload_document(doc).unwrap();
+        let payload_json = serde_json::to_value(&point.payload).unwrap();
+
+        assert_eq!(payload_json["source_id"], "doc-2");
+        assert_eq!(payload_json["workspace_id"], "ws-1");
+        assert_eq!(payload_json["raw"]["body"], "alpha");
+        assert_eq!(payload_json["raw"]["workspace_id"], "ws-1");
     }
 
     #[test]
