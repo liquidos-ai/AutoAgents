@@ -8,11 +8,7 @@ default-members = [
     "crates/autoagents-derive",
     "crates/autoagents-protocol",
 ]
-members = [
-    "crates/*",
-    "examples/*",
-    "bindings/python/*",
-]
+members = ["crates/*", "examples/*", "bindings/python/*"]
 
 exclude = [
     "examples/wasm_tool",
@@ -22,7 +18,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.3.7"
+version = "0.4.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Agent Framework for Building Autonomous Agents"
@@ -33,26 +29,26 @@ categories = []
 
 [workspace.dependencies]
 # Core Crates
-autoagents = { path = "crates/autoagents", version = "0.3.7" }
-autoagents-derive = { path = "crates/autoagents-derive", version = "0.3.7" }
-autoagents-core = { path = "crates/autoagents-core", version = "0.3.7" }
-autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.3.7" }
-autoagents-protocol = { path = "crates/autoagents-protocol", version = "0.3.7" }
-autoagents-guardrails = { path = "crates/autoagents-guardrails", version = "0.3.7" }
+autoagents = { path = "crates/autoagents", version = "0.4.0" }
+autoagents-derive = { path = "crates/autoagents-derive", version = "0.4.0" }
+autoagents-core = { path = "crates/autoagents-core", version = "0.4.0" }
+autoagents-toolkit = { path = "crates/autoagents-toolkit", version = "0.4.0" }
+autoagents-protocol = { path = "crates/autoagents-protocol", version = "0.4.0" }
+autoagents-guardrails = { path = "crates/autoagents-guardrails", version = "0.4.0" }
 
 # LLM and Providers
-autoagents-llm = { path = "crates/autoagents-llm", version = "0.3.7" }
-autoagents-mistral-rs = { path = "crates/autoagents-mistral-rs", version = "0.3.7" }
-autoagents-llamacpp = { path = "crates/autoagents-llamacpp", version = "0.3.7" }
+autoagents-llm = { path = "crates/autoagents-llm", version = "0.4.0" }
+autoagents-mistral-rs = { path = "crates/autoagents-mistral-rs", version = "0.4.0" }
+autoagents-llamacpp = { path = "crates/autoagents-llamacpp", version = "0.4.0" }
 
 # Store
-autoagents-qdrant = { path = "crates/autoagents-qdrant", version = "0.3.7" }
+autoagents-qdrant = { path = "crates/autoagents-qdrant", version = "0.4.0" }
 
 # Speech (TTS/STT)
-autoagents-speech = { path = "crates/autoagents-speech", version = "0.3.7" }
+autoagents-speech = { path = "crates/autoagents-speech", version = "0.4.0" }
 
 # Telemetry
-autoagents-telemetry = { path = "crates/autoagents-telemetry", version = "0.3.7" }
+autoagents-telemetry = { path = "crates/autoagents-telemetry", version = "0.4.0" }
 
 
 syn = { version = "2.0.117", features = ["full"] }
