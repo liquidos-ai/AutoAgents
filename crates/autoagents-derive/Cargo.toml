@@ -22,7 +22,5 @@ schemars = { workspace = true }
 strum = { workspace = true }
 
 [dev-dependencies]
-autoagents = { workspace = true }
-autoagents-core = { workspace = true }
 async-trait = { workspace = true }
 trybuild = { workspace = true }

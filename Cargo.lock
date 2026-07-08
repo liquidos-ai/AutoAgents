@@ -418,6 +418,8 @@ dependencies = [
  "autoagents-llm",
  "autoagents-protocol",
  "env_logger",
+ "schemars 0.8.22",
+ "serde",
  "serde_json",
  "tokio",
 ]
@@ -427,7 +429,6 @@ name = "autoagents-core"
 version = "0.4.0"
 dependencies = [
  "async-trait",
- "autoagents-llamacpp",
  "autoagents-llm",
  "autoagents-protocol",
  "core_affinity",
@@ -461,8 +462,6 @@ name = "autoagents-derive"
 version = "0.4.0"
 dependencies = [
  "async-trait",
- "autoagents",
- "autoagents-core",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
