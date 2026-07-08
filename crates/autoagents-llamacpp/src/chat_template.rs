@@ -150,37 +150,11 @@ pub(crate) fn render_chat_template(
     tokens: &TemplateTokens,
 ) -> Result<RenderedChat, LlamaCppProviderError> {
     let caps = TemplateCapabilities::analyze(&template.source);
-    let server_messages = messages_from_autoagents(config, messages)?;
-    let continuation = resolve_continuation(config, &server_messages)?;
-    let (render_messages, continuation_messages) =
-        if continuation.is_some() && !server_messages.is_empty() {
-            server_messages.split_at(server_messages.len() - 1)
-        } else {
-            (server_messages.as_slice(), [].as_slice())
-        };
-    let mut prepared_messages = render_messages_to_json(render_messages, caps.server_caps);
-    apply_server_workarounds(&mut prepared_messages, caps.server_caps)?;
-    let mut continuation_prepared_messages =
-        render_messages_to_json(&server_messages, caps.server_caps);
-    apply_server_workarounds(&mut continuation_prepared_messages, caps.server_caps)?;
-    let tools_value = tools
-        .filter(|tools| !tools.is_empty())
-        .map(serde_json::to_value)
-        .transpose()
-        .map_err(|err| LlamaCppProviderError::Template(format!("Failed to encode tools: {err}")))?
-        .unwrap_or_else(|| Value::Array(Vec::default()));
+    let prepared = prepare_template_inputs(config, messages, tools, caps.server_caps)?;
     let kwargs = chat_template_kwargs(config)?;
     let enable_thinking = resolve_enable_thinking(config, &kwargs)?;
 
-    let mut env = Environment::new();
-    env.add_filter("tojson", tojson_filter);
-    env.add_function("raise_exception", raise_exception);
-    env.add_function("strftime_now", strftime_now);
-    env.set_unknown_method_callback(pycompat_method_callback);
-    let render_source = strip_hf_generation_blocks(&template.source);
-    env.add_template("chat", &render_source).map_err(|err| {
-        LlamaCppProviderError::Template(format!("Invalid llama.cpp chat template: {err}"))
-    })?;
+    let env = chat_template_environment(&template.source)?;
     let tmpl = env
         .get_template("chat")
         .map_err(|err| LlamaCppProviderError::Template(format!("Chat template missing: {err}")))?;
@@ -192,8 +166,8 @@ pub(crate) fn render_chat_template(
     };
     let root_context = build_template_context(
         config,
-        prepared_messages,
-        tools_value,
+        prepared.messages,
+        prepared.tools_value,
         kwargs,
         tokens,
         prompt_enable_thinking,
@@ -202,7 +176,7 @@ pub(crate) fn render_chat_template(
     let mut prompt_context = root_context.clone();
     set_add_generation_prompt(
         &mut prompt_context,
-        config.add_generation_prompt && continuation.is_none(),
+        config.add_generation_prompt && prepared.continuation.is_none(),
     );
     let mut prompt = render_template_context(&tmpl, prompt_context, tokens).map_err(|err| {
         LlamaCppProviderError::Template(format!("Failed to render chat template: {err}"))
@@ -212,9 +186,9 @@ pub(crate) fn render_chat_template(
         &caps,
         &tmpl,
         &root_context,
-        continuation,
-        continuation_messages,
-        continuation_prepared_messages,
+        prepared.continuation,
+        &prepared.continuation_messages,
+        prepared.continuation_prepared_messages,
         &mut prompt,
         prompt_enable_thinking,
         tokens,
@@ -225,6 +199,87 @@ pub(crate) fn render_chat_template(
         config.add_generation_prompt,
     );
 
+    Ok(rendered_chat_result(
+        config,
+        &caps,
+        tools,
+        json_schema,
+        grammar,
+        prompt,
+        generation_prompt,
+        prepared.continuation.is_some(),
+        tokens,
+    ))
+}
+
+struct PreparedTemplateInputs {
+    messages: Vec<Value>,
+    continuation: Option<LlamaCppChatContinuation>,
+    continuation_messages: Vec<ServerChatMessage>,
+    continuation_prepared_messages: Vec<Value>,
+    tools_value: Value,
+}
+
+fn prepare_template_inputs(
+    config: &LlamaCppConfig,
+    messages: &[ChatMessage],
+    tools: Option<&[Tool]>,
+    caps: ServerTemplateCaps,
+) -> Result<PreparedTemplateInputs, LlamaCppProviderError> {
+    let server_messages = messages_from_autoagents(config, messages)?;
+    let continuation = resolve_continuation(config, &server_messages)?;
+    let render_count = if continuation.is_some() && !server_messages.is_empty() {
+        server_messages.len() - 1
+    } else {
+        server_messages.len()
+    };
+    let continuation_messages = server_messages[render_count..].to_vec();
+    let mut prepared_messages = render_messages_to_json(&server_messages[..render_count], caps);
+    apply_server_workarounds(&mut prepared_messages, caps)?;
+    let mut continuation_prepared_messages = render_messages_to_json(&server_messages, caps);
+    apply_server_workarounds(&mut continuation_prepared_messages, caps)?;
+    let tools_value = tools
+        .filter(|tools| !tools.is_empty())
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|err| LlamaCppProviderError::Template(format!("Failed to encode tools: {err}")))?
+        .unwrap_or_else(|| Value::Array(Vec::default()));
+
+    Ok(PreparedTemplateInputs {
+        messages: prepared_messages,
+        continuation,
+        continuation_messages,
+        continuation_prepared_messages,
+        tools_value,
+    })
+}
+
+fn chat_template_environment(source: &str) -> Result<Environment<'static>, LlamaCppProviderError> {
+    let mut env = Environment::new();
+    env.add_filter("tojson", tojson_filter);
+    env.add_function("raise_exception", raise_exception);
+    env.add_function("strftime_now", strftime_now);
+    env.set_unknown_method_callback(pycompat_method_callback);
+    let render_source = strip_hf_generation_blocks(source);
+    env.add_template_owned("chat".to_string(), render_source)
+        .map_err(|err| {
+            LlamaCppProviderError::Template(format!("Invalid llama.cpp chat template: {err}"))
+        })?;
+    Ok(env)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rendered_chat_result(
+    config: &LlamaCppConfig,
+    caps: &TemplateCapabilities,
+    tools: Option<&[Tool]>,
+    json_schema: Option<&StructuredOutputFormat>,
+    grammar: Option<String>,
+    prompt: String,
+    generation_prompt: String,
+    is_continuation: bool,
+    tokens: &TemplateTokens,
+) -> RenderedChat {
     let has_tools = tools.is_some_and(|tools| !tools.is_empty())
         && !matches!(&config.tool_choice, LlamaCppToolChoice::None);
     let use_native_tools = has_tools && caps.supports_tools;
@@ -235,9 +290,9 @@ pub(crate) fn render_chat_template(
         && grammar.is_some()
         && json_schema.is_none();
 
-    Ok(RenderedChat {
+    RenderedChat {
         force_pure_content: config.force_pure_content,
-        is_continuation: continuation.is_some(),
+        is_continuation,
         add_bos: tokenizer_add_special(tokens, &prompt),
         prompt,
         generation_prompt,
@@ -275,7 +330,7 @@ pub(crate) fn render_chat_template(
         } else {
             caps.reasoning_end_tag.map(ToOwned::to_owned)
         },
-    })
+    }
 }
 
 fn render_template_context(
@@ -606,64 +661,77 @@ fn pycompat_string_method(
     args: &[JinjaValue],
 ) -> Result<JinjaValue, JinjaError> {
     match method {
-        "startswith" => {
-            let prefix = string_arg(method, args, 0)?;
-            ensure_arg_count(method, args, 1)?;
-            Ok(JinjaValue::from(text.starts_with(prefix)))
-        }
-        "endswith" => {
-            let suffix = string_arg(method, args, 0)?;
-            ensure_arg_count(method, args, 1)?;
-            Ok(JinjaValue::from(text.ends_with(suffix)))
-        }
-        "strip" => {
-            ensure_max_arg_count(method, args, 1)?;
-            Ok(JinjaValue::from(strip_chars(
-                text,
-                optional_string_arg(args, 0)?,
-            )))
-        }
-        "lstrip" => {
-            ensure_max_arg_count(method, args, 1)?;
-            Ok(JinjaValue::from(lstrip_chars(
-                text,
-                optional_string_arg(args, 0)?,
-            )))
-        }
-        "rstrip" => {
-            ensure_max_arg_count(method, args, 1)?;
-            Ok(JinjaValue::from(rstrip_chars(
-                text,
-                optional_string_arg(args, 0)?,
-            )))
-        }
-        "split" => {
-            ensure_max_arg_count(method, args, 2)?;
-            let sep = optional_string_arg(args, 0)?;
-            let maxsplit = optional_usize_arg(args, 1)?;
-            Ok(JinjaValue::from_iter(split_string(text, sep, maxsplit)))
-        }
-        "lower" => {
-            ensure_arg_count(method, args, 0)?;
-            Ok(JinjaValue::from(text.to_lowercase()))
-        }
-        "upper" => {
-            ensure_arg_count(method, args, 0)?;
-            Ok(JinjaValue::from(text.to_uppercase()))
-        }
-        "replace" => {
-            let from = string_arg(method, args, 0)?;
-            let to = string_arg(method, args, 1)?;
-            ensure_max_arg_count(method, args, 3)?;
-            let replaced = if let Some(count) = optional_usize_arg(args, 2)? {
-                text.replacen(from, to, count)
-            } else {
-                text.replace(from, to)
-            };
-            Ok(JinjaValue::from(replaced))
-        }
+        "startswith" | "endswith" => pycompat_string_predicate(text, method, args),
+        "strip" | "lstrip" | "rstrip" => pycompat_string_trim(text, method, args),
+        "split" => pycompat_string_split(text, args),
+        "lower" | "upper" => pycompat_string_case(text, method, args),
+        "replace" => pycompat_string_replace(text, args),
         _ => Err(JinjaError::from(ErrorKind::UnknownMethod)),
     }
+}
+
+fn pycompat_string_predicate(
+    text: &str,
+    method: &str,
+    args: &[JinjaValue],
+) -> Result<JinjaValue, JinjaError> {
+    let needle = string_arg(method, args, 0)?;
+    ensure_arg_count(method, args, 1)?;
+    let value = match method {
+        "startswith" => text.starts_with(needle),
+        "endswith" => text.ends_with(needle),
+        _ => unreachable!("predicate dispatcher only passes supported methods"),
+    };
+    Ok(JinjaValue::from(value))
+}
+
+fn pycompat_string_trim(
+    text: &str,
+    method: &str,
+    args: &[JinjaValue],
+) -> Result<JinjaValue, JinjaError> {
+    ensure_max_arg_count(method, args, 1)?;
+    let chars = optional_string_arg(args, 0)?;
+    let value = match method {
+        "strip" => strip_chars(text, chars),
+        "lstrip" => lstrip_chars(text, chars),
+        "rstrip" => rstrip_chars(text, chars),
+        _ => unreachable!("trim dispatcher only passes supported methods"),
+    };
+    Ok(JinjaValue::from(value))
+}
+
+fn pycompat_string_split(text: &str, args: &[JinjaValue]) -> Result<JinjaValue, JinjaError> {
+    ensure_max_arg_count("split", args, 2)?;
+    let sep = optional_string_arg(args, 0)?;
+    let maxsplit = optional_usize_arg(args, 1)?;
+    Ok(JinjaValue::from_iter(split_string(text, sep, maxsplit)))
+}
+
+fn pycompat_string_case(
+    text: &str,
+    method: &str,
+    args: &[JinjaValue],
+) -> Result<JinjaValue, JinjaError> {
+    ensure_arg_count(method, args, 0)?;
+    let value = match method {
+        "lower" => text.to_lowercase(),
+        "upper" => text.to_uppercase(),
+        _ => unreachable!("case dispatcher only passes supported methods"),
+    };
+    Ok(JinjaValue::from(value))
+}
+
+fn pycompat_string_replace(text: &str, args: &[JinjaValue]) -> Result<JinjaValue, JinjaError> {
+    let from = string_arg("replace", args, 0)?;
+    let to = string_arg("replace", args, 1)?;
+    ensure_max_arg_count("replace", args, 3)?;
+    let replaced = if let Some(count) = optional_usize_arg(args, 2)? {
+        text.replacen(from, to, count)
+    } else {
+        text.replace(from, to)
+    };
+    Ok(JinjaValue::from(replaced))
 }
 
 fn map_get(value: &JinjaValue, args: &[JinjaValue]) -> Result<JinjaValue, JinjaError> {
