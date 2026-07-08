@@ -47,8 +47,8 @@ impl From<MistralRsError> for LLMError {
     }
 }
 
-/// Convert anyhow::Error to LLMError
-pub(crate) fn convert_anyhow_error(err: anyhow::Error) -> LLMError {
+/// Convert mistral.rs-compatible errors to LLMError
+pub(crate) fn convert_anyhow_error(err: impl std::fmt::Display) -> LLMError {
     LLMError::ProviderError(format!("Mistral.rs error: {}", err))
 }
 

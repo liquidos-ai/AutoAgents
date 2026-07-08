@@ -12,17 +12,20 @@
 //!
 
 pub mod builder;
+mod chat_template;
 pub mod config;
 pub mod conversion;
 pub mod error;
 pub mod huggingface;
 pub mod models;
 pub mod provider;
+mod server_chat;
 
 // Re-exports for convenience
 pub use builder::LlamaCppProviderBuilder;
 pub use config::{
-    LlamaCppConfig, LlamaCppConfigBuilder, LlamaCppReasoningFormat, LlamaCppSplitMode,
+    LlamaCppConfig, LlamaCppConfigBuilder, LlamaCppReasoningFormat, LlamaCppSchedulerConfig,
+    LlamaCppSplitMode, LlamaCppToolChoice,
 };
 pub use error::LlamaCppProviderError;
 pub use models::ModelSource;

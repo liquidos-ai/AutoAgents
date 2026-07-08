@@ -282,7 +282,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
         let mut turn_state = engine.turn_state(&context);
         let max_turns = self.config().max_turns;
         let mut accumulated_tool_calls = Vec::new();
-        let mut final_response = String::new();
+        let mut final_response = String::default();
         for turn_index in 0..max_turns {
             let result = engine
                 .run_turn(self, task, &context, &mut turn_state, turn_index, max_turns)
@@ -290,7 +290,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
 
             match result {
                 crate::agent::executor::TurnResult::Complete(output) => {
-                    final_response = output.response.clone();
+                    final_response.clone_from(&output.response);
                     accumulated_tool_calls.extend(output.tool_calls);
                     accumulated_tool_calls = dedupe_tool_calls(accumulated_tool_calls);
 
@@ -352,7 +352,8 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
 
         let producer = async move {
             let mut accumulated_tool_calls = Vec::new();
-            let mut final_response = String::new();
+            let mut final_response = String::default();
+            let mut final_reasoning_content = String::default();
 
             for turn_index in 0..max_turns {
                 let turn_stream = engine
@@ -377,7 +378,7 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                                     let _ = tx
                                         .send(Ok(ReActAgentOutput {
                                             response: content,
-                                            tool_calls: Vec::new(),
+                                            tool_calls: Vec::default(),
                                             done: false,
                                         }))
                                         .await;
@@ -423,7 +424,8 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
 
                 match result {
                     crate::agent::executor::TurnResult::Complete(output) => {
-                        final_response = output.response.clone();
+                        final_response.clone_from(&output.response);
+                        final_reasoning_content.clone_from(&output.reasoning_content);
                         accumulated_tool_calls.extend(output.tool_calls);
                         accumulated_tool_calls = dedupe_tool_calls(accumulated_tool_calls);
                         break;
@@ -431,6 +433,9 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
                     crate::agent::executor::TurnResult::Continue(Some(output)) => {
                         if !output.response.is_empty() {
                             final_response = output.response;
+                        }
+                        if !output.reasoning_content.is_empty() {
+                            final_reasoning_content = output.reasoning_content;
                         }
                         accumulated_tool_calls.extend(output.tool_calls);
                         accumulated_tool_calls = dedupe_tool_calls(accumulated_tool_calls);
@@ -441,6 +446,9 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
 
             let tx_event = context_clone.tx().ok();
             EventHelper::send_stream_complete(&tx_event, task.submission_id).await;
+            if final_response.is_empty() && accumulated_tool_calls.is_empty() {
+                final_response = final_reasoning_content;
+            }
             let output = ReActAgentOutput {
                 response: final_response.clone(),
                 done: true,
@@ -808,6 +816,48 @@ mod tests {
         assert!(!outputs[0].done);
         assert_eq!(outputs[1].response, "done");
         assert!(outputs[1].done);
+    }
+
+    #[tokio::test]
+    async fn test_react_agent_execute_stream_preserves_reasoning_only_final_output() {
+        use crate::agent::{AgentConfig, Context};
+        use autoagents_protocol::ActorID;
+        use futures::StreamExt;
+
+        let llm = Arc::new(ConfigurableLLMProvider {
+            stream_chunks: vec![
+                StreamChunk::ReasoningContent("plan".to_string()),
+                StreamChunk::Done {
+                    stop_reason: "length".to_string(),
+                },
+            ],
+            ..ConfigurableLLMProvider::default()
+        });
+
+        let mock = MockAgentImpl::new("stream_reasoning_only_test", "desc");
+        let agent = ReActAgent::new(mock);
+        let config = AgentConfig {
+            id: ActorID::new_v4(),
+            name: "stream_reasoning_only_test".to_string(),
+            description: "desc".to_string(),
+            output_schema: None,
+        };
+        let context = Arc::new(Context::new(llm, None).with_config(config));
+        let task = crate::agent::task::Task::new("test");
+
+        let mut stream = agent.execute_stream(&task, context).await.unwrap();
+        let mut final_output = None;
+        while let Some(item) = stream.next().await {
+            let output = item.unwrap();
+            if output.done {
+                final_output = Some(output);
+                break;
+            }
+        }
+
+        let output = final_output.expect("final output");
+        assert_eq!(output.response, "plan");
+        assert!(output.done);
     }
 
     #[tokio::test]

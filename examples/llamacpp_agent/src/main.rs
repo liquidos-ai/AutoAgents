@@ -60,8 +60,7 @@ struct MathAgentOutput {
 impl From<ReActAgentOutput> for MathAgentOutput {
     fn from(output: ReActAgentOutput) -> Self {
         let resp = output.response;
-        if output.done
-            && !resp.trim().is_empty()
+        if !resp.trim().is_empty()
             && let Ok(value) = serde_json::from_str::<MathAgentOutput>(&resp)
         {
             return value;
@@ -72,6 +71,15 @@ impl From<ReActAgentOutput> for MathAgentOutput {
             generic: None,
         }
     }
+}
+
+fn is_empty_stream_placeholder(output: &MathAgentOutput) -> bool {
+    output.value == 0
+        && output.explanation.trim().is_empty()
+        && output
+            .generic
+            .as_deref()
+            .is_none_or(|generic| generic.trim().is_empty())
 }
 
 #[derive(Serialize, Deserialize, ToolInput, Debug)]
@@ -114,29 +122,19 @@ async fn main() -> Result<(), Error> {
     init_logging();
     let args = Args::parse();
 
-    let effective_max_tokens = if args.thinking {
-        args.max_tokens.max(1024)
-    } else {
-        args.max_tokens
-    };
-
     let mut builder = LlamaCppProvider::builder()
         .model_source(ModelSource::HuggingFace {
             repo_id: "unsloth/Qwen3.5-9B-GGUF".to_string(),
-            filename: Some("Qwen3.5-9B-Q4_0.gguf".to_string()),
+            filename: Some("Qwen3.5-9B-Q4_K_M.gguf".to_string()),
             mmproj_filename: None,
         })
-        .max_tokens(effective_max_tokens)
+        .max_tokens(args.max_tokens)
         .temperature(args.temperature);
 
     if args.thinking {
         builder = builder
             .reasoning_format(LlamaCppReasoningFormat::Auto)
-            .extra_body(serde_json::json!({
-                "chat_template_kwargs": {
-                    "enable_thinking": true
-                }
-            }));
+            .enable_thinking(true);
     }
 
     if let Some(template) = args.chat_template {
@@ -175,24 +173,30 @@ async fn main() -> Result<(), Error> {
         let mut events_done = false;
         let mut saw_reasoning_event = false;
         let mut saw_text_event = false;
+        let mut last_stream_output = None::<String>;
+        let mut reasoning_output = String::new();
+        let mut last_tool_result = None::<Value>;
 
         println!("Running run_stream() and reading reasoning from events");
-        if effective_max_tokens > args.max_tokens {
-            println!(
-                "thinking mode enabled: increasing max_tokens from {} to {}",
-                args.max_tokens, effective_max_tokens
-            );
-        }
         while !(stream_done && events_done) {
             select! {
                 item = stream.next(), if !stream_done => {
                     match item {
                         Some(Ok(output)) => {
-                            print!("{:?}", output);
+                            if is_empty_stream_placeholder(&output) {
+                                continue;
+                            }
+                            let rendered = format!("{output:?}");
+                            if last_stream_output.as_deref() == Some(rendered.as_str()) {
+                                continue;
+                            }
+                            println!("{rendered}");
+                            last_stream_output = Some(rendered);
                         }
                         Some(Err(err)) => {
                             println!("stream error: {err}");
                             stream_done = true;
+                            events_done = true;
                         }
                         None => {
                             stream_done = true;
@@ -204,6 +208,7 @@ async fn main() -> Result<(), Error> {
                         Some(Event::StreamChunk { chunk, .. }) => match chunk {
                             StreamChunk::ReasoningContent(content) if !content.is_empty() => {
                                 saw_reasoning_event = true;
+                                reasoning_output.push_str(&content);
                                 println!("\nreasoning event: {content}");
                             }
                             StreamChunk::Text(content) if !content.is_empty() => {
@@ -215,6 +220,10 @@ async fn main() -> Result<(), Error> {
                         Some(Event::StreamComplete { .. }) => {
                             events_done = true;
                         }
+                        Some(Event::ToolCallCompleted { result, .. }) => {
+                            println!("\ntool result: {result}");
+                            last_tool_result = Some(result);
+                        }
                         Some(_) => {}
                         None => {
                             events_done = true;
@@ -225,9 +234,25 @@ async fn main() -> Result<(), Error> {
         }
 
         if !saw_reasoning_event {
+            if let Some(value) = last_tool_result.as_ref().and_then(|value| value.as_i64()) {
+                let output = MathAgentOutput {
+                    value,
+                    explanation: "Tool result returned without a reasoning event.".to_string(),
+                    generic: None,
+                };
+                println!("\nResult: {output:?}");
+            }
             println!("\nnote: no reasoning_content events were emitted by this model/provider.");
         }
         if saw_reasoning_event && !saw_text_event {
+            if let Some(value) = last_tool_result.as_ref().and_then(|value| value.as_i64()) {
+                let output = MathAgentOutput {
+                    value,
+                    explanation: reasoning_output.trim().to_string(),
+                    generic: None,
+                };
+                println!("\nResult: {output:?}");
+            }
             println!(
                 "\nnote: reasoning streamed, but no text chunks were emitted. \
 this usually means the model used all generation tokens in thinking mode."
@@ -251,9 +276,18 @@ this usually means the model used all generation tokens in thinking mode."
     println!("🌊 Agent Streaming Example");
     println!("🔄 Processing stream tokens...\n");
 
+    let mut last_stream_output = None::<String>;
     while let Some(result) = stream.next().await {
         if let Ok(output) = result {
-            print!("{:?}", output);
+            if is_empty_stream_placeholder(&output) {
+                continue;
+            }
+            let rendered = format!("{output:?}");
+            if last_stream_output.as_deref() == Some(rendered.as_str()) {
+                continue;
+            }
+            println!("{rendered}");
+            last_stream_output = Some(rendered);
         }
     }
 

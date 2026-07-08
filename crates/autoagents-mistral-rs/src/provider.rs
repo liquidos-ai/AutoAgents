@@ -22,9 +22,9 @@ use autoagents_llm::{
 use futures::{StreamExt, stream::Stream};
 use mistralrs::{
     CalledFunction, ChatCompletionChunkResponse, ChatCompletionResponse, ChunkChoice, Constraint,
-    Function, GgufModelBuilder, IsqType, PagedAttentionMetaBuilder, RequestBuilder, Response,
-    TextMessageRole, TextModelBuilder, ToolCallResponse, ToolCallType,
-    ToolChoice as MistralToolChoice, ToolType, Usage as MistralUsage, VisionModelBuilder,
+    Function, GgufModelBuilder, IsqType, MultimodalModelBuilder, PagedAttentionMetaBuilder,
+    RequestBuilder, Response, TextMessageRole, TextModelBuilder, ToolCallResponse, ToolCallType,
+    ToolChoice as MistralToolChoice, ToolType, Usage as MistralUsage,
 };
 use std::sync::OnceLock;
 use std::{
@@ -138,9 +138,10 @@ impl MistralRsProvider {
 
         // Apply paged attention if enabled
         if config.paged_attention {
-            builder = builder
-                .with_paged_attn(|| PagedAttentionMetaBuilder::default().build())
+            let paged_attention = PagedAttentionMetaBuilder::default()
+                .build()
                 .map_err(convert_anyhow_error)?;
+            builder = builder.with_paged_attn(paged_attention);
         }
 
         // Apply logging if enabled
@@ -157,7 +158,7 @@ impl MistralRsProvider {
         repo_id: &str,
         config: &MistralRsConfig,
     ) -> Result<mistralrs::Model, LLMError> {
-        let mut builder = VisionModelBuilder::new(repo_id.to_string());
+        let mut builder = MultimodalModelBuilder::new(repo_id.to_string());
 
         // Apply ISQ if specified
         if let Some(isq) = config.isq_type {
@@ -195,9 +196,10 @@ impl MistralRsProvider {
 
         // Apply paged attention if enabled
         if config.paged_attention {
-            builder = builder
-                .with_paged_attn(|| PagedAttentionMetaBuilder::default().build())
+            let paged_attention = PagedAttentionMetaBuilder::default()
+                .build()
                 .map_err(convert_anyhow_error)?;
+            builder = builder.with_paged_attn(paged_attention);
         }
 
         // Apply logging if enabled
@@ -254,8 +256,8 @@ impl MistralRsProvider {
         let request_builder = if tools.is_some() || json_schema.is_some() {
             build_request_builder(&all_messages, tools, json_schema)?
         } else if is_vision_model || has_images {
-            let vision_messages = convert_vision_messages(&all_messages, &self.model)
-                .map_err(convert_anyhow_error)?;
+            let vision_messages =
+                convert_vision_messages(&all_messages).map_err(convert_anyhow_error)?;
             RequestBuilder::from(vision_messages)
         } else {
             let text_messages = convert_messages(&all_messages);
@@ -868,8 +870,8 @@ impl ChatProvider for MistralRsProvider {
                 .map_err(convert_anyhow_error)?
         } else if is_vision_model || has_images {
             // Use vision messages for vision models or when images are present
-            let vision_messages = convert_vision_messages(&all_messages, &self.model)
-                .map_err(convert_anyhow_error)?;
+            let vision_messages =
+                convert_vision_messages(&all_messages).map_err(convert_anyhow_error)?;
             self.model
                 .send_chat_request(vision_messages)
                 .await

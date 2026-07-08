@@ -2,7 +2,7 @@
 
 use autoagents_llm::chat::{ChatMessage, ChatRole, MessageType};
 use autoagents_llm::{FunctionCall, ToolCall};
-use mistralrs::{TextMessageRole, TextMessages, ToolCallResponse, VisionMessages};
+use mistralrs::{MultimodalMessages, TextMessageRole, TextMessages, ToolCallResponse};
 use std::fmt;
 
 /// Response wrapper that implements ChatResponse trait
@@ -115,9 +115,8 @@ pub(crate) fn convert_messages(messages: &[ChatMessage]) -> TextMessages {
 /// Note: This function needs access to the model for proper image message handling
 pub(crate) fn convert_vision_messages(
     messages: &[ChatMessage],
-    model: &mistralrs::Model,
-) -> Result<VisionMessages, anyhow::Error> {
-    let mut vision_messages = VisionMessages::new();
+) -> Result<MultimodalMessages, anyhow::Error> {
+    let mut vision_messages = MultimodalMessages::new();
 
     for msg in messages {
         let role = convert_role(&msg.role);
@@ -135,7 +134,7 @@ pub(crate) fn convert_vision_messages(
 
                 // Add message with image
                 vision_messages =
-                    vision_messages.add_image_message(role, &msg.content, vec![image], model)?;
+                    vision_messages.add_image_message(role, &msg.content, vec![image]);
             }
             MessageType::ImageURL(_url) => {
                 // For now, just add as text message

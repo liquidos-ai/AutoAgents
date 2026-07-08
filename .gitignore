@@ -26,6 +26,7 @@ REPO_CONTEXT.md
 
 tarpaulin-report.html
 checkpoints
+reference/
 
 usls
 demo_models

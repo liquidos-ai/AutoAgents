@@ -44,6 +44,21 @@ impl LlamaCppProviderBuilder {
         self
     }
 
+    pub fn force_pure_content(mut self, force: bool) -> Self {
+        self.config_builder = self.config_builder.force_pure_content(force);
+        self
+    }
+
+    pub fn tokenizer_add_bos(mut self, add: bool) -> Self {
+        self.config_builder = self.config_builder.tokenizer_add_bos(add);
+        self
+    }
+
+    pub fn tokenizer_add_eos(mut self, add: bool) -> Self {
+        self.config_builder = self.config_builder.tokenizer_add_eos(add);
+        self
+    }
+
     /// Set reasoning extraction format.
     pub fn reasoning_format(mut self, format: crate::config::LlamaCppReasoningFormat) -> Self {
         self.config_builder = self.config_builder.reasoning_format(format);
@@ -116,6 +131,31 @@ impl LlamaCppProviderBuilder {
         self
     }
 
+    pub fn min_p(mut self, p: f32) -> Self {
+        self.config_builder = self.config_builder.min_p(p);
+        self
+    }
+
+    pub fn typical_p(mut self, p: f32) -> Self {
+        self.config_builder = self.config_builder.typical_p(p);
+        self
+    }
+
+    pub fn top_n_sigma(mut self, n: f32) -> Self {
+        self.config_builder = self.config_builder.top_n_sigma(n);
+        self
+    }
+
+    pub fn xtc(mut self, probability: f32, threshold: f32) -> Self {
+        self.config_builder = self.config_builder.xtc(probability, threshold);
+        self
+    }
+
+    pub fn dynatemp(mut self, range: f32, exponent: f32) -> Self {
+        self.config_builder = self.config_builder.dynatemp(range, exponent);
+        self
+    }
+
     /// Set frequency penalty.
     pub fn frequency_penalty(mut self, penalty: f32) -> Self {
         self.config_builder = self.config_builder.frequency_penalty(penalty);
@@ -137,6 +177,39 @@ impl LlamaCppProviderBuilder {
     /// Set sampling seed.
     pub fn seed(mut self, seed: u32) -> Self {
         self.config_builder = self.config_builder.seed(seed);
+        self
+    }
+
+    pub fn min_keep(mut self, min_keep: usize) -> Self {
+        self.config_builder = self.config_builder.min_keep(min_keep);
+        self
+    }
+
+    pub fn mirostat(mut self, mode: u8, tau: f32, eta: f32) -> Self {
+        self.config_builder = self.config_builder.mirostat(mode, tau, eta);
+        self
+    }
+
+    pub fn dry(
+        mut self,
+        multiplier: f32,
+        base: f32,
+        allowed_length: i32,
+        penalty_last_n: i32,
+        sequence_breakers: Vec<String>,
+    ) -> Self {
+        self.config_builder = self.config_builder.dry(
+            multiplier,
+            base,
+            allowed_length,
+            penalty_last_n,
+            sequence_breakers,
+        );
+        self
+    }
+
+    pub fn logit_bias(mut self, biases: Vec<(i32, f32)>) -> Self {
+        self.config_builder = self.config_builder.logit_bias(biases);
         self
     }
 
@@ -212,6 +285,44 @@ impl LlamaCppProviderBuilder {
         self
     }
 
+    pub fn add_generation_prompt(mut self, enable: bool) -> Self {
+        self.config_builder = self.config_builder.add_generation_prompt(enable);
+        self
+    }
+
+    pub fn continue_final_message(
+        mut self,
+        continuation: crate::config::LlamaCppChatContinuation,
+    ) -> Self {
+        self.config_builder = self.config_builder.continue_final_message(continuation);
+        self
+    }
+
+    pub fn tool_choice(mut self, choice: crate::config::LlamaCppToolChoice) -> Self {
+        self.config_builder = self.config_builder.tool_choice(choice);
+        self
+    }
+
+    pub fn tool_choice_function(mut self, name: impl Into<String>) -> Self {
+        self.config_builder = self.config_builder.tool_choice_function(name);
+        self
+    }
+
+    pub fn parallel_tool_calls(mut self, enable: bool) -> Self {
+        self.config_builder = self.config_builder.parallel_tool_calls(enable);
+        self
+    }
+
+    pub fn n_slots(mut self, n_slots: usize) -> Self {
+        self.config_builder = self.config_builder.n_slots(n_slots);
+        self
+    }
+
+    pub fn queue_capacity(mut self, capacity: usize) -> Self {
+        self.config_builder = self.config_builder.queue_capacity(capacity);
+        self
+    }
+
     /// Enable KV-cache prefix reuse across inference calls.
     ///
     /// When enabled, the provider persists the `LlamaContext` between calls and
@@ -232,7 +343,9 @@ impl LlamaCppProviderBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{LlamaCppReasoningFormat, LlamaCppSplitMode};
+    use crate::config::{
+        LlamaCppChatContinuation, LlamaCppReasoningFormat, LlamaCppSplitMode, LlamaCppToolChoice,
+    };
     use crate::models::ModelSource;
 
     #[test]
@@ -242,6 +355,9 @@ mod tests {
             .chat_template("chat")
             .system_prompt("system")
             .force_json_grammar(true)
+            .force_pure_content(true)
+            .tokenizer_add_bos(true)
+            .tokenizer_add_eos(true)
             .reasoning_format(LlamaCppReasoningFormat::Auto)
             .extra_body(serde_json::json!({
                 "chat_template_kwargs": {
@@ -258,10 +374,19 @@ mod tests {
             .temperature(0.2)
             .top_p(0.9)
             .top_k(42)
+            .min_p(0.05)
+            .typical_p(0.8)
+            .top_n_sigma(2.0)
+            .xtc(0.1, 0.5)
+            .dynatemp(0.2, 1.5)
             .frequency_penalty(0.1)
             .presence_penalty(0.2)
             .repeat_last_n(64)
             .seed(7)
+            .min_keep(2)
+            .mirostat(2, 5.0, 0.1)
+            .dry(0.8, 1.75, 2, 64, vec!["\n".to_string()])
+            .logit_bias(vec![(1, -1.0)])
             .n_ctx(2048)
             .n_batch(16)
             .n_ubatch(8)
@@ -271,13 +396,23 @@ mod tests {
             .main_gpu(1)
             .split_mode(LlamaCppSplitMode::Row)
             .use_mlock(true)
-            .devices(vec![0, 1]);
+            .devices(vec![0, 1])
+            .enable_thinking(true)
+            .add_generation_prompt(false)
+            .continue_final_message(LlamaCppChatContinuation::Content)
+            .tool_choice(LlamaCppToolChoice::Required)
+            .parallel_tool_calls(true)
+            .n_slots(2)
+            .queue_capacity(17);
 
         let config = builder.config_builder.build();
         assert_eq!(config.model_source, ModelSource::gguf("model.gguf"));
         assert_eq!(config.chat_template.as_deref(), Some("chat"));
         assert_eq!(config.system_prompt.as_deref(), Some("system"));
         assert!(config.force_json_grammar);
+        assert!(config.force_pure_content);
+        assert_eq!(config.tokenizer_add_bos, Some(true));
+        assert_eq!(config.tokenizer_add_eos, Some(true));
         assert_eq!(config.reasoning_format, Some(LlamaCppReasoningFormat::Auto));
         assert_eq!(
             config
@@ -298,10 +433,27 @@ mod tests {
         assert_eq!(config.temperature, Some(0.2));
         assert_eq!(config.top_p, Some(0.9));
         assert_eq!(config.top_k, Some(42));
+        assert_eq!(config.min_p, Some(0.05));
+        assert_eq!(config.typical_p, Some(0.8));
+        assert_eq!(config.top_n_sigma, Some(2.0));
+        assert_eq!(config.xtc_probability, Some(0.1));
+        assert_eq!(config.xtc_threshold, Some(0.5));
+        assert_eq!(config.dynatemp_range, Some(0.2));
+        assert_eq!(config.dynatemp_exponent, Some(1.5));
         assert_eq!(config.frequency_penalty, Some(0.1));
         assert_eq!(config.presence_penalty, Some(0.2));
         assert_eq!(config.repeat_last_n, Some(64));
         assert_eq!(config.seed, Some(7));
+        assert_eq!(config.min_keep, Some(2));
+        assert_eq!(config.mirostat, Some(2));
+        assert_eq!(config.mirostat_tau, Some(5.0));
+        assert_eq!(config.mirostat_eta, Some(0.1));
+        assert_eq!(config.dry_multiplier, Some(0.8));
+        assert_eq!(config.dry_base, Some(1.75));
+        assert_eq!(config.dry_allowed_length, Some(2));
+        assert_eq!(config.dry_penalty_last_n, Some(64));
+        assert_eq!(config.dry_sequence_breakers, Some(vec!["\n".to_string()]));
+        assert_eq!(config.logit_bias, Some(vec![(1, -1.0)]));
         assert_eq!(config.n_ctx, Some(2048));
         assert_eq!(config.n_batch, Some(16));
         assert_eq!(config.n_ubatch, Some(8));
@@ -312,5 +464,30 @@ mod tests {
         assert_eq!(config.split_mode, Some(LlamaCppSplitMode::Row));
         assert_eq!(config.use_mlock, Some(true));
         assert_eq!(config.devices, Some(vec![0, 1]));
+        assert_eq!(config.enable_thinking, Some(true));
+        assert!(!config.add_generation_prompt);
+        assert_eq!(
+            config.continue_final_message,
+            LlamaCppChatContinuation::Content
+        );
+        assert_eq!(config.tool_choice, LlamaCppToolChoice::Required);
+        assert_eq!(config.parallel_tool_calls, Some(true));
+        assert_eq!(config.scheduler.n_slots, 2);
+        assert_eq!(config.scheduler.queue_capacity, 17);
+    }
+
+    #[test]
+    fn builder_sets_named_tool_choice() {
+        let builder = LlamaCppProviderBuilder::default()
+            .model_path("model.gguf")
+            .tool_choice_function("lookup");
+        let config = builder.config_builder.build();
+
+        assert_eq!(
+            config.tool_choice,
+            LlamaCppToolChoice::Function {
+                name: "lookup".to_string()
+            }
+        );
     }
 }

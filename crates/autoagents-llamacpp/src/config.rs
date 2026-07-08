@@ -2,7 +2,8 @@
 
 use crate::models::ModelSource;
 use llama_cpp_2::model::params::LlamaSplitMode;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
+use serde_json::{Value, json};
 
 /// Serializable split mode wrapper for llama.cpp.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +40,112 @@ pub enum LlamaCppReasoningFormat {
     DeepseekLegacy,
 }
 
+/// Tool-call selection behavior for llama.cpp chat completions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LlamaCppToolChoice {
+    /// Let the model decide whether to call a tool.
+    Auto,
+    /// Force the model to call a tool when tools are provided.
+    Required,
+    /// Disable tool calls even when tools are provided.
+    None,
+    /// Force a specific function tool by name.
+    Function { name: String },
+}
+
+impl Serialize for LlamaCppToolChoice {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Auto => serializer.serialize_str("auto"),
+            Self::Required => serializer.serialize_str("required"),
+            Self::None => serializer.serialize_str("none"),
+            Self::Function { name } => json!({
+                "type": "function",
+                "function": {
+                    "name": name
+                }
+            })
+            .serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for LlamaCppToolChoice {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        match value {
+            Value::String(choice) => match choice.as_str() {
+                "auto" => Ok(Self::Auto),
+                "required" => Ok(Self::Required),
+                "none" => Ok(Self::None),
+                other => Err(de::Error::custom(format!(
+                    "unsupported llama.cpp tool_choice string `{other}`"
+                ))),
+            },
+            Value::Object(object) => {
+                let choice_type = object.get("type").and_then(Value::as_str);
+                if choice_type.is_some_and(|value| value != "function") {
+                    return Err(de::Error::custom(
+                        "llama.cpp tool_choice object type must be `function`",
+                    ));
+                }
+                let name = object
+                    .get("function")
+                    .and_then(|function| function.get("name"))
+                    .and_then(Value::as_str)
+                    .filter(|name| !name.trim().is_empty())
+                    .ok_or_else(|| {
+                        de::Error::custom("llama.cpp function tool_choice requires `function.name`")
+                    })?;
+                Ok(Self::Function {
+                    name: name.to_string(),
+                })
+            }
+            _ => Err(de::Error::custom(
+                "llama.cpp tool_choice must be `auto`, `required`, `none`, or a function object",
+            )),
+        }
+    }
+}
+
+/// Continuation behavior for the final chat message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LlamaCppChatContinuation {
+    /// Do not continue the final message.
+    None,
+    /// Match llama.cpp server auto mode.
+    Auto,
+    /// Continue the final message as assistant content.
+    Content,
+    /// Continue the final message as assistant reasoning.
+    Reasoning,
+}
+
+/// Embedded scheduler settings for llama.cpp inference.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct LlamaCppSchedulerConfig {
+    /// Maximum number of queued requests, excluding active requests.
+    pub queue_capacity: usize,
+    /// Number of concurrent inference slots.
+    pub n_slots: usize,
+}
+
+impl Default for LlamaCppSchedulerConfig {
+    fn default() -> Self {
+        Self {
+            queue_capacity: 1024,
+            n_slots: 1,
+        }
+    }
+}
+
 impl LlamaCppReasoningFormat {
     /// Convert to llama.cpp reasoning format string.
     pub fn as_str(self) -> Option<&'static str> {
@@ -46,7 +153,7 @@ impl LlamaCppReasoningFormat {
             Self::None => None,
             Self::Auto => Some("auto"),
             Self::Deepseek => Some("deepseek"),
-            Self::DeepseekLegacy => Some("deepseek_legacy"),
+            Self::DeepseekLegacy => Some("deepseek-legacy"),
         }
     }
 }
@@ -66,13 +173,36 @@ pub struct LlamaCppConfig {
     /// Force JSON grammar enforcement even without a structured output schema.
     pub force_json_grammar: bool,
 
+    /// Render and parse chat completions as pure assistant content.
+    ///
+    /// Mirrors llama.cpp server's `force_pure_content`: the prompt is rendered
+    /// without reasoning extraction, and generated text is not split into
+    /// reasoning/tool-call structures.
+    pub force_pure_content: bool,
+
+    /// Override the model tokenizer metadata that tells llama.cpp to add BOS
+    /// during chat tokenization.
+    ///
+    /// The upstream Rust binding does not expose `llama_vocab_get_add_bos`, so
+    /// this allows production deployments to mirror llama.cpp server behavior
+    /// for models that need exact duplicate-BOS stripping.
+    pub tokenizer_add_bos: Option<bool>,
+
+    /// Override the model tokenizer metadata that tells llama.cpp to add EOS
+    /// during chat tokenization.
+    ///
+    /// The upstream Rust binding does not expose `llama_vocab_get_add_eos`, so
+    /// this allows production deployments to mirror llama.cpp server behavior
+    /// for models that need exact duplicate-EOS stripping.
+    pub tokenizer_add_eos: Option<bool>,
+
     /// Reasoning extraction mode for structured `reasoning_content`.
     pub reasoning_format: Option<LlamaCppReasoningFormat>,
 
-    /// Optional `chat_template_kwargs` object passed to llama.cpp's OpenAI template API.
+    /// Optional provider-specific request metadata.
     ///
-    /// Expected shape:
-    /// `{ "chat_template_kwargs": { ... } }`
+    /// The llama.cpp backend consumes `chat_template_kwargs` from this object
+    /// when rendering Jinja chat templates.
     pub extra_body: Option<serde_json::Value>,
 
     /// Optional HuggingFace cache directory (defaults to HF_HOME or ~/.cache/huggingface/hub).
@@ -105,6 +235,27 @@ pub struct LlamaCppConfig {
     /// Top-k sampling parameter.
     pub top_k: Option<u32>,
 
+    /// Minimum-p sampling parameter.
+    pub min_p: Option<f32>,
+
+    /// Locally typical sampling parameter.
+    pub typical_p: Option<f32>,
+
+    /// Top-n-sigma sampling parameter.
+    pub top_n_sigma: Option<f32>,
+
+    /// XTC probability.
+    pub xtc_probability: Option<f32>,
+
+    /// XTC threshold.
+    pub xtc_threshold: Option<f32>,
+
+    /// Dynamic temperature range.
+    pub dynatemp_range: Option<f32>,
+
+    /// Dynamic temperature exponent.
+    pub dynatemp_exponent: Option<f32>,
+
     /// Repeat penalty (1.0 disables).
     pub repeat_penalty: Option<f32>,
 
@@ -119,6 +270,36 @@ pub struct LlamaCppConfig {
 
     /// RNG seed for sampling.
     pub seed: Option<u32>,
+
+    /// Minimum candidates to keep for samplers that support it.
+    pub min_keep: Option<usize>,
+
+    /// Mirostat mode: 1 = v1, 2 = v2.
+    pub mirostat: Option<u8>,
+
+    /// Mirostat target entropy.
+    pub mirostat_tau: Option<f32>,
+
+    /// Mirostat learning rate.
+    pub mirostat_eta: Option<f32>,
+
+    /// DRY repetition penalty multiplier.
+    pub dry_multiplier: Option<f32>,
+
+    /// DRY repetition penalty base.
+    pub dry_base: Option<f32>,
+
+    /// DRY allowed repeated length.
+    pub dry_allowed_length: Option<i32>,
+
+    /// DRY penalty lookback.
+    pub dry_penalty_last_n: Option<i32>,
+
+    /// DRY sequence breakers.
+    pub dry_sequence_breakers: Option<Vec<String>>,
+
+    /// Per-token logit biases.
+    pub logit_bias: Option<Vec<(i32, f32)>>,
 
     /// Context size override.
     pub n_ctx: Option<u32>,
@@ -152,12 +333,25 @@ pub struct LlamaCppConfig {
 
     /// Enable thinking/reasoning tokens in chat template.
     ///
-    /// When `true`, the model's Jinja template is told to emit thinking tokens
-    /// (e.g. Qwen3's `<think>` blocks). Pair with `reasoning_format` to extract
-    /// the thinking content into `reasoning_content`.
-    ///
-    /// Defaults to `false` for backward compatibility and lower latency.
+    /// This is passed as template context (`enable_thinking`) and is never
+    /// rewritten into model-specific prompt text.
     pub enable_thinking: Option<bool>,
+
+    /// Add the assistant generation prompt while rendering chat templates.
+    pub add_generation_prompt: bool,
+
+    /// Continue the final chat message instead of adding a new assistant
+    /// generation prompt.
+    pub continue_final_message: LlamaCppChatContinuation,
+
+    /// Tool-call choice behavior.
+    pub tool_choice: LlamaCppToolChoice,
+
+    /// Allow native parallel tool calls when the template supports them.
+    pub parallel_tool_calls: Option<bool>,
+
+    /// Embedded queue/slot scheduler configuration.
+    pub scheduler: LlamaCppSchedulerConfig,
 
     /// Enable KV-cache prefix reuse across inference calls.
     ///
@@ -185,6 +379,9 @@ impl Default for LlamaCppConfig {
             chat_template: None,
             system_prompt: None,
             force_json_grammar: false,
+            force_pure_content: false,
+            tokenizer_add_bos: None,
+            tokenizer_add_eos: None,
             reasoning_format: None,
             extra_body: None,
             model_dir: None,
@@ -197,11 +394,28 @@ impl Default for LlamaCppConfig {
             temperature: Some(0.7),
             top_p: None,
             top_k: None,
+            min_p: None,
+            typical_p: None,
+            top_n_sigma: None,
+            xtc_probability: None,
+            xtc_threshold: None,
+            dynatemp_range: None,
+            dynatemp_exponent: None,
             repeat_penalty: None,
             frequency_penalty: None,
             presence_penalty: None,
             repeat_last_n: None,
             seed: None,
+            min_keep: None,
+            mirostat: None,
+            mirostat_tau: None,
+            mirostat_eta: None,
+            dry_multiplier: None,
+            dry_base: None,
+            dry_allowed_length: None,
+            dry_penalty_last_n: None,
+            dry_sequence_breakers: None,
+            logit_bias: None,
             n_ctx: None,
             n_batch: None,
             n_ubatch: None,
@@ -213,6 +427,11 @@ impl Default for LlamaCppConfig {
             use_mlock: None,
             devices: None,
             enable_thinking: None,
+            add_generation_prompt: true,
+            continue_final_message: LlamaCppChatContinuation::None,
+            tool_choice: LlamaCppToolChoice::Auto,
+            parallel_tool_calls: None,
+            scheduler: LlamaCppSchedulerConfig::default(),
             context_reuse: false,
         }
     }
@@ -260,13 +479,33 @@ impl LlamaCppConfigBuilder {
         self
     }
 
+    /// Force pure-content chat rendering and response parsing.
+    pub fn force_pure_content(mut self, force: bool) -> Self {
+        self.config.force_pure_content = force;
+        self
+    }
+
+    /// Override whether chat tokenization should add BOS.
+    pub fn tokenizer_add_bos(mut self, add: bool) -> Self {
+        self.config.tokenizer_add_bos = Some(add);
+        self
+    }
+
+    /// Override whether chat tokenization should add EOS.
+    pub fn tokenizer_add_eos(mut self, add: bool) -> Self {
+        self.config.tokenizer_add_eos = Some(add);
+        self
+    }
+
     /// Set reasoning extraction format.
     pub fn reasoning_format(mut self, format: LlamaCppReasoningFormat) -> Self {
         self.config.reasoning_format = Some(format);
         self
     }
 
-    /// Set optional `chat_template_kwargs` payload for llama.cpp OpenAI template rendering.
+    /// Set optional provider-specific request metadata.
+    ///
+    /// `chat_template_kwargs` are merged into the Jinja chat-template context.
     pub fn extra_body(mut self, extra_body: impl Serialize) -> Self {
         self.config.extra_body = serde_json::to_value(extra_body).ok();
         self
@@ -332,6 +571,38 @@ impl LlamaCppConfigBuilder {
         self
     }
 
+    /// Set minimum-p sampling parameter.
+    pub fn min_p(mut self, p: f32) -> Self {
+        self.config.min_p = Some(p);
+        self
+    }
+
+    /// Set locally typical sampling parameter.
+    pub fn typical_p(mut self, p: f32) -> Self {
+        self.config.typical_p = Some(p);
+        self
+    }
+
+    /// Set top-n-sigma sampling parameter.
+    pub fn top_n_sigma(mut self, n: f32) -> Self {
+        self.config.top_n_sigma = Some(n);
+        self
+    }
+
+    /// Set XTC sampling parameters.
+    pub fn xtc(mut self, probability: f32, threshold: f32) -> Self {
+        self.config.xtc_probability = Some(probability);
+        self.config.xtc_threshold = Some(threshold);
+        self
+    }
+
+    /// Set dynamic temperature parameters.
+    pub fn dynatemp(mut self, range: f32, exponent: f32) -> Self {
+        self.config.dynatemp_range = Some(range);
+        self.config.dynatemp_exponent = Some(exponent);
+        self
+    }
+
     /// Set repeat penalty.
     pub fn repeat_penalty(mut self, penalty: f32) -> Self {
         self.config.repeat_penalty = Some(penalty);
@@ -359,6 +630,43 @@ impl LlamaCppConfigBuilder {
     /// Set sampling seed.
     pub fn seed(mut self, seed: u32) -> Self {
         self.config.seed = Some(seed);
+        self
+    }
+
+    /// Set the minimum number of candidates kept by supported samplers.
+    pub fn min_keep(mut self, min_keep: usize) -> Self {
+        self.config.min_keep = Some(min_keep);
+        self
+    }
+
+    /// Set mirostat sampling mode and parameters.
+    pub fn mirostat(mut self, mode: u8, tau: f32, eta: f32) -> Self {
+        self.config.mirostat = Some(mode);
+        self.config.mirostat_tau = Some(tau);
+        self.config.mirostat_eta = Some(eta);
+        self
+    }
+
+    /// Set DRY repetition sampling parameters.
+    pub fn dry(
+        mut self,
+        multiplier: f32,
+        base: f32,
+        allowed_length: i32,
+        penalty_last_n: i32,
+        sequence_breakers: Vec<String>,
+    ) -> Self {
+        self.config.dry_multiplier = Some(multiplier);
+        self.config.dry_base = Some(base);
+        self.config.dry_allowed_length = Some(allowed_length);
+        self.config.dry_penalty_last_n = Some(penalty_last_n);
+        self.config.dry_sequence_breakers = Some(sequence_breakers);
+        self
+    }
+
+    /// Set per-token logit bias values.
+    pub fn logit_bias(mut self, biases: Vec<(i32, f32)>) -> Self {
+        self.config.logit_bias = Some(biases);
         self
     }
 
@@ -423,8 +731,57 @@ impl LlamaCppConfigBuilder {
     }
 
     /// Enable or disable thinking/reasoning tokens in chat template.
+    ///
     pub fn enable_thinking(mut self, enable: bool) -> Self {
         self.config.enable_thinking = Some(enable);
+        self
+    }
+
+    /// Set whether chat templates should add an assistant generation prompt.
+    pub fn add_generation_prompt(mut self, enable: bool) -> Self {
+        self.config.add_generation_prompt = enable;
+        self
+    }
+
+    /// Set final-message continuation behavior.
+    pub fn continue_final_message(mut self, continuation: LlamaCppChatContinuation) -> Self {
+        self.config.continue_final_message = continuation;
+        self
+    }
+
+    /// Set tool-call choice behavior.
+    pub fn tool_choice(mut self, choice: LlamaCppToolChoice) -> Self {
+        self.config.tool_choice = choice;
+        self
+    }
+
+    /// Force a specific function tool by name.
+    pub fn tool_choice_function(mut self, name: impl Into<String>) -> Self {
+        self.config.tool_choice = LlamaCppToolChoice::Function { name: name.into() };
+        self
+    }
+
+    /// Enable or disable parallel tool calls when supported by the template.
+    pub fn parallel_tool_calls(mut self, enable: bool) -> Self {
+        self.config.parallel_tool_calls = Some(enable);
+        self
+    }
+
+    /// Set embedded scheduler configuration.
+    pub fn scheduler(mut self, scheduler: LlamaCppSchedulerConfig) -> Self {
+        self.config.scheduler = scheduler;
+        self
+    }
+
+    /// Set the number of embedded inference slots.
+    pub fn n_slots(mut self, n_slots: usize) -> Self {
+        self.config.scheduler.n_slots = n_slots.max(1);
+        self
+    }
+
+    /// Set embedded request queue capacity.
+    pub fn queue_capacity(mut self, capacity: usize) -> Self {
+        self.config.scheduler.queue_capacity = capacity;
         self
     }
 
@@ -467,6 +824,9 @@ mod tests {
         let config = LlamaCppConfigBuilder::default()
             .model_path("model.gguf")
             .force_json_grammar(true)
+            .force_pure_content(true)
+            .tokenizer_add_bos(true)
+            .tokenizer_add_eos(true)
             .reasoning_format(LlamaCppReasoningFormat::Deepseek)
             .extra_body(serde_json::json!({
                 "chat_template_kwargs": {
@@ -474,12 +834,20 @@ mod tests {
                 }
             }))
             .mmproj_use_gpu(true)
+            .continue_final_message(LlamaCppChatContinuation::Content)
             .split_mode(LlamaCppSplitMode::Layer)
             .use_mlock(true)
             .devices(vec![0, 1])
             .build();
 
         assert!(config.force_json_grammar);
+        assert!(config.force_pure_content);
+        assert_eq!(config.tokenizer_add_bos, Some(true));
+        assert_eq!(config.tokenizer_add_eos, Some(true));
+        assert_eq!(
+            config.continue_final_message,
+            LlamaCppChatContinuation::Content
+        );
         assert_eq!(
             config.reasoning_format,
             Some(LlamaCppReasoningFormat::Deepseek)
@@ -503,6 +871,58 @@ mod tests {
     fn test_config_default_reasoning_format_is_opt_in() {
         let config = LlamaCppConfig::default();
         assert_eq!(config.reasoning_format, None);
+        assert!(!config.force_pure_content);
+        assert_eq!(config.tokenizer_add_bos, None);
+        assert_eq!(config.tokenizer_add_eos, None);
+        assert_eq!(
+            config.continue_final_message,
+            LlamaCppChatContinuation::None
+        );
+    }
+
+    #[test]
+    fn test_tool_choice_serde_matches_openai_server_shape() {
+        assert_eq!(
+            serde_json::to_value(&LlamaCppToolChoice::Auto).expect("serialize auto"),
+            serde_json::json!("auto")
+        );
+        assert_eq!(
+            serde_json::from_value::<LlamaCppToolChoice>(serde_json::json!("required"))
+                .expect("deserialize required"),
+            LlamaCppToolChoice::Required
+        );
+
+        let named = LlamaCppToolChoice::Function {
+            name: "lookup".to_string(),
+        };
+        let value = serde_json::to_value(&named).expect("serialize named tool choice");
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "lookup"
+                }
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<LlamaCppToolChoice>(value).expect("deserialize named choice"),
+            named
+        );
+    }
+
+    #[test]
+    fn test_config_builder_named_tool_choice() {
+        let config = LlamaCppConfigBuilder::default()
+            .tool_choice_function("lookup")
+            .build();
+
+        assert_eq!(
+            config.tool_choice,
+            LlamaCppToolChoice::Function {
+                name: "lookup".to_string()
+            }
+        );
     }
 
     #[test]
