@@ -446,7 +446,12 @@ fn build_template_context(
         if key != "enable_thinking" {
             root_context.insert(key.clone(), value.clone());
         }
-        kwargs_object.insert(key, value);
+        let nested_value = if config.force_pure_content && key == "enable_thinking" {
+            Value::Bool(false)
+        } else {
+            value
+        };
+        kwargs_object.insert(key, nested_value);
     }
     root_context.insert("kwargs".to_string(), Value::Object(kwargs_object.clone()));
     root_context.insert("extra_context".to_string(), Value::Object(kwargs_object));
@@ -2066,6 +2071,36 @@ mod tests {
         assert_eq!(rendered.reasoning_format, None);
         assert_eq!(rendered.reasoning_start_tag, None);
         assert_eq!(rendered.reasoning_end_tag, None);
+    }
+
+    #[test]
+    fn force_pure_content_disables_nested_enable_thinking_context() {
+        let config = LlamaCppConfig {
+            force_pure_content: true,
+            enable_thinking: Some(true),
+            extra_body: Some(json!({
+                "chat_template_kwargs": {
+                    "enable_thinking": true
+                }
+            })),
+            ..Default::default()
+        };
+        let template = explicit_template_source(
+            "{% if enable_thinking %}<think>root{% endif %}{% if kwargs['enable_thinking'] %}<think>kwargs{% endif %}{% if extra_context['enable_thinking'] %}<think>extra{% endif %}{{ messages[0]['content'] }}",
+        );
+
+        let rendered = render_chat_template(
+            &config,
+            &template,
+            &[user_message("solve")],
+            None,
+            None,
+            None,
+            &empty_tokens(),
+        )
+        .expect("template should render");
+
+        assert_eq!(rendered.prompt, "solve");
     }
 
     #[test]
