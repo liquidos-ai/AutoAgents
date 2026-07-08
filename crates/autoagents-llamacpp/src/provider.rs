@@ -3851,7 +3851,7 @@ fn stream_delta_from_message_json(message_json: &str) -> Result<String, LlamaCpp
     }
 
     if delta.is_empty() {
-        return Ok(String::new());
+        return Ok(String::default());
     }
     serde_json::to_string(&Value::Object(delta))
         .map_err(|err| LlamaCppProviderError::Template(err.to_string()))
@@ -5472,12 +5472,12 @@ fn wrap_native_tool_payload_grammar(
     let start = if include_markers {
         gbnf_literal(start)
     } else {
-        String::new()
+        String::default()
     };
     let spacing = if include_markers { " tool-ws " } else { "" };
 
     let end = if end.is_empty() {
-        String::new()
+        String::default()
     } else {
         format!(" {}", gbnf_literal(end))
     };
@@ -5767,7 +5767,7 @@ fn decode_model_special_token(
     name: &str,
 ) -> Result<String, LLMError> {
     if token.0 < 0 {
-        return Ok(String::new());
+        return Ok(String::default());
     }
 
     let mut decoder = encoding_rs::UTF_8.new_decoder();
@@ -6559,12 +6559,11 @@ fn generation_prompt_grammar_prefill_for<'a>(
     SERVER_RESPONSE_MARKERS
         .iter()
         .filter(|marker| grammar.contains(&gbnf_literal(marker)))
-        .filter_map(|marker| {
+        .find_map(|marker| {
             generation_prompt
                 .find(marker)
                 .map(|index| &generation_prompt[index..])
         })
-        .next()
 }
 
 fn grammar_trigger_patterns(triggers: &[GrammarTrigger]) -> (Vec<String>, Vec<LlamaToken>) {
