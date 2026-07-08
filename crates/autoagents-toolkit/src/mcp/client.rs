@@ -371,17 +371,24 @@ impl McpToolsManager {
             }
         };
 
-        let peer_info = service.peer().peer_info().cloned().unwrap_or_default();
+        let peer_info = service.peer().peer_info();
+        let instructions = peer_info
+            .as_ref()
+            .and_then(|info| info.instructions.as_deref())
+            .map(str::trim)
+            .filter(|instructions| !instructions.is_empty())
+            .map(str::to_string);
+        let capabilities = peer_info
+            .as_ref()
+            .map(|info| info.capabilities.clone())
+            .unwrap_or_default();
 
         Ok(McpServerConnection {
             name: server_config.name.clone(),
             service,
             timeout,
-            instructions: peer_info
-                .instructions
-                .map(|instructions| instructions.trim().to_string())
-                .filter(|instructions| !instructions.is_empty()),
-            capabilities: peer_info.capabilities,
+            instructions,
+            capabilities,
         })
     }
 

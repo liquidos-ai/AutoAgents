@@ -12,13 +12,13 @@ This guide creates a minimal ReAct agent that can call a tool and return a struc
 
 ```toml
 [dependencies]
-autoagents = { version = "0.3.7", features = ["openai"] }
-autoagents-derive = "0.3.7"
+autoagents = { version = "0.4.0", features = ["openai"] }
+autoagents-derive = "0.4.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 async-trait = "0.1"
 # Optional if you want ready-made tools
-autoagents-toolkit = { version = "0.3.7", features = ["filesystem", "search"] }
+autoagents-toolkit = { version = "0.4.0", features = ["filesystem", "search"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
