@@ -2,4 +2,4 @@ error: `#[strict]` on AgentOutput structs must be a boolean literal, e.g. `#[str
  --> tests/ui/compile_fail/invalid_strict.rs:7:1
   |
 7 | #[strict("not-a-bool")]
-  | ^
+  | ^^^^^^^^^^^^^^^^^^^^^^^
