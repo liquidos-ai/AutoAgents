@@ -20,6 +20,7 @@ use crate::{
     },
 };
 use async_trait::async_trait;
+use chrono::DateTime;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -763,6 +764,12 @@ impl OllamaTagsModel {
         let id = self.name;
         let mut extra = self.extra;
 
+        let created = self
+            .modified_at
+            .as_deref()
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .and_then(|dt| u64::try_from(dt.timestamp()).ok());
+
         extra.insert("name".to_string(), Value::String(id.clone()));
 
         if let Some(model) = self.model {
@@ -787,7 +794,7 @@ impl OllamaTagsModel {
 
         StandardModelEntry {
             id,
-            created: None,
+            created,
             extra: Value::Object(extra),
         }
     }
@@ -1309,6 +1316,7 @@ mod tests {
         let raw = response.get_models_raw();
         assert_eq!(raw.len(), 1);
         assert_eq!(raw[0].get_id(), "llama3.3:latest");
+        assert_eq!(raw[0].get_created_at().timestamp(), 1735689600);
 
         let raw_json = raw[0].get_raw();
         assert_eq!(raw_json["size"], json!(42520413916u64));
