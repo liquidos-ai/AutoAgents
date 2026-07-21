@@ -15,7 +15,7 @@ use std::{collections::HashMap, marker::PhantomData};
 pub type ValidatorFn = dyn Fn(&str) -> Result<(), String> + Send + Sync + 'static;
 
 /// Supported LLM backend providers.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LLMBackend {
     /// OpenAI API provider (GPT-3, GPT-4, etc.)
     OpenAI,

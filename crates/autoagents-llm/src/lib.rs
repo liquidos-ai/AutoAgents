@@ -131,6 +131,15 @@ pub mod error;
 /// Shared configuration constants.
 pub mod config;
 
+/// Image generation provider traits and shared request/response types.
+pub mod image_generation;
+
+/// Convenient re-exports for image generation APIs.
+pub use image_generation::{
+    GeneratedImage, ImageGenerationProvider, ImageGenerationRequest, ImageGenerationResponse,
+    ImageInput,
+};
+
 /// Centralized HTTP response handling for provider backends.
 #[cfg(any(
     not(target_arch = "wasm32"),
