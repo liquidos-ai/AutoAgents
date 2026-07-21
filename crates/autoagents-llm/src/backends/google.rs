@@ -873,9 +873,11 @@ impl ImageGenerationProvider for Google {
         let mut body = serde_json::to_value(&req_body)?;
         merge_metadata(&mut body, request.metadata.as_ref());
 
-        let generation_config = body
+        let body_object = body
             .as_object_mut()
-            .expect("Google image request body must be an object")
+            .expect("Google image request body must be an object");
+
+        let generation_config = body_object
             .entry("generationConfig")
             .or_insert_with(|| serde_json::json!({}));
 
@@ -885,11 +887,11 @@ impl ImageGenerationProvider for Google {
 
         generation_config
             .as_object_mut()
-            .expect("generationConfig was normalized to an object")
+            .expect("generationConfig must be an object")
             .insert(
                 "responseModalities".to_string(),
                 serde_json::json!(["TEXT", "IMAGE"]),
-        );
+            );
 
         let url = self.model_endpoint_url(model, "generateContent")?;
 
@@ -1974,6 +1976,52 @@ mod tests {
             .generate_image(&request)
             .await
             .expect("image generation should succeed");
+
+        assert_eq!(response.images.len(), 1);
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_google_generate_image_normalizes_non_object_generation_config() {
+        use crate::image_generation::ImageGenerationRequest;
+
+        let server = MockServer::start();
+        let encoded = BASE64.encode([1u8, 2, 3]);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-test:generateContent")
+                .body_includes("\"responseModalities\":[\"TEXT\",\"IMAGE\"]");
+
+            then.status(200).json_body(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "inlineData": {
+                                "mimeType": "image/png",
+                                "data": encoded
+                            }
+                        }]
+                    }
+                }]
+            }));
+        });
+
+        let provider = test_google_provider(&server);
+
+        let request = ImageGenerationRequest {
+            prompt: "test".to_string(),
+            model: None,
+            input_images: None,
+            metadata: Some(json!({
+                "generationConfig": "invalid"
+            })),
+        };
+
+        let response = provider
+            .generate_image(&request)
+            .await
+            .expect("generationConfig should be normalized");
 
         assert_eq!(response.images.len(), 1);
         mock.assert();
