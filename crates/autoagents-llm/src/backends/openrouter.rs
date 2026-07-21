@@ -195,6 +195,22 @@ fn parse_image_data_url(url: &str) -> Result<(String, Vec<u8>), LLMError> {
     Ok((mime_type, data))
 }
 
+fn validate_openrouter_image_metadata(metadata: Option<&serde_json::Value>) -> Result<(), LLMError> {
+    const RESERVED_KEYS: &[&str] = &["model", "messages", "modalities"];
+
+    let Some(serde_json::Value::Object(map)) = metadata else {
+        return Ok(());
+    };
+
+    if let Some(key) = RESERVED_KEYS.iter().find(|key| map.contains_key(**key)) {
+        return Err(LLMError::invalid_request(format!(
+            "OpenRouter image generation metadata cannot override reserved request field `{key}`"
+        )));
+    }
+
+    Ok(())
+}
+
 #[async_trait]
 impl ImageGenerationProvider for OpenRouter {
     /// Generates one or more images from a prompt via OpenRouter's chat
@@ -258,8 +274,9 @@ impl ImageGenerationProvider for OpenRouter {
             "modalities": ["image", "text"],
         });
 
-        // Merge any caller-provided provider-specific options (e.g. OpenRouter
-        // routing preferences) into the top-level request body.
+        // Merge only provider-specific options. Core request fields are reserved because
+        // they were validated above and are required for image generation.
+        validate_openrouter_image_metadata(request.metadata.as_ref())?;
         merge_metadata(&mut body, request.metadata.as_ref());
 
         let url = self
@@ -633,6 +650,72 @@ mod tests {
             err,
             LLMError::InvalidRequest { message, .. }
                 if message == "Image generation prompt must not be empty"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_openrouter_generate_image_rejects_metadata_model_override() {
+        let server = MockServer::start();
+        let provider = test_openrouter_provider(&server);
+
+        let mut request = image_request("blocked model override");
+        request.metadata = Some(json!({
+            "model": "moonshotai/kimi-k2:free"
+        }));
+
+        let err = provider
+            .generate_image(&request)
+            .await
+            .expect_err("metadata model override should be rejected");
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest { message, .. }
+                if message.contains("reserved request field `model`")
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_openrouter_generate_image_rejects_metadata_modalities_override() {
+        let server = MockServer::start();
+        let provider = test_openrouter_provider(&server);
+
+        let mut request = image_request("blocked modalities override");
+        request.metadata = Some(json!({
+            "modalities": ["text"]
+        }));
+
+        let err = provider
+            .generate_image(&request)
+            .await
+            .expect_err("metadata modalities override should be rejected");
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest { message, .. }
+                if message.contains("reserved request field `modalities`")
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_openrouter_generate_image_rejects_metadata_messages_override() {
+        let server = MockServer::start();
+        let provider = test_openrouter_provider(&server);
+
+        let mut request = image_request("blocked messages override");
+        request.metadata = Some(json!({
+            "messages": []
+        }));
+
+        let err = provider
+            .generate_image(&request)
+            .await
+            .expect_err("metadata messages override should be rejected");
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest { message, .. }
+                if message.contains("reserved request field `messages`")
         ));
     }
 }
