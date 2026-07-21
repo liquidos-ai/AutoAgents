@@ -873,15 +873,23 @@ impl ImageGenerationProvider for Google {
         let mut body = serde_json::to_value(&req_body)?;
         merge_metadata(&mut body, request.metadata.as_ref());
 
-        if let Some(generation_config) = body
-            .get_mut("generationConfig")
-            .and_then(Value::as_object_mut)
-        {
-            generation_config.insert(
+        let generation_config = body
+            .as_object_mut()
+            .expect("Google image request body must be an object")
+            .entry("generationConfig")
+            .or_insert_with(|| serde_json::json!({}));
+
+        if !generation_config.is_object() {
+            *generation_config = serde_json::json!({});
+        }
+
+        generation_config
+            .as_object_mut()
+            .expect("generationConfig was normalized to an object")
+            .insert(
                 "responseModalities".to_string(),
                 serde_json::json!(["TEXT", "IMAGE"]),
-            );
-        }
+        );
 
         let url = self.model_endpoint_url(model, "generateContent")?;
 
@@ -1765,7 +1773,7 @@ mod tests {
     #[tokio::test]
     async fn test_google_generate_image_missing_api_key() {
         use crate::image_generation::ImageGenerationRequest;
-    
+
         let provider = Google::new(
             "",
             Some("gemini-test".to_string()),
