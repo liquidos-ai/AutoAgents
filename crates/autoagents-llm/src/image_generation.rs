@@ -29,12 +29,28 @@ pub struct ImageGenerationRequest {
 
 /// Merges caller-provided [`ImageGenerationRequest::metadata`] into a request body.
 ///
-/// When both `body` and `metadata` are JSON objects, each top-level metadata key
-/// is inserted into `body`, overriding any existing key. Anything else is a no-op.
+/// When both `body` and `metadata` are JSON objects, metadata keys are merged into
+/// the request body. Nested objects are merged recursively so provider defaults,
+/// such as generation config fields, are preserved.
 pub(crate) fn merge_metadata(body: &mut Value, metadata: Option<&Value>) {
-    if let (Some(obj), Some(Value::Object(extra))) = (body.as_object_mut(), metadata) {
-        for (key, value) in extra {
-            obj.insert(key.clone(), value.clone());
+    if let Some(Value::Object(extra)) = metadata {
+        merge_json_objects(body, extra);
+    }
+}
+
+fn merge_json_objects(body: &mut Value, extra: &serde_json::Map<String, Value>) {
+    let Some(body_obj) = body.as_object_mut() else {
+        return;
+    };
+
+    for (key, value) in extra {
+        match (body_obj.get_mut(key), value) {
+            (Some(existing @ Value::Object(_)), Value::Object(incoming)) => {
+                merge_json_objects(existing, incoming);
+            }
+            _ => {
+                body_obj.insert(key.clone(), value.clone());
+            }
         }
     }
 }
@@ -62,6 +78,33 @@ pub struct GeneratedImage {
 mod tests {
     use super::merge_metadata;
     use serde_json::json;
+
+    #[test]
+    fn test_merge_metadata_deep_merges_nested_objects() {
+        let mut body = json!({
+            "model": "gemini-image",
+            "generationConfig": {
+                "responseModalities": ["TEXT", "IMAGE"],
+                "temperature": 0.7
+            }
+        });
+
+        merge_metadata(
+            &mut body,
+            Some(&json!({
+                "generationConfig": {
+                    "aspectRatio": "1:1"
+                }
+            })),
+        );
+
+        assert_eq!(
+            body["generationConfig"]["responseModalities"],
+            json!(["TEXT", "IMAGE"])
+        );
+        assert_eq!(body["generationConfig"]["temperature"], json!(0.7));
+        assert_eq!(body["generationConfig"]["aspectRatio"], json!("1:1"));
+    }
 
     #[test]
     fn test_merge_metadata_inserts_and_overrides_keys() {

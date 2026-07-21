@@ -873,6 +873,16 @@ impl ImageGenerationProvider for Google {
         let mut body = serde_json::to_value(&req_body)?;
         merge_metadata(&mut body, request.metadata.as_ref());
 
+        if let Some(generation_config) = body
+            .get_mut("generationConfig")
+            .and_then(Value::as_object_mut)
+        {
+            generation_config.insert(
+                "responseModalities".to_string(),
+                serde_json::json!(["TEXT", "IMAGE"]),
+            );
+        }
+
         let url = self.model_endpoint_url(model, "generateContent")?;
 
         let resp = self
@@ -1869,6 +1879,58 @@ mod tests {
             LLMError::InvalidRequest { message, .. }
                 if message.contains("image-capable model")
         ));
+    }
+
+    #[tokio::test]
+    async fn test_google_generate_image_preserves_response_modalities_with_metadata_generation_config()
+     {
+        use crate::image_generation::ImageGenerationRequest;
+
+        let server = MockServer::start();
+        let encoded = BASE64.encode([1u8, 2, 3]);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-test:generateContent")
+                .header(GOOGLE_API_KEY_HEADER, "secret-key")
+                .body_includes("\"aspectRatio\":\"1:1\"")
+                .body_includes("\"responseModalities\":[\"TEXT\",\"IMAGE\"]");
+
+            then.status(200).json_body(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "inlineData": {
+                                "mimeType": "image/png",
+                                "data": encoded
+                            }
+                        }]
+                    }
+                }]
+            }));
+        });
+
+        let provider = test_google_provider(&server);
+
+        let request = ImageGenerationRequest {
+            prompt: "with generation config metadata".to_string(),
+            model: None,
+            input_images: None,
+            metadata: Some(json!({
+                "generationConfig": {
+                    "aspectRatio": "1:1",
+                    "responseModalities": ["TEXT"]
+                }
+            })),
+        };
+
+        let response = provider
+            .generate_image(&request)
+            .await
+            .expect("image generation should succeed");
+
+        assert_eq!(response.images.len(), 1);
+        mock.assert();
     }
 
     #[tokio::test]
