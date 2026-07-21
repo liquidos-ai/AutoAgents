@@ -1775,6 +1775,7 @@ mod tests {
             None,
             None,
         );
+
         provider.api_key = String::new();
 
         let request = ImageGenerationRequest {

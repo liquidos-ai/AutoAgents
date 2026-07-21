@@ -195,7 +195,9 @@ fn parse_image_data_url(url: &str) -> Result<(String, Vec<u8>), LLMError> {
     Ok((mime_type, data))
 }
 
-fn validate_openrouter_image_metadata(metadata: Option<&serde_json::Value>) -> Result<(), LLMError> {
+fn validate_openrouter_image_metadata(
+    metadata: Option<&serde_json::Value>,
+) -> Result<(), LLMError> {
     const RESERVED_KEYS: &[&str] = &["model", "messages", "modalities"];
 
     let Some(serde_json::Value::Object(map)) = metadata else {
