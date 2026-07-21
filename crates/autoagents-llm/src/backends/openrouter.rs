@@ -13,6 +13,7 @@ use crate::{
     error::LLMError,
     image_generation::{
         GeneratedImage, ImageGenerationProvider, ImageGenerationRequest, ImageGenerationResponse,
+        merge_metadata,
     },
     models::{ModelListRequest, ModelListResponse, ModelsProvider, StandardModelListResponse},
     providers::openai_compatible::{OpenAICompatibleProvider, OpenAIProviderConfig},
@@ -251,11 +252,15 @@ impl ImageGenerationProvider for OpenRouter {
             }
         }
 
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": model,
             "messages": [{ "role": "user", "content": content_parts }],
             "modalities": ["image", "text"],
         });
+
+        // Merge any caller-provided provider-specific options (e.g. OpenRouter
+        // routing preferences) into the top-level request body.
+        merge_metadata(&mut body, request.metadata.as_ref());
 
         let url = self
             .base_url
@@ -498,6 +503,35 @@ mod tests {
             mime_type: "image/png".to_string(),
             data: vec![0x01, 0x02, 0x03],
         }]);
+
+        let response = provider
+            .generate_image(&request)
+            .await
+            .expect("image generation should succeed");
+
+        assert_eq!(response.images.len(), 1);
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_openrouter_generate_image_merges_metadata_into_body() {
+        let server = MockServer::start();
+        let data_url = format!("data:image/png;base64,{}", BASE64.encode([1u8, 2, 3]));
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/api/v1/chat/completions")
+                // Caller-provided metadata key must appear in the request body.
+                .body_includes("marker-42");
+            then.status(200).json_body(json!({
+                "choices": [{
+                    "message": { "images": [{ "image_url": { "url": data_url } }] }
+                }]
+            }));
+        });
+        let provider = test_openrouter_provider(&server);
+
+        let mut request = image_request("with metadata");
+        request.metadata = Some(json!({ "provider": { "sort": "marker-42" } }));
 
         let response = provider
             .generate_image(&request)

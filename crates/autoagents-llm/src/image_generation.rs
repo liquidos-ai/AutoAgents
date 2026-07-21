@@ -20,8 +20,23 @@ pub struct ImageGenerationRequest {
     pub model: Option<String>,
     /// Optional input images for image-editing requests.
     pub input_images: Option<Vec<ImageInput>>,
-    /// Provider-specific request options passed through verbatim.
+    /// Optional provider-specific request options. When this is a JSON object,
+    /// its top-level keys are merged into the outgoing request body (overriding
+    /// defaults), letting callers set fields such as a provider's image count or
+    /// generation config. Non-object values are ignored.
     pub metadata: Option<Value>,
+}
+
+/// Merges caller-provided [`ImageGenerationRequest::metadata`] into a request body.
+///
+/// When both `body` and `metadata` are JSON objects, each top-level metadata key
+/// is inserted into `body`, overriding any existing key. Anything else is a no-op.
+pub(crate) fn merge_metadata(body: &mut Value, metadata: Option<&Value>) {
+    if let (Some(obj), Some(Value::Object(extra))) = (body.as_object_mut(), metadata) {
+        for (key, value) in extra {
+            obj.insert(key.clone(), value.clone());
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,4 +56,30 @@ pub struct GeneratedImage {
     pub mime_type: String,
     pub data: Vec<u8>,
     pub metadata: Value,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_metadata;
+    use serde_json::json;
+
+    #[test]
+    fn test_merge_metadata_inserts_and_overrides_keys() {
+        let mut body = json!({ "model": "m", "keep": 1 });
+        merge_metadata(
+            &mut body,
+            Some(&json!({ "extra": "x", "model": "override" })),
+        );
+        assert_eq!(body["extra"], json!("x"));
+        assert_eq!(body["model"], json!("override"));
+        assert_eq!(body["keep"], json!(1));
+    }
+
+    #[test]
+    fn test_merge_metadata_ignores_none_and_non_objects() {
+        let mut body = json!({ "a": 1 });
+        merge_metadata(&mut body, None);
+        merge_metadata(&mut body, Some(&json!("not-an-object")));
+        assert_eq!(body, json!({ "a": 1 }));
+    }
 }
