@@ -1765,9 +1765,9 @@ mod tests {
     #[tokio::test]
     async fn test_google_generate_image_missing_api_key() {
         use crate::image_generation::ImageGenerationRequest;
-
-        let mut provider = Google::new(
-            "secret-key",
+    
+        let provider = Google::new(
+            "",
             Some("gemini-test".to_string()),
             None,
             None,
@@ -1775,8 +1775,6 @@ mod tests {
             None,
             None,
         );
-
-        provider.api_key = String::new();
 
         let request = ImageGenerationRequest {
             prompt: "no key".to_string(),
