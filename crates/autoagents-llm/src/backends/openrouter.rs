@@ -199,8 +199,9 @@ impl ImageGenerationProvider for OpenRouter {
     /// Generates one or more images from a prompt via OpenRouter's chat
     /// completions endpoint with the `image` output modality.
     ///
-    /// Use an image-capable model (e.g. `google/gemini-2.5-flash-image`) via
-    /// `request.model`; the provider default model is a text model.
+    /// Requires an image-capable model (e.g. `google/gemini-2.5-flash-image`)
+    /// via `request.model` or the provider's configured model; the text default
+    /// model is rejected with [`LLMError::InvalidRequest`].
     async fn generate_image(
         &self,
         request: &ImageGenerationRequest,
@@ -218,6 +219,18 @@ impl ImageGenerationProvider for OpenRouter {
         }
 
         let model = request.model.as_deref().unwrap_or(&self.model);
+
+        // The provider's default model is a text model that cannot produce
+        // images. Reject it explicitly instead of sending an image request that
+        // OpenRouter would reject with an opaque HTTP error.
+        if model == OpenRouterConfig::DEFAULT_MODEL {
+            return Err(LLMError::invalid_request(
+                "OpenRouter image generation requires an image-capable model; set \
+                 request.model (e.g. \"google/gemini-2.5-flash-image\") — the provider \
+                 default is a text model that cannot generate images"
+                    .to_string(),
+            ));
+        }
 
         // Prompt text first, followed by any input images as data-URL parts.
         let mut content_parts = vec![serde_json::json!({
@@ -372,8 +385,6 @@ mod tests {
             prompt: prompt.to_string(),
             model: None,
             input_images: None,
-            n: None,
-            aspect_ratio: None,
             metadata: None,
         }
     }
@@ -539,6 +550,39 @@ mod tests {
             LLMError::ProviderError(message) if message == "No image returned by OpenRouter"
         ));
         mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_openrouter_generate_image_rejects_default_text_model() {
+        // Provider built with the default (text) model and no request override.
+        let provider = OpenRouter::with_config(
+            "secret-key",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let err = provider
+            .generate_image(&image_request("a cat"))
+            .await
+            .expect_err("default text model should be rejected");
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest { message, .. }
+                if message.contains("image-capable model")
+        ));
     }
 
     #[tokio::test]

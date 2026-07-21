@@ -14,11 +14,13 @@ pub trait ImageGenerationProvider {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageGenerationRequest {
+    /// Text prompt describing the image to generate (or the edit to apply).
     pub prompt: String,
+    /// Optional model override; falls back to the provider's configured model.
     pub model: Option<String>,
+    /// Optional input images for image-editing requests.
     pub input_images: Option<Vec<ImageInput>>,
-    pub n: Option<u32>,
-    pub aspect_ratio: Option<String>,
+    /// Provider-specific request options passed through verbatim.
     pub metadata: Option<Value>,
 }
 

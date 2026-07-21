@@ -104,6 +104,7 @@ enum GoogleContentPart<'a> {
 
 #[derive(Serialize)]
 struct GoogleInlineData {
+    #[serde(rename = "mimeType")]
     mime_type: String,
     data: String,
 }
@@ -1638,8 +1639,6 @@ mod tests {
             prompt: "a red apple".to_string(),
             model: None,
             input_images: None,
-            n: None,
-            aspect_ratio: None,
             metadata: None,
         };
 
@@ -1682,8 +1681,6 @@ mod tests {
             prompt: "an override".to_string(),
             model: Some("gemini-image-test".to_string()),
             input_images: None,
-            n: None,
-            aspect_ratio: None,
             metadata: None,
         };
 
@@ -1708,7 +1705,7 @@ mod tests {
                 .header(GOOGLE_API_KEY_HEADER, "secret-key")
                 // The request body should carry the input image as an inlineData part.
                 .body_includes("inlineData")
-                .body_includes("mime_type");
+                .body_includes("mimeType");
             then.status(200).json_body(json!({
                 "candidates": [{
                     "content": {
@@ -1728,8 +1725,6 @@ mod tests {
                 mime_type: "image/png".to_string(),
                 data: vec![0x01, 0x02, 0x03],
             }]),
-            n: None,
-            aspect_ratio: None,
             metadata: None,
         };
 
@@ -1761,8 +1756,6 @@ mod tests {
             prompt: "no key".to_string(),
             model: None,
             input_images: None,
-            n: None,
-            aspect_ratio: None,
             metadata: None,
         };
 
@@ -1797,8 +1790,6 @@ mod tests {
             prompt: "text only".to_string(),
             model: None,
             input_images: None,
-            n: None,
-            aspect_ratio: None,
             metadata: None,
         };
 
@@ -1825,8 +1816,6 @@ mod tests {
             prompt: "   ".to_string(),
             model: None,
             input_images: None,
-            n: None,
-            aspect_ratio: None,
             metadata: None,
         };
 
