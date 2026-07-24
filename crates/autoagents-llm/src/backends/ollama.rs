@@ -4,7 +4,7 @@
 
 use crate::{
     FunctionCall, ToolCall,
-    builder::LLMBuilder,
+    builder::{LLMBackend, LLMBuilder},
     chat::{
         ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StructuredOutputFormat,
         Tool,
@@ -14,12 +14,16 @@ use crate::{
     embedding::{EmbeddingBuilder, EmbeddingProvider},
     error::LLMError,
     http::ensure_success,
-    models::ModelsProvider,
+    models::{
+        ModelListRequest, ModelListResponse, ModelsProvider, StandardModelEntry,
+        StandardModelListResponse, StandardModelListResponseInner,
+    },
 };
 use async_trait::async_trait;
+use chrono::DateTime;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::sync::Arc;
 
 /// Provider-specific configuration for the Ollama backend.
@@ -682,12 +686,118 @@ impl EmbeddingProvider for Ollama {
 }
 
 #[async_trait]
-impl ModelsProvider for Ollama {}
+impl ModelsProvider for Ollama {
+    async fn list_models(
+        &self,
+        request: Option<&ModelListRequest>,
+    ) -> Result<Box<dyn ModelListResponse>, LLMError> {
+        if self.base_url.is_empty() {
+            return Err(LLMError::invalid_request("Missing base_url".to_string()));
+        }
+
+        let url = format!("{}/api/tags", self.base_url.trim_end_matches('/'));
+
+        let mut req = self.client.get(&url);
+
+        if let Some(api_key) = &self.api_key {
+            req = req.bearer_auth(api_key);
+        }
+
+        let resp = req.send().await?;
+        let resp = ensure_success(resp, "Ollama").await?;
+        let tags_response = resp.json::<OllamaTagsResponse>().await?;
+
+        let mut data: Vec<StandardModelEntry> = tags_response
+            .models
+            .into_iter()
+            .map(OllamaTagsModel::into_standard_entry)
+            .collect();
+
+        if let Some(filter) = request.and_then(|r| r.filter.as_ref()) {
+            data.retain(|entry| entry.id.contains(filter));
+        }
+
+        Ok(Box::new(StandardModelListResponse {
+            inner: StandardModelListResponseInner { data },
+            backend: LLMBackend::Ollama,
+        }))
+    }
+}
 
 impl crate::LLMProvider for Ollama {}
 
 impl crate::HasConfig for Ollama {
     type Config = OllamaConfig;
+}
+
+#[derive(Deserialize, Debug)]
+struct OllamaTagsResponse {
+    #[serde(default)]
+    models: Vec<OllamaTagsModel>,
+}
+
+#[derive(Deserialize, Debug)]
+struct OllamaTagsModel {
+    name: String,
+
+    #[serde(default)]
+    model: Option<String>,
+
+    #[serde(default)]
+    modified_at: Option<String>,
+
+    #[serde(default)]
+    size: Option<u64>,
+
+    #[serde(default)]
+    digest: Option<String>,
+
+    #[serde(default)]
+    details: Option<Value>,
+
+    #[serde(flatten)]
+    extra: Map<String, Value>,
+}
+
+impl OllamaTagsModel {
+    fn into_standard_entry(self) -> StandardModelEntry {
+        let id = self.name;
+        let mut extra = self.extra;
+
+        let created = self
+            .modified_at
+            .as_deref()
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .and_then(|dt| u64::try_from(dt.timestamp()).ok());
+
+        extra.insert("name".to_string(), Value::String(id.clone()));
+
+        if let Some(model) = self.model {
+            extra.insert("model".to_string(), Value::String(model));
+        }
+
+        if let Some(modified_at) = self.modified_at {
+            extra.insert("modified_at".to_string(), Value::String(modified_at));
+        }
+
+        if let Some(size) = self.size {
+            extra.insert("size".to_string(), Value::Number(size.into()));
+        }
+
+        if let Some(digest) = self.digest {
+            extra.insert("digest".to_string(), Value::String(digest));
+        }
+
+        if let Some(details) = self.details {
+            extra.insert("details".to_string(), details);
+        }
+
+        StandardModelEntry {
+            id,
+            created,
+            extra: Value::Object(extra),
+        }
+    }
 }
 
 impl LLMBuilder<Ollama> {
@@ -825,7 +935,10 @@ impl EmbeddingBuilder<Ollama> {
 mod tests {
     use super::*;
     use crate::chat::{FunctionTool, Tool};
-    use httpmock::{Method::POST, MockServer};
+    use httpmock::{
+        Method::{GET, POST},
+        MockServer,
+    };
     use serde_json::json;
 
     #[test]
@@ -1090,6 +1203,10 @@ mod tests {
             provider.embed(vec!["hello".to_string()]).await,
             Err(LLMError::InvalidRequest { message, .. }) if message == "Missing base_url"
         ));
+        assert!(matches!(
+            provider.list_models(None).await,
+            Err(LLMError::InvalidRequest { message, .. }) if message == "Missing base_url"
+        ));
 
         let server = MockServer::start();
         let provider = Ollama::new(
@@ -1137,6 +1254,126 @@ mod tests {
         assert!(
             matches!(err, LLMError::ProviderError(message) if message == "No answer returned by Ollama")
         );
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_ollama_list_models_use_mock_server() {
+        let server = MockServer::start();
+
+        let provider = Ollama::new(
+            server.base_url(),
+            Some("test-key".to_string()),
+            Some("llama3.2".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/tags")
+                .header("authorization", "Bearer test-key");
+
+            then.status(200).json_body(json!({
+                "models": [
+                    {
+                        "name": "llama3.3:latest",
+                        "model": "llama3.3:latest",
+                        "modified_at": "2025-01-01T00:00:00Z",
+                        "size": 42520413916u64,
+                        "digest": "sha256:test",
+                        "details": {
+                            "parameter_size": "70.6B",
+                            "quantization_level": "Q4_K_M"
+                        }
+                    }
+                ]
+            }));
+        });
+
+        let response = provider
+            .list_models(None)
+            .await
+            .expect("list_models should succeed");
+
+        assert_eq!(response.get_backend(), "ollama");
+        assert_eq!(response.get_models(), vec!["llama3.3:latest".to_string()]);
+
+        let raw = response.get_models_raw();
+        assert_eq!(raw.len(), 1);
+        assert_eq!(raw[0].get_id(), "llama3.3:latest");
+        assert_eq!(raw[0].get_created_at().timestamp(), 1735689600);
+
+        let raw_json = raw[0].get_raw();
+        assert_eq!(raw_json["size"], json!(42520413916u64));
+        assert_eq!(raw_json["details"]["parameter_size"], "70.6B");
+        assert_eq!(raw_json["details"]["quantization_level"], "Q4_K_M");
+
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_ollama_list_models_applies_filter() {
+        let server = MockServer::start();
+
+        let provider = Ollama::new(
+            server.base_url(),
+            None,
+            Some("llama3.2".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/api/tags");
+
+            then.status(200).json_body(json!({
+                "models": [
+                    { "name": "llama3.3:latest" },
+                    { "name": "mistral:latest" }
+                ]
+            }));
+        });
+
+        let request = ModelListRequest {
+            filter: Some("llama".to_string()),
+        };
+
+        let response = provider
+            .list_models(Some(&request))
+            .await
+            .expect("list_models should succeed");
+
+        assert_eq!(response.get_models(), vec!["llama3.3:latest".to_string()]);
+
         mock.assert();
     }
 
