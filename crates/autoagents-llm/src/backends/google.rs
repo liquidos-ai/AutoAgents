@@ -15,7 +15,7 @@
 
 use crate::{
     FunctionCall, LLMProvider, ToolCall,
-    builder::LLMBuilder,
+    builder::{LLMBackend, LLMBuilder},
     chat::{
         ChatMessage, ChatProvider, ChatResponse, ChatRole, MessageType, StructuredOutputFormat,
         Tool,
@@ -25,6 +25,10 @@ use crate::{
     embedding::{EmbeddingBuilder, EmbeddingProvider},
     error::LLMError,
     http::ensure_success,
+    image_generation::{
+        GeneratedImage, ImageGenerationProvider, ImageGenerationRequest, ImageGenerationResponse,
+        merge_metadata,
+    },
     models::ModelsProvider,
 };
 use async_trait::async_trait;
@@ -37,6 +41,8 @@ use std::sync::Arc;
 
 const DEFAULT_GOOGLE_API_BASE_URL: &str = "https://generativelanguage.googleapis.com";
 const GOOGLE_API_KEY_HEADER: &str = "x-goog-api-key";
+/// Default (text) chat model; cannot generate images.
+const DEFAULT_GOOGLE_MODEL: &str = "gemini-1.5-flash";
 
 /// Client for interacting with Google's Gemini API.
 ///
@@ -101,6 +107,7 @@ enum GoogleContentPart<'a> {
 
 #[derive(Serialize)]
 struct GoogleInlineData {
+    #[serde(rename = "mimeType")]
     mime_type: String,
     data: String,
 }
@@ -475,7 +482,7 @@ impl Google {
             .expect("Failed to build reqwest Client");
         Self {
             api_key: api_key.into(),
-            model: model.unwrap_or_else(|| "gemini-1.5-flash".to_string()),
+            model: model.unwrap_or_else(|| DEFAULT_GOOGLE_MODEL.to_string()),
             max_tokens,
             temperature,
             timeout_seconds,
@@ -740,6 +747,206 @@ impl EmbeddingProvider for Google {
         }
 
         Ok(embeddings)
+    }
+}
+
+/// Request body for Gemini image generation via the `generateContent` endpoint.
+#[derive(Serialize)]
+struct GoogleImageRequest<'a> {
+    /// Prompt text and any input image parts.
+    contents: Vec<GoogleChatContent<'a>>,
+    /// Generation config requesting image output.
+    #[serde(rename = "generationConfig")]
+    generation_config: GoogleImageGenerationConfig,
+}
+
+/// Generation config that asks Gemini to return image (and text) modalities.
+#[derive(Serialize)]
+struct GoogleImageGenerationConfig {
+    /// Requested response modalities, e.g. `["TEXT", "IMAGE"]`.
+    #[serde(rename = "responseModalities")]
+    response_modalities: Vec<String>,
+}
+
+/// Response body for a Gemini image generation request.
+#[derive(Deserialize, Debug)]
+struct GoogleImageResponse {
+    /// Generated candidates; each may carry inline image data.
+    #[serde(default)]
+    candidates: Vec<GoogleImageCandidate>,
+}
+
+/// Individual image generation candidate.
+#[derive(Deserialize, Debug)]
+struct GoogleImageCandidate {
+    /// Content block containing the response parts.
+    content: GoogleImageContent,
+}
+
+/// Content block within an image generation candidate.
+#[derive(Deserialize, Debug)]
+struct GoogleImageContent {
+    /// Parts making up the content (text and/or inline image data).
+    #[serde(default)]
+    parts: Vec<GoogleImagePart>,
+}
+
+/// A single part of an image generation response.
+#[derive(Deserialize, Debug)]
+struct GoogleImagePart {
+    /// Inline image data, when this part carries a generated image.
+    /// Gemini returns `inlineData`; the `inline_data` alias covers snake_case payloads.
+    #[serde(default, rename = "inlineData", alias = "inline_data")]
+    inline_data: Option<GoogleInlineImageData>,
+}
+
+/// Base64-encoded inline image data returned by Gemini.
+#[derive(Deserialize, Debug)]
+struct GoogleInlineImageData {
+    /// MIME type of the image (e.g. `image/png`).
+    #[serde(default, rename = "mimeType", alias = "mime_type")]
+    mime_type: Option<String>,
+    /// Base64-encoded image bytes.
+    data: String,
+}
+
+#[async_trait]
+impl ImageGenerationProvider for Google {
+    /// Generates one or more images from a prompt using Gemini's
+    /// `generateContent` endpoint with image response modality.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - Prompt, optional model override and optional input images
+    ///
+    /// # Returns
+    ///
+    /// The generated images (with preserved MIME types) or an error
+    async fn generate_image(
+        &self,
+        request: &ImageGenerationRequest,
+    ) -> Result<ImageGenerationResponse, LLMError> {
+        if self.api_key.is_empty() {
+            return Err(LLMError::missing_api_key(
+                "Missing Google API key".to_string(),
+            ));
+        }
+
+        if request.prompt.trim().is_empty() {
+            return Err(LLMError::invalid_request(
+                "Image generation prompt must not be empty".to_string(),
+            ));
+        }
+
+        let model = request.model.as_deref().unwrap_or(&self.model);
+
+        if model == DEFAULT_GOOGLE_MODEL {
+            return Err(LLMError::invalid_request(
+                "Google image generation requires an image-capable model; set request.model \
+                 (e.g. \"gemini-2.5-flash-image\") — the provider default is a text model \
+                 that cannot generate images"
+                    .to_string(),
+            ));
+        }
+
+        // Prompt text first, followed by any input images as inline data parts.
+        let mut parts: Vec<GoogleContentPart<'_>> = vec![GoogleContentPart::Text(&request.prompt)];
+        if let Some(input_images) = &request.input_images {
+            for image in input_images {
+                parts.push(GoogleContentPart::InlineData(GoogleInlineData {
+                    mime_type: image.mime_type.clone(),
+                    data: BASE64.encode(&image.data),
+                }));
+            }
+        }
+
+        let req_body = GoogleImageRequest {
+            contents: vec![GoogleChatContent {
+                role: "user",
+                parts,
+            }],
+            generation_config: GoogleImageGenerationConfig {
+                response_modalities: vec!["TEXT".to_string(), "IMAGE".to_string()],
+            },
+        };
+
+        let mut body = serde_json::to_value(&req_body)?;
+        merge_metadata(&mut body, request.metadata.as_ref());
+
+        let body_object = body
+            .as_object_mut()
+            .expect("Google image request body must be an object");
+
+        let generation_config = body_object
+            .entry("generationConfig")
+            .or_insert_with(|| serde_json::json!({}));
+
+        if !generation_config.is_object() {
+            *generation_config = serde_json::json!({});
+        }
+
+        generation_config
+            .as_object_mut()
+            .expect("generationConfig must be an object")
+            .insert(
+                "responseModalities".to_string(),
+                serde_json::json!(["TEXT", "IMAGE"]),
+            );
+
+        let url = self.model_endpoint_url(model, "generateContent")?;
+
+        let resp = self
+            .client
+            .post(url)
+            .header(GOOGLE_API_KEY_HEADER, &self.api_key)
+            .json(&body)
+            .send()
+            .await?;
+
+        log::debug!("Google Gemini image HTTP status: {}", resp.status());
+
+        let resp = ensure_success(resp, "Google").await?;
+        let resp_text = resp.text().await?;
+
+        let json_resp: GoogleImageResponse =
+            serde_json::from_str(&resp_text).map_err(|e| LLMError::ResponseFormatError {
+                message: format!("Failed to decode Google image response: {e}"),
+                raw_response: resp_text.clone(),
+            })?;
+
+        let mut images = Vec::new();
+        for candidate in &json_resp.candidates {
+            for part in &candidate.content.parts {
+                if let Some(inline) = &part.inline_data {
+                    let data = BASE64.decode(inline.data.as_bytes()).map_err(|e| {
+                        LLMError::ResponseFormatError {
+                            message: format!("Failed to base64-decode Google image data: {e}"),
+                            raw_response: resp_text.clone(),
+                        }
+                    })?;
+                    let mime_type = inline
+                        .mime_type
+                        .clone()
+                        .unwrap_or_else(|| "image/png".to_string());
+                    images.push(GeneratedImage {
+                        mime_type,
+                        data,
+                        metadata: serde_json::json!({ "model": model }),
+                    });
+                }
+            }
+        }
+
+        if images.is_empty() {
+            return Err(LLMError::ProviderError(
+                "No image returned by Google".to_string(),
+            ));
+        }
+
+        Ok(ImageGenerationResponse {
+            images,
+            backend: LLMBackend::Google,
+        })
     }
 }
 
@@ -1434,6 +1641,389 @@ mod tests {
             .expect("embedding should succeed");
 
         assert_eq!(embeddings, vec![vec![0.1, 0.2]]);
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_google_generate_image_sends_api_key_header() {
+        use crate::image_generation::ImageGenerationRequest;
+
+        let server = MockServer::start();
+        let expected_bytes = vec![0x89, 0x50, 0x4e, 0x47];
+        let encoded = BASE64.encode(&expected_bytes);
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-test:generateContent")
+                .header(GOOGLE_API_KEY_HEADER, "secret-key");
+            then.status(200).json_body(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "inlineData": {
+                                "mimeType": "image/png",
+                                "data": encoded
+                            }
+                        }]
+                    }
+                }]
+            }));
+        });
+        let provider = test_google_provider(&server);
+
+        let request = ImageGenerationRequest {
+            prompt: "a red apple".to_string(),
+            model: None,
+            input_images: None,
+            metadata: None,
+        };
+
+        let response = provider
+            .generate_image(&request)
+            .await
+            .expect("image generation should succeed");
+
+        assert_eq!(response.images.len(), 1);
+        assert_eq!(response.backend, LLMBackend::Google);
+        assert_eq!(response.images[0].mime_type, "image/png");
+        assert_eq!(response.images[0].data, expected_bytes);
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_google_generate_image_uses_request_model_override() {
+        use crate::image_generation::ImageGenerationRequest;
+
+        let server = MockServer::start();
+        let encoded = BASE64.encode([1u8, 2, 3]);
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-image-test:generateContent")
+                .header(GOOGLE_API_KEY_HEADER, "secret-key");
+            then.status(200).json_body(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "inlineData": { "mimeType": "image/png", "data": encoded }
+                        }]
+                    }
+                }]
+            }));
+        });
+        // Provider default model is gemini-test; request overrides it.
+        let provider = test_google_provider(&server);
+
+        let request = ImageGenerationRequest {
+            prompt: "an override".to_string(),
+            model: Some("gemini-image-test".to_string()),
+            input_images: None,
+            metadata: None,
+        };
+
+        let response = provider
+            .generate_image(&request)
+            .await
+            .expect("image generation should succeed");
+
+        assert_eq!(response.images.len(), 1);
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_google_generate_image_supports_input_images() {
+        use crate::image_generation::{ImageGenerationRequest, ImageInput};
+
+        let server = MockServer::start();
+        let encoded = BASE64.encode([9u8, 9, 9]);
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-test:generateContent")
+                .header(GOOGLE_API_KEY_HEADER, "secret-key")
+                // The request body should carry the input image as an inlineData part.
+                .body_includes("inlineData")
+                .body_includes("mimeType");
+            then.status(200).json_body(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "inlineData": { "mimeType": "image/png", "data": encoded }
+                        }]
+                    }
+                }]
+            }));
+        });
+        let provider = test_google_provider(&server);
+
+        let request = ImageGenerationRequest {
+            prompt: "edit this".to_string(),
+            model: None,
+            input_images: Some(vec![ImageInput {
+                mime_type: "image/png".to_string(),
+                data: vec![0x01, 0x02, 0x03],
+            }]),
+            metadata: None,
+        };
+
+        let response = provider
+            .generate_image(&request)
+            .await
+            .expect("image generation should succeed");
+
+        assert_eq!(response.images.len(), 1);
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_google_generate_image_missing_api_key() {
+        use crate::image_generation::ImageGenerationRequest;
+
+        let provider = Google::new(
+            "",
+            Some("gemini-test".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let request = ImageGenerationRequest {
+            prompt: "no key".to_string(),
+            model: None,
+            input_images: None,
+            metadata: None,
+        };
+
+        let err = provider
+            .generate_image(&request)
+            .await
+            .expect_err("missing api key should error");
+
+        assert!(matches!(err, LLMError::AuthError { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_google_generate_image_returns_error_when_no_image() {
+        use crate::image_generation::ImageGenerationRequest;
+
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-test:generateContent")
+                .header(GOOGLE_API_KEY_HEADER, "secret-key");
+            then.status(200).json_body(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{ "text": "here is your image" }]
+                    }
+                }]
+            }));
+        });
+        let provider = test_google_provider(&server);
+
+        let request = ImageGenerationRequest {
+            prompt: "text only".to_string(),
+            model: None,
+            input_images: None,
+            metadata: None,
+        };
+
+        let err = provider
+            .generate_image(&request)
+            .await
+            .expect_err("response without image should error");
+
+        assert!(matches!(
+            err,
+            LLMError::ProviderError(message) if message == "No image returned by Google"
+        ));
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_google_generate_image_rejects_empty_prompt() {
+        use crate::image_generation::ImageGenerationRequest;
+
+        let server = MockServer::start();
+        let provider = test_google_provider(&server);
+
+        let request = ImageGenerationRequest {
+            prompt: "   ".to_string(),
+            model: None,
+            input_images: None,
+            metadata: None,
+        };
+
+        let err = provider
+            .generate_image(&request)
+            .await
+            .expect_err("empty prompt should error");
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest { message, .. }
+                if message == "Image generation prompt must not be empty"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_google_generate_image_rejects_default_text_model() {
+        use crate::image_generation::ImageGenerationRequest;
+
+        let provider = Google::new("secret-key", None, None, None, None, None, None);
+
+        let request = ImageGenerationRequest {
+            prompt: "a cat".to_string(),
+            model: None,
+            input_images: None,
+            metadata: None,
+        };
+
+        let err = provider
+            .generate_image(&request)
+            .await
+            .expect_err("default text model should be rejected");
+
+        assert!(matches!(
+            err,
+            LLMError::InvalidRequest { message, .. }
+                if message.contains("image-capable model")
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_google_generate_image_preserves_response_modalities_with_metadata_generation_config()
+     {
+        use crate::image_generation::ImageGenerationRequest;
+
+        let server = MockServer::start();
+        let encoded = BASE64.encode([1u8, 2, 3]);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-test:generateContent")
+                .header(GOOGLE_API_KEY_HEADER, "secret-key")
+                .body_includes("\"aspectRatio\":\"1:1\"")
+                .body_includes("\"responseModalities\":[\"TEXT\",\"IMAGE\"]");
+
+            then.status(200).json_body(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "inlineData": {
+                                "mimeType": "image/png",
+                                "data": encoded
+                            }
+                        }]
+                    }
+                }]
+            }));
+        });
+
+        let provider = test_google_provider(&server);
+
+        let request = ImageGenerationRequest {
+            prompt: "with generation config metadata".to_string(),
+            model: None,
+            input_images: None,
+            metadata: Some(json!({
+                "generationConfig": {
+                    "aspectRatio": "1:1",
+                    "responseModalities": ["TEXT"]
+                }
+            })),
+        };
+
+        let response = provider
+            .generate_image(&request)
+            .await
+            .expect("image generation should succeed");
+
+        assert_eq!(response.images.len(), 1);
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_google_generate_image_merges_metadata_into_body() {
+        use crate::image_generation::ImageGenerationRequest;
+
+        let server = MockServer::start();
+        let encoded = BASE64.encode([1u8, 2, 3]);
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-test:generateContent")
+                // Caller-provided metadata key must appear in the request body.
+                .body_includes("marker-42");
+            then.status(200).json_body(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "inlineData": { "mimeType": "image/png", "data": encoded }
+                        }]
+                    }
+                }]
+            }));
+        });
+        let provider = test_google_provider(&server);
+
+        let request = ImageGenerationRequest {
+            prompt: "with metadata".to_string(),
+            model: None,
+            input_images: None,
+            metadata: Some(json!({ "customField": "marker-42" })),
+        };
+
+        let response = provider
+            .generate_image(&request)
+            .await
+            .expect("image generation should succeed");
+
+        assert_eq!(response.images.len(), 1);
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_google_generate_image_normalizes_non_object_generation_config() {
+        use crate::image_generation::ImageGenerationRequest;
+
+        let server = MockServer::start();
+        let encoded = BASE64.encode([1u8, 2, 3]);
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-test:generateContent")
+                .body_includes("\"responseModalities\":[\"TEXT\",\"IMAGE\"]");
+
+            then.status(200).json_body(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "inlineData": {
+                                "mimeType": "image/png",
+                                "data": encoded
+                            }
+                        }]
+                    }
+                }]
+            }));
+        });
+
+        let provider = test_google_provider(&server);
+
+        let request = ImageGenerationRequest {
+            prompt: "test".to_string(),
+            model: None,
+            input_images: None,
+            metadata: Some(json!({
+                "generationConfig": "invalid"
+            })),
+        };
+
+        let response = provider
+            .generate_image(&request)
+            .await
+            .expect("generationConfig should be normalized");
+
+        assert_eq!(response.images.len(), 1);
         mock.assert();
     }
 }
