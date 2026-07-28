@@ -1,2 +1,2 @@
 #[allow(dead_code)]
-pub(crate) mod openai_compatible;
+pub mod openai_compatible;
