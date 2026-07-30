@@ -1,14 +1,56 @@
-//! OpenAI-compatible API client base implementation
+//! Generic client support for OpenAI-compatible API endpoints.
 //!
-//! This module provides a generic base for OpenAI-compatible APIs that can be reused
-//! across multiple providers like OpenAI, Mistral, XAI, Groq, DeepSeek, etc.
-
-// `OpenAICompatibleProvider` is used on every target (native chat-completions
-// backends and the WASI Preview2 OpenAI Responses backend), but most of the
-// chat-completions / streaming types and helpers below are unreachable on
-// `wasm32-wasip2`. The module is annotated `#[allow(dead_code)]` at its
-// declaration in `providers/mod.rs` (covering all targets) rather than with a
-// second, wasm-only attribute here, which would duplicate that lint allow.
+//! This module provides [`OpenAICompatibleProvider`], a reusable chat provider
+//! for APIs that implement the OpenAI chat-completions wire format.
+//!
+//! It can be used for:
+//!
+//! - self-hosted vLLM servers
+//! - LM Studio
+//! - llama.cpp servers
+//! - OpenAI-compatible gateways and proxies
+//! - providers that do not yet have a named AutoAgents integration
+//!
+//! External consumers define an [`OpenAIProviderConfig`] implementation and
+//! construct [`OpenAICompatibleProvider`] with their own base URL and model.
+//!
+//! # Example
+//!
+//! ```
+//! use autoagents_llm::providers::openai_compatible::{
+//!     OpenAICompatibleProvider,
+//!     OpenAIProviderConfig,
+//! };
+//!
+//! struct LocalEndpoint;
+//!
+//! impl OpenAIProviderConfig for LocalEndpoint {
+//!     const PROVIDER_NAME: &'static str = "Local endpoint";
+//!     const DEFAULT_BASE_URL: &'static str = "http://127.0.0.1:8000/v1";
+//!     const DEFAULT_MODEL: &'static str = "local-model";
+//! }
+//!
+//! let provider = OpenAICompatibleProvider::<LocalEndpoint>::new(
+//!     "local-api-key",
+//!     Some("http://127.0.0.1:8000/v1".to_string()),
+//!     Some("my-local-model".to_string()),
+//!     None,
+//!     None,
+//!     None,
+//!     None,
+//!     None,
+//!     None,
+//!     None,
+//!     None,
+//!     None,
+//!     None,
+//!     None,
+//!     None,
+//!     None,
+//! );
+//!
+//! assert_eq!(provider.model, "my-local-model");
+//! ```
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::FunctionCall;
@@ -46,10 +88,13 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use url::Url;
 
-/// Generic OpenAI-compatible provider
+/// Generic provider for OpenAI-compatible API endpoints.
 ///
-/// This struct provides a base implementation for any OpenAI-compatible API.
-/// Different providers can customize behavior by implementing the `OpenAICompatibleConfig` trait.
+/// This provider can be used with named services or custom endpoints such as
+/// vLLM, LM Studio, llama.cpp servers, gateways, and proxies.
+///
+/// Provider-specific defaults and capabilities are configured by implementing
+/// [`OpenAIProviderConfig`].
 pub struct OpenAICompatibleProvider<T: OpenAIProviderConfig> {
     pub api_key: String,
     pub base_url: Url,
@@ -77,8 +122,12 @@ pub struct OpenAICompatibleProvider<T: OpenAIProviderConfig> {
 
 /// Configuration trait for OpenAI-compatible providers
 ///
-/// This trait allows different providers to customize behavior while reusing
-/// the common OpenAI-compatible implementation.
+/// Implement this trait to define the default endpoint, model, supported
+/// capabilities, endpoint path, and optional request headers for a custom
+/// OpenAI-compatible service.
+///
+/// Values supplied directly to [`OpenAICompatibleProvider::new`] override
+/// `DEFAULT_BASE_URL` and `DEFAULT_MODEL`.
 pub trait OpenAIProviderConfig: Send + Sync {
     /// The name of the provider (e.g., "OpenAI", "Mistral", "XAI")
     const PROVIDER_NAME: &'static str;
@@ -330,6 +379,25 @@ impl std::fmt::Display for OpenAIChatResponse {
 }
 
 impl<T: OpenAIProviderConfig> OpenAICompatibleProvider<T> {
+    /// Creates an OpenAI-compatible provider.
+    ///
+    /// When `base_url` or `model` is `None`, the values from
+    /// [`OpenAIProviderConfig::DEFAULT_BASE_URL`] and
+    /// [`OpenAIProviderConfig::DEFAULT_MODEL`] are used.
+    ///
+    /// The base URL should normally point to the API root, for example:
+    ///
+    /// ```text
+    /// http://127.0.0.1:8000/v1
+    /// ```
+    ///
+    /// The configured [`OpenAIProviderConfig::CHAT_ENDPOINT`] is joined onto
+    /// this URL when sending chat requests.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the base URL is invalid or when the native HTTP client
+    /// cannot be constructed.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         api_key: impl Into<String>,
