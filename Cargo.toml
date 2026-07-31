@@ -123,7 +123,7 @@ httpmock = "0.8.3"
 testcontainers = "0.27.3"
 hound = "3.5.1"
 rodio = "0.22.2"
-ractor = { version = "0.15.7" }
+ractor = { version = "0.16.2" }
 toml = { version = "1.0.7" }
 hf-hub = { version = "0.5.0", default-features = false }
 encoding_rs = "0.8.35"
