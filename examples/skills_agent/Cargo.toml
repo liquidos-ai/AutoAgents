@@ -1,0 +1,18 @@
+[package]
+name = "skills-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[dependencies]
+autoagents = { workspace = true, features = ["openai", "logging", "skill-watch"] }
+autoagents-derive.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+env_logger.workspace = true
+serde_json.workspace = true

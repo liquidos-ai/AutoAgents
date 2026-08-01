@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use autoagents_llm::ToolCall;
 use autoagents_llm::chat::{ChatMessage, ChatRole, FunctionTool, MessageType, StreamChunk, Tool};
 use autoagents_llm::error::LLMError;
-use autoagents_protocol::{Event, SubmissionId};
+use autoagents_protocol::{Event, SkillEvent, SubmissionId};
 #[cfg(target_arch = "wasm32")]
 use futures::SinkExt;
 use futures::StreamExt;
@@ -282,6 +282,34 @@ where
         self.inner.on_tool_error(tool_call, err, ctx).await
     }
 
+    async fn on_skill_catalog_changed(&self, event: &SkillEvent) {
+        self.inner.on_skill_catalog_changed(event).await
+    }
+
+    async fn on_skill_activation(&self, event: &SkillEvent) -> HookOutcome {
+        self.inner.on_skill_activation(event).await
+    }
+
+    async fn on_skill_activated(&self, event: &SkillEvent) {
+        self.inner.on_skill_activated(event).await
+    }
+
+    async fn on_skill_deactivated(&self, event: &SkillEvent) {
+        self.inner.on_skill_deactivated(event).await
+    }
+
+    async fn on_skill_resource_access(&self, event: &SkillEvent) -> HookOutcome {
+        self.inner.on_skill_resource_access(event).await
+    }
+
+    async fn on_skill_resource_result(&self, event: &SkillEvent) {
+        self.inner.on_skill_resource_result(event).await
+    }
+
+    async fn on_skill_error(&self, event: &SkillEvent) {
+        self.inner.on_skill_error(event).await
+    }
+
     async fn on_agent_shutdown(&self) {
         self.inner.on_agent_shutdown().await
     }
@@ -300,6 +328,10 @@ where
         ExecutorConfig {
             max_turns: self.max_turns,
         }
+    }
+
+    fn supports_agent_skills(&self) -> bool {
+        true
     }
 
     async fn execute(
@@ -846,10 +878,11 @@ async fn build_messages(
         .system_prompt
         .as_deref()
         .unwrap_or_else(|| &context.config().description);
+    let system_prompt = context.compose_system_prompt(system_prompt).await;
     let mut messages = vec![ChatMessage {
         role: ChatRole::System,
         message_type: MessageType::Text,
-        content: build_codeact_system_prompt(system_prompt, tool_bindings),
+        content: build_codeact_system_prompt(&system_prompt, tool_bindings),
     }];
 
     let recalled = memory.recall_messages(task).await;

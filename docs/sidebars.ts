@@ -20,6 +20,7 @@ const sidebars: SidebarsConfig = {
         'core-concepts/architecture',
         'core-concepts/agents',
         'core-concepts/tools',
+        'core-concepts/skills',
         'core-concepts/memory',
         'core-concepts/executors',
         'core-concepts/executors_guide',

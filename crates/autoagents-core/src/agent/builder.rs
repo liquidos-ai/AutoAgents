@@ -3,6 +3,7 @@ use crate::actor::Topic;
 use crate::agent::base::AgentType;
 use crate::agent::hooks::AgentHooks;
 use crate::agent::memory::MemoryProvider;
+use crate::agent::skill::SkillConfiguration;
 use crate::agent::task::Task;
 use crate::agent::{AgentDeriveT, AgentExecutor};
 #[cfg(not(target_arch = "wasm32"))]
@@ -17,6 +18,7 @@ pub struct AgentBuilder<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentTy
     pub(crate) stream: bool,
     pub(crate) llm: Option<Arc<dyn LLMProvider>>,
     pub(crate) memory: Option<Box<dyn MemoryProvider>>,
+    pub(crate) skills: Option<SkillConfiguration>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) runtime: Option<Arc<dyn Runtime>>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -31,6 +33,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> AgentBuilder<T,
             inner,
             llm: None,
             memory: None,
+            skills: None,
             #[cfg(not(target_arch = "wasm32"))]
             runtime: None,
             stream: false,
@@ -54,6 +57,12 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> AgentBuilder<T,
     /// Set the memory provider
     pub fn memory(mut self, memory: Box<dyn MemoryProvider>) -> Self {
         self.memory = Some(memory);
+        self
+    }
+
+    /// Enable Agent Skills with an explicit catalog, conversation session, and policy.
+    pub fn skills(mut self, configuration: SkillConfiguration) -> Self {
+        self.skills = Some(configuration);
         self
     }
 

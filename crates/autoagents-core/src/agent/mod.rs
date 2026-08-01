@@ -4,6 +4,7 @@ pub mod error;
 pub mod memory;
 mod output;
 mod protocol;
+pub mod skill;
 pub mod task;
 
 pub mod prebuilt;

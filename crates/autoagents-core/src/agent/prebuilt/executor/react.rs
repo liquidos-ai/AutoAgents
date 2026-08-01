@@ -27,7 +27,9 @@ pub use tokio::sync::mpsc::error::SendError;
 type SendError = futures::channel::mpsc::SendError;
 
 use crate::agent::hooks::{AgentHooks, HookOutcome};
+#[cfg(not(target_arch = "wasm32"))]
 use autoagents_protocol::Event;
+use autoagents_protocol::SkillEvent;
 
 /// Output of the ReAct-style agent
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,6 +245,34 @@ where
     async fn on_tool_error(&self, tool_call: &ToolCall, err: Value, ctx: &Context) {
         self.inner.on_tool_error(tool_call, err, ctx).await
     }
+
+    async fn on_skill_catalog_changed(&self, event: &SkillEvent) {
+        self.inner.on_skill_catalog_changed(event).await
+    }
+
+    async fn on_skill_activation(&self, event: &SkillEvent) -> HookOutcome {
+        self.inner.on_skill_activation(event).await
+    }
+
+    async fn on_skill_activated(&self, event: &SkillEvent) {
+        self.inner.on_skill_activated(event).await
+    }
+
+    async fn on_skill_deactivated(&self, event: &SkillEvent) {
+        self.inner.on_skill_deactivated(event).await
+    }
+
+    async fn on_skill_resource_access(&self, event: &SkillEvent) -> HookOutcome {
+        self.inner.on_skill_resource_access(event).await
+    }
+
+    async fn on_skill_resource_result(&self, event: &SkillEvent) {
+        self.inner.on_skill_resource_result(event).await
+    }
+
+    async fn on_skill_error(&self, event: &SkillEvent) {
+        self.inner.on_skill_error(event).await
+    }
     async fn on_agent_shutdown(&self) {
         self.inner.on_agent_shutdown().await
     }
@@ -259,6 +289,10 @@ impl<T: AgentDeriveT + AgentHooks> AgentExecutor for ReActAgent<T> {
         ExecutorConfig {
             max_turns: self.max_turns,
         }
+    }
+
+    fn supports_agent_skills(&self) -> bool {
+        true
     }
 
     async fn execute(

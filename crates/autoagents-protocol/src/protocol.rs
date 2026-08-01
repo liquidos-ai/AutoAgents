@@ -16,6 +16,9 @@ pub type ActorID = Uuid;
 /// Session IDs are used to identify sessions
 pub type RuntimeID = Uuid;
 
+/// Skill session IDs isolate activated instructions between conversations.
+pub type SkillSessionId = Uuid;
+
 /// Event IDs are used to correlate events with their responses
 pub type EventId = Uuid;
 
@@ -90,6 +93,11 @@ pub enum Event {
         error: String,
     },
 
+    /// Agent Skill catalog or activation lifecycle activity.
+    Skill {
+        event: SkillEvent,
+    },
+
     /// Sandbox code execution has started
     CodeExecutionStarted {
         sub_id: SubmissionId,
@@ -159,6 +167,84 @@ pub enum Event {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SkillEventKind {
+    CatalogChanged {
+        generation: u64,
+        added: Vec<String>,
+        updated: Vec<String>,
+        removed: Vec<String>,
+    },
+    ActivationRequested {
+        skill_name: String,
+    },
+    Activated {
+        skill_name: String,
+        newly_activated: bool,
+    },
+    Deactivated {
+        skill_name: String,
+        reason: SkillDeactivationReason,
+    },
+    ResourceAccessRequested {
+        skill_name: String,
+        path: String,
+    },
+    ResourceAccessed {
+        skill_name: String,
+        path: String,
+        bytes: usize,
+    },
+    OperationFailed {
+        operation: SkillOperation,
+        skill_name: Option<String>,
+        message: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillOperation {
+    RefreshCatalog,
+    Activate,
+    Deactivate,
+    ReadResource,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillDeactivationReason {
+    Requested,
+    Updated,
+    Removed,
+    SessionReset,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillEvent {
+    pub actor_id: ActorID,
+    pub submission_id: Option<SubmissionId>,
+    pub session_id: SkillSessionId,
+    pub event: SkillEventKind,
+}
+
+impl SkillEvent {
+    pub fn new(
+        actor_id: ActorID,
+        submission_id: Option<SubmissionId>,
+        session_id: SkillSessionId,
+        event: SkillEventKind,
+    ) -> Self {
+        Self {
+            actor_id,
+            submission_id,
+            session_id,
+            event,
+        }
+    }
+}
+
 /// Internal events that are processed within the runtime
 #[derive(Debug)]
 pub enum InternalEvent {
@@ -218,6 +304,44 @@ mod tests {
                 assert_eq!(task_description, "Started task");
             }
             _ => panic!("Expected TaskStarted variant"),
+        }
+    }
+
+    #[test]
+    fn skill_event_round_trips_with_typed_lifecycle_payload() {
+        let actor_id = Uuid::new_v4();
+        let submission_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+        let event = Event::Skill {
+            event: SkillEvent::new(
+                actor_id,
+                Some(submission_id),
+                session_id,
+                SkillEventKind::Activated {
+                    skill_name: "release-notes".to_string(),
+                    newly_activated: true,
+                },
+            ),
+        };
+
+        let serialized = serde_json::to_string(&event).expect("skill event should serialize");
+        let deserialized: Event =
+            serde_json::from_str(&serialized).expect("skill event should deserialize");
+
+        match deserialized {
+            Event::Skill { event } => {
+                assert_eq!(event.actor_id, actor_id);
+                assert_eq!(event.submission_id, Some(submission_id));
+                assert_eq!(event.session_id, session_id);
+                assert_eq!(
+                    event.event,
+                    SkillEventKind::Activated {
+                        skill_name: "release-notes".to_string(),
+                        newly_activated: true,
+                    }
+                );
+            }
+            _ => panic!("expected skill event"),
         }
     }
 

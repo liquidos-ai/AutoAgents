@@ -12,6 +12,12 @@ pub use crate::core::agent::prebuilt::executor::{
 pub use crate::core::agent::prebuilt::executor::{
     CodeActAgent, CodeActAgentOutput, CodeActExecutionRecord, CodeActSandboxLimits,
 };
+pub use crate::core::agent::skill::{
+    DirectorySkillSource, SkillActivationRequest, SkillConfiguration, SkillDeactivationReason,
+    SkillDiscoveryLimits, SkillEvent, SkillEventKind, SkillOperation, SkillPolicy,
+    SkillRefreshStrategy, SkillRegistry, SkillResourceRequest, SkillRevision, SkillSession,
+    SkillSource, SkillToolSelector, TrustedSkillPolicy,
+};
 pub use crate::core::agent::task::Task;
 pub use crate::core::agent::{ActorAgent, AgentBuilder, DirectAgent};
 pub use crate::core::agent::{AgentHooks as _, AgentOutputT, Context};

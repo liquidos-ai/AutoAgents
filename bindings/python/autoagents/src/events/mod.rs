@@ -110,6 +110,13 @@ fn event_to_payload(event: Event) -> PyResult<Value> {
             tool_name,
             json!({ "error": error }),
         )),
+        Event::Skill { event } => Ok(json!({
+            "kind": "skill",
+            "actor_id": event.actor_id.to_string(),
+            "sub_id": event.submission_id.map(|id| id.to_string()),
+            "skill_session_id": event.session_id.to_string(),
+            "event": event.event,
+        })),
         Event::TurnStarted {
             sub_id,
             actor_id,

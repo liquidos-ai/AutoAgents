@@ -98,7 +98,15 @@ where
         let tx = runtime.tx();
 
         let agent: Arc<BaseAgent<T, ActorAgent>> = Arc::new(
-            BaseAgent::<T, ActorAgent>::new(self.inner, llm, self.memory, tx, self.stream).await?,
+            BaseAgent::<T, ActorAgent>::new(
+                self.inner,
+                llm,
+                self.memory,
+                self.skills,
+                tx,
+                self.stream,
+            )
+            .await?,
         );
 
         // Create agent actor
@@ -141,7 +149,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         let tx = self.tx().map_err(|_| RunnableAgentError::EmptyTx)?;
         let tx_event = Some(tx.clone());
 
-        let context = self.create_context();
+        let context = self.create_context(&task);
 
         //Run Hook
         let hook_outcome = self.inner.on_run_start(&task, &context).await;
@@ -193,7 +201,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         <T as AgentDeriveT>::Output: From<<T as AgentExecutor>::Output>,
         <T as AgentExecutor>::Error: Into<RunnableAgentError>,
     {
-        let context = self.create_context();
+        let context = self.create_context(&task);
         self.run_stream_with_context(task, context).await
     }
 
@@ -262,7 +270,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, ActorAgent> {
         let submission_id = task.submission_id;
         let tx = self.tx().map_err(|_| RunnableAgentError::EmptyTx)?;
         let tx_event = Some(tx.clone());
-        let context = self.create_context();
+        let context = self.create_context(&task);
 
         let hook_outcome = self.inner.on_run_start(&task, &context).await;
         match hook_outcome {
@@ -508,7 +516,7 @@ mod tests {
         let mock = MockAgentImpl::new("agent", "desc");
         let llm = Arc::new(MockLLMProvider);
         let (tx, _rx) = mpsc::channel(2);
-        let mut agent = BaseAgent::<_, ActorAgent>::new(mock, llm, None, tx, false)
+        let mut agent = BaseAgent::<_, ActorAgent>::new(mock, llm, None, None, tx, false)
             .await
             .unwrap();
         agent.tx = None;
@@ -521,7 +529,7 @@ mod tests {
         let llm = Arc::new(MockLLMProvider);
         let (tx, _rx) = mpsc::channel(8);
         Arc::new(
-            BaseAgent::<_, ActorAgent>::new(mock, llm, None, tx, stream)
+            BaseAgent::<_, ActorAgent>::new(mock, llm, None, None, tx, stream)
                 .await
                 .expect("agent should build"),
         )
@@ -605,7 +613,7 @@ mod tests {
         let llm = Arc::new(MockLLMProvider);
         let (tx, mut rx) = mpsc::channel(2);
         let agent = Arc::new(
-            BaseAgent::<_, ActorAgent>::new(AbortStreamingAgent, llm, None, tx, false)
+            BaseAgent::<_, ActorAgent>::new(AbortStreamingAgent, llm, None, None, tx, false)
                 .await
                 .expect("agent should build"),
         );
@@ -633,7 +641,7 @@ mod tests {
         let llm = Arc::new(MockLLMProvider);
         let (tx, mut rx) = mpsc::channel(2);
         let agent = Arc::new(
-            BaseAgent::<_, ActorAgent>::new(AbortStreamingAgent, llm, None, tx, true)
+            BaseAgent::<_, ActorAgent>::new(AbortStreamingAgent, llm, None, None, tx, true)
                 .await
                 .expect("agent should build"),
         );
@@ -718,7 +726,7 @@ mod tests {
         let llm = Arc::new(MockLLMProvider);
         let (tx, mut rx) = mpsc::channel(2);
         let agent = Arc::new(
-            BaseAgent::<_, ActorAgent>::new(FailingStreamSetupAgent, llm, None, tx, true)
+            BaseAgent::<_, ActorAgent>::new(FailingStreamSetupAgent, llm, None, None, tx, true)
                 .await
                 .expect("agent should build"),
         );
@@ -801,7 +809,7 @@ mod tests {
         let llm = Arc::new(MockLLMProvider);
         let (tx, mut rx) = mpsc::channel(2);
         let agent = Arc::new(
-            BaseAgent::<_, ActorAgent>::new(EmptyStreamAgent, llm, None, tx, true)
+            BaseAgent::<_, ActorAgent>::new(EmptyStreamAgent, llm, None, None, tx, true)
                 .await
                 .expect("agent should build"),
         );
@@ -887,7 +895,7 @@ mod tests {
         let llm = Arc::new(MockLLMProvider);
         let (tx, mut rx) = mpsc::channel(2);
         let agent = Arc::new(
-            BaseAgent::<_, ActorAgent>::new(StreamItemErrorAgent, llm, None, tx, true)
+            BaseAgent::<_, ActorAgent>::new(StreamItemErrorAgent, llm, None, None, tx, true)
                 .await
                 .expect("agent should build"),
         );
@@ -918,7 +926,7 @@ mod tests {
         let llm = Arc::new(MockLLMProvider);
         let (tx, mut rx) = mpsc::channel(2);
         let agent = Arc::new(
-            BaseAgent::<_, ActorAgent>::new(StreamItemErrorAgent, llm, None, tx, true)
+            BaseAgent::<_, ActorAgent>::new(StreamItemErrorAgent, llm, None, None, tx, true)
                 .await
                 .expect("agent should build"),
         );
@@ -950,6 +958,7 @@ mod tests {
             MockAgentImpl::new("agent", "desc"),
             llm,
             None,
+            None,
             tx,
             true,
         )
@@ -970,7 +979,7 @@ mod tests {
         let llm = Arc::new(MockLLMProvider);
         let (tx, mut rx) = mpsc::channel(2);
         let agent = Arc::new(
-            BaseAgent::<_, ActorAgent>::new(MultiItemStreamAgent, llm, None, tx, true)
+            BaseAgent::<_, ActorAgent>::new(MultiItemStreamAgent, llm, None, None, tx, true)
                 .await
                 .expect("agent should build"),
         );
@@ -1001,7 +1010,7 @@ mod tests {
         let llm = Arc::new(MockLLMProvider);
         let (tx, mut rx) = mpsc::channel(2);
         let agent = Arc::new(
-            BaseAgent::<_, ActorAgent>::new(DivergentStreamingAgent, llm, None, tx, true)
+            BaseAgent::<_, ActorAgent>::new(DivergentStreamingAgent, llm, None, None, tx, true)
                 .await
                 .expect("agent should build"),
         );
@@ -1036,6 +1045,7 @@ mod tests {
                 DivergentStreamingAgent,
                 llm.clone(),
                 None,
+                None,
                 tx_run,
                 false,
             )
@@ -1044,9 +1054,16 @@ mod tests {
         );
         let (tx_stream, mut rx_stream) = mpsc::channel(2);
         let stream_agent = Arc::new(
-            BaseAgent::<_, ActorAgent>::new(DivergentStreamingAgent, llm, None, tx_stream, true)
-                .await
-                .expect("stream agent should build"),
+            BaseAgent::<_, ActorAgent>::new(
+                DivergentStreamingAgent,
+                llm,
+                None,
+                None,
+                tx_stream,
+                true,
+            )
+            .await
+            .expect("stream agent should build"),
         );
 
         let task = Task::new("parity payload");

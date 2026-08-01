@@ -11,7 +11,8 @@ readme.workspace = true
 
 [features]
 default = []
-full = ["wasmtime", "codeact"]
+full = ["wasmtime", "codeact", "skill-watch"]
+skill-watch = ["dep:notify"]
 wasmtime = ["dep:wasmtime"]
 codeact = ["dep:rquickjs", "dep:deno_ast"]
 
@@ -21,6 +22,8 @@ autoagents-protocol = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }
+sha2 = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
 thiserror = { workspace = true }
 futures = { workspace = true }
@@ -35,6 +38,9 @@ deno_ast = { workspace = true, optional = true, features = ["transpiling", "visi
 
 # Non-WASM dependencies (only when not targeting wasm32)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cap-std = { workspace = true }
+cap-fs-ext = { workspace = true }
+notify = { workspace = true, optional = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true, features = ["sync"] }
 ractor = { workspace = true, features = ["serde", "async-trait"] }

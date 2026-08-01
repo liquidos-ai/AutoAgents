@@ -37,6 +37,7 @@ model with structured tool calling, configurable memory, and pluggable LLM backe
 
 - **Agent execution**: ReAct and basic executors, streaming responses, and structured outputs
 - **Tooling**: Derive macros for tools and outputs, plus a sandboxed WASM runtime for tool execution
+- **Agent Skills**: Progressive, `SKILL.md`-based instructions with live add, update, and removal discovery
 - **Memory**: Sliding window memory with extensible backends
 - **LLM providers**: Cloud and local backends behind a unified interface
 - **LLM Guardrails**: Guardrail implementation for safeguarding LLM inference
@@ -316,6 +317,10 @@ Demonstrates configurable input and output guardrails with Block, Sanitize, and 
 ### [MCP Integration](examples/mcp/)
 
 Demonstrates how to integrate AutoAgents with the Model Context Protocol (MCP).
+
+### [Agent Skills](examples/skills_agent/)
+
+Demonstrates boot-time and live discovery of Agent Skills, activation, and scoped resource access.
 
 ### [Local Models](examples/mistral_rs)
 

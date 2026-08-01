@@ -47,6 +47,12 @@ pub trait AgentExecutor: Send + Sync + 'static {
 
     fn config(&self) -> ExecutorConfig;
 
+    /// Whether this executor can expose the Agent Skills activation tools and
+    /// continue with a subsequent turn containing the activated instructions.
+    fn supports_agent_skills(&self) -> bool {
+        false
+    }
+
     async fn execute(
         &self,
         task: &Task,

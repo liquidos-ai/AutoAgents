@@ -2,6 +2,7 @@
 use crate::actor::{ActorMessage, Topic};
 use crate::agent::AgentConfig;
 use crate::agent::memory::MemoryProvider;
+use crate::agent::skill::SkillRuntime;
 use crate::agent::state::AgentState;
 use crate::tool::{ToolT, to_llm_tool};
 use autoagents_llm::LLMProvider;
@@ -27,6 +28,7 @@ pub struct Context {
     llm: Arc<dyn LLMProvider>,
     messages: Vec<ChatMessage>,
     memory: Option<Arc<Mutex<Box<dyn MemoryProvider>>>>,
+    skills: Option<Arc<SkillRuntime>>,
     tools: Vec<Box<dyn ToolT>>,
     serialized_tools: Option<Arc<Vec<Tool>>>,
     config: AgentConfig,
@@ -50,6 +52,7 @@ impl Context {
             llm,
             messages: vec![],
             memory: None,
+            skills: None,
             tools: vec![],
             serialized_tools: None,
             config: AgentConfig::default(),
@@ -98,6 +101,18 @@ impl Context {
         self
     }
 
+    pub(crate) fn with_skills(mut self, runtime: Option<Arc<SkillRuntime>>) -> Self {
+        let Some(runtime) = runtime else {
+            return self;
+        };
+        self.tools.extend(runtime.tools());
+        self.serialized_tools = Some(Arc::new(
+            self.tools.iter().map(to_llm_tool).collect::<Vec<_>>(),
+        ));
+        self.skills = Some(runtime);
+        self
+    }
+
     pub fn with_config(mut self, config: AgentConfig) -> Self {
         self.config = config;
         self
@@ -124,6 +139,17 @@ impl Context {
 
     pub fn memory(&self) -> Option<Arc<Mutex<Box<dyn MemoryProvider>>>> {
         self.memory.clone()
+    }
+
+    pub fn skills(&self) -> Option<Arc<SkillRuntime>> {
+        self.skills.clone()
+    }
+
+    pub async fn compose_system_prompt(&self, base_prompt: &str) -> String {
+        match &self.skills {
+            Some(skills) => skills.compose_system_prompt(base_prompt).await,
+            None => base_prompt.to_string(),
+        }
     }
 
     pub fn tools(&self) -> &[Box<dyn ToolT>] {

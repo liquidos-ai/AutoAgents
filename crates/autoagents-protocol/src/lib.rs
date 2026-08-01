@@ -8,7 +8,8 @@ pub use llm::{
     Usage,
 };
 pub use protocol::{
-    ActorID, Event, EventId, InternalEvent, RuntimeID, StreamingTurnResult, SubmissionId,
+    ActorID, Event, EventId, InternalEvent, RuntimeID, SkillDeactivationReason, SkillEvent,
+    SkillEventKind, SkillOperation, SkillSessionId, StreamingTurnResult, SubmissionId,
 };
 pub use task::Task;
 pub use tool::ToolCallResult;

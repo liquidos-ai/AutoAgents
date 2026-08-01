@@ -586,10 +586,11 @@ impl TurnEngine {
             .system_prompt
             .as_deref()
             .unwrap_or_else(|| &context.config().description);
+        let system_prompt = context.compose_system_prompt(system_prompt).await;
         let mut messages = vec![ChatMessage {
             role: ChatRole::System,
             message_type: MessageType::Text,
-            content: system_prompt.to_string(),
+            content: system_prompt,
         }];
 
         let recalled = memory.recall_messages(task).await;

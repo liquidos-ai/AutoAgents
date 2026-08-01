@@ -1,13 +1,17 @@
 use crate::agent::config::AgentConfig;
 use crate::agent::executor::event_helper::EventHelper;
 use crate::agent::memory::MemoryProvider;
+use crate::agent::skill::{
+    SkillConfiguration, SkillLifecycle, SkillLifecycleDecision, SkillRefreshReport, SkillRuntime,
+    SkillRuntimeIdentity, SkillSession, SkillSnapshot,
+};
 use crate::agent::task::Task;
 use crate::agent::{AgentExecutor, Context, output::AgentOutputT};
 use crate::tool::{ToolT, to_llm_tool};
 use async_trait::async_trait;
 use autoagents_llm::LLMProvider;
 use autoagents_llm::chat::Tool;
-use autoagents_protocol::{ActorID, Event, SubmissionId};
+use autoagents_protocol::{ActorID, Event, SkillEvent, SubmissionId};
 
 use serde_json::Value;
 use std::marker::PhantomData;
@@ -63,6 +67,7 @@ pub struct BaseAgent<T: AgentDeriveT + AgentExecutor + AgentHooks + Send + Sync,
     pub id: ActorID,
     /// Optional memory provider
     pub(crate) memory: Option<Arc<Mutex<Box<dyn MemoryProvider>>>>,
+    pub(crate) skills: Option<SkillConfiguration>,
     /// Cached serialized tool definitions
     pub(crate) serialized_tools: Option<Arc<Vec<Tool>>>,
     /// Tx sender
@@ -84,10 +89,21 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
         inner: T,
         llm: Arc<dyn LLMProvider>,
         memory: Option<Box<dyn MemoryProvider>>,
+        skills: Option<SkillConfiguration>,
         tx: Sender<Event>,
         stream: bool,
     ) -> Result<Self, RunnableAgentError> {
         let tool_defs = inner.tools();
+        if skills.is_some() && !inner.supports_agent_skills() {
+            return Err(RunnableAgentError::InitializationError(format!(
+                "executor '{}' does not support Agent Skills",
+                std::any::type_name::<T>()
+            )));
+        }
+        if skills.is_some() {
+            SkillRuntime::validate_agent_tools(&tool_defs)
+                .map_err(|error| RunnableAgentError::InitializationError(error.to_string()))?;
+        }
         let serialized_tools = if tool_defs.is_empty() {
             None
         } else {
@@ -101,6 +117,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
             llm,
             tx: Some(tx),
             memory: memory.map(|m| Arc::new(Mutex::new(m))),
+            skills,
             serialized_tools,
             stream,
             marker: PhantomData,
@@ -108,6 +125,9 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
 
         //Run Hook
         agent.inner().on_agent_create().await;
+        if let Some(runtime) = agent.skill_runtime(None) {
+            runtime.initialize().await;
+        }
 
         Ok(agent)
     }
@@ -139,19 +159,65 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
         self.stream
     }
 
-    pub(crate) fn create_context(&self) -> Arc<Context> {
+    pub(crate) fn create_context(&self, task: &Task) -> Arc<Context> {
         let tools = self.tools();
         let cached_tools = self
             .serialized_tools()
-            .filter(|cached| tools_match_cached(&tools, cached));
+            .filter(|cached| Self::tools_match_cached(&tools, cached));
+        let runtime = self.skill_runtime(Some(task.submission_id));
         Arc::new(
             Context::new(self.llm(), self.tx.clone())
                 .with_memory(self.memory())
                 .with_serialized_tools(cached_tools)
                 .with_tools(tools)
                 .with_config(self.agent_config())
+                .with_skills(runtime)
                 .with_stream(self.stream()),
         )
+    }
+
+    pub fn skill_session(&self) -> Option<Arc<SkillSession>> {
+        self.skills.as_ref().map(SkillConfiguration::session)
+    }
+
+    pub fn skill_snapshot(&self) -> Option<Arc<SkillSnapshot>> {
+        self.skills
+            .as_ref()
+            .map(SkillConfiguration::registry)
+            .map(|registry| registry.snapshot())
+    }
+
+    pub async fn refresh_skills(&self) -> Option<SkillRefreshReport> {
+        let runtime = self.skill_runtime(None)?;
+        Some(runtime.refresh_now().await)
+    }
+
+    pub async fn reset_skill_session(&self) {
+        if let Some(runtime) = self.skill_runtime(None) {
+            runtime.reset_session().await;
+        }
+    }
+
+    fn skill_runtime(&self, submission_id: Option<SubmissionId>) -> Option<Arc<SkillRuntime>> {
+        let configuration = self.skills.clone()?;
+        let lifecycle: Arc<dyn SkillLifecycle> = Arc::new(AgentSkillLifecycle {
+            inner: self.inner(),
+        });
+        let identity = SkillRuntimeIdentity::new(self.id, submission_id, self.tx.clone());
+        Some(SkillRuntime::new(configuration, identity, lifecycle))
+    }
+
+    fn tools_match_cached(tools: &[Box<dyn ToolT>], cached: &[Tool]) -> bool {
+        if tools.len() != cached.len() {
+            return false;
+        }
+
+        tools.iter().zip(cached.iter()).all(|(tool, cached_tool)| {
+            cached_tool.tool_type == "function"
+                && cached_tool.function.name == tool.name()
+                && cached_tool.function.description == tool.description()
+                && cached_tool.function.parameters == tool.args_schema()
+        })
     }
 
     pub fn agent_config(&self) -> AgentConfig {
@@ -183,6 +249,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
             llm: self.llm.clone(),
             id: self.id,
             memory: self.memory.clone(),
+            skills: self.skills.clone(),
             serialized_tools: self.serialized_tools.clone(),
             tx: self.tx.clone(),
             stream: self.stream,
@@ -229,17 +296,46 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks, A: AgentType> BaseAgent<T, A>
     }
 }
 
-fn tools_match_cached(tools: &[Box<dyn ToolT>], cached: &[Tool]) -> bool {
-    if tools.len() != cached.len() {
-        return false;
+#[derive(Debug)]
+struct AgentSkillLifecycle<T: AgentDeriveT + AgentExecutor + AgentHooks> {
+    inner: Arc<T>,
+}
+
+#[async_trait]
+impl<T: AgentDeriveT + AgentExecutor + AgentHooks> SkillLifecycle for AgentSkillLifecycle<T> {
+    async fn on_catalog_changed(&self, event: &SkillEvent) {
+        self.inner.on_skill_catalog_changed(event).await;
     }
 
-    tools.iter().zip(cached.iter()).all(|(tool, cached_tool)| {
-        cached_tool.tool_type == "function"
-            && cached_tool.function.name == tool.name()
-            && cached_tool.function.description == tool.description()
-            && cached_tool.function.parameters == tool.args_schema()
-    })
+    async fn on_activation_requested(&self, event: &SkillEvent) -> SkillLifecycleDecision {
+        match self.inner.on_skill_activation(event).await {
+            crate::agent::HookOutcome::Continue => SkillLifecycleDecision::Continue,
+            crate::agent::HookOutcome::Abort => SkillLifecycleDecision::Abort,
+        }
+    }
+
+    async fn on_activated(&self, event: &SkillEvent) {
+        self.inner.on_skill_activated(event).await;
+    }
+
+    async fn on_deactivated(&self, event: &SkillEvent) {
+        self.inner.on_skill_deactivated(event).await;
+    }
+
+    async fn on_resource_access_requested(&self, event: &SkillEvent) -> SkillLifecycleDecision {
+        match self.inner.on_skill_resource_access(event).await {
+            crate::agent::HookOutcome::Continue => SkillLifecycleDecision::Continue,
+            crate::agent::HookOutcome::Abort => SkillLifecycleDecision::Abort,
+        }
+    }
+
+    async fn on_resource_accessed(&self, event: &SkillEvent) {
+        self.inner.on_skill_resource_result(event).await;
+    }
+
+    async fn on_operation_failed(&self, event: &SkillEvent) {
+        self.inner.on_skill_error(event).await;
+    }
 }
 
 #[cfg(test)]
@@ -281,9 +377,10 @@ mod tests {
         let llm = Arc::new(MockLLMProvider);
         let memory = Box::new(SlidingWindowMemory::new(5));
         let (tx, _): (Sender<Event>, Receiver<Event>) = channel(32);
-        let base_agent = BaseAgent::<_, DirectAgent>::new(mock_agent, llm, Some(memory), tx, true)
-            .await
-            .unwrap();
+        let base_agent =
+            BaseAgent::<_, DirectAgent>::new(mock_agent, llm, Some(memory), None, tx, true)
+                .await
+                .unwrap();
 
         assert_eq!(base_agent.name(), "test");
         assert_eq!(base_agent.description(), "test description");
@@ -296,11 +393,11 @@ mod tests {
         let mock_agent = MockAgentImpl::new("ctx_agent", "context agent");
         let llm = Arc::new(MockLLMProvider);
         let (tx, _): (Sender<Event>, Receiver<Event>) = channel(32);
-        let base_agent = BaseAgent::<_, DirectAgent>::new(mock_agent, llm, None, tx, false)
+        let base_agent = BaseAgent::<_, DirectAgent>::new(mock_agent, llm, None, None, tx, false)
             .await
             .unwrap();
 
-        let context = base_agent.create_context();
+        let context = base_agent.create_context(&Task::new("test"));
         let config = context.config();
         assert_eq!(config.name, "ctx_agent");
         assert_eq!(config.description, "context agent");

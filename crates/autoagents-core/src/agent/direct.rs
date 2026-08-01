@@ -6,6 +6,7 @@ use crate::agent::task::Task;
 use crate::agent::{AgentBuilder, AgentDeriveT, AgentExecutor, AgentHooks, BaseAgent, HookOutcome};
 use crate::error::Error;
 use autoagents_protocol::Event;
+use futures::{FutureExt, StreamExt};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -82,9 +83,37 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> AgentBuilder<T, DirectAgent> 
             "LLM provider is required".to_string(),
         ))?;
         let (tx, rx): (Sender<Event>, Receiver<Event>) = channel(DEFAULT_CHANNEL_BUFFER);
-        let agent: BaseAgent<T, DirectAgent> =
-            BaseAgent::<T, DirectAgent>::new(self.inner, llm, self.memory, tx, self.stream).await?;
-        let stream = receiver_into_stream(rx);
+        let mut stream = receiver_into_stream(rx);
+        let construction = BaseAgent::<T, DirectAgent>::new(
+            self.inner,
+            llm,
+            self.memory,
+            self.skills,
+            tx,
+            self.stream,
+        )
+        .fuse();
+        futures::pin_mut!(construction);
+
+        // Skill discovery runs during BaseAgent construction and emits lifecycle events. Drain
+        // the bounded channel concurrently so initialization can apply normal backpressure before
+        // the handle exposes its receiver. Captured events are replayed first, preserving the
+        // complete startup prefix and its ordering without making steady-state delivery unbounded.
+        let mut startup_events = Vec::new();
+        let agent: BaseAgent<T, DirectAgent> = loop {
+            futures::select_biased! {
+                result = construction => break result?,
+                event = stream.next().fuse() => match event {
+                    Some(event) => startup_events.push(event),
+                    None => {
+                        return Err(AgentBuildError::BuildFailure(
+                            "direct-agent event channel closed during construction".to_string(),
+                        ).into());
+                    }
+                }
+            }
+        };
+        let stream = Box::pin(futures::stream::iter(startup_events).chain(stream));
         Ok(DirectAgentHandle::new(agent, stream))
     }
 }
@@ -191,7 +220,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
     {
         let submission_id = task.submission_id;
         let tx_event = self.tx.clone();
-        let context = self.create_context();
+        let context = self.create_context(&task);
 
         //Run Hook
         let hook_outcome = self.inner.on_run_start(&task, &context).await;
@@ -237,7 +266,7 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
     {
         let submission_id = task.submission_id;
         let tx_event = self.tx.clone();
-        let context = self.create_context();
+        let context = self.create_context(&task);
 
         //Run Hook
         let hook_outcome = self.inner.on_run_start(&task, &context).await;

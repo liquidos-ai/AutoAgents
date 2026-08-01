@@ -11,6 +11,7 @@ use crate::utils::stream_from_producer;
 use async_trait::async_trait;
 use autoagents_llm::ToolCall;
 use autoagents_llm::error::LLMError;
+use autoagents_protocol::SkillEvent;
 #[cfg(target_arch = "wasm32")]
 use futures::SinkExt;
 use serde::{Deserialize, Serialize};
@@ -175,6 +176,34 @@ where
 
     async fn on_tool_error(&self, tool_call: &ToolCall, err: Value, ctx: &Context) {
         self.inner.on_tool_error(tool_call, err, ctx).await
+    }
+
+    async fn on_skill_catalog_changed(&self, event: &SkillEvent) {
+        self.inner.on_skill_catalog_changed(event).await
+    }
+
+    async fn on_skill_activation(&self, event: &SkillEvent) -> HookOutcome {
+        self.inner.on_skill_activation(event).await
+    }
+
+    async fn on_skill_activated(&self, event: &SkillEvent) {
+        self.inner.on_skill_activated(event).await
+    }
+
+    async fn on_skill_deactivated(&self, event: &SkillEvent) {
+        self.inner.on_skill_deactivated(event).await
+    }
+
+    async fn on_skill_resource_access(&self, event: &SkillEvent) -> HookOutcome {
+        self.inner.on_skill_resource_access(event).await
+    }
+
+    async fn on_skill_resource_result(&self, event: &SkillEvent) {
+        self.inner.on_skill_resource_result(event).await
+    }
+
+    async fn on_skill_error(&self, event: &SkillEvent) {
+        self.inner.on_skill_error(event).await
     }
     async fn on_agent_shutdown(&self) {
         self.inner.on_agent_shutdown().await

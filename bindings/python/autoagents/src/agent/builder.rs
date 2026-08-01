@@ -333,6 +333,7 @@ fn event_submission_id(event: &Event) -> Option<SubmissionId> {
         | Event::StreamChunk { sub_id, .. }
         | Event::StreamToolCall { sub_id, .. }
         | Event::StreamComplete { sub_id, .. } => Some(*sub_id),
+        Event::Skill { event } => event.submission_id,
         Event::PublishMessage { .. } | Event::NewTask { .. } | Event::SendMessage { .. } => None,
     }
 }

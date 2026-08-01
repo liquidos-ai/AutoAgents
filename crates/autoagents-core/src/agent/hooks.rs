@@ -3,6 +3,7 @@ use crate::agent::{AgentDeriveT, Context};
 use crate::tool::ToolCallResult;
 use async_trait::async_trait;
 use autoagents_llm::ToolCall;
+use autoagents_protocol::SkillEvent;
 use serde_json::Value;
 
 /// Outcome for hook execution: continue or abort the run.
@@ -46,6 +47,24 @@ pub trait AgentHooks: AgentDeriveT + Send + Sync {
     }
     /// Called if the execution of the tool failed
     async fn on_tool_error(&self, _tool_call: &ToolCall, _err: Value, _ctx: &Context) {}
+    /// Called after the available Agent Skills catalog changes.
+    async fn on_skill_catalog_changed(&self, _event: &SkillEvent) {}
+    /// Gate activation before skill instructions enter the prompt context.
+    async fn on_skill_activation(&self, _event: &SkillEvent) -> HookOutcome {
+        HookOutcome::Continue
+    }
+    /// Called after a skill becomes active for the current skill session.
+    async fn on_skill_activated(&self, _event: &SkillEvent) {}
+    /// Called after an active skill is removed from the current skill session.
+    async fn on_skill_deactivated(&self, _event: &SkillEvent) {}
+    /// Gate access before an activated skill resource is read.
+    async fn on_skill_resource_access(&self, _event: &SkillEvent) -> HookOutcome {
+        HookOutcome::Continue
+    }
+    /// Called after an activated skill resource is read successfully.
+    async fn on_skill_resource_result(&self, _event: &SkillEvent) {}
+    /// Called when discovery, activation, deactivation, or resource access fails.
+    async fn on_skill_error(&self, _event: &SkillEvent) {}
     /// Called when an Actor Agent post-shutdown, This has no effect on DirectAgent, It only works for ActorBased Agents
     async fn on_agent_shutdown(&self) {}
 }
