@@ -5,6 +5,7 @@ use ractor::ActorRef;
 use std::any::{Any, TypeId};
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::SendError;
 use tokio::task::JoinError;
@@ -43,6 +44,17 @@ pub enum RuntimeError {
 
     #[error("Runtime operation failed: {0}")]
     OperationFailed(String),
+
+    /// One or more runtimes did not complete [`Runtime::stop`] within the
+    /// deadline passed to `RuntimeManager::stop_with_timeout`.
+    ///
+    /// `runtime_ids` lists the unresponsive runtimes, sorted so the reported
+    /// order does not depend on registration order.
+    #[error("Runtime shutdown did not complete within {timeout:?}: {runtime_ids:?}")]
+    ShutdownTimeout {
+        runtime_ids: Vec<RuntimeID>,
+        timeout: Duration,
+    },
 
     #[error("Event error: {0}")]
     EventError(#[from] Box<SendError<Event>>),

@@ -6,7 +6,8 @@ use autoagents_protocol::{Event, RuntimeID};
 use futures_util::FutureExt;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::task::JoinHandle;
+use std::time::Duration;
+use tokio::task::{JoinError, JoinHandle};
 
 /// Errors emitted when managing runtimes and consuming event receivers
 #[derive(Debug, thiserror::Error)]
@@ -31,6 +32,12 @@ pub enum EnvironmentError {
 
     #[error("Finished run task result was not yet available")]
     RunResultNotReady,
+
+    /// The runtimes stopped within the deadline passed to
+    /// [`Environment::shutdown_with_timeout`], but the managed run task did not
+    /// finish in time.
+    #[error("Run task did not finish within {0:?}")]
+    ShutdownTimeout(Duration),
 }
 
 /// Configuration for the process environment that owns one or more runtimes.
@@ -258,6 +265,10 @@ impl Environment {
     }
 
     /// Request shutdown on all runtimes and await the run handle if present.
+    ///
+    /// This waits without a deadline. Use
+    /// [`shutdown_with_timeout`](Self::shutdown_with_timeout) when an
+    /// unresponsive runtime must not block shutdown indefinitely.
     pub async fn shutdown(&mut self) -> Result<(), EnvironmentError> {
         let stop_result = self.runtime_manager.stop().await;
 
@@ -269,6 +280,64 @@ impl Environment {
 
         self.launch_state = RuntimeLaunchState::Idle;
 
+        Self::resolve_shutdown_outcome(stop_result, join_result)
+    }
+
+    /// Request shutdown on all runtimes and await the run handle if present,
+    /// bounding both steps by `timeout`.
+    ///
+    /// The deadline applies to each runtime's [`Runtime::stop`] individually and
+    /// then, once the runtimes stopped in time, to joining the run task started
+    /// by [`run`](Self::run).
+    ///
+    /// The launch state returns to idle in every case, so the environment can be
+    /// started again even when shutdown timed out.
+    ///
+    /// # Errors
+    ///
+    /// - [`RuntimeError::ShutdownTimeout`] (wrapped in
+    ///   [`EnvironmentError::RuntimeError`]) when a runtime missed the deadline.
+    /// - [`EnvironmentError::ShutdownTimeout`] when the runtimes stopped in time
+    ///   but the run task did not finish within the deadline.
+    ///
+    /// # Cancellation
+    ///
+    /// A missed deadline only stops this call from waiting. Neither the runtime
+    /// `stop()` operations nor the run task are aborted; both keep running
+    /// detached, and the run task result is discarded once its join times out.
+    pub async fn shutdown_with_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<(), EnvironmentError> {
+        let stop_result = self.runtime_manager.stop_with_timeout(timeout).await;
+
+        let mut join_timed_out = false;
+        let join_result = match self.handle.take() {
+            Some(handle) => match tokio::time::timeout(timeout, handle).await {
+                Ok(join_result) => Some(join_result),
+                Err(_elapsed) => {
+                    join_timed_out = true;
+                    None
+                }
+            },
+            None => None,
+        };
+
+        self.launch_state = RuntimeLaunchState::Idle;
+
+        if stop_result.is_ok() && join_timed_out {
+            return Err(EnvironmentError::ShutdownTimeout(timeout));
+        }
+
+        Self::resolve_shutdown_outcome(stop_result, join_result)
+    }
+
+    /// Combine the runtime stop result with the run task join result, reporting
+    /// a stop failure ahead of a run task failure.
+    fn resolve_shutdown_outcome(
+        stop_result: Result<(), RuntimeError>,
+        join_result: Option<Result<Result<(), RuntimeError>, JoinError>>,
+    ) -> Result<(), EnvironmentError> {
         if let Err(e) = stop_result {
             return Err(EnvironmentError::RuntimeError(Box::new(e)));
         }
@@ -860,5 +929,173 @@ mod tests {
             .await
             .expect("default runtime should resolve");
         assert_eq!(resolved.id(), runtime_id);
+    }
+
+    /// Runtime whose `run()` never returns, and whose `stop()` only returns when
+    /// `stop_completes` is set. Emulates a runtime that cannot be shut down.
+    struct StallingRuntime {
+        id: RuntimeID,
+        stop_completes: bool,
+        tx: mpsc::Sender<Event>,
+    }
+
+    impl StallingRuntime {
+        fn new(stop_completes: bool) -> Arc<Self> {
+            let (tx, _rx) = mpsc::channel(1);
+            Arc::new(Self {
+                id: RuntimeID::new_v4(),
+                stop_completes,
+                tx,
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Runtime for StallingRuntime {
+        fn id(&self) -> RuntimeID {
+            self.id
+        }
+
+        async fn subscribe_any(
+            &self,
+            _topic_name: &str,
+            _topic_type: std::any::TypeId,
+            _actor: Arc<dyn crate::actor::AnyActor>,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn publish_any(
+            &self,
+            _topic_name: &str,
+            _topic_type: std::any::TypeId,
+            _message: Arc<dyn std::any::Any + Send + Sync>,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn tx(&self) -> mpsc::Sender<Event> {
+            self.tx.clone()
+        }
+
+        async fn transport(&self) -> Arc<dyn crate::actor::Transport> {
+            Arc::new(crate::actor::LocalTransport)
+        }
+
+        async fn take_event_receiver(&self) -> Option<BoxEventStream<Event>> {
+            None
+        }
+
+        async fn subscribe_events(&self) -> BoxEventStream<Event> {
+            Box::pin(futures::stream::empty())
+        }
+
+        async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            std::future::pending().await
+        }
+
+        async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            if self.stop_completes {
+                Ok(())
+            } else {
+                std::future::pending().await
+            }
+        }
+    }
+
+    /// Deadline handed to `shutdown_with_timeout` when the runtime is expected
+    /// to miss it. Short so the tests report the timeout quickly.
+    const SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(50);
+    /// Deadline used when shutdown is expected to succeed. Comfortably above the
+    /// ~100ms `SingleThreadedRuntime::stop` takes to drain its event loop.
+    const GENEROUS_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+    /// Upper bound for the whole call, generously above either deadline.
+    const SHUTDOWN_WATCHDOG: Duration = Duration::from_secs(10);
+
+    #[tokio::test]
+    async fn test_environment_shutdown_with_timeout_succeeds() {
+        let mut env = Environment::new(None);
+        let runtime = SingleThreadedRuntime::new(None);
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run().expect("run should succeed");
+        tokio::time::timeout(
+            SHUTDOWN_WATCHDOG,
+            env.shutdown_with_timeout(GENEROUS_SHUTDOWN_TIMEOUT),
+        )
+        .await
+        .expect("shutdown should not hang")
+        .expect("shutdown should succeed within the deadline");
+        assert!(!env.is_running());
+    }
+
+    #[tokio::test]
+    async fn test_environment_shutdown_with_timeout_succeeds_when_idle() {
+        let mut env = Environment::new(None);
+
+        env.shutdown_with_timeout(SHUTDOWN_TIMEOUT)
+            .await
+            .expect("shutdown should succeed when idle");
+    }
+
+    #[tokio::test]
+    async fn test_environment_shutdown_with_timeout_reports_unresponsive_runtime() {
+        let mut env = Environment::new(None);
+        let runtime = StallingRuntime::new(false);
+        let runtime_id = runtime.id;
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run().expect("run should succeed");
+        let err = tokio::time::timeout(
+            SHUTDOWN_WATCHDOG,
+            env.shutdown_with_timeout(SHUTDOWN_TIMEOUT),
+        )
+        .await
+        .expect("shutdown must not wait indefinitely")
+        .expect_err("unresponsive runtime should be reported");
+
+        match err {
+            EnvironmentError::RuntimeError(runtime_error) => assert!(matches!(
+                runtime_error.as_ref(),
+                RuntimeError::ShutdownTimeout { runtime_ids, timeout }
+                if runtime_ids.as_slice() == [runtime_id] && *timeout == SHUTDOWN_TIMEOUT
+            )),
+            other => panic!("expected a runtime shutdown timeout, got {other:?}"),
+        }
+        assert!(
+            !env.is_running(),
+            "a timed-out shutdown should still clear the launch state"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_environment_shutdown_with_timeout_reports_unfinished_run_task() {
+        let mut env = Environment::new(None);
+        // The runtime stops promptly, but its run loop never returns, so the
+        // managed run task outlives the deadline.
+        env.register_runtime(StallingRuntime::new(true))
+            .await
+            .unwrap();
+
+        env.run().expect("run should succeed");
+        let err = tokio::time::timeout(
+            SHUTDOWN_WATCHDOG,
+            env.shutdown_with_timeout(SHUTDOWN_TIMEOUT),
+        )
+        .await
+        .expect("shutdown must not wait indefinitely")
+        .expect_err("unfinished run task should be reported");
+
+        assert!(matches!(
+            err,
+            EnvironmentError::ShutdownTimeout(timeout) if timeout == SHUTDOWN_TIMEOUT
+        ));
+        assert!(!env.is_running());
+    }
+
+    #[test]
+    fn test_environment_error_shutdown_timeout_display() {
+        let error = EnvironmentError::ShutdownTimeout(SHUTDOWN_TIMEOUT);
+        assert!(error.to_string().contains("did not finish within"));
     }
 }
