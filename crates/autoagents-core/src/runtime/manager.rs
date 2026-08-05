@@ -12,17 +12,58 @@ use tokio::{
 type StopOutcome = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 /// A spawned [`Runtime::stop`] call.
 type StopTask = JoinHandle<StopOutcome>;
+/// Result of joining a [`StopTask`]: the stop outcome, or the panic that
+/// replaced it.
+type StopJoinOutcome = Result<StopOutcome, JoinError>;
+
+/// A stop operation whose result no caller has reported yet.
+enum PendingStop {
+    /// Still in flight. Its handle has never been polled to completion, so it is
+    /// safe to await.
+    Running(StopTask),
+    /// Finished, with its outcome recorded but not yet reported: the call that
+    /// observed it was dropped before it could return.
+    Observed(StopJoinOutcome),
+}
+
+impl PendingStop {
+    /// Await the operation to completion, recording its outcome in place.
+    async fn observe(&mut self) {
+        if let PendingStop::Running(task) = self {
+            // The store follows the await with no suspension point in between,
+            // which is what makes callers cancellation safe: dropping them
+            // leaves either an untouched handle or a recorded outcome, never a
+            // completed handle that a later call would panic on re-polling.
+            *self = PendingStop::Observed(task.await);
+        }
+    }
+
+    /// Like [`observe`](Self::observe), but gives up after `timeout`, leaving an
+    /// unfinished operation running and observable by a later call.
+    async fn observe_with_timeout(&mut self, timeout: Duration) {
+        if let PendingStop::Running(task) = self
+            && let Ok(join_outcome) = tokio::time::timeout(timeout, task).await
+        {
+            *self = PendingStop::Observed(join_outcome);
+        }
+    }
+}
 
 pub struct RuntimeManager {
     runtimes: RwLock<HashMap<RuntimeID, Arc<dyn Runtime>>>,
-    /// Stop operations that outlived the deadline of an earlier
-    /// [`stop_with_timeout`](Self::stop_with_timeout).
+    /// Stop operations that no completed call has reported yet: those that
+    /// outlived the deadline of an earlier [`stop_with_timeout`](Self::stop_with_timeout),
+    /// and those left behind by a cancelled one.
     ///
     /// A timed-out stop keeps running detached. Holding its handle is what lets a
     /// later stop observe that it finished; dropping it would make the operation
     /// permanently unobservable, and any subsequent "shutdown completed" report
     /// would be unfounded.
-    pending_stops: Mutex<Vec<(RuntimeID, StopTask)>>,
+    ///
+    /// For the same reason an entry is removed only by the call that reports it,
+    /// never before awaiting it: a stop that is dropped mid-wait must leave the
+    /// work it was waiting on tracked here.
+    pending_stops: Mutex<Vec<(RuntimeID, PendingStop)>>,
 }
 
 impl RuntimeManager {
@@ -140,57 +181,61 @@ impl RuntimeManager {
     /// this method or to [`stop`](Self::stop) awaits it again. That is what makes
     /// a later successful stop meaningful: it reports success only once the
     /// earlier detached work has actually been observed to finish.
+    ///
+    /// Dropping this future keeps that guarantee: every stop operation it was
+    /// waiting on — retained and freshly spawned alike — stays tracked and is
+    /// awaited by the next call.
     pub async fn stop_with_timeout(&self, timeout: Duration) -> Result<(), RuntimeError> {
         let runtimes = self.runtimes.read().await;
         let mut pending_stops = self.pending_stops.lock().await;
 
-        // Re-await stop operations that outlived an earlier deadline alongside a
-        // fresh stop for every registered runtime, keeping each runtime id so
-        // unresponsive runtimes can be named in the error.
-        let mut tasks: Vec<(RuntimeID, StopTask)> = pending_stops.drain(..).collect();
-        tasks.extend(runtimes.values().map(|runtime| {
+        // Track a fresh stop for every registered runtime alongside the stop
+        // operations left unreported by an earlier call, keeping each runtime id
+        // so unresponsive runtimes can be named in the error. `pending_stops`
+        // owns every entry for the whole wait below, so dropping this future
+        // mid-wait leaves the unreported work tracked instead of detaching it.
+        pending_stops.extend(runtimes.values().map(|runtime| {
             let runtime = Arc::clone(runtime);
             let runtime_id = runtime.id();
             (
                 runtime_id,
-                tokio::spawn(async move { runtime.stop().await }),
+                PendingStop::Running(tokio::spawn(async move { runtime.stop().await })),
             )
         }));
 
-        let outcomes = join_all(tasks.into_iter().map(|(runtime_id, mut task)| async move {
-            // Await by reference so the handle survives the deadline and can be
-            // handed back for a later call to await.
-            match tokio::time::timeout(timeout, &mut task).await {
-                Ok(join_result) => (runtime_id, Ok(join_result)),
-                Err(_elapsed) => (runtime_id, Err(task)),
-            }
-        }))
+        join_all(
+            pending_stops
+                .iter_mut()
+                .map(|(_, pending)| pending.observe_with_timeout(timeout)),
+        )
         .await;
 
         let mut timed_out: Vec<RuntimeID> = Vec::new();
         let mut join_error: Option<JoinError> = None;
         let mut operation_error: Option<String> = None;
 
-        for (runtime_id, outcome) in outcomes {
-            match outcome {
-                Err(task) => {
+        // Reporting is free of await points, so every outcome taken out here is
+        // carried into this call's return value.
+        for (runtime_id, pending) in std::mem::take(&mut *pending_stops) {
+            match pending {
+                PendingStop::Running(task) => {
                     error!("Runtime {runtime_id} did not stop within {timeout:?}");
                     timed_out.push(runtime_id);
-                    pending_stops.push((runtime_id, task));
+                    pending_stops.push((runtime_id, PendingStop::Running(task)));
                 }
-                Ok(Err(err)) => {
+                PendingStop::Observed(Err(err)) => {
                     error!("Runtime {runtime_id} panicked while stopping: {err}");
                     if join_error.is_none() {
                         join_error = Some(err);
                     }
                 }
-                Ok(Ok(Err(err))) => {
+                PendingStop::Observed(Ok(Err(err))) => {
                     error!("Runtime {runtime_id} failed to stop: {err}");
                     if operation_error.is_none() {
                         operation_error = Some(err.to_string());
                     }
                 }
-                Ok(Ok(Ok(()))) => {}
+                PendingStop::Observed(Ok(Ok(()))) => {}
             }
         }
 
@@ -218,18 +263,34 @@ impl RuntimeManager {
         Ok(())
     }
 
-    /// Await every stop operation retained from a timed-out
-    /// [`stop_with_timeout`](Self::stop_with_timeout), without a deadline.
+    /// Await every stop operation left over by an earlier
+    /// [`stop_with_timeout`](Self::stop_with_timeout) that timed out or was
+    /// dropped, without a deadline.
     ///
     /// Outcomes are logged rather than returned; the call that hit the deadline
     /// already reported these runtimes as unresponsive.
+    ///
+    /// Dropping this future leaves every operation it has not yet observed
+    /// tracked in `pending_stops`, so a later call still awaits them.
     async fn drain_pending_stops(&self) {
         let mut pending_stops = self.pending_stops.lock().await;
-        for (runtime_id, task) in pending_stops.drain(..) {
-            match task.await {
-                Ok(Ok(())) => {}
-                Ok(Err(err)) => error!("Runtime {runtime_id} failed to stop: {err}"),
-                Err(err) => error!("Runtime {runtime_id} panicked while stopping: {err}"),
+        join_all(
+            pending_stops
+                .iter_mut()
+                .map(|(_, pending)| pending.observe()),
+        )
+        .await;
+
+        for (runtime_id, pending) in pending_stops.drain(..) {
+            match pending {
+                // `observe` leaves nothing running.
+                PendingStop::Running(_) | PendingStop::Observed(Ok(Ok(()))) => {}
+                PendingStop::Observed(Ok(Err(err))) => {
+                    error!("Runtime {runtime_id} failed to stop: {err}")
+                }
+                PendingStop::Observed(Err(err)) => {
+                    error!("Runtime {runtime_id} panicked while stopping: {err}")
+                }
             }
         }
     }
@@ -821,6 +882,69 @@ mod tests {
             stop_completions.load(Ordering::SeqCst),
             2,
             "stop() must not return while an earlier stop is still detached"
+        );
+    }
+
+    #[tokio::test]
+    async fn stop_with_timeout_keeps_retained_stops_when_cancelled() {
+        let manager = RuntimeManager::new();
+        let runtime =
+            TestRuntime::new(Behavior::Success, Behavior::Success).with_first_stop_delay(SLOW_STOP);
+        let stop_completions = runtime.stop_completions();
+
+        manager
+            .register_runtime(Arc::new(runtime))
+            .await
+            .expect("register runtime");
+
+        manager
+            .stop_with_timeout(STOP_TIMEOUT)
+            .await
+            .expect_err("the slow stop should miss the deadline");
+        assert_eq!(stop_completions.load(Ordering::SeqCst), 0);
+
+        // Drop a second call while it is still waiting on the retained stop.
+        timeout(STOP_TIMEOUT, manager.stop_with_timeout(WATCHDOG))
+            .await
+            .expect_err("the outer deadline should cancel the call mid-wait");
+
+        // The cancelled call must not have taken the still-running stop with it.
+        manager.stop().await.expect("unbounded stop should succeed");
+        assert_eq!(
+            stop_completions.load(Ordering::SeqCst),
+            3,
+            "a cancelled stop must leave every unobserved stop operation tracked"
+        );
+    }
+
+    #[tokio::test]
+    async fn stop_keeps_retained_stops_when_cancelled() {
+        let manager = RuntimeManager::new();
+        let runtime =
+            TestRuntime::new(Behavior::Success, Behavior::Success).with_first_stop_delay(SLOW_STOP);
+        let stop_completions = runtime.stop_completions();
+
+        manager
+            .register_runtime(Arc::new(runtime))
+            .await
+            .expect("register runtime");
+
+        manager
+            .stop_with_timeout(STOP_TIMEOUT)
+            .await
+            .expect_err("the slow stop should miss the deadline");
+        assert_eq!(stop_completions.load(Ordering::SeqCst), 0);
+
+        // Drop an unbounded stop while it is draining the retained stop.
+        timeout(STOP_TIMEOUT, manager.stop())
+            .await
+            .expect_err("the outer deadline should cancel the call mid-drain");
+
+        manager.stop().await.expect("unbounded stop should succeed");
+        assert_eq!(
+            stop_completions.load(Ordering::SeqCst),
+            2,
+            "a cancelled stop must leave the retained stop operation tracked"
         );
     }
 
