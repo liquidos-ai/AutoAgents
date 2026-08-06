@@ -6,7 +6,8 @@ use autoagents_protocol::{Event, RuntimeID};
 use futures_util::FutureExt;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::task::JoinHandle;
+use std::time::Duration;
+use tokio::task::{JoinError, JoinHandle};
 
 /// Errors emitted when managing runtimes and consuming event receivers
 #[derive(Debug, thiserror::Error)]
@@ -31,6 +32,18 @@ pub enum EnvironmentError {
 
     #[error("Finished run task result was not yet available")]
     RunResultNotReady,
+
+    /// The runtimes stopped within the deadline passed to
+    /// [`Environment::shutdown_with_timeout`], but the managed run task did not
+    /// finish in time.
+    #[error("Run task did not finish within {0:?}")]
+    ShutdownTimeout(Duration),
+
+    /// A previous [`Environment::shutdown_with_timeout`] missed its deadline, so
+    /// runtimes may still be stopping. Relaunching would race that detached
+    /// work; shut down again and only relaunch once it succeeds.
+    #[error("Previous shutdown did not complete within {0:?}; runtimes may still be stopping")]
+    ShutdownIncomplete(Duration),
 }
 
 /// Configuration for the process environment that owns one or more runtimes.
@@ -60,6 +73,9 @@ impl Default for EnvironmentConfig {
 ///   Await it with [`wait`](Self::wait) or stop with [`shutdown`](Self::shutdown).
 /// - **`Background`** — [`run_background`](Self::run_background) started runtimes without storing
 ///   a handle on the environment. Call [`shutdown`](Self::shutdown) before `run()`.
+/// - **`ShutdownIncomplete`** — [`shutdown_with_timeout`](Self::shutdown_with_timeout) missed its
+///   deadline, so lifecycle work is still detached. `run()` and `run_background()` refuse to
+///   relaunch with [`EnvironmentError::ShutdownIncomplete`] until a later shutdown completes.
 ///
 /// `run()` and `run_background()` both call [`reconcile_finished_managed_launch`](Self::reconcile_finished_managed_launch)
 /// first. When a managed run task finished without `wait()` or `shutdown()`, that helper joins the
@@ -86,6 +102,10 @@ enum RuntimeLaunchState {
     Managed,
     /// [`Environment::run_background`] started runtimes without a stored join handle.
     Background,
+    /// [`Environment::shutdown_with_timeout`] missed the carried deadline. Stop
+    /// operations, and possibly the run task, are still running detached, so the
+    /// environment must not be relaunched until a shutdown completes.
+    ShutdownIncomplete(Duration),
 }
 
 impl Environment {
@@ -153,9 +173,13 @@ impl Environment {
     ///
     /// Use [`wait`](Self::wait) to await the background run task, or
     /// [`shutdown`](Self::shutdown) to stop runtimes and join the task.
-    #[allow(clippy::result_large_err)] // Only `AlreadyRunning` is returned from this method.
+    #[allow(clippy::result_large_err)] // Only unit-sized variants are returned from this method.
     pub fn run(&mut self) -> Result<(), EnvironmentError> {
         self.reconcile_finished_managed_launch()?;
+
+        if let RuntimeLaunchState::ShutdownIncomplete(timeout) = self.launch_state {
+            return Err(EnvironmentError::ShutdownIncomplete(timeout));
+        }
 
         if self.launch_state == RuntimeLaunchState::Background {
             return Err(EnvironmentError::AlreadyRunning);
@@ -209,6 +233,10 @@ impl Environment {
     pub async fn run_background(&mut self) -> Result<(), EnvironmentError> {
         self.reconcile_finished_managed_launch()?;
 
+        if let RuntimeLaunchState::ShutdownIncomplete(timeout) = self.launch_state {
+            return Err(EnvironmentError::ShutdownIncomplete(timeout));
+        }
+
         if self.launch_state != RuntimeLaunchState::Idle || self.is_running() {
             return Err(EnvironmentError::AlreadyRunning);
         }
@@ -258,6 +286,10 @@ impl Environment {
     }
 
     /// Request shutdown on all runtimes and await the run handle if present.
+    ///
+    /// This waits without a deadline. Use
+    /// [`shutdown_with_timeout`](Self::shutdown_with_timeout) when an
+    /// unresponsive runtime must not block shutdown indefinitely.
     pub async fn shutdown(&mut self) -> Result<(), EnvironmentError> {
         let stop_result = self.runtime_manager.stop().await;
 
@@ -269,6 +301,70 @@ impl Environment {
 
         self.launch_state = RuntimeLaunchState::Idle;
 
+        Self::resolve_shutdown_outcome(stop_result, join_result)
+    }
+
+    pub async fn shutdown_with_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<(), EnvironmentError> {
+        let stop_result = self.runtime_manager.stop_with_timeout(timeout).await;
+
+        // Runtime shutdown timed out. Keep the existing managed handle untouched
+        // and prevent the environment from being relaunched.
+        if let Err(error @ RuntimeError::ShutdownTimeout { .. }) = stop_result {
+            self.launch_state = RuntimeLaunchState::ShutdownIncomplete(timeout);
+
+            return Err(EnvironmentError::RuntimeError(Box::new(error)));
+        }
+
+        let handle = match self.handle.take() {
+            Some(handle) => handle,
+            None => {
+                self.launch_state = RuntimeLaunchState::Idle;
+                return Self::resolve_shutdown_outcome(stop_result, None);
+            }
+        };
+
+        // Restore the handle if waiting is cancelled or exceeds the deadline.
+        let mut guard = RestoreRunHandleOnDrop {
+            environment: self,
+            handle: Some(handle),
+        };
+
+        let join_result = match tokio::time::timeout(
+            timeout,
+            guard.handle.as_mut().expect("handle was just stored"),
+        )
+        .await
+        {
+            Ok(join_result) => join_result,
+
+            Err(_elapsed) => {
+                guard.environment.launch_state = RuntimeLaunchState::ShutdownIncomplete(timeout);
+
+                // Returning drops the guard, which restores the JoinHandle.
+                return match stop_result {
+                    Ok(()) => Err(EnvironmentError::ShutdownTimeout(timeout)),
+                    Err(error) => Err(EnvironmentError::RuntimeError(Box::new(error))),
+                };
+            }
+        };
+
+        // The original managed run task has now finished. Only now is it safe to
+        // discard the handle and permit another run.
+        guard.handle = None;
+        guard.environment.launch_state = RuntimeLaunchState::Idle;
+
+        Self::resolve_shutdown_outcome(stop_result, Some(join_result))
+    }
+
+    /// Combine the runtime stop result with the run task join result, reporting
+    /// a stop failure ahead of a run task failure.
+    fn resolve_shutdown_outcome(
+        stop_result: Result<(), RuntimeError>,
+        join_result: Option<Result<Result<(), RuntimeError>, JoinError>>,
+    ) -> Result<(), EnvironmentError> {
         if let Err(e) = stop_result {
             return Err(EnvironmentError::RuntimeError(Box::new(e)));
         }
@@ -285,9 +381,13 @@ impl Environment {
     /// For [`run`](Self::run) this checks the managed join handle. For
     /// [`run_background`](Self::run_background) this returns `true` until
     /// [`shutdown`](Self::shutdown) clears the launch state.
+    ///
+    /// After a [`shutdown_with_timeout`](Self::shutdown_with_timeout) that missed
+    /// its deadline this stays `true`: the runtimes never confirmed they stopped,
+    /// so their lifecycle work must be assumed to still be running.
     pub fn is_running(&self) -> bool {
         match self.launch_state {
-            RuntimeLaunchState::Background => true,
+            RuntimeLaunchState::Background | RuntimeLaunchState::ShutdownIncomplete(_) => true,
             RuntimeLaunchState::Managed => self
                 .handle
                 .as_ref()
@@ -359,6 +459,7 @@ impl Drop for RestoreRunHandleOnDrop<'_> {
 mod tests {
     use super::*;
     use crate::runtime::SingleThreadedRuntime;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tempfile::tempdir;
     use tokio::sync::mpsc;
     use uuid::Uuid;
@@ -860,5 +961,347 @@ mod tests {
             .await
             .expect("default runtime should resolve");
         assert_eq!(resolved.id(), runtime_id);
+    }
+
+    /// Runtime whose `run()` never returns, and whose `stop()` only returns when
+    /// `stop_completes` is set. Emulates a runtime that cannot be shut down.
+    struct StallingRuntime {
+        id: RuntimeID,
+        stop_completes: bool,
+        tx: mpsc::Sender<Event>,
+    }
+
+    impl StallingRuntime {
+        fn new(stop_completes: bool) -> Arc<Self> {
+            let (tx, _rx) = mpsc::channel(1);
+            Arc::new(Self {
+                id: RuntimeID::new_v4(),
+                stop_completes,
+                tx,
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Runtime for StallingRuntime {
+        fn id(&self) -> RuntimeID {
+            self.id
+        }
+
+        async fn subscribe_any(
+            &self,
+            _topic_name: &str,
+            _topic_type: std::any::TypeId,
+            _actor: Arc<dyn crate::actor::AnyActor>,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn publish_any(
+            &self,
+            _topic_name: &str,
+            _topic_type: std::any::TypeId,
+            _message: Arc<dyn std::any::Any + Send + Sync>,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn tx(&self) -> mpsc::Sender<Event> {
+            self.tx.clone()
+        }
+
+        async fn transport(&self) -> Arc<dyn crate::actor::Transport> {
+            Arc::new(crate::actor::LocalTransport)
+        }
+
+        async fn take_event_receiver(&self) -> Option<BoxEventStream<Event>> {
+            None
+        }
+
+        async fn subscribe_events(&self) -> BoxEventStream<Event> {
+            Box::pin(futures::stream::empty())
+        }
+
+        async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            std::future::pending().await
+        }
+
+        async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            if self.stop_completes {
+                Ok(())
+            } else {
+                std::future::pending().await
+            }
+        }
+    }
+
+    /// Runtime that runs to completion immediately, but whose first `stop()` is
+    /// slow. Later stops return promptly, so a test can tell whether a shutdown
+    /// waited for the detached first stop or merely for its own fresh one.
+    struct SlowStoppingRuntime {
+        id: RuntimeID,
+        stop_calls: Arc<AtomicUsize>,
+        stop_completions: Arc<AtomicUsize>,
+        tx: mpsc::Sender<Event>,
+    }
+
+    impl SlowStoppingRuntime {
+        fn new() -> Arc<Self> {
+            let (tx, _rx) = mpsc::channel(1);
+            Arc::new(Self {
+                id: RuntimeID::new_v4(),
+                stop_calls: Arc::new(AtomicUsize::new(0)),
+                stop_completions: Arc::new(AtomicUsize::new(0)),
+                tx,
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Runtime for SlowStoppingRuntime {
+        fn id(&self) -> RuntimeID {
+            self.id
+        }
+
+        async fn subscribe_any(
+            &self,
+            _topic_name: &str,
+            _topic_type: std::any::TypeId,
+            _actor: Arc<dyn crate::actor::AnyActor>,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn publish_any(
+            &self,
+            _topic_name: &str,
+            _topic_type: std::any::TypeId,
+            _message: Arc<dyn std::any::Any + Send + Sync>,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn tx(&self) -> mpsc::Sender<Event> {
+            self.tx.clone()
+        }
+
+        async fn transport(&self) -> Arc<dyn crate::actor::Transport> {
+            Arc::new(crate::actor::LocalTransport)
+        }
+
+        async fn take_event_receiver(&self) -> Option<BoxEventStream<Event>> {
+            None
+        }
+
+        async fn subscribe_events(&self) -> BoxEventStream<Event> {
+            Box::pin(futures::stream::empty())
+        }
+
+        async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+
+        async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            if self.stop_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                tokio::time::sleep(SLOW_STOP).await;
+            }
+            self.stop_completions.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    /// Long enough that a stop which is not awaited would still be running when
+    /// the recovering shutdown returns.
+    const SLOW_STOP: Duration = Duration::from_millis(400);
+
+    /// Deadline handed to `shutdown_with_timeout` when the runtime is expected
+    /// to miss it. Short so the tests report the timeout quickly.
+    const SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(50);
+    /// Deadline used when shutdown is expected to succeed. Comfortably above the
+    /// ~100ms `SingleThreadedRuntime::stop` takes to drain its event loop.
+    const GENEROUS_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+    /// Upper bound for the whole call, generously above either deadline.
+    const SHUTDOWN_WATCHDOG: Duration = Duration::from_secs(10);
+
+    #[tokio::test]
+    async fn test_environment_shutdown_with_timeout_succeeds() {
+        let mut env = Environment::new(None);
+        let runtime = SingleThreadedRuntime::new(None);
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run().expect("run should succeed");
+        tokio::time::timeout(
+            SHUTDOWN_WATCHDOG,
+            env.shutdown_with_timeout(GENEROUS_SHUTDOWN_TIMEOUT),
+        )
+        .await
+        .expect("shutdown should not hang")
+        .expect("shutdown should succeed within the deadline");
+        assert!(!env.is_running());
+    }
+
+    #[tokio::test]
+    async fn test_environment_shutdown_with_timeout_succeeds_when_idle() {
+        let mut env = Environment::new(None);
+
+        env.shutdown_with_timeout(SHUTDOWN_TIMEOUT)
+            .await
+            .expect("shutdown should succeed when idle");
+    }
+
+    #[tokio::test]
+    async fn test_environment_shutdown_with_timeout_reports_unresponsive_runtime() {
+        let mut env = Environment::new(None);
+        let runtime = StallingRuntime::new(false);
+        let runtime_id = runtime.id;
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run().expect("run should succeed");
+        let err = tokio::time::timeout(
+            SHUTDOWN_WATCHDOG,
+            env.shutdown_with_timeout(SHUTDOWN_TIMEOUT),
+        )
+        .await
+        .expect("shutdown must not wait indefinitely")
+        .expect_err("unresponsive runtime should be reported");
+
+        match err {
+            EnvironmentError::RuntimeError(runtime_error) => assert!(matches!(
+                runtime_error.as_ref(),
+                RuntimeError::ShutdownTimeout { runtime_ids, timeout }
+                if runtime_ids.as_slice() == [runtime_id] && *timeout == SHUTDOWN_TIMEOUT
+            )),
+            other => panic!("expected a runtime shutdown timeout, got {other:?}"),
+        }
+        assert!(
+            env.is_running(),
+            "a runtime that never confirmed it stopped must still count as running"
+        );
+        assert!(
+            matches!(
+                env.run(),
+                Err(EnvironmentError::ShutdownIncomplete(timeout)) if timeout == SHUTDOWN_TIMEOUT
+            ),
+            "relaunching must be refused while the previous stop is still detached"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_environment_shutdown_with_timeout_reports_unfinished_run_task() {
+        let mut env = Environment::new(None);
+        // The runtime stops promptly, but its run loop never returns, so the
+        // managed run task outlives the deadline.
+        env.register_runtime(StallingRuntime::new(true))
+            .await
+            .unwrap();
+
+        env.run().expect("run should succeed");
+        let err = tokio::time::timeout(
+            SHUTDOWN_WATCHDOG,
+            env.shutdown_with_timeout(SHUTDOWN_TIMEOUT),
+        )
+        .await
+        .expect("shutdown must not wait indefinitely")
+        .expect_err("unfinished run task should be reported");
+
+        assert!(matches!(
+            err,
+            EnvironmentError::ShutdownTimeout(timeout) if timeout == SHUTDOWN_TIMEOUT
+        ));
+        assert!(
+            env.is_running(),
+            "an unfinished run task must still count as running"
+        );
+        assert!(matches!(
+            env.run_background().await,
+            Err(EnvironmentError::ShutdownIncomplete(timeout)) if timeout == SHUTDOWN_TIMEOUT
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_environment_shutdown_timeout_preserves_run_handle() {
+        let mut env = Environment::new(None);
+
+        env.register_runtime(StallingRuntime::new(true))
+            .await
+            .unwrap();
+
+        env.run().expect("run should succeed");
+
+        let err = tokio::time::timeout(
+            SHUTDOWN_WATCHDOG,
+            env.shutdown_with_timeout(SHUTDOWN_TIMEOUT),
+        )
+        .await
+        .expect("shutdown must not hang")
+        .expect_err("unfinished run task should time out");
+
+        assert!(matches!(
+            err,
+            EnvironmentError::ShutdownTimeout(timeout)
+                if timeout == SHUTDOWN_TIMEOUT
+        ));
+
+        assert!(
+            env.handle.is_some(),
+            "the original managed run handle must remain tracked"
+        );
+
+        assert!(matches!(
+            env.run(),
+            Err(EnvironmentError::ShutdownIncomplete(timeout))
+                if timeout == SHUTDOWN_TIMEOUT
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_environment_recovery_waits_for_the_detached_stop() {
+        let mut env = Environment::new(None);
+        let runtime = SlowStoppingRuntime::new();
+        let stop_completions = Arc::clone(&runtime.stop_completions);
+        env.register_runtime(runtime).await.unwrap();
+
+        env.run().expect("run should succeed");
+        tokio::time::timeout(
+            SHUTDOWN_WATCHDOG,
+            env.shutdown_with_timeout(SHUTDOWN_TIMEOUT),
+        )
+        .await
+        .expect("shutdown must not wait indefinitely")
+        .expect_err("the slow stop should miss the deadline");
+        assert_eq!(stop_completions.load(Ordering::SeqCst), 0);
+        assert!(matches!(
+            env.run(),
+            Err(EnvironmentError::ShutdownIncomplete(_))
+        ));
+
+        // Recovering must not merely start a second stop and declare success: the
+        // stop detached by the timed-out attempt has to be observed finishing
+        // before the environment may be launched again.
+        env.shutdown().await.expect("recovery shutdown should stop");
+        assert_eq!(
+            stop_completions.load(Ordering::SeqCst),
+            2,
+            "the guard must not clear while the first stop is still in flight"
+        );
+
+        assert!(!env.is_running());
+        env.run()
+            .expect("relaunch is allowed once every stop has been observed");
+        env.shutdown().await.expect("final shutdown should succeed");
+    }
+
+    #[test]
+    fn test_environment_error_shutdown_timeout_display() {
+        let error = EnvironmentError::ShutdownTimeout(SHUTDOWN_TIMEOUT);
+        assert!(error.to_string().contains("did not finish within"));
+    }
+
+    #[test]
+    fn test_environment_error_shutdown_incomplete_display() {
+        let error = EnvironmentError::ShutdownIncomplete(SHUTDOWN_TIMEOUT);
+        let message = error.to_string();
+        assert!(message.contains("Previous shutdown did not complete"));
+        assert!(message.contains("may still be stopping"));
     }
 }
