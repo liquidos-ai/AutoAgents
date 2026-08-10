@@ -37,6 +37,25 @@ mod lifecycle {
     pub(super) const STOP_BEFORE_RUN: u8 = 2;
 }
 
+/// Publishes shutdown completion when dropped, so a `stop()` caller waiting on
+/// the completion channel is released however the event loop stops running:
+/// normal exit, an early `?` error, a panic unwind, or task cancellation (the
+/// future being dropped). Without this, an aborted or panicking runtime task
+/// would skip the completion signal, and because the `watch::Sender` lives on
+/// in the shared runtime, `stop()` could neither observe completion nor see the
+/// channel close — it would wait forever.
+struct CompletionGuard<'a> {
+    tx: &'a watch::Sender<bool>,
+}
+
+impl Drop for CompletionGuard<'_> {
+    fn drop(&mut self) {
+        // `send_replace` never fails and works even with no receivers, so it is
+        // safe to run while unwinding or during cancellation.
+        self.tx.send_replace(true);
+    }
+}
+
 /// Topic subscription entry storing type information and actor references
 #[derive(Debug)]
 struct Subscription {
@@ -228,6 +247,15 @@ impl SingleThreadedRuntime {
             .take()
             .ok_or("Internal receiver already taken")?;
 
+        // From here on this task owns the event loop, so it is responsible for
+        // acknowledging completion. The guard publishes it on every exit path,
+        // including a panic or the task being cancelled mid-loop. Taking the
+        // receiver first ensures a second `run()` (which fails above) never
+        // falsely signals completion for the loop this task owns.
+        let _completion = CompletionGuard {
+            tx: &self.shutdown_complete_tx,
+        };
+
         info!("Runtime event loop starting");
 
         loop {
@@ -271,10 +299,8 @@ impl SingleThreadedRuntime {
             }
         }
 
-        // Persist the completed state so current and future stop() callers
-        // can observe that shutdown processing has finished.
-        self.shutdown_complete_tx.send_replace(true);
-
+        // Completion is published by `_completion` when it drops at the end of
+        // this scope, i.e. after the drain above has finished.
         info!("Runtime event loop stopped");
         Ok(())
     }
@@ -453,6 +479,37 @@ mod tests {
             received.push(message.content);
             Ok(())
         }
+    }
+
+    /// Transport that only counts dispatches, so lifecycle tests can observe
+    /// that the event loop processed an event without depending on asynchronous
+    /// actor delivery.
+    #[derive(Debug)]
+    struct CountingTransport {
+        delivered: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Transport for CountingTransport {
+        async fn send(
+            &self,
+            _actor: &dyn AnyActor,
+            _msg: Arc<dyn Any + Send + Sync>,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            self.delivered.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    /// Build a queued publish event for `topic_name` carrying `content`.
+    fn publish_event(topic_name: &str, content: &str) -> InternalEvent {
+        InternalEvent::ProtocolEvent(Box::new(Event::PublishMessage {
+            topic_name: topic_name.to_string(),
+            topic_type: TypeId::of::<TestMessage>(),
+            message: Arc::new(TestMessage {
+                content: content.to_string(),
+            }) as Arc<dyn Any + Send + Sync>,
+        }))
     }
 
     #[tokio::test]
@@ -922,25 +979,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_completion_published_after_drain() {
-        // A transport that only counts dispatches, so the assertion below depends
-        // on runtime lifecycle state rather than on asynchronous actor delivery.
-        #[derive(Debug)]
-        struct CountingTransport {
-            delivered: Arc<std::sync::atomic::AtomicUsize>,
-        }
-
-        #[async_trait]
-        impl Transport for CountingTransport {
-            async fn send(
-                &self,
-                _actor: &dyn AnyActor,
-                _msg: Arc<dyn Any + Send + Sync>,
-            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-                self.delivered.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }
-        }
-
         let delivered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let runtime = SingleThreadedRuntime::with_transport(
             None,
@@ -963,22 +1001,12 @@ mod tests {
         let topic = Topic::<TestMessage>::new("drain_topic");
         runtime.subscribe(&topic, actor_ref).await.unwrap();
 
-        let publish_event = |content: &str| {
-            InternalEvent::ProtocolEvent(Box::new(Event::PublishMessage {
-                topic_name: "drain_topic".to_string(),
-                topic_type: TypeId::of::<TestMessage>(),
-                message: Arc::new(TestMessage {
-                    content: content.to_string(),
-                }) as Arc<dyn Any + Send + Sync>,
-            }))
-        };
-
         // Queue an event, then Shutdown, then two more events. The loop processes
         // the first event and breaks on Shutdown; the trailing two can only be
         // handled by the post-shutdown drain path.
         runtime
             .internal_tx
-            .send(publish_event("first"))
+            .send(publish_event("drain_topic", "first"))
             .await
             .unwrap();
         runtime
@@ -988,12 +1016,12 @@ mod tests {
             .unwrap();
         runtime
             .internal_tx
-            .send(publish_event("second"))
+            .send(publish_event("drain_topic", "second"))
             .await
             .unwrap();
         runtime
             .internal_tx
-            .send(publish_event("third"))
+            .send(publish_event("drain_topic", "third"))
             .await
             .unwrap();
 
@@ -1010,6 +1038,73 @@ mod tests {
         assert!(
             *runtime.shutdown_complete_tx.borrow(),
             "completion must be published once draining has finished"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_completion_published_when_run_task_cancelled() {
+        // Regression test: once run() records RUNNING, a stop() caller waits on
+        // the completion channel. If the runtime task is cancelled (or panics)
+        // the event loop's normal epilogue never runs, yet the completion guard
+        // must still fire on drop so the waiter is released instead of hanging
+        // forever on a `watch::Sender` that the shared runtime keeps alive.
+        let delivered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let runtime = SingleThreadedRuntime::with_transport(
+            None,
+            Arc::new(CountingTransport {
+                delivered: delivered.clone(),
+            }),
+        );
+
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let (actor_ref, _handle) = Actor::spawn(
+            None,
+            TestActor {
+                received: received.clone(),
+            },
+            received.clone(),
+        )
+        .await
+        .unwrap();
+        let topic = Topic::<TestMessage>::new("cancel_topic");
+        runtime.subscribe(&topic, actor_ref).await.unwrap();
+
+        let run_handle = runtime.clone();
+        let runtime_task = tokio::spawn(async move { run_handle.run().await });
+
+        // Drive one event through so the event loop is provably running with its
+        // completion guard installed (the counter only advances inside the loop).
+        runtime
+            .internal_tx
+            .send(publish_event("cancel_topic", "warmup"))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while delivered.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the event loop should process the warmup event");
+
+        // Cancel the task without requesting shutdown: only the completion guard
+        // (run on drop) can release a waiter now.
+        runtime_task.abort();
+        let join = runtime_task.await;
+        assert!(
+            join.is_err(),
+            "the aborted run task should report cancellation"
+        );
+
+        // Completion was published on drop, so stop() returns promptly instead of
+        // waiting forever.
+        tokio::time::timeout(Duration::from_secs(5), runtime.stop())
+            .await
+            .expect("stop() must not hang after the run task was cancelled")
+            .expect("stop() should succeed");
+        assert!(
+            *runtime.shutdown_complete_tx.borrow(),
+            "completion must be published even when the run task is cancelled"
         );
     }
 }
