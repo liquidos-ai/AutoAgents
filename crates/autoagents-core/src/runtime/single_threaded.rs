@@ -38,11 +38,13 @@ mod lifecycle {
 }
 
 /// Publishes shutdown completion when dropped, so a `stop()` caller waiting on
-/// the completion channel is released however the event loop stops running:
+/// the completion channel is released however the runtime task stops running:
 /// normal exit, an early `?` error, a panic unwind, or task cancellation (the
-/// future being dropped). Without this, an aborted or panicking runtime task
-/// would skip the completion signal, and because the `watch::Sender` lives on
-/// in the shared runtime, `stop()` could neither observe completion nor see the
+/// future being dropped). It is created by `run()` in the same synchronous step
+/// that publishes `RUNNING`, so it covers cancellation even before the event
+/// loop starts. Without this, an aborted or panicking runtime task would skip
+/// the completion signal, and because the `watch::Sender` lives on in the
+/// shared runtime, `stop()` could neither observe completion nor see the
 /// channel close — it would wait forever.
 struct CompletionGuard<'a> {
     tx: &'a watch::Sender<bool>,
@@ -247,15 +249,6 @@ impl SingleThreadedRuntime {
             .take()
             .ok_or("Internal receiver already taken")?;
 
-        // From here on this task owns the event loop, so it is responsible for
-        // acknowledging completion. The guard publishes it on every exit path,
-        // including a panic or the task being cancelled mid-loop. Taking the
-        // receiver first ensures a second `run()` (which fails above) never
-        // falsely signals completion for the loop this task owns.
-        let _completion = CompletionGuard {
-            tx: &self.shutdown_complete_tx,
-        };
-
         info!("Runtime event loop starting");
 
         loop {
@@ -299,8 +292,8 @@ impl SingleThreadedRuntime {
             }
         }
 
-        // Completion is published by `_completion` when it drops at the end of
-        // this scope, i.e. after the drain above has finished.
+        // Completion is published by the `run()` completion guard once this
+        // returns, i.e. after the drain above has finished.
         info!("Runtime event loop stopped");
         Ok(())
     }
@@ -368,11 +361,24 @@ impl Runtime for SingleThreadedRuntime {
     }
 
     async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Claim the running state. If a `stop()` already queued a Shutdown before
-        // the event loop existed (`STOP_BEFORE_RUN`), that request is still
-        // buffered on the internal channel; the loop below will consume it and
-        // exit immediately.
-        self.lifecycle.store(lifecycle::RUNNING, Ordering::SeqCst);
+        // Publish `RUNNING` and install the completion guard as one synchronous
+        // step: there is no `.await` between the swap and the guard binding, so
+        // this task cannot be cancelled in between. That guarantees any `stop()`
+        // which observes `RUNNING` is matched by a guard that will publish
+        // completion on every exit path — including cancellation before the
+        // event loop starts. `swap` also gates re-entry: a second `run()` finds
+        // the state already `RUNNING`, claims nothing, and returns without a
+        // guard, so it can never falsely signal completion for the live loop.
+        //
+        // If a `stop()` already queued a Shutdown before the loop existed
+        // (`STOP_BEFORE_RUN`), that request stays buffered on the internal
+        // channel and the loop below consumes it and exits immediately.
+        if self.lifecycle.swap(lifecycle::RUNNING, Ordering::SeqCst) == lifecycle::RUNNING {
+            return Err("Runtime event loop is already running".into());
+        }
+        let _completion = CompletionGuard {
+            tx: &self.shutdown_complete_tx,
+        };
 
         info!("Starting SingleThreadedRuntime {}", self.id);
         self.event_loop().await
