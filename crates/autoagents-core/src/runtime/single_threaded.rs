@@ -14,14 +14,49 @@ use std::{
     collections::HashMap,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
     },
 };
-use tokio::sync::{Mutex, Notify, RwLock, broadcast, mpsc};
+use tokio::sync::{Mutex, Notify, RwLock, broadcast, mpsc, watch};
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use uuid::Uuid;
 
 const DEFAULT_INTERNAL_BUFFER: usize = 1000;
+
+/// Lifecycle states used to make the `run()`/`stop()` startup decision with a
+/// single atomic operation, so "who happened first" is never resolved by a
+/// racy check-then-act. Shutdown *completion* is tracked separately by
+/// `shutdown_complete_tx`; these states only describe the startup transition.
+mod lifecycle {
+    /// `run()` has not started and no `stop()` has claimed the runtime yet.
+    pub(super) const NOT_STARTED: u8 = 0;
+    /// `run()` has started; an event loop exists to acknowledge shutdown.
+    pub(super) const RUNNING: u8 = 1;
+    /// `stop()` won the startup race before `run()`: the Shutdown request is
+    /// queued for a future `run()`, and there is no loop to wait on.
+    pub(super) const STOP_BEFORE_RUN: u8 = 2;
+}
+
+/// Publishes shutdown completion when dropped, so a `stop()` caller waiting on
+/// the completion channel is released however the runtime task stops running:
+/// normal exit, an early `?` error, a panic unwind, or task cancellation (the
+/// future being dropped). It is created by `run()` in the same synchronous step
+/// that publishes `RUNNING`, so it covers cancellation even before the event
+/// loop starts. Without this, an aborted or panicking runtime task would skip
+/// the completion signal, and because the `watch::Sender` lives on in the
+/// shared runtime, `stop()` could neither observe completion nor see the
+/// channel close — it would wait forever.
+struct CompletionGuard<'a> {
+    tx: &'a watch::Sender<bool>,
+}
+
+impl Drop for CompletionGuard<'_> {
+    fn drop(&mut self) {
+        // `send_replace` never fails and works even with no receivers, so it is
+        // safe to run while unwinding or during cancellation.
+        self.tx.send_replace(true);
+    }
+}
 
 /// Topic subscription entry storing type information and actor references
 #[derive(Debug)]
@@ -47,8 +82,14 @@ pub struct SingleThreadedRuntime {
     // Transport layer for message delivery
     transport: Arc<dyn Transport>,
     // Runtime state
+    // Startup lifecycle state (see `lifecycle`); drives the race-free
+    // decision between `run()` and `stop()`.
+    lifecycle: Arc<AtomicU8>,
     shutdown_flag: Arc<AtomicBool>,
     shutdown_notify: Arc<Notify>,
+    // Published once, after the event loop has drained and exited, so that
+    // `stop()` can await *actual* completion instead of an arbitrary sleep.
+    shutdown_complete_tx: watch::Sender<bool>,
 }
 
 impl SingleThreadedRuntime {
@@ -67,6 +108,7 @@ impl SingleThreadedRuntime {
         let (external_tx, external_rx) = mpsc::channel(buffer_size);
         let (internal_tx, internal_rx) = mpsc::channel(DEFAULT_INTERNAL_BUFFER);
         let (broadcast_tx, _) = broadcast::channel(buffer_size);
+        let (shutdown_complete_tx, _) = watch::channel(false);
 
         Arc::new(Self {
             id,
@@ -77,8 +119,10 @@ impl SingleThreadedRuntime {
             internal_rx: Mutex::new(Some(internal_rx)),
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
             transport,
+            lifecycle: Arc::new(AtomicU8::new(lifecycle::NOT_STARTED)),
             shutdown_flag: Arc::new(AtomicBool::new(false)),
             shutdown_notify: Arc::new(Notify::new()),
+            shutdown_complete_tx,
         })
     }
 
@@ -248,6 +292,8 @@ impl SingleThreadedRuntime {
             }
         }
 
+        // Completion is published by the `run()` completion guard once this
+        // returns, i.e. after the drain above has finished.
         info!("Runtime event loop stopped");
         Ok(())
     }
@@ -315,29 +361,81 @@ impl Runtime for SingleThreadedRuntime {
     }
 
     async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Publish `RUNNING` and install the completion guard as one synchronous
+        // step: there is no `.await` between the swap and the guard binding, so
+        // this task cannot be cancelled in between. That guarantees any `stop()`
+        // which observes `RUNNING` is matched by a guard that will publish
+        // completion on every exit path — including cancellation before the
+        // event loop starts. `swap` also gates re-entry: a second `run()` finds
+        // the state already `RUNNING`, claims nothing, and returns without a
+        // guard, so it can never falsely signal completion for the live loop.
+        //
+        // If a `stop()` already queued a Shutdown before the loop existed
+        // (`STOP_BEFORE_RUN`), that request stays buffered on the internal
+        // channel and the loop below consumes it and exits immediately.
+        if self.lifecycle.swap(lifecycle::RUNNING, Ordering::SeqCst) == lifecycle::RUNNING {
+            return Err("Runtime event loop is already running".into());
+        }
+        let _completion = CompletionGuard {
+            tx: &self.shutdown_complete_tx,
+        };
+
         info!("Starting SingleThreadedRuntime {}", self.id);
         self.event_loop().await
     }
 
     async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if self.shutdown_flag.load(Ordering::SeqCst) {
+        let mut shutdown_complete_rx = self.shutdown_complete_tx.subscribe();
+
+        // Shutdown has already completed.
+        if *shutdown_complete_rx.borrow() {
             return Ok(());
         }
 
         info!("Initiating runtime shutdown for {}", self.id);
 
-        // Send shutdown signal
+        // Send the shutdown request.
         if let Err(e) = self.internal_tx.send(InternalEvent::Shutdown).await {
-            if self.shutdown_flag.load(Ordering::SeqCst) {
+            // The runtime may have completed between the initial check
+            // and sending the shutdown request.
+            if *shutdown_complete_rx.borrow() {
                 return Ok(());
             }
+
             return Err(format!("Failed to send shutdown signal: {e}").into());
         }
 
-        // Wait a brief moment for shutdown to complete
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        // Decide atomically whether an event loop exists to acknowledge
+        // completion. Winning this compare-exchange means `run()` has not
+        // started, so there is no loop to wait on: the queued Shutdown stays
+        // buffered for a future `run()`. Losing it means `run()` is live and
+        // will publish completion, so fall through and wait for it. Making this
+        // a single atomic operation removes the check-then-act race where
+        // `run()` could store its state between a plain load and this branch.
+        match self.lifecycle.compare_exchange(
+            lifecycle::NOT_STARTED,
+            lifecycle::STOP_BEFORE_RUN,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            // We won before `run()` started, or another `stop()` already claimed
+            // the pre-run state: either way there is no event loop to wait on.
+            Ok(_) | Err(lifecycle::STOP_BEFORE_RUN) => return Ok(()),
+            // `RUNNING`: the event loop is live and will publish completion.
+            Err(_) => {}
+        }
 
-        Ok(())
+        // Wait until the event loop reports actual shutdown completion.
+        loop {
+            if *shutdown_complete_rx.borrow_and_update() {
+                return Ok(());
+            }
+
+            shutdown_complete_rx
+                .changed()
+                .await
+                .map_err(|e| format!("Shutdown completion channel closed: {e}"))?;
+        }
     }
 }
 
@@ -387,6 +485,37 @@ mod tests {
             received.push(message.content);
             Ok(())
         }
+    }
+
+    /// Transport that only counts dispatches, so lifecycle tests can observe
+    /// that the event loop processed an event without depending on asynchronous
+    /// actor delivery.
+    #[derive(Debug)]
+    struct CountingTransport {
+        delivered: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Transport for CountingTransport {
+        async fn send(
+            &self,
+            _actor: &dyn AnyActor,
+            _msg: Arc<dyn Any + Send + Sync>,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            self.delivered.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    /// Build a queued publish event for `topic_name` carrying `content`.
+    fn publish_event(topic_name: &str, content: &str) -> InternalEvent {
+        InternalEvent::ProtocolEvent(Box::new(Event::PublishMessage {
+            topic_name: topic_name.to_string(),
+            topic_type: TypeId::of::<TestMessage>(),
+            message: Arc::new(TestMessage {
+                content: content.to_string(),
+            }) as Arc<dyn Any + Send + Sync>,
+        }))
     }
 
     #[tokio::test]
@@ -451,7 +580,7 @@ mod tests {
 
         // Shutdown
         runtime.stop().await.unwrap();
-        runtime_task.abort();
+        runtime_task.await.unwrap().unwrap();
     }
 
     #[tokio::test]
@@ -532,7 +661,7 @@ mod tests {
 
         // Shutdown
         runtime.stop().await.unwrap();
-        runtime_task.abort();
+        runtime_task.await.unwrap().unwrap();
     }
 
     #[tokio::test]
@@ -585,7 +714,7 @@ mod tests {
 
         // Shutdown
         runtime.stop().await.unwrap();
-        runtime_task.abort();
+        runtime_task.await.unwrap().unwrap();
     }
 
     #[tokio::test]
@@ -654,7 +783,7 @@ mod tests {
 
         // Shutdown
         runtime.stop().await.unwrap();
-        runtime_task.abort();
+        runtime_task.await.unwrap().unwrap();
     }
 
     #[tokio::test]
@@ -714,7 +843,7 @@ mod tests {
 
         // Shutdown
         runtime.stop().await.unwrap();
-        runtime_task.abort();
+        runtime_task.await.unwrap().unwrap();
     }
 
     #[test]
@@ -731,5 +860,257 @@ mod tests {
         let runtime2 = SingleThreadedRuntime::new(None);
 
         assert_ne!(runtime1.id(), runtime2.id());
+    }
+
+    #[tokio::test]
+    async fn test_stop_waits_for_shutdown_completion() {
+        let runtime = SingleThreadedRuntime::new(None);
+        let runtime_handle = runtime.clone();
+
+        let runtime_task = tokio::spawn(async move { runtime_handle.run().await });
+
+        // Ensure run() has started before requesting shutdown.
+        while runtime.lifecycle.load(Ordering::SeqCst) != lifecycle::RUNNING {
+            tokio::task::yield_now().await;
+        }
+
+        runtime.stop().await.unwrap();
+
+        assert!(
+            *runtime.shutdown_complete_tx.borrow(),
+            "stop() should only return after shutdown completion is acknowledged"
+        );
+
+        runtime_task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_stop_before_run_does_not_hang() {
+        let runtime = SingleThreadedRuntime::new(None);
+
+        tokio::time::timeout(Duration::from_secs(1), runtime.stop())
+            .await
+            .expect("stop() should not hang before run()")
+            .expect("stop() should succeed");
+
+        let runtime_handle = runtime.clone();
+
+        let runtime_task = tokio::spawn(async move { runtime_handle.run().await });
+
+        tokio::time::timeout(Duration::from_secs(1), runtime_task)
+            .await
+            .expect("runtime should process the queued shutdown request")
+            .expect("runtime task should not panic")
+            .expect("runtime should shut down successfully");
+
+        assert!(
+            *runtime.shutdown_complete_tx.borrow(),
+            "shutdown should be completed after the runtime processes the queued request"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_repeated_stop_is_safe() {
+        let runtime = SingleThreadedRuntime::new(None);
+        let runtime_handle = runtime.clone();
+
+        let runtime_task = tokio::spawn(async move { runtime_handle.run().await });
+
+        while runtime.lifecycle.load(Ordering::SeqCst) != lifecycle::RUNNING {
+            tokio::task::yield_now().await;
+        }
+
+        runtime.stop().await.unwrap();
+        runtime.stop().await.unwrap();
+
+        runtime_task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_stop_is_safe() {
+        let runtime = SingleThreadedRuntime::new(None);
+        let runtime_handle = runtime.clone();
+
+        let runtime_task = tokio::spawn(async move { runtime_handle.run().await });
+
+        while runtime.lifecycle.load(Ordering::SeqCst) != lifecycle::RUNNING {
+            tokio::task::yield_now().await;
+        }
+
+        let (first, second, third) = tokio::join!(runtime.stop(), runtime.stop(), runtime.stop(),);
+
+        first.unwrap();
+        second.unwrap();
+        third.unwrap();
+
+        runtime_task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_run_stop_startup_race() {
+        // Regression test for the run()/stop() startup race. `run()` and `stop()`
+        // are started concurrently and neither waits for the other, so the
+        // atomic "who happened first" decision is exercised under real
+        // contention. Repeat to widen scheduling coverage while staying
+        // deterministic; an outer timeout turns any lost shutdown or deadlock
+        // into a failure instead of a hung suite.
+        for _ in 0..100 {
+            let runtime = SingleThreadedRuntime::new(None);
+            let run_handle = runtime.clone();
+            let stop_handle = runtime.clone();
+
+            let run_task = tokio::spawn(async move { run_handle.run().await });
+            let stop_task = tokio::spawn(async move { stop_handle.stop().await });
+
+            tokio::time::timeout(Duration::from_secs(5), stop_task)
+                .await
+                .expect("stop() must not hang during the startup race")
+                .expect("stop() task must not panic")
+                .expect("stop() should succeed");
+
+            // Whoever won the race, the shutdown request is never lost: run()
+            // consumes it and exits on its own rather than being left running.
+            tokio::time::timeout(Duration::from_secs(5), run_task)
+                .await
+                .expect("run() must not be left running after stop()")
+                .expect("run() task must not panic")
+                .expect("run() should exit cleanly");
+
+            assert!(
+                *runtime.shutdown_complete_tx.borrow(),
+                "shutdown completion must be published once the race resolves"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_completion_published_after_drain() {
+        let delivered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let runtime = SingleThreadedRuntime::with_transport(
+            None,
+            Arc::new(CountingTransport {
+                delivered: delivered.clone(),
+            }),
+        );
+
+        // Subscribe an actor so the topic has a delivery target.
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let (actor_ref, _handle) = Actor::spawn(
+            None,
+            TestActor {
+                received: received.clone(),
+            },
+            received.clone(),
+        )
+        .await
+        .unwrap();
+        let topic = Topic::<TestMessage>::new("drain_topic");
+        runtime.subscribe(&topic, actor_ref).await.unwrap();
+
+        // Queue an event, then Shutdown, then two more events. The loop processes
+        // the first event and breaks on Shutdown; the trailing two can only be
+        // handled by the post-shutdown drain path.
+        runtime
+            .internal_tx
+            .send(publish_event("drain_topic", "first"))
+            .await
+            .unwrap();
+        runtime
+            .internal_tx
+            .send(InternalEvent::Shutdown)
+            .await
+            .unwrap();
+        runtime
+            .internal_tx
+            .send(publish_event("drain_topic", "second"))
+            .await
+            .unwrap();
+        runtime
+            .internal_tx
+            .send(publish_event("drain_topic", "third"))
+            .await
+            .unwrap();
+
+        runtime.run().await.unwrap();
+
+        // run() only returns after the drain loop, and completion is published
+        // last, so both facts must hold together: every queued event was
+        // dispatched, and only then was completion signalled.
+        assert_eq!(
+            delivered.load(Ordering::SeqCst),
+            3,
+            "all queued events, including those drained after shutdown, must be processed"
+        );
+        assert!(
+            *runtime.shutdown_complete_tx.borrow(),
+            "completion must be published once draining has finished"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_completion_published_when_run_task_cancelled() {
+        // Regression test: once run() records RUNNING, a stop() caller waits on
+        // the completion channel. If the runtime task is cancelled (or panics)
+        // the event loop's normal epilogue never runs, yet the completion guard
+        // must still fire on drop so the waiter is released instead of hanging
+        // forever on a `watch::Sender` that the shared runtime keeps alive.
+        let delivered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let runtime = SingleThreadedRuntime::with_transport(
+            None,
+            Arc::new(CountingTransport {
+                delivered: delivered.clone(),
+            }),
+        );
+
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let (actor_ref, _handle) = Actor::spawn(
+            None,
+            TestActor {
+                received: received.clone(),
+            },
+            received.clone(),
+        )
+        .await
+        .unwrap();
+        let topic = Topic::<TestMessage>::new("cancel_topic");
+        runtime.subscribe(&topic, actor_ref).await.unwrap();
+
+        let run_handle = runtime.clone();
+        let runtime_task = tokio::spawn(async move { run_handle.run().await });
+
+        // Drive one event through so the event loop is provably running with its
+        // completion guard installed (the counter only advances inside the loop).
+        runtime
+            .internal_tx
+            .send(publish_event("cancel_topic", "warmup"))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while delivered.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the event loop should process the warmup event");
+
+        // Cancel the task without requesting shutdown: only the completion guard
+        // (run on drop) can release a waiter now.
+        runtime_task.abort();
+        let join = runtime_task.await;
+        assert!(
+            join.is_err(),
+            "the aborted run task should report cancellation"
+        );
+
+        // Completion was published on drop, so stop() returns promptly instead of
+        // waiting forever.
+        tokio::time::timeout(Duration::from_secs(5), runtime.stop())
+            .await
+            .expect("stop() must not hang after the run task was cancelled")
+            .expect("stop() should succeed");
+        assert!(
+            *runtime.shutdown_complete_tx.borrow(),
+            "completion must be published even when the run task is cancelled"
+        );
     }
 }
