@@ -460,4 +460,4 @@ Agradecimientos especiales:
 
 ## Historial de estrellas
 
-[![Star History Chart](https://api.star-history.com/svg?repos=liquidos-ai/AutoAgents&type=Date)](https://www.star-history.com/#liquidos-ai/AutoAgents&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=liquidos-ai/AutoAgents&type=Date)](https://star-history.dera.page/#liquidos-ai/AutoAgents&Date)
