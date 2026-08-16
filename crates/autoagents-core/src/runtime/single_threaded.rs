@@ -251,6 +251,12 @@ impl SingleThreadedRuntime {
 
         info!("Runtime event loop starting");
 
+        // Records the first error that terminates normal event processing. It is
+        // preserved across the drain/cleanup below and returned once the loop
+        // has finished, so a real processing failure is never masked by the
+        // `Ok(())` epilogue. A graceful `Shutdown` leaves this `None`.
+        let mut terminal_error: Option<Error> = None;
+
         loop {
             tokio::select! {
                 // Process internal events
@@ -266,6 +272,7 @@ impl SingleThreadedRuntime {
 
                     if let Err(e) = self.process_internal_event(event).await {
                         error!("Error processing internal event: {e}");
+                        terminal_error = Some(e);
                         break;
                     }
                 }
@@ -284,7 +291,10 @@ impl SingleThreadedRuntime {
             }
         }
 
-        // Drain remaining events
+        // Drain remaining events regardless of why the loop exited. A drain
+        // failure is only logged, never returned: the first terminal error above
+        // must win, and a graceful shutdown must not be turned into an error by a
+        // late drain failure.
         info!("Draining remaining events before shutdown");
         while let Ok(event) = internal_rx.try_recv() {
             if let Err(e) = self.process_internal_event(event).await {
@@ -295,6 +305,9 @@ impl SingleThreadedRuntime {
         // Completion is published by the `run()` completion guard once this
         // returns, i.e. after the drain above has finished.
         info!("Runtime event loop stopped");
+        if let Some(error) = terminal_error {
+            return Err(error.into());
+        }
         Ok(())
     }
 }
@@ -1044,6 +1057,121 @@ mod tests {
         assert!(
             *runtime.shutdown_complete_tx.borrow(),
             "completion must be published once draining has finished"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_processing_error_propagates_from_run() {
+        // Regression test for the bug where a terminal event-processing failure
+        // was swallowed and `run()` returned `Ok(())`. Dropping the external
+        // receiver closes the external channel, so forwarding a non-publish
+        // protocol event fails inside `process_protocol_event`, which is the
+        // real production path that terminates the event loop.
+        let runtime = SingleThreadedRuntime::new(None);
+        drop(runtime.take_event_receiver().await);
+
+        runtime
+            .internal_tx
+            .send(InternalEvent::ProtocolEvent(Box::new(Event::SendMessage {
+                message: "boom".to_string(),
+                actor_id: Uuid::new_v4(),
+            })))
+            .await
+            .unwrap();
+
+        let result = runtime.run().await;
+        assert!(
+            result.is_err(),
+            "run() must surface a terminal event-processing failure"
+        );
+        let message = result.unwrap_err().to_string();
+        assert!(
+            message.contains("Event error"),
+            "expected the forwarding failure to be preserved, got: {message}"
+        );
+
+        // The completion guard must still publish terminal state on the error
+        // path so a waiting `stop()` is released.
+        assert!(
+            *runtime.shutdown_complete_tx.borrow(),
+            "completion must be published even when run() returns an error"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_graceful_shutdown_returns_ok() {
+        // A normal shutdown must remain a success: it must not be turned into an
+        // error by the new terminal-error propagation.
+        let runtime = SingleThreadedRuntime::new(None);
+        let runtime_handle = runtime.clone();
+        let runtime_task = tokio::spawn(async move { runtime_handle.run().await });
+
+        while runtime.lifecycle.load(Ordering::SeqCst) != lifecycle::RUNNING {
+            tokio::task::yield_now().await;
+        }
+
+        runtime.stop().await.expect("graceful stop should succeed");
+        runtime_task
+            .await
+            .expect("runtime task should not panic")
+            .expect("graceful shutdown must return Ok(())");
+    }
+
+    #[tokio::test]
+    async fn test_drain_failure_does_not_replace_original_error() {
+        // First terminal error wins: a failure while draining must not overwrite
+        // the error that originally terminated normal processing.
+        let runtime = SingleThreadedRuntime::new(None);
+
+        // Register a subscription so a type-mismatched publish yields a
+        // deterministic TopicTypeMismatch as the first terminal error.
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let (actor_ref, _handle) = Actor::spawn(
+            None,
+            TestActor {
+                received: received.clone(),
+            },
+            received.clone(),
+        )
+        .await
+        .unwrap();
+        let topic = Topic::<TestMessage>::new("drain_precedence");
+        runtime.subscribe(&topic, actor_ref).await.unwrap();
+
+        // Close the external channel so the drained event fails too.
+        drop(runtime.take_event_receiver().await);
+
+        // First event: type-mismatched publish -> TopicTypeMismatch (terminal).
+        runtime
+            .internal_tx
+            .send(InternalEvent::ProtocolEvent(Box::new(
+                Event::PublishMessage {
+                    topic_name: "drain_precedence".to_string(),
+                    topic_type: TypeId::of::<u8>(),
+                    message: Arc::new(0u8) as Arc<dyn Any + Send + Sync>,
+                },
+            )))
+            .await
+            .unwrap();
+        // Second event: routed to the closed external channel -> EventError,
+        // encountered only during the post-break drain.
+        runtime
+            .internal_tx
+            .send(InternalEvent::ProtocolEvent(Box::new(Event::SendMessage {
+                message: "drain".to_string(),
+                actor_id: Uuid::new_v4(),
+            })))
+            .await
+            .unwrap();
+
+        let err = runtime
+            .run()
+            .await
+            .expect_err("the terminal processing failure must propagate");
+        let message = err.to_string();
+        assert!(
+            message.contains("TopicTypeMismatch"),
+            "the first terminal error must win over a later drain failure, got: {message}"
         );
     }
 
