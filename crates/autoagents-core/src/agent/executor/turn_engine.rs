@@ -202,7 +202,12 @@ impl TurnEngine {
 
             turn_state
                 .memory
-                .store_tool_interaction(&tool_calls, &tool_results, &response_text)
+                .store_tool_interaction_with_reasoning(
+                    &tool_calls,
+                    &tool_results,
+                    &response_text,
+                    Some(&reasoning_content),
+                )
                 .await?;
             record_tool_calls_state(context, &tool_results);
 
@@ -491,7 +496,12 @@ impl TurnEngine {
         .await;
 
         memory
-            .store_tool_interaction(&tool_calls, &tool_results, &response_text)
+            .store_tool_interaction_with_reasoning(
+                &tool_calls,
+                &tool_results,
+                &response_text,
+                Some(&reasoning_content),
+            )
             .await?;
         record_tool_calls_state(context, &tool_results);
 
@@ -587,6 +597,7 @@ impl TurnEngine {
             .as_deref()
             .unwrap_or_else(|| &context.config().description);
         let mut messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::System,
             message_type: MessageType::Text,
             content: system_prompt.to_string(),
@@ -618,12 +629,14 @@ pub fn record_task_state(context: &Context, task: &Task) {
 fn user_message(task: &Task) -> ChatMessage {
     if let Some((mime, image_data)) = &task.image {
         ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Image(((*mime).into(), image_data.clone())),
             content: task.prompt.clone(),
         }
     } else {
         ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: task.prompt.clone(),
@@ -1224,7 +1237,7 @@ mod tests {
                 text: Some("Use tool".to_string()),
                 tool_calls: Some(vec![tool_call.clone()]),
                 usage: None,
-                thinking: None,
+                thinking: Some("inspect the workspace".to_string()),
             },
             ..ConfigurableLLMProvider::default()
         });
@@ -1236,9 +1249,11 @@ mod tests {
             output_schema: None,
         };
         let tool = LocalTool::new("tool_a", serde_json::json!({"ok": true}));
+        let memory: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(20));
         let context = Context::new(llm, None)
             .with_config(config)
-            .with_tools(vec![Box::new(tool)]);
+            .with_tools(vec![Box::new(tool)])
+            .with_memory(Some(Arc::new(tokio::sync::Mutex::new(memory))));
 
         let engine = TurnEngine::new(TurnEngineConfig {
             max_turns: 2,
@@ -1268,6 +1283,16 @@ mod tests {
         if let Ok(state) = context.state().try_lock() {
             assert_eq!(state.tool_calls.len(), 1);
         }
+
+        let stored = recalled_messages(&context).await;
+        let assistant_tool_message = stored
+            .iter()
+            .find(|message| matches!(message.message_type, MessageType::ToolUse(_)))
+            .expect("assistant tool message should be stored");
+        assert_eq!(
+            assistant_tool_message.reasoning_content.as_deref(),
+            Some("inspect the workspace")
+        );
     }
 
     #[tokio::test]
@@ -1506,7 +1531,7 @@ mod tests {
 
         let llm = Arc::new(ConfigurableLLMProvider {
             stream_chunks: vec![
-                StreamChunk::Text("thinking".to_string()),
+                StreamChunk::ReasoningContent("inspect the workspace".to_string()),
                 StreamChunk::ToolUseComplete {
                     index: 0,
                     tool_call: tool_call.clone(),
@@ -1525,10 +1550,12 @@ mod tests {
             output_schema: None,
         };
         let tool = LocalTool::new("tool_a", serde_json::json!({"ok": true}));
+        let memory: Box<dyn MemoryProvider> = Box::new(SlidingWindowMemory::new(20));
         let context = Arc::new(
             Context::new(llm, None)
                 .with_config(config)
-                .with_tools(vec![Box::new(tool)]),
+                .with_tools(vec![Box::new(tool)])
+                .with_memory(Some(Arc::new(tokio::sync::Mutex::new(memory)))),
         );
         let engine = TurnEngine::new(TurnEngineConfig {
             max_turns: 1,
@@ -1541,7 +1568,7 @@ mod tests {
         let hooks = MockAgentImpl::new("test", "test");
 
         let mut stream = engine
-            .run_turn_stream(hooks, &task, context, &mut turn_state, 0, 1)
+            .run_turn_stream(hooks, &task, context.clone(), &mut turn_state, 0, 1)
             .await
             .unwrap();
 
@@ -1560,6 +1587,16 @@ mod tests {
             }
             _ => panic!("expected Continue(Some)"),
         }
+
+        let stored = recalled_messages(&context).await;
+        let assistant_tool_message = stored
+            .iter()
+            .find(|message| matches!(message.message_type, MessageType::ToolUse(_)))
+            .expect("assistant tool message should be stored");
+        assert_eq!(
+            assistant_tool_message.reasoning_content.as_deref(),
+            Some("inspect the workspace")
+        );
     }
 
     #[tokio::test]

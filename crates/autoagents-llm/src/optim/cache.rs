@@ -1188,6 +1188,7 @@ mod tests {
         let msg_b = vec![
             ChatMessage::user().content("repeat prompt").build(),
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Tool,
                 message_type: MessageType::ToolResult(vec![crate::ToolCall {
                     id: "call_1".to_string(),

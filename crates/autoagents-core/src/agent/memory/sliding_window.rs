@@ -271,6 +271,7 @@ mod tests {
     async fn test_remember_single_message() {
         let mut memory = SlidingWindowMemory::new(3);
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "Hello".to_string(),
@@ -291,6 +292,7 @@ mod tests {
 
         for i in 1..=3 {
             let message = ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: format!("Message {i}"),
@@ -312,6 +314,7 @@ mod tests {
         // Add 3 messages to a window of size 2
         for i in 1..=3 {
             let message = ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: format!("Message {i}"),
@@ -332,6 +335,7 @@ mod tests {
 
         // Add first message
         let message1 = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "First message".to_string(),
@@ -340,6 +344,7 @@ mod tests {
 
         // Add second message
         let message2 = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "Second message".to_string(),
@@ -348,6 +353,7 @@ mod tests {
 
         // Add third message - should trigger summarize flag
         let message3 = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "Third message".to_string(),
@@ -364,6 +370,7 @@ mod tests {
 
         for i in 1..=3 {
             let message = ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: format!("Message {i}"),
@@ -372,6 +379,7 @@ mod tests {
         }
 
         let rejected = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "Message 4".to_string(),
@@ -392,6 +400,7 @@ mod tests {
 
         for i in 1..=3 {
             let message = ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: format!("Message {i}"),
@@ -402,6 +411,7 @@ mod tests {
         memory.replace_with_summary("summary".to_string());
 
         let next = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "Message 4".to_string(),
@@ -421,6 +431,7 @@ mod tests {
 
         for i in 1..=3 {
             let message = ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: format!("Message {i}"),
@@ -436,6 +447,7 @@ mod tests {
 
         for i in 4..=6 {
             let message = ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: format!("Message {i}"),
@@ -453,6 +465,7 @@ mod tests {
 
         for i in 1..=2 {
             let message = ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: format!("Message {i}"),
@@ -462,11 +475,13 @@ mod tests {
 
         let batch = [
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Assistant,
                 message_type: MessageType::Text,
                 content: "Message 3".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Tool,
                 message_type: MessageType::Text,
                 content: "Message 4".to_string(),
@@ -488,6 +503,7 @@ mod tests {
 
         for i in 1..=3 {
             let message = ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: format!("Message {i}"),
@@ -507,6 +523,7 @@ mod tests {
 
         for i in 1..=5 {
             let message = ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: format!("Message {i}"),
@@ -525,6 +542,7 @@ mod tests {
         let mut memory = SlidingWindowMemory::new(3);
 
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "Test message".to_string(),
@@ -544,6 +562,7 @@ mod tests {
         // Add messages directly to the internal deque for testing
         for i in 1..=5 {
             let message = ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: format!("Message {i}"),
@@ -564,6 +583,7 @@ mod tests {
         // Add only 2 messages
         for i in 1..=2 {
             let message = ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: format!("Message {i}"),
@@ -593,6 +613,7 @@ mod tests {
         // Add some messages
         for i in 1..=3 {
             let message = ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: format!("Message {i}"),

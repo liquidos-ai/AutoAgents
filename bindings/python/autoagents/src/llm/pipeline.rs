@@ -635,6 +635,7 @@ mod tests {
 
     fn sample_message() -> ChatMessage {
         ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "hello".to_string(),

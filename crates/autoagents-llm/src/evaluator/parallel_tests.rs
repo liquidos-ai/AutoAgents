@@ -251,6 +251,7 @@ mod tests {
         let evaluator = ParallelEvaluator::new(providers);
         let messages = vec![
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::System,
                 message_type: MessageType::Text,
                 content: "You are a helpful assistant".to_string(),
