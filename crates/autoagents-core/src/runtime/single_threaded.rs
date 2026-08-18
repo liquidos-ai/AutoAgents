@@ -1077,7 +1077,7 @@ mod tests {
                 actor_id: Uuid::new_v4(),
             })))
             .await
-            .unwrap();
+            .expect("queuing the terminal event should succeed");
 
         let result = runtime.run().await;
         assert!(
@@ -1134,9 +1134,12 @@ mod tests {
             received.clone(),
         )
         .await
-        .unwrap();
+        .expect("spawning the test actor should succeed");
         let topic = Topic::<TestMessage>::new("drain_precedence");
-        runtime.subscribe(&topic, actor_ref).await.unwrap();
+        runtime
+            .subscribe(&topic, actor_ref)
+            .await
+            .expect("subscribing the test actor should succeed");
 
         // Close the external channel so the drained event fails too.
         drop(runtime.take_event_receiver().await);
@@ -1152,7 +1155,7 @@ mod tests {
                 },
             )))
             .await
-            .unwrap();
+            .expect("queuing the type-mismatched event should succeed");
         // Second event: routed to the closed external channel -> EventError,
         // encountered only during the post-break drain.
         runtime
@@ -1162,7 +1165,7 @@ mod tests {
                 actor_id: Uuid::new_v4(),
             })))
             .await
-            .unwrap();
+            .expect("queuing the drain event should succeed");
 
         let err = runtime
             .run()
