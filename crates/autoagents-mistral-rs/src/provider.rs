@@ -217,18 +217,26 @@ impl MistralRsProvider {
     }
 
     fn prepare_messages_with_system(&self, messages: &[ChatMessage]) -> Vec<ChatMessage> {
+        Self::prepare_messages_with_system_prompt(self.config.system_prompt.as_deref(), messages)
+    }
+
+    fn prepare_messages_with_system_prompt(
+        system_prompt: Option<&str>,
+        messages: &[ChatMessage],
+    ) -> Vec<ChatMessage> {
         let mut all_messages = Vec::new();
 
-        if let Some(system_prompt) = &self.config.system_prompt {
+        if let Some(system_prompt) = system_prompt {
             let has_system_message = messages
                 .iter()
                 .any(|msg| msg.role == autoagents_llm::chat::ChatRole::System);
 
             if !has_system_message {
                 all_messages.push(ChatMessage {
+                    reasoning_content: None,
                     role: autoagents_llm::chat::ChatRole::System,
                     message_type: autoagents_llm::chat::MessageType::Text,
-                    content: system_prompt.clone(),
+                    content: system_prompt.to_string(),
                 });
             }
         }
@@ -828,25 +836,10 @@ impl ChatProvider for MistralRsProvider {
         tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        // Prepare messages with system prompt if needed
-        let mut all_messages = Vec::new();
-
-        // If a system_prompt is configured and there's no system message in messages,
-        // prepend it as the first system message
-        if let Some(system_prompt) = &self.config.system_prompt {
-            let has_system_message = messages
-                .iter()
-                .any(|msg| msg.role == autoagents_llm::chat::ChatRole::System);
-
-            if !has_system_message {
-                all_messages.push(ChatMessage {
-                    role: autoagents_llm::chat::ChatRole::System,
-                    message_type: autoagents_llm::chat::MessageType::Text,
-                    content: system_prompt.clone(),
-                });
-            }
-        }
-        all_messages.extend_from_slice(messages);
+        let all_messages = Self::prepare_messages_with_system_prompt(
+            self.config.system_prompt.as_deref(),
+            messages,
+        );
 
         // Detect if this is a vision model by checking model type
         let is_vision_model = self.config.model_source.detect_model_type() == ModelType::Vision;
@@ -1099,6 +1092,38 @@ mod tests {
     }
 
     #[test]
+    fn test_prepare_messages_with_system_prompt() {
+        let user_message = ChatMessage::user().content("hello").build();
+
+        let prepared = MistralRsProvider::prepare_messages_with_system_prompt(
+            Some("system instructions"),
+            &[user_message],
+        );
+        assert_eq!(prepared.len(), 2);
+        assert_eq!(prepared[0].role, autoagents_llm::chat::ChatRole::System);
+        assert_eq!(prepared[0].content, "system instructions");
+        assert!(prepared[0].reasoning_content.is_none());
+
+        let existing_system =
+            autoagents_llm::chat::ChatMessageBuilder::new(autoagents_llm::chat::ChatRole::System)
+                .content("existing")
+                .build();
+        let prepared = MistralRsProvider::prepare_messages_with_system_prompt(
+            Some("ignored"),
+            std::slice::from_ref(&existing_system),
+        );
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].content, "existing");
+
+        let prepared = MistralRsProvider::prepare_messages_with_system_prompt(
+            None,
+            std::slice::from_ref(&existing_system),
+        );
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].content, "existing");
+    }
+
+    #[test]
     fn test_convert_role_for_request() {
         assert!(matches!(
             convert_role_for_request(&autoagents_llm::chat::ChatRole::System),
@@ -1144,16 +1169,19 @@ mod tests {
 
         let messages = vec![
             ChatMessage {
+                reasoning_content: None,
                 role: autoagents_llm::chat::ChatRole::User,
                 message_type: autoagents_llm::chat::MessageType::Text,
                 content: "hello".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: autoagents_llm::chat::ChatRole::Assistant,
                 message_type: autoagents_llm::chat::MessageType::ToolUse(tool_calls.clone()),
                 content: "call tool".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: autoagents_llm::chat::ChatRole::Tool,
                 message_type: autoagents_llm::chat::MessageType::ToolResult(tool_calls),
                 content: "tool result".to_string(),
@@ -1171,6 +1199,7 @@ mod tests {
     #[test]
     fn test_build_request_builder_sets_json_schema_constraint() {
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: autoagents_llm::chat::ChatRole::User,
             message_type: autoagents_llm::chat::MessageType::Text,
             content: "hello".to_string(),

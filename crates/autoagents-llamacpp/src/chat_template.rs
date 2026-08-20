@@ -1246,6 +1246,7 @@ mod tests {
 
     fn user_message(content: &str) -> ChatMessage {
         ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: content.to_string(),
@@ -1913,6 +1914,7 @@ mod tests {
             "{% for message in messages %}{{ message['role'] }}:{{ message['content'] }}\n{% endfor %}{% if add_generation_prompt %}assistant:{% endif %}",
         );
         let assistant = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::Assistant,
             message_type: MessageType::Text,
             content: "partial".to_string(),
@@ -1944,6 +1946,7 @@ mod tests {
             "{% for message in messages %}{{ message['role'] }}:{{ message['content'] }}\n{% endfor %}{% if add_generation_prompt %}<|assistant|>{% endif %}{# <think></think> #}",
         );
         let assistant = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::Assistant,
             message_type: MessageType::Text,
             content: "plan".to_string(),
@@ -1976,6 +1979,7 @@ mod tests {
             "{% for message in messages %}{{ message['role'] }}:{{ message['content'] }}\n{% endfor %}{% if add_generation_prompt %}<|assistant|>{% endif %}{# <think></think> #}",
         );
         let assistant = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::Assistant,
             message_type: MessageType::Text,
             content: "plan".to_string(),
@@ -2276,6 +2280,7 @@ mod tests {
         let config = LlamaCppConfig::default();
         let template = explicit_template_source("{{ messages|tojson }}");
         let tool_result = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::Tool,
             message_type: MessageType::ToolResult(vec![
                 ToolCall {

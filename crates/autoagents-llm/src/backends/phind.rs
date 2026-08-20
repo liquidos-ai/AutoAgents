@@ -344,6 +344,7 @@ mod tests {
     #[test]
     fn test_validate_text_only_messages_rejects_multimodal() {
         let messages = [ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::ImageURL("https://example.com/image.png".to_string()),
             content: "describe".to_string(),
@@ -361,6 +362,7 @@ mod tests {
     #[test]
     fn test_validate_text_only_messages_rejects_tool_messages() {
         let messages = [ChatMessage {
+            reasoning_content: None,
             role: ChatRole::Assistant,
             message_type: MessageType::ToolUse(vec![ToolCall {
                 id: "call_1".to_string(),

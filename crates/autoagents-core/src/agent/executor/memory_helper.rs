@@ -37,6 +37,24 @@ impl MemoryHelper {
         tool_results: &[ToolCallResult],
         response_text: &str,
     ) -> Result<(), LLMError> {
+        Self::store_tool_interaction_with_reasoning(
+            memory,
+            tool_calls,
+            tool_results,
+            response_text,
+            None,
+        )
+        .await
+    }
+
+    /// Store tool calls, results, and assistant reasoning in memory
+    pub async fn store_tool_interaction_with_reasoning(
+        memory: &Option<Arc<Mutex<Box<dyn MemoryProvider>>>>,
+        tool_calls: &[ToolCall],
+        tool_results: &[ToolCallResult],
+        response_text: &str,
+        reasoning_content: Option<&str>,
+    ) -> Result<(), LLMError> {
         if let Some(mem) = memory {
             let result_tool_calls =
                 ToolProcessor::create_result_tool_calls(tool_calls, tool_results);
@@ -45,11 +63,15 @@ impl MemoryHelper {
                     role: ChatRole::Assistant,
                     message_type: MessageType::ToolUse(tool_calls.to_vec()),
                     content: response_text.to_string(),
+                    reasoning_content: reasoning_content
+                        .filter(|content| !content.is_empty())
+                        .map(str::to_owned),
                 },
                 ChatMessage {
                     role: ChatRole::Tool,
                     message_type: MessageType::ToolResult(result_tool_calls),
                     content: String::default(),
+                    reasoning_content: None,
                 },
             ];
 
@@ -68,12 +90,14 @@ impl MemoryHelper {
             let mut mem = mem.lock().await;
             let message = if let Some((mime, data)) = image {
                 ChatMessage {
+                    reasoning_content: None,
                     role: ChatRole::User,
                     message_type: MessageType::Image((mime.into(), data)),
                     content,
                 }
             } else {
                 ChatMessage {
+                    reasoning_content: None,
                     role: ChatRole::User,
                     message_type: MessageType::Text,
                     content,
@@ -92,6 +116,7 @@ impl MemoryHelper {
         Self::store_message(
             memory,
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Assistant,
                 message_type: MessageType::Text,
                 content: response,
@@ -173,6 +198,7 @@ mod tests {
         MemoryHelper::store_message(
             &None,
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: "test".to_string(),
@@ -188,6 +214,7 @@ mod tests {
         MemoryHelper::store_message(
             &Some(mem.clone()),
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: "hello".to_string(),
@@ -270,11 +297,22 @@ mod tests {
             arguments: serde_json::json!({}),
             result: serde_json::json!("ok"),
         }];
-        MemoryHelper::store_tool_interaction(&Some(mem.clone()), &calls, &results, "text")
-            .await
-            .unwrap();
+        MemoryHelper::store_tool_interaction_with_reasoning(
+            &Some(mem.clone()),
+            &calls,
+            &results,
+            "text",
+            Some("inspect the workspace"),
+        )
+        .await
+        .unwrap();
         let stored = mem.lock().await.recall("", None).await.unwrap();
         assert_eq!(stored.len(), 2);
+        assert_eq!(
+            stored[0].reasoning_content.as_deref(),
+            Some("inspect the workspace")
+        );
+        assert!(stored[1].reasoning_content.is_none());
     }
 
     #[tokio::test]
@@ -288,6 +326,7 @@ mod tests {
     async fn test_store_message_returns_memory_write_failure() {
         let mem = make_failing_memory();
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test".to_string(),
@@ -343,6 +382,7 @@ mod tests {
         for content in ["Message 1", "Message 2"] {
             memory
                 .remember(&ChatMessage {
+                    reasoning_content: None,
                     role: ChatRole::User,
                     message_type: MessageType::Text,
                     content: content.to_string(),
@@ -390,6 +430,7 @@ mod tests {
         MemoryHelper::store_message(
             &Some(mem.clone()),
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: "msg1".to_string(),
@@ -400,6 +441,7 @@ mod tests {
         MemoryHelper::store_message(
             &Some(mem.clone()),
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Assistant,
                 message_type: MessageType::Text,
                 content: "msg2".to_string(),

@@ -479,6 +479,7 @@ impl CodeActEngine {
                 )
                 .await?;
             let response_text = response.text().unwrap_or_default();
+            let reasoning_content = response.thinking().unwrap_or_default();
             if should_store_user {
                 memory.store_user(task).await?;
                 stored_user = true;
@@ -522,7 +523,12 @@ impl CodeActEngine {
                 .await;
 
             memory
-                .store_tool_interaction(&tool_calls, &tool_results, &response_text)
+                .store_tool_interaction_with_reasoning(
+                    &tool_calls,
+                    &tool_results,
+                    &response_text,
+                    Some(&reasoning_content),
+                )
                 .await?;
 
             EventHelper::send_turn_completed(
@@ -616,6 +622,7 @@ impl CodeActEngine {
                     .await;
 
                 let mut response_text = String::default();
+                let mut reasoning_content = String::default();
                 let mut tool_calls = Vec::new();
                 let mut seen_tool_ids = HashSet::new();
 
@@ -656,7 +663,9 @@ impl CodeActEngine {
                                 }))
                                 .await;
                         }
-                        StreamChunk::ReasoningContent(_) => {}
+                        StreamChunk::ReasoningContent(content) => {
+                            reasoning_content.push_str(&content);
+                        }
                         StreamChunk::ToolUseComplete { tool_call, .. } => {
                             if seen_tool_ids.insert(tool_call.id.clone()) {
                                 tool_calls.push(tool_call.clone());
@@ -733,7 +742,12 @@ impl CodeActEngine {
                     .await;
 
                 if let Err(err) = memory
-                    .store_tool_interaction(&tool_calls, &tool_results, &response_text)
+                    .store_tool_interaction_with_reasoning(
+                        &tool_calls,
+                        &tool_results,
+                        &response_text,
+                        Some(&reasoning_content),
+                    )
                     .await
                     .map_err(CodeActExecutorError::from)
                 {
@@ -847,6 +861,7 @@ async fn build_messages(
         .as_deref()
         .unwrap_or_else(|| &context.config().description);
     let mut messages = vec![ChatMessage {
+        reasoning_content: None,
         role: ChatRole::System,
         message_type: MessageType::Text,
         content: build_codeact_system_prompt(system_prompt, tool_bindings),
@@ -2000,12 +2015,14 @@ fn should_store_user(memory: &MemoryAdapter, stored_user: bool) -> bool {
 fn user_message(task: &Task) -> ChatMessage {
     if let Some((mime, image_data)) = &task.image {
         ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Image(((*mime).into(), image_data.clone())),
             content: task.prompt.clone(),
         }
     } else {
         ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: task.prompt.clone(),
@@ -2802,7 +2819,7 @@ throw new Error("boom");
                             "return await external_lookup({});",
                         )]),
                         usage: None,
-                        thinking: None,
+                        thinking: Some("inspect the workspace".to_string()),
                     },
                     StaticChatResponse {
                         text: Some(r#"{"result":"complete"}"#.to_string()),
@@ -2852,6 +2869,14 @@ throw new Error("boom");
                 .filter(|message| message.role == ChatRole::User)
                 .count();
             assert_eq!(second_turn_user_messages, 1);
+            let assistant_tool_message = observed[1]
+                .iter()
+                .find(|message| matches!(message.message_type, MessageType::ToolUse(_)))
+                .expect("assistant tool message should be replayed");
+            assert_eq!(
+                assistant_tool_message.reasoning_content.as_deref(),
+                Some("inspect the workspace")
+            );
         });
     }
 
@@ -2910,6 +2935,7 @@ throw new Error("boom");
                 Vec::new(),
                 vec![
                     vec![
+                        StreamChunk::ReasoningContent("inspect the workspace".to_string()),
                         StreamChunk::Text("Working".to_string()),
                         StreamChunk::ToolUseComplete {
                             index: 0,
@@ -2931,7 +2957,7 @@ throw new Error("boom");
                 ],
             ));
             let context = test_context_with_llm(
-                provider,
+                provider.clone(),
                 vec![Box::new(LocalTool::new("lookup", json!({"answer": 42})))],
                 true,
             );
@@ -2975,6 +3001,16 @@ throw new Error("boom");
             assert_eq!(final_output.response, "All done");
             assert_eq!(final_output.executions.len(), 1);
             assert!(final_output.done);
+
+            let observed = provider.observed_messages().await;
+            let assistant_tool_message = observed[1]
+                .iter()
+                .find(|message| matches!(message.message_type, MessageType::ToolUse(_)))
+                .expect("assistant tool message should be replayed");
+            assert_eq!(
+                assistant_tool_message.reasoning_content.as_deref(),
+                Some("inspect the workspace")
+            );
         });
     }
 }

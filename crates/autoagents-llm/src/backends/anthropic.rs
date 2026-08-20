@@ -1456,6 +1456,7 @@ data: {"type": "ping"}
     #[test]
     fn test_convert_messages_to_anthropic_tool_result() {
         let msg = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::Assistant,
             message_type: MessageType::ToolResult(vec![ToolCall {
                 id: "tool_1".to_string(),
@@ -1481,6 +1482,7 @@ data: {"type": "ping"}
     #[test]
     fn test_convert_messages_to_anthropic_tool_use_parses_input() {
         let msg = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::Assistant,
             message_type: MessageType::ToolUse(vec![ToolCall {
                 id: "tool_call".to_string(),
@@ -1557,11 +1559,13 @@ data: {"type": "ping"}
     #[test]
     fn test_convert_messages_to_anthropic_image_and_pdf() {
         let image = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Image((ImageMime::PNG, vec![1, 2, 3])),
             content: "img".to_string(),
         };
         let pdf = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Pdf(vec![9, 8, 7]),
             content: "doc".to_string(),
@@ -1674,16 +1678,19 @@ data: {"type": "ping"}
     fn test_convert_messages_to_anthropic_filters_system_and_covers_url_and_invalid_tool_json() {
         let messages = vec![
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::System,
                 message_type: MessageType::Text,
                 content: "system".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::ImageURL("https://example.com/image.png".to_string()),
                 content: "remote image".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Assistant,
                 message_type: MessageType::ToolUse(vec![ToolCall {
                     id: "tool_1".to_string(),
@@ -1747,6 +1754,7 @@ data: {"type": "ping"}
     #[test]
     fn test_convert_messages_to_anthropic_rejects_system_only() {
         let messages = [ChatMessage {
+            reasoning_content: None,
             role: ChatRole::System,
             message_type: MessageType::Text,
             content: "system only".to_string(),
@@ -1777,6 +1785,7 @@ data: {"type": "ping"}
             None,
         );
         let messages = [ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Pdf(vec![1, 2, 3]),
             content: "doc".to_string(),
@@ -1851,6 +1860,7 @@ data: {"type": "ping"}
         let invalid = Anthropic::new("key", None, None, None, None, None, None, None, None, None)
             .chat_with_tools(
                 &[ChatMessage {
+                    reasoning_content: None,
                     role: ChatRole::System,
                     message_type: MessageType::Text,
                     content: "system only".to_string(),
@@ -1876,6 +1886,7 @@ data: {"type": "ping"}
             match Anthropic::new("key", None, None, None, None, None, None, None, None, None)
                 .chat_stream(
                     &[ChatMessage {
+                        reasoning_content: None,
                         role: ChatRole::System,
                         message_type: MessageType::Text,
                         content: "system only".to_string(),
@@ -2097,6 +2108,7 @@ data: {"type": "ping"}
         );
 
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: crate::chat::MessageType::Text,
             content: "Classify the sentiment of: 'I love sunny days!'".to_string(),

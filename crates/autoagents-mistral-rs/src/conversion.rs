@@ -250,11 +250,13 @@ mod tests {
 
         let messages = vec![
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Assistant,
                 message_type: MessageType::ToolUse(vec![tool_call.clone()]),
                 content: "call".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Tool,
                 message_type: MessageType::ToolResult(vec![tool_call]),
                 content: "result".to_string(),

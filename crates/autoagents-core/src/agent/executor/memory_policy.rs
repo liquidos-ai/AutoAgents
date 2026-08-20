@@ -280,12 +280,22 @@ mod tests {
             result: serde_json::json!("ok"),
         }];
         adapter
-            .store_tool_interaction(&tool_calls, &results, "text")
+            .store_tool_interaction_with_reasoning(
+                &tool_calls,
+                &results,
+                "text",
+                Some("inspect the workspace"),
+            )
             .await
             .unwrap();
         let stored = mem_arc.lock().await.recall("", None).await.unwrap();
         // Stores 2 messages: assistant ToolUse + Tool ToolResult
         assert_eq!(stored.len(), 2);
+        assert_eq!(
+            stored[0].reasoning_content.as_deref(),
+            Some("inspect the workspace")
+        );
+        assert!(stored[1].reasoning_content.is_none());
     }
 
     #[tokio::test]
@@ -349,6 +359,7 @@ mod tests {
         for content in ["Message 1", "Message 2"] {
             memory
                 .remember(&ChatMessage {
+                    reasoning_content: None,
                     role: ChatRole::User,
                     message_type: MessageType::Text,
                     content: content.to_string(),
@@ -442,12 +453,14 @@ impl MemoryAdapter {
         };
         let message = if let Some((mime, data)) = &task.image {
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Image(((*mime).into(), data.clone())),
                 content: task.prompt.clone(),
             }
         } else {
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: task.prompt.clone(),
@@ -464,6 +477,7 @@ impl MemoryAdapter {
             return Ok(());
         };
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::Assistant,
             message_type: MessageType::Text,
             content: response.to_string(),
@@ -477,6 +491,18 @@ impl MemoryAdapter {
         tool_results: &[ToolCallResult],
         response_text: &str,
     ) -> Result<(), LLMError> {
+        self.store_tool_interaction_with_reasoning(tool_calls, tool_results, response_text, None)
+            .await
+    }
+
+    /// Store tool calls, results, and optional assistant reasoning in memory.
+    pub async fn store_tool_interaction_with_reasoning(
+        &self,
+        tool_calls: &[ToolCall],
+        tool_results: &[ToolCallResult],
+        response_text: &str,
+        reasoning_content: Option<&str>,
+    ) -> Result<(), LLMError> {
         if !self.policy.store_tool_interactions {
             return Ok(());
         }
@@ -489,11 +515,15 @@ impl MemoryAdapter {
                 role: ChatRole::Assistant,
                 message_type: MessageType::ToolUse(tool_calls.to_vec()),
                 content: response_text.to_string(),
+                reasoning_content: reasoning_content
+                    .filter(|content| !content.is_empty())
+                    .map(str::to_owned),
             },
             ChatMessage {
                 role: ChatRole::Tool,
                 message_type: MessageType::ToolResult(result_tool_calls),
                 content: String::default(),
+                reasoning_content: None,
             },
         ];
 

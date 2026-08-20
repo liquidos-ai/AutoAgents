@@ -137,6 +137,7 @@ mod tests {
     fn test_message_condition_any() {
         let condition = MessageCondition::Any;
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -152,6 +153,7 @@ mod tests {
     fn test_message_condition_eq() {
         let condition = MessageCondition::Eq("test message".to_string());
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -163,6 +165,7 @@ mod tests {
         assert!(condition.matches(&event));
 
         let different_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "different message".to_string(),
@@ -178,6 +181,7 @@ mod tests {
     fn test_message_condition_contains() {
         let condition = MessageCondition::Contains("test".to_string());
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "this is a test message".to_string(),
@@ -189,6 +193,7 @@ mod tests {
         assert!(condition.matches(&event));
 
         let non_matching_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "this is different".to_string(),
@@ -204,6 +209,7 @@ mod tests {
     fn test_message_condition_not_contains() {
         let condition = MessageCondition::NotContains("error".to_string());
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "this is a test message".to_string(),
@@ -215,6 +221,7 @@ mod tests {
         assert!(condition.matches(&event));
 
         let error_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "this is an error message".to_string(),
@@ -230,6 +237,7 @@ mod tests {
     fn test_message_condition_role_is() {
         let condition = MessageCondition::RoleIs("user".to_string());
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -243,6 +251,7 @@ mod tests {
         let assistant_event = MessageEvent {
             role: "assistant".to_string(),
             msg: ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Assistant,
                 message_type: MessageType::Text,
                 content: "test message".to_string(),
@@ -255,6 +264,7 @@ mod tests {
     fn test_message_condition_role_not() {
         let condition = MessageCondition::RoleNot("system".to_string());
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -268,6 +278,7 @@ mod tests {
         let system_event = MessageEvent {
             role: "system".to_string(),
             msg: ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::System,
                 message_type: MessageType::Text,
                 content: "test message".to_string(),
@@ -280,6 +291,7 @@ mod tests {
     fn test_message_condition_len_gt() {
         let condition = MessageCondition::LenGt(5);
         let long_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "this is a long message".to_string(),
@@ -291,6 +303,7 @@ mod tests {
         assert!(condition.matches(&long_event));
 
         let short_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "hi".to_string(),
@@ -306,6 +319,7 @@ mod tests {
     fn test_message_condition_custom() {
         let condition = MessageCondition::Custom(Arc::new(|msg| msg.content.starts_with("hello")));
         let hello_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "hello world".to_string(),
@@ -317,6 +331,7 @@ mod tests {
         assert!(condition.matches(&hello_event));
 
         let goodbye_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "goodbye world".to_string(),
@@ -332,6 +347,7 @@ mod tests {
     fn test_message_condition_empty() {
         let condition = MessageCondition::Empty;
         let empty_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "".to_string(),
@@ -343,6 +359,7 @@ mod tests {
         assert!(condition.matches(&empty_event));
 
         let non_empty_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "not empty".to_string(),
@@ -363,6 +380,7 @@ mod tests {
         ]);
 
         let matching_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "this is a test message".to_string(),
@@ -374,6 +392,7 @@ mod tests {
         assert!(condition.matches(&matching_event));
 
         let non_matching_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "hi".to_string(),
@@ -394,6 +413,7 @@ mod tests {
         ]);
 
         let hello_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "hello world".to_string(),
@@ -405,6 +425,7 @@ mod tests {
         assert!(condition.matches(&hello_event));
 
         let goodbye_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "goodbye world".to_string(),
@@ -416,6 +437,7 @@ mod tests {
         assert!(condition.matches(&goodbye_event));
 
         let empty_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "".to_string(),
@@ -427,6 +449,7 @@ mod tests {
         assert!(condition.matches(&empty_event));
 
         let non_matching_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -442,6 +465,7 @@ mod tests {
     fn test_message_condition_regex() {
         let condition = MessageCondition::Regex(r"\d+".to_string());
         let number_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "there are 123 items".to_string(),
@@ -453,6 +477,7 @@ mod tests {
         assert!(condition.matches(&number_event));
 
         let no_number_message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "no numbers here".to_string(),
@@ -468,6 +493,7 @@ mod tests {
     fn test_message_condition_regex_invalid() {
         let condition = MessageCondition::Regex("[invalid regex".to_string());
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -482,6 +508,7 @@ mod tests {
     #[test]
     fn test_message_event_creation() {
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -497,6 +524,7 @@ mod tests {
     #[test]
     fn test_message_event_clone() {
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -513,6 +541,7 @@ mod tests {
     #[test]
     fn test_message_event_debug() {
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -530,6 +559,7 @@ mod tests {
     async fn test_mock_memory_provider_remember() {
         let mut provider = MockMemoryProvider::new();
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -544,6 +574,7 @@ mod tests {
     async fn test_mock_memory_provider_remember_failure() {
         let mut provider = MockMemoryProvider::with_failure();
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -563,11 +594,13 @@ mod tests {
     async fn test_mock_memory_provider_recall() {
         let messages = vec![
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: "first message".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Assistant,
                 message_type: MessageType::Text,
                 content: "second message".to_string(),
@@ -587,11 +620,13 @@ mod tests {
     async fn test_mock_memory_provider_recall_with_limit() {
         let messages = vec![
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: "first message".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Assistant,
                 message_type: MessageType::Text,
                 content: "second message".to_string(),
@@ -623,6 +658,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_memory_provider_clear() {
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "first message".to_string(),
@@ -656,6 +692,7 @@ mod tests {
         assert_eq!(provider.size(), 0);
 
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "message".to_string(),
@@ -670,6 +707,7 @@ mod tests {
         assert!(provider.is_empty());
 
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "message".to_string(),
@@ -689,6 +727,7 @@ mod tests {
     async fn test_memory_provider_remember_with_role() {
         let mut provider = MockMemoryProvider::new();
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
