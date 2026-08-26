@@ -459,4 +459,4 @@ AutoAgents는 이중 라이선스를 사용합니다:
 
 ## 스타 기록
 
-[![Star History Chart](https://api.star-history.com/svg?repos=liquidos-ai/AutoAgents&type=Date)](https://www.star-history.com/#liquidos-ai/AutoAgents&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=liquidos-ai/AutoAgents&type=Date)](https://star-history.dera.page/#liquidos-ai/AutoAgents&Date)
