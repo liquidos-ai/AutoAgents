@@ -25,9 +25,20 @@
   },
   "overrides": {
     "serialize-javascript": "7.0.5",
-    "uuid": "11.1.1"
+    "uuid": "11.1.1",
+    "body-parser@1": "1.20.6",
+    "brace-expansion@1": "1.1.18",
+    "fast-uri@3": "3.1.6",
+    "js-yaml@3": "3.15.1",
+    "js-yaml@4": "4.3.1",
+    "nanoid@3": "3.3.18",
+    "postcss@8": "8.5.26",
+    "shell-quote": "1.10.0",
+    "svgo@3": "3.3.5",
+    "websocket-driver": "0.7.5",
+    "image-size": "npm:image-size-next@2.1.1"
   },
   "overridesNote": {
-    "security": "Remove these overrides once the upstream Docusaurus/Webpack dependency graph includes the patched transitive packages directly."
+    "security": "Remove these overrides once the upstream Docusaurus/Webpack dependency graph includes the patched transitive packages directly. image-size is aliased to image-size-next because upstream image-size is archived and never published a 2.0.3 fix for GHSA-w3rx-r6r6-pgpr / GHSA-5p2g-fcmc-qvqq."
   }
 }
