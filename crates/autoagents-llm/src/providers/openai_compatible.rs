@@ -1295,7 +1295,7 @@ impl SSEStreamParser {
             self.event_buffer.clear();
         }
 
-        self.results.drain(..).collect::<Vec<_>>()
+        std::mem::take(&mut self.results)
     }
 
     #[cfg(test)]
