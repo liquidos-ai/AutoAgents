@@ -1300,11 +1300,13 @@ mod tests {
         };
         let messages = vec![
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Assistant,
                 message_type: MessageType::ToolUse(vec![tool_call.clone()]),
                 content: "call".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Tool,
                 message_type: MessageType::ToolResult(vec![tool_call]),
                 content: "result".to_string(),
@@ -1344,11 +1346,13 @@ mod tests {
         };
         let messages = vec![
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Assistant,
                 message_type: MessageType::ToolUse(vec![tool_call.clone()]),
                 content: "call".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Tool,
                 message_type: MessageType::ToolResult(vec![tool_call]),
                 content: "result".to_string(),
@@ -1380,6 +1384,7 @@ mod tests {
     #[test]
     fn test_build_google_chat_contents_rejects_image_url() {
         let messages = [ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::ImageURL("https://example.com/image.png".to_string()),
             content: "describe".to_string(),
@@ -1400,6 +1405,7 @@ mod tests {
     #[test]
     fn test_build_google_stream_contents_rejects_image_url() {
         let messages = [ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::ImageURL("https://example.com/image.png".to_string()),
             content: "describe".to_string(),

@@ -149,6 +149,7 @@ async fn chat_with_tools_grammar_no_envelope_returns_schema_conforming_json() {
         .expect("provider should load");
 
     let messages = vec![ChatMessage {
+        reasoning_content: None,
         role: ChatRole::User,
         message_type: MessageType::Text,
         content: PROMPT.to_string(),

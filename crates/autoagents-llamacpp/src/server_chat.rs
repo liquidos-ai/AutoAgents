@@ -520,6 +520,7 @@ fn base_message(message: &ChatMessage) -> ServerChatMessage {
     ServerChatMessage {
         role: role.to_string(),
         content,
+        reasoning_content: message.reasoning_content.clone().unwrap_or_default(),
         ..Default::default()
     }
 }
@@ -693,6 +694,7 @@ mod tests {
     #[test]
     fn converts_tool_calls_to_server_messages() {
         let message = ChatMessage {
+            reasoning_content: Some("inspect the workspace".to_string()),
             role: ChatRole::Assistant,
             message_type: MessageType::ToolUse(vec![tool_call()]),
             content: String::default(),
@@ -703,6 +705,7 @@ mod tests {
         assert_eq!(messages[0].role, "assistant");
         assert_eq!(messages[0].tool_calls[0].name, "lookup");
         assert_eq!(messages[0].tool_calls[0].arguments, "{\"q\":\"rust\"}");
+        assert_eq!(messages[0].reasoning_content, "inspect the workspace");
     }
 
     #[test]
@@ -738,6 +741,7 @@ mod tests {
     #[test]
     fn renders_caps_driven_typed_or_string_content() {
         let message = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::ImageURL("<image>".to_string()),
             content: "caption".to_string(),

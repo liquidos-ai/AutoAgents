@@ -1043,8 +1043,6 @@ impl LlamaCppProvider {
         messages: &[ChatMessage],
     ) -> Result<(String, Vec<Vec<u8>>, String), LLMError> {
         let template = self.resolve_chat_template_source(false)?;
-        let mut chat = Vec::new();
-        let mut images = Vec::new();
         let default_marker = mtmd_default_marker().to_string();
         let marker = self
             .config
@@ -1052,15 +1050,46 @@ impl LlamaCppProvider {
             .as_deref()
             .unwrap_or(&default_marker)
             .to_string();
+        let (chat, images) =
+            Self::prepare_mtmd_chat(self.prepare_fallback_messages(messages, None), &marker)?;
 
-        for message in self.prepare_fallback_messages(messages, None) {
-            let mut content = message.content.clone();
-            match message.message_type {
+        let prompt = render_chat_template(
+            &self.config,
+            &template,
+            &chat,
+            None,
+            None,
+            None,
+            &self.template_tokens()?,
+        )
+        .map_err(LLMError::from)?
+        .prompt;
+
+        Ok((prompt, images, marker))
+    }
+
+    #[cfg(feature = "mtmd")]
+    fn prepare_mtmd_chat(
+        messages: Vec<ChatMessage>,
+        marker: &str,
+    ) -> Result<(Vec<ChatMessage>, Vec<Vec<u8>>), LLMError> {
+        let mut chat = Vec::with_capacity(messages.len());
+        let mut images = Vec::new();
+
+        for message in messages {
+            let ChatMessage {
+                reasoning_content,
+                role,
+                message_type,
+                mut content,
+            } = message;
+
+            match message_type {
                 MessageType::Text => {}
                 MessageType::Image((_, bytes)) => {
                     images.push(bytes);
-                    if !content.contains(&marker) {
-                        content.push_str(&marker);
+                    if !content.contains(marker) {
+                        content.push_str(marker);
                     }
                 }
                 MessageType::ToolUse(_) | MessageType::ToolResult(_) => {
@@ -1076,25 +1105,14 @@ impl LlamaCppProvider {
             }
 
             chat.push(ChatMessage {
-                role: message.role,
+                reasoning_content,
+                role,
                 message_type: MessageType::Text,
                 content,
             });
         }
 
-        let prompt = render_chat_template(
-            &self.config,
-            &template,
-            &chat,
-            None,
-            None,
-            None,
-            &self.template_tokens()?,
-        )
-        .map_err(LLMError::from)?
-        .prompt;
-
-        Ok((prompt, images, marker))
+        Ok((chat, images))
     }
 
     fn template_tokens(&self) -> Result<TemplateTokens, LLMError> {
@@ -2104,6 +2122,7 @@ fn prepare_messages_with_system(
 
         if !has_system_message {
             all_messages.push(ChatMessage {
+                reasoning_content: None,
                 role: autoagents_llm::chat::ChatRole::System,
                 message_type: autoagents_llm::chat::MessageType::Text,
                 content: system_prompt.clone(),
@@ -2131,6 +2150,7 @@ fn prepare_fallback_messages_with_schema(
             schema_hint.push_str(&format!(" Schema: {json_schema}"));
         }
         all_messages.push(ChatMessage {
+            reasoning_content: None,
             role: autoagents_llm::chat::ChatRole::System,
             message_type: autoagents_llm::chat::MessageType::Text,
             content: schema_hint,
@@ -7513,6 +7533,55 @@ mod tests {
         assert!(!marker.is_empty());
     }
 
+    #[cfg(feature = "mtmd")]
+    #[test]
+    fn test_prepare_mtmd_chat_preserves_reasoning_and_collects_images() {
+        let messages = vec![
+            ChatMessage::assistant()
+                .content("answer")
+                .reasoning_content("inspect the image")
+                .build(),
+            ChatMessage::user()
+                .content("caption")
+                .image(ImageMime::PNG, vec![1, 2, 3])
+                .build(),
+        ];
+
+        let (chat, images) = LlamaCppProvider::prepare_mtmd_chat(messages, "<image>").unwrap();
+
+        assert_eq!(chat.len(), 2);
+        assert_eq!(
+            chat[0].reasoning_content.as_deref(),
+            Some("inspect the image")
+        );
+        assert_eq!(chat[1].content, "caption<image>");
+        assert_eq!(images, vec![vec![1, 2, 3]]);
+    }
+
+    #[cfg(feature = "mtmd")]
+    #[test]
+    fn test_prepare_mtmd_chat_rejects_unsupported_messages() {
+        let tool_message = ChatMessage::assistant().tool_use(Vec::new()).build();
+        let tool_error =
+            LlamaCppProvider::prepare_mtmd_chat(vec![tool_message], "<image>").unwrap_err();
+        assert!(
+            tool_error
+                .to_string()
+                .contains("does not support tool calls")
+        );
+
+        let url_message = ChatMessage::user()
+            .image_url("https://example.com/image.png")
+            .build();
+        let url_error =
+            LlamaCppProvider::prepare_mtmd_chat(vec![url_message], "<image>").unwrap_err();
+        assert!(
+            url_error
+                .to_string()
+                .contains("only supports raw image inputs")
+        );
+    }
+
     #[test]
     fn test_chat_template_result_parses_content_and_tool_json() {
         let content_result = ChatTemplateResult {
@@ -9417,6 +9486,7 @@ content
         assert_eq!(prepared[1].content, "hi");
 
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: autoagents_llm::chat::ChatRole::System,
             message_type: autoagents_llm::chat::MessageType::Text,
             content: "existing".to_string(),
@@ -10315,6 +10385,7 @@ content
         assert!(ok.is_ok());
 
         let image_msg = ChatMessage {
+            reasoning_content: None,
             role: autoagents_llm::chat::ChatRole::User,
             message_type: autoagents_llm::chat::MessageType::Image((ImageMime::PNG, vec![1, 2, 3])),
             content: "img".to_string(),
@@ -10323,6 +10394,7 @@ content
         assert!(err.to_string().contains("does not support image inputs"));
 
         let url_msg = ChatMessage {
+            reasoning_content: None,
             role: autoagents_llm::chat::ChatRole::User,
             message_type: autoagents_llm::chat::MessageType::ImageURL(
                 "https://example.com/img.png".to_string(),

@@ -141,6 +141,9 @@ fn build_openai_message_value(message: &ChatMessage) -> Result<Value, LlamaCppPr
         if !message.content.trim().is_empty() {
             obj.insert("content".to_string(), json!(message.content));
         }
+        if let Some(reasoning_content) = &message.reasoning_content {
+            obj.insert("reasoning_content".to_string(), json!(reasoning_content));
+        }
         obj.insert("tool_calls".to_string(), Value::Array(tool_values));
         return Ok(Value::Object(obj));
     }
@@ -255,5 +258,26 @@ mod tests {
         assert_eq!(arr[1]["role"], "tool");
         assert_eq!(arr[1]["tool_call_id"], "tool_1");
         assert_eq!(arr[1]["content"], "{\"x\":1}");
+    }
+
+    #[test]
+    fn test_build_openai_messages_json_preserves_tool_reasoning() {
+        let tool_call = ToolCall {
+            id: "tool_1".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "do_work".to_string(),
+                arguments: "{\"x\":1}".to_string(),
+            },
+        };
+        let tool_use = ChatMessage::assistant()
+            .reasoning_content("Inspect the inputs first")
+            .tool_use(vec![tool_call])
+            .build();
+
+        let json = build_openai_messages_json(&[tool_use]).unwrap();
+        let value: Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(value[0]["reasoning_content"], "Inspect the inputs first");
     }
 }

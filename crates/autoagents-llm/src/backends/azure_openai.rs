@@ -705,6 +705,7 @@ mod tests {
     #[test]
     fn test_build_azure_chat_messages_rejects_raw_image() {
         let messages = [ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Image((ImageMime::PNG, vec![1, 2, 3])),
             content: "describe".to_string(),
@@ -722,6 +723,7 @@ mod tests {
     #[test]
     fn test_azure_chat_message_from_text() {
         let msg = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "hello".to_string(),
@@ -735,6 +737,7 @@ mod tests {
     #[test]
     fn test_azure_chat_message_from_image_url() {
         let msg = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::ImageURL("https://example.com/img.png".to_string()),
             content: "describe".to_string(),
@@ -752,6 +755,7 @@ mod tests {
     #[test]
     fn test_azure_chat_message_rejects_raw_image() {
         let msg = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Image((ImageMime::PNG, vec![1, 2, 3])),
             content: "describe".to_string(),
@@ -769,6 +773,7 @@ mod tests {
     #[test]
     fn test_azure_chat_message_rejects_pdf() {
         let msg = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Pdf(vec![1, 2, 3]),
             content: "doc".to_string(),
@@ -786,6 +791,7 @@ mod tests {
     #[test]
     fn test_azure_chat_message_from_tool_use() {
         let msg = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::Assistant,
             message_type: MessageType::ToolUse(vec![ToolCall {
                 id: "call_1".to_string(),

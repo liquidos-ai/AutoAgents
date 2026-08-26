@@ -2452,6 +2452,7 @@ mod tests {
         let msg = OpenAIChatMessage {
             role: "user",
             content: Some(Right("hello".to_string())),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         };
@@ -2516,11 +2517,13 @@ mod tests {
 
         let messages = vec![
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::System,
                 message_type: MessageType::Text,
                 content: "You are helpful.".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: "hello".to_string(),
@@ -2582,6 +2585,7 @@ mod tests {
         .unwrap();
 
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "Jane, 54 years old".to_string(),
@@ -2707,6 +2711,7 @@ mod tests {
 
         let messages = vec![
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Assistant,
                 message_type: MessageType::ToolUse(vec![ToolCall {
                     id: "call_1".to_string(),
@@ -2719,6 +2724,7 @@ mod tests {
                 content: "Checking...".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Tool,
                 message_type: MessageType::ToolResult(vec![ToolCall {
                     id: "call_1".to_string(),
@@ -2941,26 +2947,31 @@ mod tests {
         };
         let messages = vec![
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::System,
                 message_type: MessageType::Text,
                 content: "Be precise".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Image((ImageMime::PNG, vec![1, 2, 3])),
                 content: "caption".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::ImageURL("https://example.com/image.png".to_string()),
                 content: "describe".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Assistant,
                 message_type: MessageType::ToolUse(vec![tool_call.clone()]),
                 content: "calling tool".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Tool,
                 message_type: MessageType::ToolResult(vec![tool_call]),
                 content: String::new(),
@@ -2993,6 +3004,7 @@ mod tests {
         assert_eq!(input[4]["type"], json!("function_call_output"));
 
         let pdf_messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Pdf(vec![1, 2, 3]),
             content: "doc".to_string(),

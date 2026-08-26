@@ -80,11 +80,16 @@ fn parse_chat_message_value(value: serde_json::Value) -> Result<ChatMessage, LLM
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default()
         .to_string();
+    let reasoning_content = object
+        .get("reasoning_content")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
 
     Ok(ChatMessage {
         role,
         message_type: MessageType::Text,
         content,
+        reasoning_content,
     })
 }
 
@@ -321,6 +326,7 @@ mod tests {
             );
 
             let typed = serde_json::to_value(ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: "hello".to_string(),
@@ -331,11 +337,19 @@ mod tests {
             assert_eq!(typed_message.role, ChatRole::User);
             assert_eq!(typed_message.content, "hello");
 
-            let dict = json!({"role": "assistant", "content": "world"});
+            let dict = json!({
+                "role": "assistant",
+                "content": "world",
+                "reasoning_content": "inspect the workspace"
+            });
             let dict_message =
                 parse_chat_message_value(dict).expect("dict message should fall back");
             assert_eq!(dict_message.role, ChatRole::Assistant);
             assert_eq!(dict_message.content, "world");
+            assert_eq!(
+                dict_message.reasoning_content.as_deref(),
+                Some("inspect the workspace")
+            );
 
             let py_messages = json_value_to_py(
                 py,
@@ -373,6 +387,7 @@ mod tests {
 
             runtime
                 .block_on(memory.remember(&ChatMessage {
+                    reasoning_content: None,
                     role: ChatRole::User,
                     message_type: MessageType::Text,
                     content: "hello".to_string(),

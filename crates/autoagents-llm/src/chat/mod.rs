@@ -222,6 +222,9 @@ pub struct ChatMessage {
     pub message_type: MessageType,
     /// The text content of the message
     pub content: String,
+    /// Reasoning content associated with the message, if any
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
 }
 
 /// Represents a parameter in a function tool
@@ -722,6 +725,7 @@ pub struct ChatMessageBuilder {
     role: ChatRole,
     message_type: MessageType,
     content: String,
+    reasoning_content: Option<String>,
 }
 
 impl ChatMessageBuilder {
@@ -731,12 +735,19 @@ impl ChatMessageBuilder {
             role,
             message_type: MessageType::default(),
             content: String::default(),
+            reasoning_content: None,
         }
     }
 
     /// Set the message content
     pub fn content<S: Into<String>>(mut self, content: S) -> Self {
         self.content = content.into();
+        self
+    }
+
+    /// Set the message reasoning content
+    pub fn reasoning_content<S: Into<String>>(mut self, reasoning_content: S) -> Self {
+        self.reasoning_content = Some(reasoning_content.into());
         self
     }
 
@@ -776,6 +787,7 @@ impl ChatMessageBuilder {
             role: self.role,
             message_type: self.message_type,
             content: self.content,
+            reasoning_content: self.reasoning_content,
         }
     }
 }
@@ -907,6 +919,30 @@ mod tests {
             .tool_use(vec![tc])
             .build();
         assert!(matches!(msg.message_type, MessageType::ToolUse(_)));
+    }
+
+    #[test]
+    fn test_chat_message_builder_reasoning_content() {
+        let msg = ChatMessage::assistant()
+            .content("calling tool")
+            .reasoning_content("inspect the workspace")
+            .build();
+
+        assert_eq!(
+            msg.reasoning_content.as_deref(),
+            Some("inspect the workspace")
+        );
+    }
+
+    #[test]
+    fn test_chat_message_reasoning_content_is_serde_backward_compatible() {
+        let message = ChatMessage::user().content("hello").build();
+        let serialized = serde_json::to_value(&message).unwrap();
+
+        assert!(serialized.get("reasoning_content").is_none());
+
+        let deserialized: ChatMessage = serde_json::from_value(serialized).unwrap();
+        assert!(deserialized.reasoning_content.is_none());
     }
 
     #[test]

@@ -161,6 +161,8 @@ pub struct OpenAIChatMessage<'a> {
     )]
     pub content: Option<Either<Vec<OpenAIMessageContent<'a>>, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
@@ -476,6 +478,7 @@ impl<T: OpenAIProviderConfig> OpenAICompatibleProvider<T> {
                     role: "tool",
                     tool_call_id: Some(result.id.clone()),
                     tool_calls: None,
+                    reasoning_content: None,
                     content: Some(Right(result.function.arguments.clone())),
                 }));
             } else {
@@ -1085,6 +1088,7 @@ pub fn chat_message_to_openai_message(
             ChatRole::Tool => "user",
         },
         tool_call_id: None,
+        reasoning_content: chat_msg.reasoning_content.clone(),
         content: match &chat_msg.message_type {
             MessageType::Text => Some(Right(chat_msg.content.clone())),
             MessageType::Image((mime, bytes)) => {
@@ -1794,6 +1798,7 @@ mod tests {
             },
         }];
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::Assistant,
             message_type: MessageType::ToolResult(tool_calls.clone()),
             content: "tool result".to_string(),
@@ -1819,6 +1824,7 @@ mod tests {
     #[test]
     fn test_chat_message_to_openai_message_image_url() {
         let msg = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::ImageURL("https://example.com/image.png".to_string()),
             content: "describe".to_string(),
@@ -1842,6 +1848,7 @@ mod tests {
     #[test]
     fn test_chat_message_to_openai_message_tool_use() {
         let msg = ChatMessage {
+            reasoning_content: Some("inspect the workspace".to_string()),
             role: ChatRole::Assistant,
             message_type: MessageType::ToolUse(vec![ToolCall {
                 id: "call_1".to_string(),
@@ -1856,6 +1863,12 @@ mod tests {
         let openai_msg = chat_message_to_openai_message(msg).expect("tool use should convert");
         assert!(openai_msg.content.is_none());
         assert!(openai_msg.tool_calls.is_some());
+        assert_eq!(
+            openai_msg.reasoning_content.as_deref(),
+            Some("inspect the workspace")
+        );
+        let serialized = serde_json::to_value(&openai_msg).unwrap();
+        assert_eq!(serialized["reasoning_content"], "inspect the workspace");
         let calls = openai_msg.tool_calls.unwrap();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].function.name, "lookup");
@@ -1866,6 +1879,7 @@ mod tests {
         use crate::chat::ImageMime;
 
         let msg = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Image((ImageMime::PNG, vec![1, 2, 3, 4])),
             content: "caption".to_string(),
@@ -1894,6 +1908,7 @@ mod tests {
         };
 
         let tool_use_msg = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::Assistant,
             message_type: MessageType::ToolUse(vec![tool_call.clone()]),
             content: "call".to_string(),
@@ -1906,6 +1921,7 @@ mod tests {
         assert_eq!(calls[0].function.name, "lookup");
 
         let tool_result_msg = ChatMessage {
+            reasoning_content: None,
             role: ChatRole::Tool,
             message_type: MessageType::ToolResult(vec![tool_call]),
             content: "result".to_string(),
@@ -1923,6 +1939,7 @@ mod tests {
             None, None,
         );
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Pdf(vec![1, 2, 3]),
             content: "doc".to_string(),

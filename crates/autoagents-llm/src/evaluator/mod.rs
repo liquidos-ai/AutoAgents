@@ -276,6 +276,7 @@ mod tests {
         let evaluator = LLMEvaluator::new(vec![llm]).scoring(|response| response.len() as f32);
 
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -296,6 +297,7 @@ mod tests {
             LLMEvaluator::new(vec![llm1, llm2]).scoring(|response| response.len() as f32);
 
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -316,6 +318,7 @@ mod tests {
         let evaluator = LLMEvaluator::new(vec![llm]);
 
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -337,6 +340,7 @@ mod tests {
         let evaluator = LLMEvaluator::new(vec![llm]);
 
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -355,6 +359,7 @@ mod tests {
             .scoring(|response| if response.is_empty() { -1.0 } else { 1.0 });
 
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -373,16 +378,19 @@ mod tests {
 
         let messages = vec![
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::System,
                 message_type: MessageType::Text,
                 content: "You are a helpful assistant".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::User,
                 message_type: MessageType::Text,
                 content: "Hello, how are you?".to_string(),
             },
             ChatMessage {
+                reasoning_content: None,
                 role: ChatRole::Assistant,
                 message_type: MessageType::Text,
                 content: "I'm doing well, thank you!".to_string(),
@@ -453,6 +461,7 @@ mod tests {
             LLMEvaluator::new(vec![llm1, llm2, llm3]).scoring(|response| response.len() as f32);
 
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),
@@ -474,6 +483,7 @@ mod tests {
         let evaluator = LLMEvaluator::new(vec![]);
 
         let messages = vec![ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content: "test message".to_string(),

@@ -86,6 +86,7 @@ fn bench_tool_defs() -> Vec<Tool> {
 
 fn bench_tool_result_message() -> ChatMessage {
     ChatMessage {
+        reasoning_content: None,
         role: ChatRole::Tool,
         message_type: MessageType::ToolResult(vec![default_tool_call()]),
         content: String::default(),

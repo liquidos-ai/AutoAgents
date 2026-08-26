@@ -807,6 +807,7 @@ fn parse_tool_calls_from_value(value: Option<&Value>) -> Result<Vec<ToolCall>, S
 fn parse_chat_message_from_any(value: &Bound<'_, PyAny>) -> PyResult<ChatMessage> {
     if let Ok(content) = value.extract::<String>() {
         return Ok(ChatMessage {
+            reasoning_content: None,
             role: ChatRole::User,
             message_type: MessageType::Text,
             content,
@@ -851,11 +852,16 @@ fn parse_chat_message_from_any(value: &Bound<'_, PyAny>) -> PyResult<ChatMessage
         .or_else(|| object.get("text"))
         .and_then(Value::as_str)
         .unwrap_or_default();
+    let reasoning_content = object
+        .get("reasoning_content")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
 
     Ok(ChatMessage {
         role,
         message_type,
         content: content.to_string(),
+        reasoning_content,
     })
 }
 
@@ -1507,6 +1513,7 @@ mod tests {
                     "role": "assistant",
                     "message_type": "tool_use",
                     "content": "tool request",
+                    "reasoning_content": "inspect the workspace",
                     "tool_calls": tool_call,
                 }),
             )
@@ -1515,6 +1522,10 @@ mod tests {
                 .expect("tool message should parse");
             assert_eq!(parsed.role, ChatRole::Assistant);
             assert!(matches!(parsed.message_type, MessageType::ToolUse(_)));
+            assert_eq!(
+                parsed.reasoning_content.as_deref(),
+                Some("inspect the workspace")
+            );
 
             let list = json_value_to_py(
                 py,
