@@ -55,6 +55,7 @@ model with structured tool calling, configurable memory, and pluggable LLM backe
 | --- | --- | --- | --- | --- | --- | --- |
 | **OpenAI** | `openai` | Yes | Yes | Yes | Yes | Image URLs and inline images; PDFs are rejected with a typed error. |
 | **OpenRouter** | `openrouter` | Yes | Yes | Yes | Yes | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
+| **Requesty** | `requesty` | Yes | Yes | Yes | Yes | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
 | **Anthropic** | `anthropic` | Yes | Yes | Yes | Yes | Images, image URLs, and PDFs use Anthropic content blocks. |
 | **DeepSeek** | `deepseek` | Yes | Yes | Yes | Yes | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
 | **xAI** | `xai` | Yes | Yes | No | Model-dependent | Text-only chat; multimodal input returns `LLMError::InvalidRequest`. |

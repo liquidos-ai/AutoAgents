@@ -53,6 +53,7 @@ AutoAgents は、Rust で知的システムを構築するためのモジュー�
 | --- | --- | --- | --- | --- | --- | --- |
 | **OpenAI** | `openai` | 対応 | 対応 | 対応 | 対応 | 画像 URL とインライン画像；PDF は型付きエラーで拒否。 |
 | **OpenRouter** | `openrouter` | 対応 | 対応 | 対応 | 対応 | OpenAI 互換の画像入力；PDF は型付きエラーで拒否。 |
+| **Requesty** | `requesty` | 対応 | 対応 | 対応 | 対応 | OpenAI 互換の画像入力；PDF は型付きエラーで拒否。 |
 | **Anthropic** | `anthropic` | 対応 | 対応 | 対応 | 対応 | 画像、画像 URL、PDF は Anthropic のコンテンツブロックを使用。 |
 | **DeepSeek** | `deepseek` | 対応 | 対応 | 対応 | 対応 | OpenAI 互換の画像入力；PDF は型付きエラーで拒否。 |
 | **xAI** | `xai` | 対応 | 対応 | 非対応 | モデル依存 | テキストのみのチャット；マルチモーダル入力は `LLMError::InvalidRequest` を返す。 |

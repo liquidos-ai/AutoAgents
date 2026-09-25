@@ -9,6 +9,7 @@ This directory contains examples demonstrating how to use different LLM provider
 - **Anthropic**: Claude models from Anthropic
 - **Groq**: Fast inference with various open-source models
 - **OpenRouter**: Access to multiple models through one API
+- **Requesty**: Access to multiple models through one API
 - **Ollama**: Local inference with open-source models
 
 ## Running the Examples
@@ -50,6 +51,13 @@ export OPENROUTER_API_KEY=your_api_key_here
 cargo run --package providers -- --backend open-router
 ```
 
+### Requesty
+
+```bash
+export REQUESTY_API_KEY=your_api_key_here
+cargo run --package providers -- --backend requesty
+```
+
 ### Ollama
 
 First, install and start Ollama locally:
@@ -70,6 +78,7 @@ cargo run --package providers -- --backend ollama
 - **Anthropic**: Uses Claude 3.5 Sonnet model by default
 - **Groq**: Uses Llama 3.3 70B model for fast inference
 - **OpenRouter**: Uses a free Gemini model by default
+- **Requesty**: Uses `openai/gpt-4o-mini` by default; set `.base_url("https://router.eu.requesty.ai/v1")` for EU routing
 - **Ollama**: Requires local installation and model download
 
 You can modify the model names and other parameters in each backend's source file.
