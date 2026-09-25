@@ -47,5 +47,8 @@ pub mod azure_openai;
 #[cfg(all(feature = "openrouter", not(target_arch = "wasm32")))]
 pub mod openrouter;
 
+#[cfg(all(feature = "requesty", not(target_arch = "wasm32")))]
+pub mod requesty;
+
 #[cfg(all(feature = "minimax", not(target_arch = "wasm32")))]
 pub mod minimax;

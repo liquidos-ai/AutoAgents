@@ -38,6 +38,7 @@ use serde::{Deserialize, Serialize};
         feature = "groq",
         feature = "azure_openai",
         feature = "openrouter",
+        feature = "requesty",
         feature = "minimax"
     )
 ))]
@@ -64,6 +65,7 @@ compile_error!(
         feature = "groq",
         feature = "azure_openai",
         feature = "openrouter",
+        feature = "requesty",
         feature = "minimax"
     )
 ))]
@@ -102,6 +104,7 @@ Rebuild with `--features openai,wasi-http`."
         feature = "groq",
         feature = "azure_openai",
         feature = "openrouter",
+        feature = "requesty",
         feature = "minimax"
     )
 ))]
