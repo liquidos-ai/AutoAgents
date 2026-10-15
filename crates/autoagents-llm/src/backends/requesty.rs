@@ -107,9 +107,9 @@ impl CompletionProvider for Requesty {
         _req: &CompletionRequest,
         _json_schema: Option<StructuredOutputFormat>,
     ) -> Result<CompletionResponse, LLMError> {
-        Ok(CompletionResponse {
-            text: "Requesty completion not implemented.".into(),
-        })
+        Err(LLMError::ProviderError(
+            "Requesty completion not implemented, use chat instead".into(),
+        ))
     }
 }
 
@@ -125,17 +125,19 @@ impl EmbeddingProvider for Requesty {
 #[async_trait]
 impl ModelsProvider for Requesty {
     /// Lists Requesty managed models (`/models/managed`), falling back to the
-    /// full catalog (`/models`) if the managed list is unavailable.
+    /// full catalog (`/models`) only when the managed list is unavailable
+    /// (404 or 5xx). Auth, rate limit and other errors are returned as is.
     async fn list_models(
         &self,
         _request: Option<&ModelListRequest>,
     ) -> Result<Box<dyn ModelListResponse>, LLMError> {
         let inner = match self.fetch_models("models/managed").await {
             Ok(inner) => inner,
-            Err(err) => {
+            Err(err) if managed_list_unavailable(&err) => {
                 log::debug!("Requesty managed models unavailable, using full catalog: {err}");
                 self.fetch_models("models").await?
             }
+            Err(err) => return Err(err),
         };
 
         let result = StandardModelListResponse {
@@ -143,6 +145,19 @@ impl ModelsProvider for Requesty {
             backend: LLMBackend::Requesty,
         };
         Ok(Box::new(result))
+    }
+}
+
+/// Returns true when the managed model list endpoint itself is missing or
+/// failing, so that falling back to the full catalog makes sense.
+fn managed_list_unavailable(err: &LLMError) -> bool {
+    match err {
+        LLMError::InvalidRequest {
+            status_code: Some(404),
+            ..
+        } => true,
+        LLMError::HttpStatusError { status_code, .. } => *status_code >= 500,
+        _ => false,
     }
 }
 
@@ -279,6 +294,95 @@ mod tests {
             response.get_models(),
             vec!["openai/gpt-4o-mini".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn test_requesty_list_models_falls_back_when_managed_missing() {
+        let server = MockServer::start();
+        let managed = server.mock(|when, then| {
+            when.method(GET).path("/v1/models/managed");
+            then.status(404).body("404 page not found");
+        });
+        let catalog = server.mock(|when, then| {
+            when.method(GET).path("/v1/models");
+            then.status(200).json_body(serde_json::json!({
+                "object": "list",
+                "data": [{"id": "openai/gpt-4o-mini", "created": 1700000000}]
+            }));
+        });
+
+        let provider = test_requesty_provider(&server, "test-key");
+        let response = provider.list_models(None).await.unwrap();
+
+        managed.assert();
+        catalog.assert();
+        assert_eq!(
+            response.get_models(),
+            vec!["openai/gpt-4o-mini".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_requesty_list_models_returns_auth_error_without_fallback() {
+        let server = MockServer::start();
+        let managed = server.mock(|when, then| {
+            when.method(GET).path("/v1/models/managed");
+            then.status(403).json_body(serde_json::json!({
+                "error": {"origin": "router", "message": "Invalid authorization token"}
+            }));
+        });
+        let catalog = server.mock(|when, then| {
+            when.method(GET).path("/v1/models");
+            then.status(200)
+                .json_body(serde_json::json!({"object": "list", "data": []}));
+        });
+
+        let provider = test_requesty_provider(&server, "bad-key");
+        let err = provider.list_models(None).await.err().unwrap();
+
+        managed.assert();
+        catalog.assert_calls(0);
+        assert!(matches!(
+            err,
+            LLMError::AuthError {
+                status_code: Some(403),
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_requesty_list_models_returns_rate_limit_without_fallback() {
+        let server = MockServer::start();
+        let managed = server.mock(|when, then| {
+            when.method(GET).path("/v1/models/managed");
+            then.status(429);
+        });
+        let catalog = server.mock(|when, then| {
+            when.method(GET).path("/v1/models");
+            then.status(200)
+                .json_body(serde_json::json!({"object": "list", "data": []}));
+        });
+
+        let provider = test_requesty_provider(&server, "test-key");
+        let err = provider.list_models(None).await.err().unwrap();
+
+        managed.assert();
+        catalog.assert_calls(0);
+        assert!(matches!(err, LLMError::RateLimitError { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_requesty_complete_returns_explicit_error() {
+        let server = MockServer::start();
+        let provider = test_requesty_provider(&server, "test-key");
+        let req = CompletionRequest {
+            prompt: "hello".to_string(),
+            max_tokens: None,
+            temperature: None,
+        };
+        let err = provider.complete(&req, None).await.err().unwrap();
+        assert!(matches!(err, LLMError::ProviderError(_)));
     }
 
     #[tokio::test]
