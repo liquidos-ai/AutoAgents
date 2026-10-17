@@ -42,9 +42,9 @@ pub(crate) fn receiver_into_stream<T: 'static + Send>(rx: Receiver<T>) -> BoxEve
 }
 
 // The consumer owns the producer, including any nested agent/provider streams.
-// Dropping the stream synchronously drops pending inference and tool futures, so
-// callers can restore memory without a detached producer writing to it later.
-// Work advances only while the stream is polled, on all supported runtimes.
+// Dropping the stream synchronously drops its nested producer futures.
+// Executors that offload blocking work must propagate cancellation to that work.
+// The producer future advances only while the stream is polled, on all runtimes.
 struct ProducerStream<T, F> {
     producer: Option<Pin<Box<F>>>,
     receiver: BoxRuntimeStream<T>,
