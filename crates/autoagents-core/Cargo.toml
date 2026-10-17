@@ -47,6 +47,7 @@ rquickjs = { workspace = true, optional = true }
 [target.'cfg(all(target_arch = "wasm32", not(target_os = "wasi")))'.dependencies]
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
+send_wrapper = { version = "0.6", features = ["futures"] }
 getrandom = { workspace = true, features = ["wasm_js"] }
 uuid = { workspace = true, features = ["serde", "v4", "js"] }
 

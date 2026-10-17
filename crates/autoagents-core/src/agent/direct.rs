@@ -222,6 +222,10 @@ impl<T: AgentDeriveT + AgentExecutor + AgentHooks> BaseAgent<T, DirectAgent> {
 
     /// Execute the agent with streaming enabled and receive a stream of
     /// partial outputs which culminate in a final chunk with `done=true`.
+    ///
+    /// Built-in executors advance while this stream is polled. Dropping it
+    /// cancels their pending inference and tool futures synchronously; it does
+    /// not undo completed tool side effects or restore conversation memory.
     pub async fn run_stream(
         &self,
         task: Task,

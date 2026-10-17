@@ -1,8 +1,6 @@
 use futures_core::Stream;
-#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
 use std::future::Future;
 use std::pin::Pin;
-#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
 use std::task::{Context, Poll};
 
 // -----------------------------
@@ -43,46 +41,33 @@ pub(crate) fn receiver_into_stream<T: 'static + Send>(rx: Receiver<T>) -> BoxEve
     Box::pin(rx)
 }
 
-#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
-struct WasiDrivenStream<T> {
-    producer: Pin<Box<dyn Future<Output = ()>>>,
+// The consumer owns the producer, including any nested agent/provider streams.
+// Dropping the stream synchronously drops pending inference and tool futures, so
+// callers can restore memory without a detached producer writing to it later.
+// Work advances only while the stream is polled, on all supported runtimes.
+struct ProducerStream<T, F> {
+    producer: Option<Pin<Box<F>>>,
     receiver: BoxRuntimeStream<T>,
-    producer_done: bool,
 }
 
-#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
-impl<T> Stream for WasiDrivenStream<T> {
+impl<T, F: Future<Output = ()>> Stream for ProducerStream<T, F> {
     type Item = T;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if !self.producer_done && self.producer.as_mut().poll(cx).is_ready() {
-            self.producer_done = true;
+        if let Some(producer) = self.producer.as_mut()
+            && producer.as_mut().poll(cx).is_ready()
+        {
+            self.producer = None;
         }
 
         match self.receiver.as_mut().poll_next(cx) {
-            Poll::Ready(item) => Poll::Ready(item),
-            Poll::Pending if self.producer_done => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
+            Poll::Ready(Some(item)) => Poll::Ready(Some(item)),
+            // Drain buffered items first, and wait for producer cleanup even if
+            // it closed its sender before completing.
+            _ if self.producer.is_none() => Poll::Ready(None),
+            _ => Poll::Pending,
         }
     }
-}
-
-// Platform-specific spawn functions
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn spawn_future<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
-where
-    F: std::future::Future + Send + 'static,
-    F::Output: Send + 'static,
-{
-    tokio::spawn(fut)
-}
-
-#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
-pub(crate) fn spawn_future<F>(fut: F)
-where
-    F: std::future::Future<Output = ()> + 'static,
-{
-    wasm_bindgen_futures::spawn_local(fut)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -93,8 +78,10 @@ where
 {
     use tokio_stream::wrappers::ReceiverStream;
 
-    spawn_future(producer);
-    Box::pin(ReceiverStream::new(rx))
+    Box::pin(ProducerStream {
+        producer: Some(Box::pin(producer)),
+        receiver: Box::pin(ReceiverStream::new(rx)),
+    })
 }
 
 #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
@@ -103,8 +90,12 @@ where
     T: 'static + Send,
     F: std::future::Future<Output = ()> + 'static,
 {
-    spawn_future(producer);
-    Box::pin(rx)
+    // Browser futures are thread-affine. SendWrapper preserves the existing
+    // Send stream interface while checking that polling/drop stay on that thread.
+    Box::pin(send_wrapper::SendWrapper::new(ProducerStream {
+        producer: Some(Box::pin(producer)),
+        receiver: Box::pin(rx),
+    }))
 }
 
 #[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
@@ -113,10 +104,9 @@ where
     T: 'static + Send,
     F: std::future::Future<Output = ()> + 'static,
 {
-    Box::pin(WasiDrivenStream {
-        producer: Box::pin(producer),
+    Box::pin(ProducerStream {
+        producer: Some(Box::pin(producer)),
         receiver: Box::pin(rx),
-        producer_done: false,
     })
 }
 
@@ -147,15 +137,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn spawn_future_returns_joinhandle_output() {
-        let handle = spawn_future(async { 7usize });
-
-        assert_eq!(handle.await.expect("task joins"), 7);
-    }
-
-    #[tokio::test]
-    async fn stream_from_producer_forwards_background_values() {
-        let (tx, rx) = channel(3);
+    async fn stream_from_producer_drains_values_across_backpressure() {
+        let (tx, rx) = channel(1);
         let stream = stream_from_producer(rx, async move {
             for value in [1, 2, 3] {
                 tx.send(value).await.expect("send produced value");
@@ -164,5 +147,59 @@ mod tests {
 
         let values: Vec<_> = stream.collect().await;
         assert_eq!(values, vec![1, 2, 3]);
+    }
+
+    #[tokio::test]
+    async fn dropping_unpolled_stream_drops_producer_immediately() {
+        let (tx, rx) = channel::<()>(1);
+        let (guard, mut dropped) = tokio::sync::oneshot::channel::<()>();
+        let stream = stream_from_producer(rx, async move {
+            let _guard = guard;
+            let _tx = tx;
+            std::future::pending::<()>().await;
+        });
+        drop(stream);
+        assert_eq!(
+            dropped.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        );
+    }
+
+    #[tokio::test]
+    async fn dropping_nested_streams_synchronously_cancels_pending_work() {
+        let (tx, rx) = channel::<()>(1);
+        let (guard, mut dropped) = tokio::sync::oneshot::channel::<()>();
+        let inner = stream_from_producer(rx, async move {
+            let _guard = guard;
+            let _tx = tx;
+            std::future::pending::<()>().await;
+        });
+        let (tx, rx) = channel::<()>(1);
+        let mut outer = stream_from_producer(rx, async move {
+            let _tx = tx;
+            inner.collect::<Vec<_>>().await;
+        });
+        assert!(futures::poll!(outer.next()).is_pending());
+        drop(outer);
+        assert_eq!(
+            dropped.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_waits_for_producer_cleanup_after_sender_closes() {
+        let (tx, rx) = channel::<()>(1);
+        let (release, gate) = tokio::sync::oneshot::channel::<()>();
+        let (finished, mut completion) = tokio::sync::oneshot::channel();
+        let mut stream = stream_from_producer(rx, async move {
+            drop(tx);
+            gate.await.unwrap();
+            finished.send(()).unwrap();
+        });
+        assert!(futures::poll!(stream.next()).is_pending());
+        release.send(()).unwrap();
+        assert_eq!(stream.next().await, None);
+        assert_eq!(completion.try_recv(), Ok(()));
     }
 }
