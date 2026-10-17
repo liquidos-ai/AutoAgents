@@ -53,6 +53,7 @@ AutoAgents 是一个用于在 Rust 中构建智能系统的模块化多智能体
 | --- | --- | --- | --- | --- | --- | --- |
 | **OpenAI** | `openai` | 是 | 是 | 是 | 是 | 图片 URL 和内联图片；PDF 会以类型化错误拒绝。 |
 | **OpenRouter** | `openrouter` | 是 | 是 | 是 | 是 | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
+| **Requesty** | `requesty` | 是 | 是 | 是 | 是 | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
 | **Anthropic** | `anthropic` | 是 | 是 | 是 | 是 | 图片、图片 URL 和 PDF 使用 Anthropic 内容块。 |
 | **DeepSeek** | `deepseek` | 是 | 是 | 是 | 是 | OpenAI 兼容的图片输入；PDF 会以类型化错误拒绝。 |
 | **xAI** | `xai` | 是 | 是 | 否 | 取决于模型 | 仅支持纯文本对话；多模态输入返回 `LLMError::InvalidRequest`。 |

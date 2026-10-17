@@ -7,6 +7,7 @@ mod ollama;
 mod openai;
 mod openai_responses;
 mod openrouter;
+mod requesty;
 
 use autoagents::init_logging;
 use clap::{Parser, ValueEnum};
@@ -16,6 +17,7 @@ pub enum Backend {
     OpenAI,
     OpenAIResponses,
     OpenRouter,
+    Requesty,
     Anthropic,
     Ollama,
     Groq,
@@ -49,6 +51,10 @@ async fn main() -> anyhow::Result<()> {
         Backend::OpenRouter => {
             println!("Using OpenRouter backend (requires OPENROUTER_API_KEY)");
             openrouter::run().await?;
+        }
+        Backend::Requesty => {
+            println!("Using Requesty backend (requires REQUESTY_API_KEY)");
+            requesty::run().await?;
         }
         Backend::Anthropic => {
             println!("Using Anthropic backend (requires ANTHROPIC_API_KEY)");
