@@ -64,7 +64,7 @@ impl<T, F: Future<Output = ()>> Stream for ProducerStream<T, F> {
             Poll::Ready(Some(item)) => Poll::Ready(Some(item)),
             // Drain buffered items first, and wait for producer cleanup even if
             // it closed its sender before completing.
-            _ if self.producer.is_none() => Poll::Ready(None),
+            Poll::Ready(None) if self.producer.is_none() => Poll::Ready(None),
             _ => Poll::Pending,
         }
     }
@@ -147,6 +147,31 @@ mod tests {
 
         let values: Vec<_> = stream.collect().await;
         assert_eq!(values, vec![1, 2, 3]);
+    }
+
+    #[tokio::test]
+    async fn completed_producer_drains_buffers_across_cooperative_yields() {
+        // Tokio may yield Pending with buffered values when the current task's
+        // cooperative budget runs out. Producer completion is not receiver EOF.
+        for count in [129, 1_025, 1_100] {
+            let (tx, rx) = channel(100);
+            let inner = stream_from_producer(rx, async move {
+                for value in 0..count {
+                    tx.send(value).await.unwrap();
+                }
+            });
+            let (tx, rx) = channel(100);
+            let outer = stream_from_producer(rx, async move {
+                futures_util::pin_mut!(inner);
+                while let Some(value) = inner.next().await {
+                    tx.send(value).await.unwrap();
+                }
+            });
+            assert_eq!(
+                outer.collect::<Vec<_>>().await,
+                (0..count).collect::<Vec<_>>()
+            );
+        }
     }
 
     #[tokio::test]
