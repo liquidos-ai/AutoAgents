@@ -1764,13 +1764,21 @@ where
     );
     let handle = tokio::runtime::Handle::current();
     let runtime_console_capture = console_capture.clone();
+    // Only this future owns the sender. Dropping it closes the channel, waking
+    // pending tools and letting the blocking worker observe cancellation too.
+    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(());
     let execution_result = tokio::task::spawn_blocking(move || {
+        // The task may have been queued when its caller was cancelled.
+        if cancel_rx.has_changed().is_err() {
+            return Err("sandbox execution cancelled".to_string());
+        }
         let runtime = JsRuntime::new().map_err(|err| err.to_string())?;
         runtime.set_memory_limit(request.limits.memory_limit_bytes);
         runtime.set_max_stack_size(1024 * 1024);
         runtime.set_interrupt_handler(Some(Box::new({
             let deadline = Instant::now() + Duration::from_millis(request.limits.timeout_ms);
-            move || Instant::now() >= deadline
+            let cancel_rx = cancel_rx.clone();
+            move || cancel_rx.has_changed().is_err() || Instant::now() >= deadline
         })));
 
         let js_context = JsContext::full(&runtime).map_err(|err| err.to_string())?;
@@ -1795,8 +1803,22 @@ where
                     "__codeact_invoke",
                     Func::from(move |tool_name: String, args_json: String| -> String {
                         let tool_invoker = tool_invoker.clone();
-                        runtime_handle
-                            .block_on(async { tool_invoker.invoke(tool_name, args_json).await })
+                        let mut cancel_rx = cancel_rx.clone();
+                        let result = runtime_handle.block_on(async {
+                            // Never dispatch another tool after cancellation, even
+                            // if JavaScript catches the previous call's error.
+                            if cancel_rx.has_changed().is_err() {
+                                return None;
+                            }
+                            tokio::select! {
+                                biased;
+                                _ = cancel_rx.changed() => None,
+                                result = tool_invoker.invoke(tool_name, args_json) => Some(result),
+                            }
+                        });
+                        result.unwrap_or_else(|| {
+                            json!({"ok": false, "error": "sandbox execution cancelled"}).to_string()
+                        })
                     }),
                 )
                 .map_err(|err| err.to_string())?;
@@ -1814,6 +1836,9 @@ where
     .await
     .map_err(|err| format!("sandbox execution join failed: {err}"))
     .and_then(|result| result);
+    // Keep the sender alive throughout the await; dropping the join handle alone
+    // cannot cancel a spawn_blocking task that has already started.
+    drop(cancel_tx);
 
     build_sandbox_outcome(
         execution_result,
@@ -3012,5 +3037,145 @@ throw new Error("boom");
                 Some("inspect the workspace")
             );
         });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    mod cancellation {
+        use super::*;
+        use tokio::sync::{Notify, oneshot};
+
+        struct NotifyOnDrop(Arc<Notify>);
+
+        impl Drop for NotifyOnDrop {
+            fn drop(&mut self) {
+                self.0.notify_one();
+            }
+        }
+
+        #[derive(Debug)]
+        struct CancellationTool {
+            entered: Arc<Notify>,
+            future_dropped: Arc<Notify>,
+            calls: Arc<AtomicUsize>,
+            completed: Arc<AtomicUsize>,
+            release: StdMutex<Option<oneshot::Receiver<()>>>,
+            dropped: Option<oneshot::Sender<()>>,
+        }
+
+        impl Drop for CancellationTool {
+            fn drop(&mut self) {
+                if let Some(dropped) = self.dropped.take() {
+                    let _ = dropped.send(());
+                }
+            }
+        }
+
+        impl ToolT for CancellationTool {
+            fn name(&self) -> &str {
+                "probe"
+            }
+
+            fn description(&self) -> &str {
+                "Observe sandbox cancellation"
+            }
+
+            fn args_schema(&self) -> Value {
+                json!({"type": "object"})
+            }
+        }
+
+        #[async_trait]
+        impl crate::tool::ToolRuntime for CancellationTool {
+            async fn execute(&self, _args: Value) -> Result<Value, crate::tool::ToolCallError> {
+                let _on_drop = NotifyOnDrop(self.future_dropped.clone());
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                self.entered.notify_one();
+                let release = self.release.lock().unwrap().take();
+                if let Some(release) = release {
+                    let _ = release.await;
+                }
+                self.completed.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::Null)
+            }
+        }
+
+        async fn assert_stream_cancels_sandbox(source: &str, block_tool: bool) {
+            let entered = Arc::new(Notify::new());
+            let future_dropped = Arc::new(Notify::new());
+            let calls = Arc::new(AtomicUsize::new(0));
+            let completed = Arc::new(AtomicUsize::new(0));
+            let (release_tx, release_rx) = oneshot::channel();
+            let (dropped_tx, dropped_rx) = oneshot::channel();
+            let provider = Arc::new(SequenceLLMProvider::new(
+                Vec::new(),
+                vec![vec![
+                    StreamChunk::ToolUseComplete {
+                        index: 0,
+                        tool_call: execute_typescript_tool_call("cancel_sandbox", source),
+                    },
+                    StreamChunk::Done {
+                        stop_reason: "tool_use".to_string(),
+                    },
+                ]],
+            ));
+            let context = test_context_with_llm(
+                provider.clone(),
+                vec![Box::new(CancellationTool {
+                    entered: entered.clone(),
+                    future_dropped: future_dropped.clone(),
+                    calls: calls.clone(),
+                    completed: completed.clone(),
+                    release: StdMutex::new(block_tool.then_some(release_rx)),
+                    dropped: Some(dropped_tx),
+                })],
+                false,
+            );
+            let agent = CodeActAgent::with_max_turns(MockAgentImpl::new("codeact", "desc"), 2);
+            let mut stream = agent
+                .execute_stream(&Task::new("Run until cancelled"), context)
+                .await
+                .unwrap();
+
+            let started = tokio::time::timeout(Duration::from_secs(5), async {
+                tokio::select! {
+                    _ = entered.notified() => {},
+                    output = stream.next() => panic!("sandbox returned before cancellation: {output:?}"),
+                }
+            })
+            .await;
+            drop(stream);
+
+            // The context is owned only by the stream and sandbox. Dropping its tool
+            // proves the blocking worker released the sandbox, without polling again.
+            let stopped = tokio::time::timeout(Duration::from_secs(2), dropped_rx).await;
+            // Unblock the old implementation even on failure so runtime shutdown
+            // cannot hang waiting for its detached blocking task.
+            drop(release_tx);
+
+            started.expect("sandbox should enter the tool");
+            stopped
+                .expect("dropping the stream should stop the sandbox promptly")
+                .expect("sandbox should release its context");
+            tokio::time::timeout(Duration::from_secs(1), future_dropped.notified())
+                .await
+                .expect("pending tool future should be dropped");
+            assert_eq!(calls.load(Ordering::SeqCst), 1, "no subsequent tool call");
+            assert_eq!(completed.load(Ordering::SeqCst), usize::from(!block_tool));
+            assert_eq!(provider.observed_messages().await.len(), 1);
+        }
+
+        #[tokio::test]
+        async fn dropping_stream_cancels_pending_sandbox_tool_and_prevents_next_call() {
+            assert_stream_cancels_sandbox(
+                "try { await external_probe({}); } catch (_) {} return await external_probe({});",
+                true,
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn dropping_stream_interrupts_running_javascript() {
+            assert_stream_cancels_sandbox("await external_probe({}); while (true) {}", false).await;
+        }
     }
 }
