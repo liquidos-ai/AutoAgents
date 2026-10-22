@@ -2,6 +2,7 @@
 
 mod anthropic;
 mod groq;
+mod litellm;
 mod minimax;
 mod ollama;
 mod openai;
@@ -18,6 +19,8 @@ pub enum Backend {
     OpenAIResponses,
     OpenRouter,
     Requesty,
+    #[value(name = "litellm")]
+    LiteLLM,
     Anthropic,
     Ollama,
     Groq,
@@ -55,6 +58,10 @@ async fn main() -> anyhow::Result<()> {
         Backend::Requesty => {
             println!("Using Requesty backend (requires REQUESTY_API_KEY)");
             requesty::run().await?;
+        }
+        Backend::LiteLLM => {
+            println!("Using LiteLLM backend (requires a running LiteLLM proxy)");
+            litellm::run().await?;
         }
         Backend::Anthropic => {
             println!("Using Anthropic backend (requires ANTHROPIC_API_KEY)");

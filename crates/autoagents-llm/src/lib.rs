@@ -39,6 +39,7 @@ use serde::{Deserialize, Serialize};
         feature = "azure_openai",
         feature = "openrouter",
         feature = "requesty",
+        feature = "litellm",
         feature = "minimax"
     )
 ))]
@@ -66,6 +67,7 @@ compile_error!(
         feature = "azure_openai",
         feature = "openrouter",
         feature = "requesty",
+        feature = "litellm",
         feature = "minimax"
     )
 ))]
@@ -105,6 +107,7 @@ Rebuild with `--features openai,wasi-http`."
         feature = "azure_openai",
         feature = "openrouter",
         feature = "requesty",
+        feature = "litellm",
         feature = "minimax"
     )
 ))]
