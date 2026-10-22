@@ -145,6 +145,10 @@ pub trait OpenAIProviderConfig: Send + Sync {
     const SUPPORTS_PARALLEL_TOOL_CALLS: bool = false;
     /// Whether this provider supports stream options (like include_usage)
     const SUPPORTS_STREAM_OPTIONS: bool = false;
+    /// Whether requests must carry an API key. Providers that can run without
+    /// auth (e.g. a local LiteLLM proxy) set this to `false`; the bearer
+    /// header is then only sent when a key is configured.
+    const REQUIRES_API_KEY: bool = true;
     /// Custom headers to add to requests
     fn custom_headers() -> Option<Vec<(String, String)>> {
         None
@@ -502,7 +506,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
         tools: Option<&[Tool]>,
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
-        if self.api_key.is_empty() {
+        if T::REQUIRES_API_KEY && self.api_key.is_empty() {
             return Err(LLMError::missing_api_key(format!(
                 "Missing {} API key",
                 T::PROVIDER_NAME
@@ -550,7 +554,10 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
             .base_url
             .join(T::CHAT_ENDPOINT)
             .map_err(|e| LLMError::HttpError(e.to_string()))?;
-        let mut request = self.client.post(url).bearer_auth(&self.api_key).json(&body);
+        let mut request = self.client.post(url).json(&body);
+        if !self.api_key.is_empty() {
+            request = request.bearer_auth(&self.api_key);
+        }
         // Add custom headers if provider specifies them
         if let Some(headers) = T::custom_headers() {
             for (key, value) in headers {
@@ -626,7 +633,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
         std::pin::Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>,
         LLMError,
     > {
-        if self.api_key.is_empty() {
+        if T::REQUIRES_API_KEY && self.api_key.is_empty() {
             return Err(LLMError::missing_api_key(format!(
                 "Missing {} API key",
                 T::PROVIDER_NAME
@@ -675,7 +682,10 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
             .base_url
             .join(T::CHAT_ENDPOINT)
             .map_err(|e| LLMError::HttpError(e.to_string()))?;
-        let mut request = self.client.post(url).bearer_auth(&self.api_key).json(&body);
+        let mut request = self.client.post(url).json(&body);
+        if !self.api_key.is_empty() {
+            request = request.bearer_auth(&self.api_key);
+        }
         if let Some(headers) = T::custom_headers() {
             for (key, value) in headers {
                 request = request.header(key, value);
@@ -718,7 +728,7 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatStreamChunk, LLMError>> + Send>>, LLMError>
     {
-        if self.api_key.is_empty() {
+        if T::REQUIRES_API_KEY && self.api_key.is_empty() {
             return Err(LLMError::missing_api_key(format!(
                 "Missing {} API key",
                 T::PROVIDER_NAME
@@ -771,7 +781,10 @@ impl<T: OpenAIProviderConfig> ChatProvider for OpenAICompatibleProvider<T> {
             .join(T::CHAT_ENDPOINT)
             .map_err(|e| LLMError::HttpError(e.to_string()))?;
 
-        let mut request = self.client.post(url).bearer_auth(&self.api_key).json(&body);
+        let mut request = self.client.post(url).json(&body);
+        if !self.api_key.is_empty() {
+            request = request.bearer_auth(&self.api_key);
+        }
 
         if let Some(headers) = T::custom_headers() {
             for (key, value) in headers {

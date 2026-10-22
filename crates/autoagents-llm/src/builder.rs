@@ -39,6 +39,8 @@ pub enum LLMBackend {
     OpenRouter,
     /// Requesty API provider for various models
     Requesty,
+    /// LiteLLM proxy (AI gateway) for 100+ providers
+    LiteLLM,
     /// MiniMax API provider
     MiniMax,
 }
@@ -85,6 +87,7 @@ impl std::str::FromStr for LLMBackend {
             "azure-openai" => Ok(LLMBackend::AzureOpenAI),
             "openrouter" => Ok(LLMBackend::OpenRouter),
             "requesty" => Ok(LLMBackend::Requesty),
+            "litellm" => Ok(LLMBackend::LiteLLM),
             "minimax" => Ok(LLMBackend::MiniMax),
             _ => Err(LLMError::invalid_request(format!(
                 "Unknown LLM backend: {s}"
@@ -107,6 +110,7 @@ impl std::fmt::Display for LLMBackend {
             LLMBackend::AzureOpenAI => "azure-openai",
             LLMBackend::OpenRouter => "openrouter",
             LLMBackend::Requesty => "requesty",
+            LLMBackend::LiteLLM => "litellm",
             LLMBackend::MiniMax => "minimax",
         };
         f.write_str(s)
