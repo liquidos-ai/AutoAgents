@@ -11,6 +11,7 @@ so this matrix describes the current AutoAgents code paths.
 | OpenAI | `openai` | Yes | Yes | Yes | Yes | Image URLs and inline images; PDFs are rejected with a typed error. |
 | OpenRouter | `openrouter` | Yes | Yes | Yes | Yes | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
 | Requesty | `requesty` | Yes | Yes | Yes | Yes | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
+| Opper | `opper` | Yes | Yes | Yes | Yes | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
 | Anthropic | `anthropic` | Yes | Yes | Yes | Yes | Images, image URLs, and PDFs use Anthropic content blocks. |
 | DeepSeek | `deepseek` | Yes | Yes | Yes | Yes | OpenAI-compatible image inputs; PDFs are rejected with a typed error. |
 | xAI | `xai` | Yes | Yes | No | Model-dependent | Text-only chat; multimodal input returns `LLMError::InvalidRequest`. |
@@ -96,6 +97,7 @@ Common API key environment variables:
 - `ANTHROPIC_API_KEY`
 - `OPENROUTER_API_KEY`
 - `REQUESTY_API_KEY`
+- `OPPER_API_KEY`
 - `GROQ_API_KEY`
 - `GOOGLE_API_KEY`
 - `AZURE_OPENAI_API_KEY`

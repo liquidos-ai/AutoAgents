@@ -54,6 +54,7 @@ AutoAgents ist ein modulares Multi-Agenten-Framework zum Aufbau intelligenter Sy
 | **OpenAI** | `openai` | Ja | Ja | Ja | Ja | Bild-URLs und Inline-Bilder; PDFs werden mit typisiertem Fehler abgelehnt. |
 | **OpenRouter** | `openrouter` | Ja | Ja | Ja | Ja | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
 | **Requesty** | `requesty` | Ja | Ja | Ja | Ja | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
+| **Opper** | `opper` | Ja | Ja | Ja | Ja | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
 | **Anthropic** | `anthropic` | Ja | Ja | Ja | Ja | Bilder, Bild-URLs und PDFs nutzen Anthropic-Inhaltsblöcke. |
 | **DeepSeek** | `deepseek` | Ja | Ja | Ja | Ja | OpenAI-kompatible Bildeingaben; PDFs werden mit typisiertem Fehler abgelehnt. |
 | **xAI** | `xai` | Ja | Ja | Nein | Modellabhängig | Nur Text-Chat; multimodale Eingaben geben `LLMError::InvalidRequest` zurück. |
