@@ -163,6 +163,7 @@ impl LLMBuilder<Opper> {
 mod tests {
     use super::*;
     use crate::builder::LLMBuilder;
+    use crate::chat::{ChatMessage, ChatProvider};
     use httpmock::prelude::*;
 
     fn test_opper_provider(server: &MockServer, api_key: &str) -> Opper {
@@ -276,6 +277,40 @@ mod tests {
 
         catalog.assert();
         assert!(matches!(err, LLMError::RateLimitError { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_opper_chat_uses_compat_endpoint() {
+        let server = MockServer::start();
+        let chat = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v3/compat/chat/completions")
+                .header("authorization", "Bearer test-key")
+                .body_includes("\"model\":\"claude-sonnet-4-6\"")
+                .body_includes("\"response_format\"");
+            then.status(200).json_body(serde_json::json!({
+                "choices": [{
+                    "message": {"role": "assistant", "content": "{\"answer\":\"ok\"}"}
+                }]
+            }));
+        });
+
+        let provider = test_opper_provider(&server, "test-key");
+        let messages = [ChatMessage::user().content("hello").build()];
+        let schema = StructuredOutputFormat {
+            name: "Answer".to_string(),
+            description: None,
+            schema: Some(serde_json::json!({
+                "type": "object",
+                "properties": {"answer": {"type": "string"}},
+                "required": ["answer"]
+            })),
+            strict: Some(true),
+        };
+        let response = provider.chat(&messages, Some(schema)).await.unwrap();
+
+        chat.assert();
+        assert_eq!(response.text().as_deref(), Some("{\"answer\":\"ok\"}"));
     }
 
     #[tokio::test]
