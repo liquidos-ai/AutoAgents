@@ -8,6 +8,7 @@ mod openai;
 mod openai_responses;
 mod openrouter;
 mod requesty;
+mod runcrate;
 
 use autoagents::init_logging;
 use clap::{Parser, ValueEnum};
@@ -18,6 +19,7 @@ pub enum Backend {
     OpenAIResponses,
     OpenRouter,
     Requesty,
+    Runcrate,
     Anthropic,
     Ollama,
     Groq,
@@ -55,6 +57,10 @@ async fn main() -> anyhow::Result<()> {
         Backend::Requesty => {
             println!("Using Requesty backend (requires REQUESTY_API_KEY)");
             requesty::run().await?;
+        }
+        Backend::Runcrate => {
+            println!("Using Runcrate backend (requires RUNCRATE_API_KEY)");
+            runcrate::run().await?;
         }
         Backend::Anthropic => {
             println!("Using Anthropic backend (requires ANTHROPIC_API_KEY)");

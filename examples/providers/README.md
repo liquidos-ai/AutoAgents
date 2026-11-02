@@ -10,6 +10,7 @@ This directory contains examples demonstrating how to use different LLM provider
 - **Groq**: Fast inference with various open-source models
 - **OpenRouter**: Access to multiple models through one API
 - **Requesty**: Access to multiple models through one API
+- **Runcrate**: Open-weight models through an OpenAI-compatible API
 - **Ollama**: Local inference with open-source models
 
 ## Running the Examples
@@ -58,6 +59,13 @@ export REQUESTY_API_KEY=your_api_key_here
 cargo run --package providers -- --backend requesty
 ```
 
+### Runcrate
+
+```bash
+export RUNCRATE_API_KEY=your_api_key_here
+cargo run --package providers -- --backend runcrate
+```
+
 ### Ollama
 
 First, install and start Ollama locally:
@@ -79,6 +87,7 @@ cargo run --package providers -- --backend ollama
 - **Groq**: Uses Llama 3.3 70B model for fast inference
 - **OpenRouter**: Uses a free Gemini model by default
 - **Requesty**: Uses `openai/gpt-4o-mini` by default; set `.base_url("https://router.eu.requesty.ai/v1")` for EU routing
+- **Runcrate**: Uses `deepseek-ai/DeepSeek-V4.1-Flash` by default; any id from `GET https://api.runcrate.ai/v1/models` works with `.model(...)`
 - **Ollama**: Requires local installation and model download
 
 You can modify the model names and other parameters in each backend's source file.
