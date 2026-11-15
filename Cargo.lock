@@ -482,6 +482,7 @@ dependencies = [
  "autoagents-llm",
  "autoagents-protocol",
  "futures",
+ "llm-budget",
  "log",
  "once_cell",
  "regex",
@@ -2624,6 +2625,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b1e3a325bc115f096c8b77bbf027a7c2592230e70be2d985be950d3d5e60ebe"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "dashmap"
+version = "5.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "978747c1d849a7d2ee5e8adc0159961c48fb7e5db2f06af6723b80123bb53856"
+dependencies = [
+ "cfg-if",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
 ]
 
 [[package]]
@@ -5224,6 +5238,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "llm-budget"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11f50ffa1e7efd987ea86755676661d8eb488f87bf9f72434ad76eb6b81bb4cf"
+dependencies = [
+ "dashmap 5.5.3",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7489,7 +7516,7 @@ checksum = "83ee8d79e5f2a18e941aee4cae10d27c9442d9f48c7a84b1318fe3627bd6b151"
 dependencies = [
  "async-trait",
  "bon",
- "dashmap",
+ "dashmap 6.2.1",
  "futures",
  "js-sys",
  "once_cell",

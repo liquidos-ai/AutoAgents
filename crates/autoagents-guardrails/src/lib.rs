@@ -20,6 +20,8 @@ pub use guard::{
     GuardDecision, GuardError, GuardOperation, GuardViolation, GuardedInput, GuardedOutput,
     InputGuard, OutputGuard, WebSearchGuardInput,
 };
+#[cfg(feature = "cost-budget")]
+pub use guards::BudgetGuard;
 pub use layer::GuardrailsLayer;
 pub use policy::{EnforcementPolicy, GuardCategory, GuardSeverity};
 pub use sanitizers::{
