@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     future::Future,
     pin::Pin,
     sync::Arc,
@@ -6,13 +7,13 @@ use std::{
 };
 
 use autoagents_llm::{
-    chat::{StreamChoice, StreamChunk, StreamDelta, StreamResponse},
+    chat::{StreamChoice, StreamChunk, StreamDelta, StreamResponse, Usage},
     error::LLMError,
 };
 use futures::Stream;
 
 use crate::{
-    engine::GuardrailsEngine,
+    engine::{GuardrailsEngine, RequestScope},
     guard::{CompletionGuardOutput, GuardContext, GuardedOutput},
 };
 
@@ -27,10 +28,11 @@ fn finalize_future(
     engine: Arc<GuardrailsEngine>,
     context: GuardContext,
     text: String,
+    usage: Option<Usage>,
 ) -> FinalizeFuture {
     Box::pin(async move {
         let original = text.clone();
-        let mut output = GuardedOutput::Completion(CompletionGuardOutput { text });
+        let mut output = GuardedOutput::Completion(CompletionGuardOutput { text, usage });
         engine.evaluate_output(&mut output, &context).await?;
 
         match output {
@@ -55,6 +57,10 @@ pub(crate) struct TextGuardedStream {
     aggregate_text: String,
     finalize: Option<FinalizeFuture>,
     done: bool,
+    /// Tracks what the stream delivered and ends the request when the stream
+    /// is dropped, whether or not it was fully consumed, so input guards can
+    /// account for output received before an early drop.
+    scope: RequestScope,
 }
 
 impl TextGuardedStream {
@@ -62,6 +68,7 @@ impl TextGuardedStream {
         inner: Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>,
         engine: Arc<GuardrailsEngine>,
         context: GuardContext,
+        scope: RequestScope,
     ) -> Self {
         Self {
             inner,
@@ -70,6 +77,7 @@ impl TextGuardedStream {
             aggregate_text: String::default(),
             finalize: None,
             done: false,
+            scope,
         }
     }
 }
@@ -102,18 +110,28 @@ impl Stream for TextGuardedStream {
         match this.inner.as_mut().poll_next(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(Ok(chunk))) => {
-                this.aggregate_text.push_str(&chunk);
+                this.scope.record_output(chunk.len());
+                if this.engine.has_output_guards() {
+                    this.aggregate_text.push_str(&chunk);
+                }
                 Poll::Ready(Some(Ok(chunk)))
             }
             Poll::Ready(Some(Err(err))) => {
                 this.done = true;
                 Poll::Ready(Some(Err(err)))
             }
+            Poll::Ready(None) if !this.engine.has_output_guards() => {
+                // Wrapped only so input guards learn what the stream
+                // delivered: nothing to buffer or check on the way out.
+                this.done = true;
+                Poll::Ready(None)
+            }
             Poll::Ready(None) => {
                 this.finalize = Some(finalize_future(
                     this.engine.clone(),
                     this.context.clone(),
                     std::mem::take(&mut this.aggregate_text),
+                    this.scope.usage().cloned(),
                 ));
                 cx.waker().wake_by_ref();
                 Poll::Pending
@@ -129,6 +147,10 @@ pub(crate) struct StructGuardedStream {
     aggregate_text: String,
     finalize: Option<FinalizeFuture>,
     done: bool,
+    /// Tracks what the stream delivered and ends the request when the stream
+    /// is dropped, whether or not it was fully consumed, so input guards can
+    /// account for output received before an early drop.
+    scope: RequestScope,
 }
 
 impl StructGuardedStream {
@@ -136,6 +158,7 @@ impl StructGuardedStream {
         inner: Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>,
         engine: Arc<GuardrailsEngine>,
         context: GuardContext,
+        scope: RequestScope,
     ) -> Self {
         Self {
             inner,
@@ -144,6 +167,7 @@ impl StructGuardedStream {
             aggregate_text: String::default(),
             finalize: None,
             done: false,
+            scope,
         }
     }
 }
@@ -187,8 +211,22 @@ impl Stream for StructGuardedStream {
             Poll::Ready(Some(Ok(chunk))) => {
                 for choice in &chunk.choices {
                     if let Some(content) = &choice.delta.content {
-                        this.aggregate_text.push_str(content);
+                        this.scope.record_output(content.len());
+                        if this.engine.has_output_guards() {
+                            this.aggregate_text.push_str(content);
+                        }
                     }
+                    if let Some(reasoning) = &choice.delta.reasoning_content {
+                        this.scope.record_output(reasoning.len());
+                    }
+                    for call in choice.delta.tool_calls.iter().flatten() {
+                        this.scope.record_output(
+                            call.function.name.len() + call.function.arguments.len(),
+                        );
+                    }
+                }
+                if let Some(usage) = &chunk.usage {
+                    this.scope.record_usage(usage.clone());
                 }
                 Poll::Ready(Some(Ok(chunk)))
             }
@@ -196,11 +234,18 @@ impl Stream for StructGuardedStream {
                 this.done = true;
                 Poll::Ready(Some(Err(err)))
             }
+            Poll::Ready(None) if !this.engine.has_output_guards() => {
+                // Wrapped only so input guards learn what the stream
+                // delivered: nothing to buffer or check on the way out.
+                this.done = true;
+                Poll::Ready(None)
+            }
             Poll::Ready(None) => {
                 this.finalize = Some(finalize_future(
                     this.engine.clone(),
                     this.context.clone(),
                     std::mem::take(&mut this.aggregate_text),
+                    this.scope.usage().cloned(),
                 ));
                 cx.waker().wake_by_ref();
                 Poll::Pending
@@ -214,8 +259,16 @@ pub(crate) struct ToolGuardedStream {
     engine: Arc<GuardrailsEngine>,
     context: GuardContext,
     aggregate_text: String,
+    /// Tool-use block indexes whose name / input arrived as separate
+    /// chunks, so the assembled `ToolUseComplete` is not counted twice.
+    tool_names_seen: HashSet<usize>,
+    tool_input_seen: HashSet<usize>,
     finalize: Option<FinalizeFuture>,
     done: bool,
+    /// Tracks what the stream delivered and ends the request when the stream
+    /// is dropped, whether or not it was fully consumed, so input guards can
+    /// account for output received before an early drop.
+    scope: RequestScope,
 }
 
 impl ToolGuardedStream {
@@ -223,14 +276,18 @@ impl ToolGuardedStream {
         inner: Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>,
         engine: Arc<GuardrailsEngine>,
         context: GuardContext,
+        scope: RequestScope,
     ) -> Self {
         Self {
             inner,
             engine,
             context,
             aggregate_text: String::default(),
+            tool_names_seen: HashSet::new(),
+            tool_input_seen: HashSet::new(),
             finalize: None,
             done: false,
+            scope,
         }
     }
 }
@@ -265,8 +322,39 @@ impl Stream for ToolGuardedStream {
         match this.inner.as_mut().poll_next(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(Ok(chunk))) => {
-                if let StreamChunk::Text(content) = &chunk {
-                    this.aggregate_text.push_str(content);
+                match &chunk {
+                    StreamChunk::Text(content) => {
+                        this.scope.record_output(content.len());
+                        if this.engine.has_output_guards() {
+                            this.aggregate_text.push_str(content);
+                        }
+                    }
+                    StreamChunk::ReasoningContent(content) => {
+                        this.scope.record_output(content.len());
+                    }
+                    StreamChunk::ToolUseStart { index, name, .. } => {
+                        this.tool_names_seen.insert(*index);
+                        this.scope.record_output(name.len());
+                    }
+                    StreamChunk::ToolUseInputDelta {
+                        index,
+                        partial_json,
+                    } => {
+                        this.tool_input_seen.insert(*index);
+                        this.scope.record_output(partial_json.len());
+                    }
+                    StreamChunk::ToolUseComplete { index, tool_call } => {
+                        // Count only what the start/delta chunks for this
+                        // block did not already cover.
+                        if !this.tool_names_seen.contains(index) {
+                            this.scope.record_output(tool_call.function.name.len());
+                        }
+                        if !this.tool_input_seen.contains(index) {
+                            this.scope.record_output(tool_call.function.arguments.len());
+                        }
+                    }
+                    StreamChunk::Usage(usage) => this.scope.record_usage(usage.clone()),
+                    StreamChunk::Done { .. } => {}
                 }
                 Poll::Ready(Some(Ok(chunk)))
             }
@@ -274,11 +362,18 @@ impl Stream for ToolGuardedStream {
                 this.done = true;
                 Poll::Ready(Some(Err(err)))
             }
+            Poll::Ready(None) if !this.engine.has_output_guards() => {
+                // Wrapped only so input guards learn what the stream
+                // delivered: nothing to buffer or check on the way out.
+                this.done = true;
+                Poll::Ready(None)
+            }
             Poll::Ready(None) => {
                 this.finalize = Some(finalize_future(
                     this.engine.clone(),
                     this.context.clone(),
                     std::mem::take(&mut this.aggregate_text),
+                    this.scope.usage().cloned(),
                 ));
                 cx.waker().wake_by_ref();
                 Poll::Pending

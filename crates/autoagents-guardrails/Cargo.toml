@@ -9,11 +9,17 @@ keywords.workspace = true
 readme.workspace = true
 categories.workspace = true
 
+[features]
+# `BudgetGuard`: hard USD spend caps as a guardrail, priced and enforced by
+# the `llm-budget` crate's built-in model price table.
+cost-budget = ["dep:llm-budget"]
+
 [dependencies]
 autoagents-llm.workspace = true
 autoagents-protocol.workspace = true
 async-trait = { workspace = true }
 futures = { workspace = true }
+llm-budget = { version = "0.3", optional = true }
 log = { workspace = true }
 serde_json = { workspace = true }
 regex = { workspace = true }
