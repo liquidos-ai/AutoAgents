@@ -153,6 +153,12 @@ pub trait InputGuard: Send + Sync + 'static {
         input: &mut GuardedInput,
         context: &GuardContext,
     ) -> Result<GuardDecision, GuardError>;
+
+    /// Called exactly once when the request identified by `context` ends,
+    /// whether it completed, failed, was rejected by another guard, or was
+    /// cancelled (including a stream dropped before it finished). Guards that
+    /// hold per-request state, such as a budget reservation, release it here.
+    fn finish(&self, _context: &GuardContext) {}
 }
 
 /// Trait implemented by response/output guardrails.
@@ -235,6 +241,9 @@ pub struct ChatGuardOutput {
 #[derive(Debug, Clone)]
 pub struct CompletionGuardOutput {
     pub text: String,
+    /// Token usage reported by the provider, when available (for example the
+    /// final usage chunk of a stream).
+    pub usage: Option<Usage>,
 }
 
 /// Output payload union passed through output guards.

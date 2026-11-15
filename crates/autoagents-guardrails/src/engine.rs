@@ -248,6 +248,26 @@ pub(crate) struct GuardrailsEngine {
     output_sanitizer: SharedOutputSanitizer,
 }
 
+/// Calls [`GuardrailsEngine::finish`] when dropped, so per-request guard state
+/// is released on every exit path: success, provider error, guard rejection,
+/// a cancelled future, or a stream dropped before it was fully consumed.
+pub(crate) struct RequestScope {
+    engine: Arc<GuardrailsEngine>,
+    context: GuardContext,
+}
+
+impl RequestScope {
+    pub(crate) fn new(engine: Arc<GuardrailsEngine>, context: GuardContext) -> Self {
+        Self { engine, context }
+    }
+}
+
+impl Drop for RequestScope {
+    fn drop(&mut self) {
+        self.engine.finish(&self.context);
+    }
+}
+
 impl GuardrailsEngine {
     pub(crate) fn has_input_guards(&self) -> bool {
         !self.input_guards.is_empty()
@@ -277,6 +297,14 @@ impl GuardrailsEngine {
             )?;
         }
         Ok(())
+    }
+
+    /// Notify every input guard that the request identified by `context`
+    /// has ended. See [`InputGuard::finish`].
+    pub(crate) fn finish(&self, context: &GuardContext) {
+        for entry in &self.input_guards {
+            entry.guard.finish(context);
+        }
     }
 
     pub(crate) async fn evaluate_output(
@@ -519,6 +547,7 @@ mod tests {
 
         let mut output = GuardedOutput::Completion(crate::guard::CompletionGuardOutput {
             text: "unsafe".to_string(),
+            usage: None,
         });
         let context = GuardContext::new(GuardOperation::Complete);
 
@@ -595,6 +624,7 @@ mod tests {
 
         let mut output = GuardedOutput::Completion(crate::guard::CompletionGuardOutput {
             text: "unsafe".to_string(),
+            usage: None,
         });
         let output_context = GuardContext::new(GuardOperation::Complete);
         guardrails
@@ -618,6 +648,7 @@ mod tests {
 
         let mut output = GuardedOutput::Completion(crate::guard::CompletionGuardOutput {
             text: "unsafe".to_string(),
+            usage: None,
         });
         let context = GuardContext::new(GuardOperation::Complete);
 

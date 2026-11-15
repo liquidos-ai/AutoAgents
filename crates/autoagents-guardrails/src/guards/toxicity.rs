@@ -77,6 +77,7 @@ mod tests {
         let guard = ToxicityGuard::default();
         let mut output = GuardedOutput::Completion(crate::guard::CompletionGuardOutput {
             text: "You are worthless and I hate you".to_string(),
+            usage: None,
         });
 
         let decision = guard
@@ -95,6 +96,7 @@ mod tests {
         let guard = ToxicityGuard::default();
         let mut output = GuardedOutput::Completion(crate::guard::CompletionGuardOutput {
             text: "Here is a calm answer".to_string(),
+            usage: None,
         });
 
         let decision = guard

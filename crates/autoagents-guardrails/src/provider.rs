@@ -15,7 +15,7 @@ use autoagents_llm::{
 use futures::Stream;
 
 use crate::{
-    engine::GuardrailsEngine,
+    engine::{GuardrailsEngine, RequestScope},
     guard::{
         ChatGuardInput, ChatGuardOutput, CompletionGuardInput, CompletionGuardOutput, GuardContext,
         GuardOperation, GuardedInput, GuardedOutput, WebSearchGuardInput,
@@ -75,6 +75,7 @@ impl GuardedProvider {
 
         let mut output = GuardedOutput::Completion(CompletionGuardOutput {
             text: response.text,
+            usage: None,
         });
         self.engine.evaluate_output(&mut output, context).await?;
 
@@ -133,6 +134,7 @@ impl ChatProvider for GuardedProvider {
             GuardOperation::Chat
         };
         let context = GuardContext::new(operation);
+        let _scope = RequestScope::new(self.engine.clone(), context.clone());
 
         let response = if self.engine.has_input_guards() {
             let mut input = GuardedInput::Chat(ChatGuardInput {
@@ -162,6 +164,7 @@ impl ChatProvider for GuardedProvider {
 
     async fn chat_with_web_search(&self, input: String) -> Result<Box<dyn ChatResponse>, LLMError> {
         let context = GuardContext::new(GuardOperation::ChatWithWebSearch);
+        let _scope = RequestScope::new(self.engine.clone(), context.clone());
 
         let response = if self.engine.has_input_guards() {
             let mut guarded = GuardedInput::WebSearch(WebSearchGuardInput { input });
@@ -187,6 +190,7 @@ impl ChatProvider for GuardedProvider {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError> {
         let context = GuardContext::new(GuardOperation::ChatStream);
+        let scope = RequestScope::new(self.engine.clone(), context.clone());
 
         let stream = if self.engine.has_input_guards() {
             let mut input = GuardedInput::Chat(ChatGuardInput {
@@ -217,6 +221,7 @@ impl ChatProvider for GuardedProvider {
             stream,
             self.engine.clone(),
             context,
+            scope,
         )))
     }
 
@@ -228,6 +233,7 @@ impl ChatProvider for GuardedProvider {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>, LLMError>
     {
         let context = GuardContext::new(GuardOperation::ChatStreamStruct);
+        let scope = RequestScope::new(self.engine.clone(), context.clone());
 
         let stream = if self.engine.has_input_guards() {
             let mut input = GuardedInput::Chat(ChatGuardInput {
@@ -260,6 +266,7 @@ impl ChatProvider for GuardedProvider {
             stream,
             self.engine.clone(),
             context,
+            scope,
         )))
     }
 
@@ -270,6 +277,7 @@ impl ChatProvider for GuardedProvider {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError> {
         let context = GuardContext::new(GuardOperation::ChatStreamWithTools);
+        let scope = RequestScope::new(self.engine.clone(), context.clone());
 
         let stream = if self.engine.has_input_guards() {
             let mut input = GuardedInput::Chat(ChatGuardInput {
@@ -302,6 +310,7 @@ impl ChatProvider for GuardedProvider {
             stream,
             self.engine.clone(),
             context,
+            scope,
         )))
     }
 }
@@ -314,6 +323,7 @@ impl CompletionProvider for GuardedProvider {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<CompletionResponse, LLMError> {
         let context = GuardContext::new(GuardOperation::Complete);
+        let _scope = RequestScope::new(self.engine.clone(), context.clone());
 
         let response = if self.engine.has_input_guards() {
             let mut input = GuardedInput::Completion(CompletionGuardInput {

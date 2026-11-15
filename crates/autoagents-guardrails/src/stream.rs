@@ -6,13 +6,13 @@ use std::{
 };
 
 use autoagents_llm::{
-    chat::{StreamChoice, StreamChunk, StreamDelta, StreamResponse},
+    chat::{StreamChoice, StreamChunk, StreamDelta, StreamResponse, Usage},
     error::LLMError,
 };
 use futures::Stream;
 
 use crate::{
-    engine::GuardrailsEngine,
+    engine::{GuardrailsEngine, RequestScope},
     guard::{CompletionGuardOutput, GuardContext, GuardedOutput},
 };
 
@@ -27,10 +27,11 @@ fn finalize_future(
     engine: Arc<GuardrailsEngine>,
     context: GuardContext,
     text: String,
+    usage: Option<Usage>,
 ) -> FinalizeFuture {
     Box::pin(async move {
         let original = text.clone();
-        let mut output = GuardedOutput::Completion(CompletionGuardOutput { text });
+        let mut output = GuardedOutput::Completion(CompletionGuardOutput { text, usage });
         engine.evaluate_output(&mut output, &context).await?;
 
         match output {
@@ -53,8 +54,12 @@ pub(crate) struct TextGuardedStream {
     engine: Arc<GuardrailsEngine>,
     context: GuardContext,
     aggregate_text: String,
+    usage: Option<Usage>,
     finalize: Option<FinalizeFuture>,
     done: bool,
+    /// Ends the request (releasing per-request guard state) when the stream
+    /// is dropped, whether or not it was fully consumed.
+    _scope: RequestScope,
 }
 
 impl TextGuardedStream {
@@ -62,14 +67,17 @@ impl TextGuardedStream {
         inner: Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>,
         engine: Arc<GuardrailsEngine>,
         context: GuardContext,
+        scope: RequestScope,
     ) -> Self {
         Self {
             inner,
             engine,
             context,
             aggregate_text: String::default(),
+            usage: None,
             finalize: None,
             done: false,
+            _scope: scope,
         }
     }
 }
@@ -114,6 +122,7 @@ impl Stream for TextGuardedStream {
                     this.engine.clone(),
                     this.context.clone(),
                     std::mem::take(&mut this.aggregate_text),
+                    this.usage.take(),
                 ));
                 cx.waker().wake_by_ref();
                 Poll::Pending
@@ -127,8 +136,12 @@ pub(crate) struct StructGuardedStream {
     engine: Arc<GuardrailsEngine>,
     context: GuardContext,
     aggregate_text: String,
+    usage: Option<Usage>,
     finalize: Option<FinalizeFuture>,
     done: bool,
+    /// Ends the request (releasing per-request guard state) when the stream
+    /// is dropped, whether or not it was fully consumed.
+    _scope: RequestScope,
 }
 
 impl StructGuardedStream {
@@ -136,14 +149,17 @@ impl StructGuardedStream {
         inner: Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>,
         engine: Arc<GuardrailsEngine>,
         context: GuardContext,
+        scope: RequestScope,
     ) -> Self {
         Self {
             inner,
             engine,
             context,
             aggregate_text: String::default(),
+            usage: None,
             finalize: None,
             done: false,
+            _scope: scope,
         }
     }
 }
@@ -190,6 +206,9 @@ impl Stream for StructGuardedStream {
                         this.aggregate_text.push_str(content);
                     }
                 }
+                if let Some(usage) = &chunk.usage {
+                    this.usage = Some(usage.clone());
+                }
                 Poll::Ready(Some(Ok(chunk)))
             }
             Poll::Ready(Some(Err(err))) => {
@@ -201,6 +220,7 @@ impl Stream for StructGuardedStream {
                     this.engine.clone(),
                     this.context.clone(),
                     std::mem::take(&mut this.aggregate_text),
+                    this.usage.take(),
                 ));
                 cx.waker().wake_by_ref();
                 Poll::Pending
@@ -214,8 +234,12 @@ pub(crate) struct ToolGuardedStream {
     engine: Arc<GuardrailsEngine>,
     context: GuardContext,
     aggregate_text: String,
+    usage: Option<Usage>,
     finalize: Option<FinalizeFuture>,
     done: bool,
+    /// Ends the request (releasing per-request guard state) when the stream
+    /// is dropped, whether or not it was fully consumed.
+    _scope: RequestScope,
 }
 
 impl ToolGuardedStream {
@@ -223,14 +247,17 @@ impl ToolGuardedStream {
         inner: Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>,
         engine: Arc<GuardrailsEngine>,
         context: GuardContext,
+        scope: RequestScope,
     ) -> Self {
         Self {
             inner,
             engine,
             context,
             aggregate_text: String::default(),
+            usage: None,
             finalize: None,
             done: false,
+            _scope: scope,
         }
     }
 }
@@ -265,8 +292,10 @@ impl Stream for ToolGuardedStream {
         match this.inner.as_mut().poll_next(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(Ok(chunk))) => {
-                if let StreamChunk::Text(content) = &chunk {
-                    this.aggregate_text.push_str(content);
+                match &chunk {
+                    StreamChunk::Text(content) => this.aggregate_text.push_str(content),
+                    StreamChunk::Usage(usage) => this.usage = Some(usage.clone()),
+                    _ => {}
                 }
                 Poll::Ready(Some(Ok(chunk)))
             }
@@ -279,6 +308,7 @@ impl Stream for ToolGuardedStream {
                     this.engine.clone(),
                     this.context.clone(),
                     std::mem::take(&mut this.aggregate_text),
+                    this.usage.take(),
                 ));
                 cx.waker().wake_by_ref();
                 Poll::Pending
