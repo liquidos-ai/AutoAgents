@@ -831,6 +831,17 @@ mod tests {
             }
             drop(stream);
             assert_spent(&guard, 0.007);
+
+            // Plain text stream, no usage: 1k prompt + 1k answer tokens.
+            let mut stream = provider.chat_stream(&messages(), None).await.unwrap();
+            let mut chunks = 0;
+            while let Some(chunk) = stream.next().await {
+                assert_eq!(chunk.unwrap().len(), ANSWER_CHARS);
+                chunks += 1;
+            }
+            assert_eq!(chunks, 2);
+            drop(stream);
+            assert_spent(&guard, 0.013);
         }
 
         #[tokio::test]

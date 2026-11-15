@@ -111,12 +111,20 @@ impl Stream for TextGuardedStream {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(Ok(chunk))) => {
                 this.scope.record_output(chunk.len());
-                this.aggregate_text.push_str(&chunk);
+                if this.engine.has_output_guards() {
+                    this.aggregate_text.push_str(&chunk);
+                }
                 Poll::Ready(Some(Ok(chunk)))
             }
             Poll::Ready(Some(Err(err))) => {
                 this.done = true;
                 Poll::Ready(Some(Err(err)))
+            }
+            Poll::Ready(None) if !this.engine.has_output_guards() => {
+                // Wrapped only so input guards learn what the stream
+                // delivered: nothing to buffer or check on the way out.
+                this.done = true;
+                Poll::Ready(None)
             }
             Poll::Ready(None) => {
                 this.finalize = Some(finalize_future(
@@ -204,7 +212,9 @@ impl Stream for StructGuardedStream {
                 for choice in &chunk.choices {
                     if let Some(content) = &choice.delta.content {
                         this.scope.record_output(content.len());
-                        this.aggregate_text.push_str(content);
+                        if this.engine.has_output_guards() {
+                            this.aggregate_text.push_str(content);
+                        }
                     }
                     if let Some(reasoning) = &choice.delta.reasoning_content {
                         this.scope.record_output(reasoning.len());
@@ -223,6 +233,12 @@ impl Stream for StructGuardedStream {
             Poll::Ready(Some(Err(err))) => {
                 this.done = true;
                 Poll::Ready(Some(Err(err)))
+            }
+            Poll::Ready(None) if !this.engine.has_output_guards() => {
+                // Wrapped only so input guards learn what the stream
+                // delivered: nothing to buffer or check on the way out.
+                this.done = true;
+                Poll::Ready(None)
             }
             Poll::Ready(None) => {
                 this.finalize = Some(finalize_future(
@@ -309,7 +325,9 @@ impl Stream for ToolGuardedStream {
                 match &chunk {
                     StreamChunk::Text(content) => {
                         this.scope.record_output(content.len());
-                        this.aggregate_text.push_str(content);
+                        if this.engine.has_output_guards() {
+                            this.aggregate_text.push_str(content);
+                        }
                     }
                     StreamChunk::ReasoningContent(content) => {
                         this.scope.record_output(content.len());
@@ -343,6 +361,12 @@ impl Stream for ToolGuardedStream {
             Poll::Ready(Some(Err(err))) => {
                 this.done = true;
                 Poll::Ready(Some(Err(err)))
+            }
+            Poll::Ready(None) if !this.engine.has_output_guards() => {
+                // Wrapped only so input guards learn what the stream
+                // delivered: nothing to buffer or check on the way out.
+                this.done = true;
+                Poll::Ready(None)
             }
             Poll::Ready(None) => {
                 this.finalize = Some(finalize_future(
