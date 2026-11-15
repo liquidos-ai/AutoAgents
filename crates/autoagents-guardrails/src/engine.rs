@@ -1,9 +1,12 @@
 use std::sync::Arc;
 
-use autoagents_llm::{LLMProvider, error::LLMError};
+use autoagents_llm::{LLMProvider, chat::Usage, error::LLMError};
 
 use crate::{
-    guard::{GuardContext, GuardDecision, GuardedInput, GuardedOutput, InputGuard, OutputGuard},
+    guard::{
+        GuardContext, GuardDecision, GuardedInput, GuardedOutput, InputGuard, OutputGuard,
+        RequestOutcome, RequestStage,
+    },
     layer::GuardrailsLayer,
     policy::{EnforcementPolicy, GuardPhase, guard_failure_to_llm_error, violation_to_llm_error},
     provider::GuardedProvider,
@@ -249,22 +252,62 @@ pub(crate) struct GuardrailsEngine {
 }
 
 /// Calls [`GuardrailsEngine::finish`] when dropped, so per-request guard state
-/// is released on every exit path: success, provider error, guard rejection,
-/// a cancelled future, or a stream dropped before it was fully consumed.
+/// is settled or released on every exit path: success, provider error, guard
+/// rejection, a cancelled future, or a stream dropped before it was fully
+/// consumed. The provider wrapper records how far the request got and what
+/// output it produced, which input guards receive as a [`RequestOutcome`].
 pub(crate) struct RequestScope {
     engine: Arc<GuardrailsEngine>,
     context: GuardContext,
+    outcome: RequestOutcome,
 }
 
 impl RequestScope {
     pub(crate) fn new(engine: Arc<GuardrailsEngine>, context: GuardContext) -> Self {
-        Self { engine, context }
+        Self {
+            engine,
+            context,
+            outcome: RequestOutcome::default(),
+        }
+    }
+
+    /// The request is about to be sent to the provider.
+    pub(crate) fn dispatched(&mut self) {
+        self.outcome.stage = RequestStage::InFlight;
+    }
+
+    /// Record the provider's reply: [`RequestStage::Responded`] on success,
+    /// [`RequestStage::Failed`] on error. Returns `result` unchanged.
+    pub(crate) fn provider_result<T>(
+        &mut self,
+        result: Result<T, LLMError>,
+    ) -> Result<T, LLMError> {
+        self.outcome.stage = if result.is_ok() {
+            RequestStage::Responded
+        } else {
+            RequestStage::Failed
+        };
+        result
+    }
+
+    /// Count `chars` bytes of output received from the provider.
+    pub(crate) fn record_output(&mut self, chars: usize) {
+        self.outcome.output_chars = self.outcome.output_chars.saturating_add(chars);
+    }
+
+    /// Remember the latest usage the provider reported.
+    pub(crate) fn record_usage(&mut self, usage: Usage) {
+        self.outcome.usage = Some(usage);
+    }
+
+    pub(crate) fn usage(&self) -> Option<&Usage> {
+        self.outcome.usage.as_ref()
     }
 }
 
 impl Drop for RequestScope {
     fn drop(&mut self) {
-        self.engine.finish(&self.context);
+        self.engine.finish(&self.context, &self.outcome);
     }
 }
 
@@ -301,9 +344,9 @@ impl GuardrailsEngine {
 
     /// Notify every input guard that the request identified by `context`
     /// has ended. See [`InputGuard::finish`].
-    pub(crate) fn finish(&self, context: &GuardContext) {
+    pub(crate) fn finish(&self, context: &GuardContext, outcome: &RequestOutcome) {
         for entry in &self.input_guards {
-            entry.guard.finish(context);
+            entry.guard.finish(context, outcome);
         }
     }
 

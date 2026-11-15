@@ -156,9 +156,42 @@ pub trait InputGuard: Send + Sync + 'static {
 
     /// Called exactly once when the request identified by `context` ends,
     /// whether it completed, failed, was rejected by another guard, or was
-    /// cancelled (including a stream dropped before it finished). Guards that
-    /// hold per-request state, such as a budget reservation, release it here.
-    fn finish(&self, _context: &GuardContext) {}
+    /// cancelled (including a stream dropped before it finished). `outcome`
+    /// says how far the request got and what output it produced, so guards
+    /// that hold per-request state, such as a budget reservation, can settle
+    /// or release it here.
+    fn finish(&self, _context: &GuardContext, _outcome: &RequestOutcome) {}
+}
+
+/// How far a guarded request got before it ended.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RequestStage {
+    /// The request never reached the provider (an input guard rejected it,
+    /// or it was cancelled before being sent).
+    #[default]
+    NotSent,
+    /// The request was sent and was still waiting on the provider when it
+    /// ended (the caller's future was dropped, for example by a timeout).
+    /// The provider may still bill for it.
+    InFlight,
+    /// The provider returned an error before producing a response.
+    Failed,
+    /// The provider returned a response or opened a stream.
+    Responded,
+}
+
+/// What a guarded request did before it ended, passed to
+/// [`InputGuard::finish`].
+#[derive(Debug, Clone, Default)]
+pub struct RequestOutcome {
+    /// How far the request got.
+    pub stage: RequestStage,
+    /// Bytes of output received from the provider so far: answer text,
+    /// reasoning, and tool-call names and arguments. For a stream that ended
+    /// early this covers the chunks that were delivered before it stopped.
+    pub output_chars: usize,
+    /// The most recent token usage the provider reported, if any.
+    pub usage: Option<Usage>,
 }
 
 /// Trait implemented by response/output guardrails.

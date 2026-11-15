@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     future::Future,
     pin::Pin,
     sync::Arc,
@@ -54,12 +55,12 @@ pub(crate) struct TextGuardedStream {
     engine: Arc<GuardrailsEngine>,
     context: GuardContext,
     aggregate_text: String,
-    usage: Option<Usage>,
     finalize: Option<FinalizeFuture>,
     done: bool,
-    /// Ends the request (releasing per-request guard state) when the stream
-    /// is dropped, whether or not it was fully consumed.
-    _scope: RequestScope,
+    /// Tracks what the stream delivered and ends the request when the stream
+    /// is dropped, whether or not it was fully consumed, so input guards can
+    /// account for output received before an early drop.
+    scope: RequestScope,
 }
 
 impl TextGuardedStream {
@@ -74,10 +75,9 @@ impl TextGuardedStream {
             engine,
             context,
             aggregate_text: String::default(),
-            usage: None,
             finalize: None,
             done: false,
-            _scope: scope,
+            scope,
         }
     }
 }
@@ -110,6 +110,7 @@ impl Stream for TextGuardedStream {
         match this.inner.as_mut().poll_next(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(Ok(chunk))) => {
+                this.scope.record_output(chunk.len());
                 this.aggregate_text.push_str(&chunk);
                 Poll::Ready(Some(Ok(chunk)))
             }
@@ -122,7 +123,7 @@ impl Stream for TextGuardedStream {
                     this.engine.clone(),
                     this.context.clone(),
                     std::mem::take(&mut this.aggregate_text),
-                    this.usage.take(),
+                    this.scope.usage().cloned(),
                 ));
                 cx.waker().wake_by_ref();
                 Poll::Pending
@@ -136,12 +137,12 @@ pub(crate) struct StructGuardedStream {
     engine: Arc<GuardrailsEngine>,
     context: GuardContext,
     aggregate_text: String,
-    usage: Option<Usage>,
     finalize: Option<FinalizeFuture>,
     done: bool,
-    /// Ends the request (releasing per-request guard state) when the stream
-    /// is dropped, whether or not it was fully consumed.
-    _scope: RequestScope,
+    /// Tracks what the stream delivered and ends the request when the stream
+    /// is dropped, whether or not it was fully consumed, so input guards can
+    /// account for output received before an early drop.
+    scope: RequestScope,
 }
 
 impl StructGuardedStream {
@@ -156,10 +157,9 @@ impl StructGuardedStream {
             engine,
             context,
             aggregate_text: String::default(),
-            usage: None,
             finalize: None,
             done: false,
-            _scope: scope,
+            scope,
         }
     }
 }
@@ -203,11 +203,20 @@ impl Stream for StructGuardedStream {
             Poll::Ready(Some(Ok(chunk))) => {
                 for choice in &chunk.choices {
                     if let Some(content) = &choice.delta.content {
+                        this.scope.record_output(content.len());
                         this.aggregate_text.push_str(content);
+                    }
+                    if let Some(reasoning) = &choice.delta.reasoning_content {
+                        this.scope.record_output(reasoning.len());
+                    }
+                    for call in choice.delta.tool_calls.iter().flatten() {
+                        this.scope.record_output(
+                            call.function.name.len() + call.function.arguments.len(),
+                        );
                     }
                 }
                 if let Some(usage) = &chunk.usage {
-                    this.usage = Some(usage.clone());
+                    this.scope.record_usage(usage.clone());
                 }
                 Poll::Ready(Some(Ok(chunk)))
             }
@@ -220,7 +229,7 @@ impl Stream for StructGuardedStream {
                     this.engine.clone(),
                     this.context.clone(),
                     std::mem::take(&mut this.aggregate_text),
-                    this.usage.take(),
+                    this.scope.usage().cloned(),
                 ));
                 cx.waker().wake_by_ref();
                 Poll::Pending
@@ -234,12 +243,16 @@ pub(crate) struct ToolGuardedStream {
     engine: Arc<GuardrailsEngine>,
     context: GuardContext,
     aggregate_text: String,
-    usage: Option<Usage>,
+    /// Tool-use block indexes whose name / input arrived as separate
+    /// chunks, so the assembled `ToolUseComplete` is not counted twice.
+    tool_names_seen: HashSet<usize>,
+    tool_input_seen: HashSet<usize>,
     finalize: Option<FinalizeFuture>,
     done: bool,
-    /// Ends the request (releasing per-request guard state) when the stream
-    /// is dropped, whether or not it was fully consumed.
-    _scope: RequestScope,
+    /// Tracks what the stream delivered and ends the request when the stream
+    /// is dropped, whether or not it was fully consumed, so input guards can
+    /// account for output received before an early drop.
+    scope: RequestScope,
 }
 
 impl ToolGuardedStream {
@@ -254,10 +267,11 @@ impl ToolGuardedStream {
             engine,
             context,
             aggregate_text: String::default(),
-            usage: None,
+            tool_names_seen: HashSet::new(),
+            tool_input_seen: HashSet::new(),
             finalize: None,
             done: false,
-            _scope: scope,
+            scope,
         }
     }
 }
@@ -293,9 +307,36 @@ impl Stream for ToolGuardedStream {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(Ok(chunk))) => {
                 match &chunk {
-                    StreamChunk::Text(content) => this.aggregate_text.push_str(content),
-                    StreamChunk::Usage(usage) => this.usage = Some(usage.clone()),
-                    _ => {}
+                    StreamChunk::Text(content) => {
+                        this.scope.record_output(content.len());
+                        this.aggregate_text.push_str(content);
+                    }
+                    StreamChunk::ReasoningContent(content) => {
+                        this.scope.record_output(content.len());
+                    }
+                    StreamChunk::ToolUseStart { index, name, .. } => {
+                        this.tool_names_seen.insert(*index);
+                        this.scope.record_output(name.len());
+                    }
+                    StreamChunk::ToolUseInputDelta {
+                        index,
+                        partial_json,
+                    } => {
+                        this.tool_input_seen.insert(*index);
+                        this.scope.record_output(partial_json.len());
+                    }
+                    StreamChunk::ToolUseComplete { index, tool_call } => {
+                        // Count only what the start/delta chunks for this
+                        // block did not already cover.
+                        if !this.tool_names_seen.contains(index) {
+                            this.scope.record_output(tool_call.function.name.len());
+                        }
+                        if !this.tool_input_seen.contains(index) {
+                            this.scope.record_output(tool_call.function.arguments.len());
+                        }
+                    }
+                    StreamChunk::Usage(usage) => this.scope.record_usage(usage.clone()),
+                    StreamChunk::Done { .. } => {}
                 }
                 Poll::Ready(Some(Ok(chunk)))
             }
@@ -308,7 +349,7 @@ impl Stream for ToolGuardedStream {
                     this.engine.clone(),
                     this.context.clone(),
                     std::mem::take(&mut this.aggregate_text),
-                    this.usage.take(),
+                    this.scope.usage().cloned(),
                 ));
                 cx.waker().wake_by_ref();
                 Poll::Pending

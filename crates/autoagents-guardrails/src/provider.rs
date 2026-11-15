@@ -37,17 +37,20 @@ impl GuardedProvider {
         &self,
         response: Box<dyn ChatResponse>,
         context: &GuardContext,
+        scope: &mut RequestScope,
     ) -> Result<Box<dyn ChatResponse>, LLMError> {
         if !self.engine.has_output_guards() {
+            if self.engine.has_input_guards() {
+                record_chat_output(scope, &chat_guard_output(response.as_ref()));
+            }
             return Ok(response);
         }
 
-        let mut output = GuardedOutput::Chat(ChatGuardOutput {
-            text: response.text(),
-            tool_calls: response.tool_calls(),
-            thinking: response.thinking(),
-            usage: response.usage(),
-        });
+        let chat = chat_guard_output(response.as_ref());
+        // Record the reply before output guards run, so a reply an output
+        // guard rejects is still reported to input guards as received.
+        record_chat_output(scope, &chat);
+        let mut output = GuardedOutput::Chat(chat);
 
         self.engine.evaluate_output(&mut output, context).await?;
 
@@ -68,7 +71,9 @@ impl GuardedProvider {
         &self,
         response: CompletionResponse,
         context: &GuardContext,
+        scope: &mut RequestScope,
     ) -> Result<CompletionResponse, LLMError> {
+        scope.record_output(response.text.len());
         if !self.engine.has_output_guards() {
             return Ok(response);
         }
@@ -85,6 +90,33 @@ impl GuardedProvider {
                 "unexpected chat output for completion response".to_string(),
             )),
         }
+    }
+}
+
+fn chat_guard_output(response: &dyn ChatResponse) -> ChatGuardOutput {
+    ChatGuardOutput {
+        text: response.text(),
+        tool_calls: response.tool_calls(),
+        thinking: response.thinking(),
+        usage: response.usage(),
+    }
+}
+
+/// Report a chat reply's size and usage to the request scope.
+fn record_chat_output(scope: &mut RequestScope, chat: &ChatGuardOutput) {
+    let tool_chars: usize = chat.tool_calls.as_ref().map_or(0, |calls| {
+        calls
+            .iter()
+            .map(|call| call.function.name.len() + call.function.arguments.len())
+            .sum()
+    });
+    scope.record_output(
+        chat.text.as_ref().map_or(0, String::len)
+            + chat.thinking.as_ref().map_or(0, String::len)
+            + tool_chars,
+    );
+    if let Some(usage) = &chat.usage {
+        scope.record_usage(usage.clone());
     }
 }
 
@@ -134,9 +166,9 @@ impl ChatProvider for GuardedProvider {
             GuardOperation::Chat
         };
         let context = GuardContext::new(operation);
-        let _scope = RequestScope::new(self.engine.clone(), context.clone());
+        let mut scope = RequestScope::new(self.engine.clone(), context.clone());
 
-        let response = if self.engine.has_input_guards() {
+        let result = if self.engine.has_input_guards() {
             let mut input = GuardedInput::Chat(ChatGuardInput {
                 messages: messages.to_vec(),
                 tools: tools.map(|value| value.to_vec()),
@@ -150,23 +182,27 @@ impl ChatProvider for GuardedProvider {
                 ));
             };
 
+            scope.dispatched();
             self.inner
                 .chat_with_tools(&chat.messages, chat.tools.as_deref(), chat.json_schema)
-                .await?
+                .await
         } else {
+            scope.dispatched();
             self.inner
                 .chat_with_tools(messages, tools, json_schema)
-                .await?
+                .await
         };
 
-        self.process_chat_output(response, &context).await
+        let response = scope.provider_result(result)?;
+        self.process_chat_output(response, &context, &mut scope)
+            .await
     }
 
     async fn chat_with_web_search(&self, input: String) -> Result<Box<dyn ChatResponse>, LLMError> {
         let context = GuardContext::new(GuardOperation::ChatWithWebSearch);
-        let _scope = RequestScope::new(self.engine.clone(), context.clone());
+        let mut scope = RequestScope::new(self.engine.clone(), context.clone());
 
-        let response = if self.engine.has_input_guards() {
+        let result = if self.engine.has_input_guards() {
             let mut guarded = GuardedInput::WebSearch(WebSearchGuardInput { input });
             self.engine.evaluate_input(&mut guarded, &context).await?;
 
@@ -176,12 +212,16 @@ impl ChatProvider for GuardedProvider {
                 ));
             };
 
-            self.inner.chat_with_web_search(web.input).await?
+            scope.dispatched();
+            self.inner.chat_with_web_search(web.input).await
         } else {
-            self.inner.chat_with_web_search(input).await?
+            scope.dispatched();
+            self.inner.chat_with_web_search(input).await
         };
 
-        self.process_chat_output(response, &context).await
+        let response = scope.provider_result(result)?;
+        self.process_chat_output(response, &context, &mut scope)
+            .await
     }
 
     async fn chat_stream(
@@ -190,9 +230,9 @@ impl ChatProvider for GuardedProvider {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError> {
         let context = GuardContext::new(GuardOperation::ChatStream);
-        let scope = RequestScope::new(self.engine.clone(), context.clone());
+        let mut scope = RequestScope::new(self.engine.clone(), context.clone());
 
-        let stream = if self.engine.has_input_guards() {
+        let result = if self.engine.has_input_guards() {
             let mut input = GuardedInput::Chat(ChatGuardInput {
                 messages: messages.to_vec(),
                 tools: None,
@@ -206,14 +246,20 @@ impl ChatProvider for GuardedProvider {
                 ));
             };
 
+            scope.dispatched();
             self.inner
                 .chat_stream(&chat.messages, chat.json_schema)
-                .await?
+                .await
         } else {
-            self.inner.chat_stream(messages, json_schema).await?
+            scope.dispatched();
+            self.inner.chat_stream(messages, json_schema).await
         };
 
-        if !self.engine.has_output_guards() {
+        let stream = scope.provider_result(result)?;
+        // Input guards are told how the request ended (including what a
+        // stream delivered before it was dropped), so wrap whenever any
+        // guard is registered.
+        if !self.engine.has_input_guards() && !self.engine.has_output_guards() {
             return Ok(stream);
         }
 
@@ -233,9 +279,9 @@ impl ChatProvider for GuardedProvider {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamResponse, LLMError>> + Send>>, LLMError>
     {
         let context = GuardContext::new(GuardOperation::ChatStreamStruct);
-        let scope = RequestScope::new(self.engine.clone(), context.clone());
+        let mut scope = RequestScope::new(self.engine.clone(), context.clone());
 
-        let stream = if self.engine.has_input_guards() {
+        let result = if self.engine.has_input_guards() {
             let mut input = GuardedInput::Chat(ChatGuardInput {
                 messages: messages.to_vec(),
                 tools: tools.map(|value| value.to_vec()),
@@ -249,16 +295,22 @@ impl ChatProvider for GuardedProvider {
                 ));
             };
 
+            scope.dispatched();
             self.inner
                 .chat_stream_struct(&chat.messages, chat.tools.as_deref(), chat.json_schema)
-                .await?
+                .await
         } else {
+            scope.dispatched();
             self.inner
                 .chat_stream_struct(messages, tools, json_schema)
-                .await?
+                .await
         };
 
-        if !self.engine.has_output_guards() {
+        let stream = scope.provider_result(result)?;
+        // Input guards are told how the request ended (including what a
+        // stream delivered before it was dropped), so wrap whenever any
+        // guard is registered.
+        if !self.engine.has_input_guards() && !self.engine.has_output_guards() {
             return Ok(stream);
         }
 
@@ -277,9 +329,9 @@ impl ChatProvider for GuardedProvider {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError> {
         let context = GuardContext::new(GuardOperation::ChatStreamWithTools);
-        let scope = RequestScope::new(self.engine.clone(), context.clone());
+        let mut scope = RequestScope::new(self.engine.clone(), context.clone());
 
-        let stream = if self.engine.has_input_guards() {
+        let result = if self.engine.has_input_guards() {
             let mut input = GuardedInput::Chat(ChatGuardInput {
                 messages: messages.to_vec(),
                 tools: tools.map(|value| value.to_vec()),
@@ -293,16 +345,22 @@ impl ChatProvider for GuardedProvider {
                 ));
             };
 
+            scope.dispatched();
             self.inner
                 .chat_stream_with_tools(&chat.messages, chat.tools.as_deref(), chat.json_schema)
-                .await?
+                .await
         } else {
+            scope.dispatched();
             self.inner
                 .chat_stream_with_tools(messages, tools, json_schema)
-                .await?
+                .await
         };
 
-        if !self.engine.has_output_guards() {
+        let stream = scope.provider_result(result)?;
+        // Input guards are told how the request ended (including what a
+        // stream delivered before it was dropped), so wrap whenever any
+        // guard is registered.
+        if !self.engine.has_input_guards() && !self.engine.has_output_guards() {
             return Ok(stream);
         }
 
@@ -323,9 +381,9 @@ impl CompletionProvider for GuardedProvider {
         json_schema: Option<StructuredOutputFormat>,
     ) -> Result<CompletionResponse, LLMError> {
         let context = GuardContext::new(GuardOperation::Complete);
-        let _scope = RequestScope::new(self.engine.clone(), context.clone());
+        let mut scope = RequestScope::new(self.engine.clone(), context.clone());
 
-        let response = if self.engine.has_input_guards() {
+        let result = if self.engine.has_input_guards() {
             let mut input = GuardedInput::Completion(CompletionGuardInput {
                 request: req.clone(),
                 json_schema,
@@ -339,14 +397,18 @@ impl CompletionProvider for GuardedProvider {
                 ));
             };
 
+            scope.dispatched();
             self.inner
                 .complete(&completion.request, completion.json_schema)
-                .await?
+                .await
         } else {
-            self.inner.complete(req, json_schema).await?
+            scope.dispatched();
+            self.inner.complete(req, json_schema).await
         };
 
-        self.process_completion_output(response, &context).await
+        let response = scope.provider_result(result)?;
+        self.process_completion_output(response, &context, &mut scope)
+            .await
     }
 }
 

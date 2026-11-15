@@ -9,8 +9,19 @@
 //! from `llm-budget`'s built-in table of 232 models. Streams settle when they
 //! finish, from the final usage chunk; when a backend reports no usage, the
 //! call is charged from the prompt estimate plus the length of the answer.
-//! A request that fails, is rejected by another guard, or is cancelled (a
-//! dropped future or stream) releases its reservation instead of holding it.
+//!
+//! Every request ends in exactly one of these ways:
+//!
+//! - **Never sent** (another input guard rejected it) or **provider error**:
+//!   the reservation is released; nothing was spent.
+//! - **Answered**: charged at the reported usage, or estimated from the prompt
+//!   and the answer. This also covers a reply another output guard blocks,
+//!   and a stream dropped or failing part way: the prompt plus every chunk
+//!   delivered before it stopped is charged, so cancelling a stream early
+//!   does not free the budget for output that was already generated.
+//! - **Cancelled while waiting on the provider** (a dropped future, for
+//!   example a timeout): charged at the reserved estimate, since the
+//!   provider may still bill for it.
 //!
 //! When the settled spend crosses the cap, the guard kills the budget: the
 //! answer that was just paid for still reaches the caller, and every later
@@ -44,7 +55,7 @@ use llm_budget::{AgentBudget, PriceTable, Reservation};
 use crate::{
     guard::{
         GuardContext, GuardDecision, GuardError, GuardViolation, GuardedInput, GuardedOutput,
-        InputGuard, OutputGuard,
+        InputGuard, OutputGuard, RequestOutcome, RequestStage,
     },
     policy::{GuardCategory, GuardSeverity},
 };
@@ -54,10 +65,12 @@ const DEFAULT_CHARS_PER_TOKEN: usize = 4;
 
 /// An input+output guard that enforces a hard USD spend cap via `llm-budget`.
 ///
-/// Register the same instance as both an input and an output guard (the
-/// builder methods take `Arc` clones, so `input_guard(guard.clone())` and
-/// `output_guard(guard)` share the budget). Register it first among the
-/// output guards, so a call another output guard blocks is still charged:
+/// Register the same instance as both an input and an output guard (clones
+/// share the budget and the in-flight reservations, so
+/// `input_guard(guard.clone())` and `output_guard(guard)` work together).
+/// The input side reserves and is told how every request ended, so calls are
+/// charged even when another output guard blocks the reply; the output side
+/// settles a call as soon as its reply is available:
 ///
 /// ```no_run
 /// # use std::sync::Arc;
@@ -80,8 +93,9 @@ pub struct BudgetGuard {
     reserve_output_tokens: u64,
     chars_per_token: usize,
     /// In-flight reservations keyed by [`GuardContext::request_id`], settled
-    /// when the matching output evaluation runs. Shared across clones so a
-    /// guard can be split between the input and output sides of one engine.
+    /// when the matching output evaluation runs or when the request ends.
+    /// Shared across clones so a guard can be split between the input and
+    /// output sides of one engine.
     open: Arc<Mutex<HashMap<u64, OpenCall>>>,
 }
 
@@ -91,6 +105,9 @@ struct OpenCall {
     /// Prompt tokens estimated on the input side, used to price the call
     /// when the provider reports no usage.
     input_tokens: u64,
+    /// USD reserved for the call; charged when it is cancelled while
+    /// waiting on the provider.
+    estimate_usd: f64,
 }
 
 impl std::fmt::Debug for BudgetGuard {
@@ -198,40 +215,44 @@ impl BudgetGuard {
             .remove(&request_id)
     }
 
-    /// Book the call identified by `request_id`. `output_chars` is the size of
-    /// the answer, used to price it only when `usage` is `None`.
-    fn settle(&self, request_id: u64, usage: Option<&Usage>, output_chars: usize) {
-        let open = self.take_open(request_id);
-        let actual = match usage {
+    /// Price a call from the provider's reported usage, or, when there is
+    /// none (plain text streams, some backends, a stream dropped before its
+    /// usage chunk), from the prompt estimate plus `output_chars` of answer.
+    fn actual_cost(&self, input_tokens: u64, usage: Option<&Usage>, output_chars: usize) -> f64 {
+        match usage {
             Some(usage) => self.price(
                 u64::from(usage.prompt_tokens),
                 u64::from(usage.completion_tokens),
             ),
-            // No usage reported (plain text streams, some backends): charge
-            // the prompt estimate plus the answer, so these calls still
-            // count against the cap.
-            None => self.price(
-                open.as_ref().map_or(0, |call| call.input_tokens),
-                self.estimate_tokens(output_chars),
-            ),
-        };
-        match open {
-            Some(call) => {
-                let outcome = call.reservation.settle(actual);
-                if outcome.over_cap {
-                    self.budget.kill("settled spend crossed the cap");
-                }
-            }
-            None => {
-                let outcome = self.budget.charge_usd_force(
-                    actual,
-                    llm_budget::ChargeContext::new().model(self.model.clone()),
-                );
-                if outcome.over_cap {
-                    self.budget.kill("settled spend crossed the cap");
-                }
-            }
+            None => self.price(input_tokens, self.estimate_tokens(output_chars)),
         }
+    }
+
+    /// Book `actual` USD for a call, settling its reservation when it has
+    /// one, and kill the budget when the spend crosses the cap.
+    fn book(&self, open: Option<OpenCall>, actual: f64) {
+        let over_cap = match open {
+            Some(call) => call.reservation.settle(actual).over_cap,
+            None => {
+                self.budget
+                    .charge_usd_force(
+                        actual,
+                        llm_budget::ChargeContext::new().model(self.model.clone()),
+                    )
+                    .over_cap
+            }
+        };
+        if over_cap {
+            self.budget.kill("settled spend crossed the cap");
+        }
+    }
+
+    /// Book the call identified by `request_id` from its reply.
+    fn settle(&self, request_id: u64, usage: Option<&Usage>, output_chars: usize) {
+        let open = self.take_open(request_id);
+        let input_tokens = open.as_ref().map_or(0, |call| call.input_tokens);
+        let actual = self.actual_cost(input_tokens, usage, output_chars);
+        self.book(open, actual);
     }
 }
 
@@ -258,6 +279,7 @@ impl InputGuard for BudgetGuard {
                     OpenCall {
                         reservation,
                         input_tokens,
+                        estimate_usd: estimate,
                     },
                 );
                 Ok(GuardDecision::pass())
@@ -266,11 +288,31 @@ impl InputGuard for BudgetGuard {
         }
     }
 
-    fn finish(&self, context: &GuardContext) {
-        // The request ended without reaching settlement (provider error,
-        // another guard rejected it, or it was cancelled): release the hold.
-        if let Some(call) = self.take_open(context.request_id) {
-            call.reservation.release();
+    fn finish(&self, context: &GuardContext, outcome: &RequestOutcome) {
+        // Still open: the request ended before the output side settled it.
+        let Some(call) = self.take_open(context.request_id) else {
+            return;
+        };
+        match outcome.stage {
+            // Nothing reached the provider, or it refused the call: no spend.
+            RequestStage::NotSent | RequestStage::Failed => call.reservation.release(),
+            // Cancelled while waiting on the provider, which may still bill
+            // for it: charge what was reserved.
+            RequestStage::InFlight => {
+                let estimate = call.estimate_usd;
+                self.book(Some(call), estimate);
+            }
+            // The provider answered (another output guard blocked the reply,
+            // or a stream was dropped or failed part way): charge the prompt
+            // and the output delivered before the request ended.
+            RequestStage::Responded => {
+                let actual = self.actual_cost(
+                    call.input_tokens,
+                    outcome.usage.as_ref(),
+                    outcome.output_chars,
+                );
+                self.book(Some(call), actual);
+            }
         }
     }
 }
@@ -417,18 +459,95 @@ mod tests {
         assert!((guard.budget.spent_usd() - 0.0035).abs() < 1e-9);
     }
 
+    fn outcome(stage: RequestStage, output_chars: usize, usage: Option<Usage>) -> RequestOutcome {
+        RequestOutcome {
+            stage,
+            output_chars,
+            usage,
+        }
+    }
+
     #[tokio::test]
-    async fn finish_releases_unsettled_reservation() {
-        let guard = BudgetGuard::new(budget(1.0), "claude-haiku-4-5").unwrap();
-        let mut input = chat_input("hello");
+    async fn finish_releases_when_nothing_was_spent() {
+        for stage in [RequestStage::NotSent, RequestStage::Failed] {
+            let guard = BudgetGuard::new(budget(1.0), "claude-haiku-4-5").unwrap();
+            let mut input = chat_input("hello");
+            let ctx = GuardContext::new(crate::guard::GuardOperation::Chat);
+            InputGuard::inspect(&guard, &mut input, &ctx).await.unwrap();
+            assert!(guard.budget.reserved_usd() > 0.0);
+
+            InputGuard::finish(&guard, &ctx, &outcome(stage, 0, None));
+            assert_eq!(guard.budget.reserved_usd(), 0.0);
+            assert_eq!(guard.budget.spent_usd(), 0.0);
+            assert!(guard.open.lock().unwrap().is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn finish_charges_reservation_when_cancelled_in_flight() {
+        let guard = BudgetGuard::new(budget(1.0), "claude-haiku-4-5")
+            .unwrap()
+            .reserve_output_tokens(1_000);
+        let mut input = chat_input(&"x".repeat(4_000));
         let ctx = GuardContext::new(crate::guard::GuardOperation::Chat);
         InputGuard::inspect(&guard, &mut input, &ctx).await.unwrap();
-        assert!(guard.budget.reserved_usd() > 0.0);
 
-        InputGuard::finish(&guard, &ctx);
+        InputGuard::finish(&guard, &ctx, &outcome(RequestStage::InFlight, 0, None));
         assert_eq!(guard.budget.reserved_usd(), 0.0);
-        assert_eq!(guard.budget.spent_usd(), 0.0);
-        assert!(guard.open.lock().unwrap().is_empty());
+        // 1k estimated input at $1/M + 1k reserved output at $5/M
+        assert!((guard.budget.spent_usd() - 0.006).abs() < 1e-9);
+    }
+
+    #[tokio::test]
+    async fn finish_charges_output_received_before_the_request_ended() {
+        let guard = BudgetGuard::new(budget(1.0), "claude-haiku-4-5")
+            .unwrap()
+            .reserve_output_tokens(10_000);
+        let mut input = chat_input(&"x".repeat(4_000));
+        let ctx = GuardContext::new(crate::guard::GuardOperation::ChatStream);
+        InputGuard::inspect(&guard, &mut input, &ctx).await.unwrap();
+
+        InputGuard::finish(&guard, &ctx, &outcome(RequestStage::Responded, 2_000, None));
+        assert_eq!(guard.budget.reserved_usd(), 0.0);
+        // 1k estimated input at $1/M + 500 estimated output at $5/M, not the
+        // 10k output tokens that were reserved.
+        assert!((guard.budget.spent_usd() - 0.0035).abs() < 1e-9);
+
+        // Reported usage wins over the estimate.
+        let ctx = GuardContext::new(crate::guard::GuardOperation::ChatStream);
+        InputGuard::inspect(&guard, &mut input, &ctx).await.unwrap();
+        let usage = Usage {
+            prompt_tokens: 2_000,
+            completion_tokens: 1_000,
+            total_tokens: 3_000,
+            completion_tokens_details: None,
+            prompt_tokens_details: None,
+        };
+        InputGuard::finish(
+            &guard,
+            &ctx,
+            &outcome(RequestStage::Responded, 10, Some(usage)),
+        );
+        assert!((guard.budget.spent_usd() - (0.0035 + 0.007)).abs() < 1e-9);
+    }
+
+    #[tokio::test]
+    async fn finish_after_settlement_is_a_no_op() {
+        let guard = BudgetGuard::new(budget(1.0), "claude-haiku-4-5").unwrap();
+        let mut input = chat_input("hello world");
+        let ctx = GuardContext::new(crate::guard::GuardOperation::Chat);
+        InputGuard::inspect(&guard, &mut input, &ctx).await.unwrap();
+        let mut output = chat_output(1_000, 500);
+        OutputGuard::inspect(&guard, &mut output, &ctx)
+            .await
+            .unwrap();
+
+        InputGuard::finish(
+            &guard,
+            &ctx,
+            &outcome(RequestStage::Responded, 99_999, None),
+        );
+        assert!((guard.budget.spent_usd() - 0.0035).abs() < 1e-9);
     }
 
     mod provider {
@@ -436,7 +555,7 @@ mod tests {
 
         use async_trait::async_trait;
         use autoagents_llm::{
-            HasConfig, LLMProvider, NoConfig,
+            HasConfig, LLMProvider, NoConfig, ToolCall,
             chat::{
                 ChatMessage, ChatProvider, ChatResponse, StreamChoice, StreamChunk, StreamDelta,
                 StreamResponse, StructuredOutputFormat, Tool, Usage,
@@ -446,10 +565,14 @@ mod tests {
             error::LLMError,
             models::ModelsProvider,
         };
-        use futures::{Stream, StreamExt, stream};
+        use futures::{FutureExt, Stream, StreamExt, stream};
 
         use super::*;
         use crate::Guardrails;
+
+        /// Every answer is 2,000 chars (500 estimated tokens) and, where the
+        /// API carries it, reports 1k prompt + 500 completion tokens.
+        const ANSWER_CHARS: usize = 2_000;
 
         fn usage(prompt: u32, completion: u32) -> Usage {
             Usage {
@@ -461,9 +584,44 @@ mod tests {
             }
         }
 
-        /// Fails plain chat calls and streams fixed chunks with a final
-        /// usage report of 1k prompt + 500 completion tokens.
-        struct MockProvider;
+        fn answer() -> String {
+            "y".repeat(ANSWER_CHARS)
+        }
+
+        /// How the mock answers plain (non-streaming) chat calls.
+        #[derive(Clone, Copy)]
+        enum ChatMode {
+            Fail,
+            Answer,
+            Hang,
+        }
+
+        #[derive(Debug)]
+        struct Reply;
+
+        impl std::fmt::Display for Reply {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("reply")
+            }
+        }
+
+        impl ChatResponse for Reply {
+            fn text(&self) -> Option<String> {
+                Some(answer())
+            }
+
+            fn tool_calls(&self) -> Option<Vec<ToolCall>> {
+                None
+            }
+
+            fn usage(&self) -> Option<Usage> {
+                Some(usage(1_000, 500))
+            }
+        }
+
+        struct MockProvider {
+            chat: ChatMode,
+        }
 
         #[async_trait]
         impl ChatProvider for MockProvider {
@@ -473,7 +631,23 @@ mod tests {
                 _tools: Option<&[Tool]>,
                 _json_schema: Option<StructuredOutputFormat>,
             ) -> Result<Box<dyn ChatResponse>, LLMError> {
-                Err(LLMError::ProviderError("upstream unavailable".to_string()))
+                match self.chat {
+                    ChatMode::Fail => {
+                        Err(LLMError::ProviderError("upstream unavailable".to_string()))
+                    }
+                    ChatMode::Answer => Ok(Box::new(Reply)),
+                    ChatMode::Hang => futures::future::pending().await,
+                }
+            }
+
+            /// Two text chunks of one answer each, no usage reported.
+            async fn chat_stream(
+                &self,
+                _messages: &[ChatMessage],
+                _json_schema: Option<StructuredOutputFormat>,
+            ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LLMError>> + Send>>, LLMError>
+            {
+                Ok(Box::pin(stream::iter(vec![Ok(answer()), Ok(answer())])))
             }
 
             async fn chat_stream_struct(
@@ -488,7 +662,7 @@ mod tests {
                 let text = StreamResponse {
                     choices: vec![StreamChoice {
                         delta: StreamDelta {
-                            content: Some("hello".to_string()),
+                            content: Some(answer()),
                             reasoning_content: None,
                             tool_calls: None,
                         },
@@ -510,7 +684,7 @@ mod tests {
             ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk, LLMError>> + Send>>, LLMError>
             {
                 Ok(Box::pin(stream::iter(vec![
-                    Ok(StreamChunk::Text("hello".to_string())),
+                    Ok(StreamChunk::Text(answer())),
                     Ok(StreamChunk::Usage(usage(1_000, 500))),
                 ])))
             }
@@ -543,35 +717,126 @@ mod tests {
             type Config = NoConfig;
         }
 
-        fn wrapped(guard: &BudgetGuard) -> Arc<dyn LLMProvider> {
+        /// An output guard that blocks every reply.
+        struct BlockEverything;
+
+        #[async_trait]
+        impl OutputGuard for BlockEverything {
+            fn name(&self) -> &'static str {
+                "block-everything"
+            }
+
+            async fn inspect(
+                &self,
+                _output: &mut GuardedOutput,
+                _context: &GuardContext,
+            ) -> Result<GuardDecision, GuardError> {
+                Ok(GuardDecision::reject(GuardViolation::new(
+                    "blocked",
+                    GuardCategory::Custom("test".to_string()),
+                    GuardSeverity::High,
+                    "blocked by test guard",
+                )))
+            }
+        }
+
+        fn mock(chat: ChatMode) -> Arc<dyn LLMProvider> {
+            Arc::new(MockProvider { chat })
+        }
+
+        fn wrapped(guard: &BudgetGuard, chat: ChatMode) -> Arc<dyn LLMProvider> {
             Guardrails::builder()
                 .input_guard(guard.clone())
                 .output_guard(guard.clone())
                 .build()
-                .wrap(Arc::new(MockProvider))
+                .wrap(mock(chat))
         }
 
+        /// A 4,000-char prompt: 1k estimated tokens, $0.001 on haiku.
         fn messages() -> Vec<ChatMessage> {
-            vec![ChatMessage::user().content("hello").build()]
+            vec![ChatMessage::user().content("x".repeat(4_000)).build()]
         }
 
-        #[tokio::test]
-        async fn provider_error_releases_reservation() {
-            let guard = BudgetGuard::new(budget(1.0), "claude-haiku-4-5")
+        fn guard(reserve_output_tokens: u64) -> BudgetGuard {
+            BudgetGuard::new(budget(1.0), "claude-haiku-4-5")
                 .unwrap()
-                .reserve_output_tokens(1_000);
-            let provider = wrapped(&guard);
+                .reserve_output_tokens(reserve_output_tokens)
+        }
 
-            assert!(provider.chat(&messages(), None).await.is_err());
+        fn assert_spent(guard: &BudgetGuard, expected: f64) {
+            let spent = guard.budget.spent_usd();
+            assert!(
+                (spent - expected).abs() < 1e-9,
+                "spent {spent}, expected {expected}"
+            );
             assert_eq!(guard.budget.reserved_usd(), 0.0);
-            assert_eq!(guard.budget.spent_usd(), 0.0);
             assert!(guard.open.lock().unwrap().is_empty());
         }
 
         #[tokio::test]
+        async fn provider_error_releases_reservation() {
+            let guard = guard(1_000);
+            let provider = wrapped(&guard, ChatMode::Fail);
+
+            assert!(provider.chat(&messages(), None).await.is_err());
+            assert_spent(&guard, 0.0);
+        }
+
+        #[tokio::test]
+        async fn cancelled_in_flight_call_charges_reservation() {
+            let guard = guard(1_000);
+            let provider = wrapped(&guard, ChatMode::Hang);
+
+            // Poll once (the request is sent and waits on the provider), then
+            // drop the future, as a timeout would.
+            assert!(provider.chat(&messages(), None).now_or_never().is_none());
+            // 1k prompt at $1/M + 1k reserved output at $5/M
+            assert_spent(&guard, 0.006);
+        }
+
+        #[tokio::test]
+        async fn reply_blocked_by_another_output_guard_is_still_charged() {
+            let guard = guard(1_000);
+            // The blocking guard runs first, so the budget's own output
+            // side never sees the reply.
+            let provider = Guardrails::builder()
+                .input_guard(guard.clone())
+                .output_guard(BlockEverything)
+                .output_guard(guard.clone())
+                .build()
+                .wrap(mock(ChatMode::Answer));
+
+            assert!(provider.chat(&messages(), None).await.is_err());
+            // Reported usage: 1k input at $1/M + 500 output at $5/M
+            assert_spent(&guard, 0.0035);
+        }
+
+        #[tokio::test]
+        async fn input_only_registration_still_charges() {
+            let guard = guard(1_000);
+            let provider = Guardrails::builder()
+                .input_guard(guard.clone())
+                .build()
+                .wrap(mock(ChatMode::Answer));
+
+            provider.chat(&messages(), None).await.unwrap();
+            assert_spent(&guard, 0.0035);
+
+            let mut stream = provider
+                .chat_stream_with_tools(&messages(), None, None)
+                .await
+                .unwrap();
+            while let Some(chunk) = stream.next().await {
+                chunk.unwrap();
+            }
+            drop(stream);
+            assert_spent(&guard, 0.007);
+        }
+
+        #[tokio::test]
         async fn struct_stream_settles_final_usage() {
-            let guard = BudgetGuard::new(budget(1.0), "claude-haiku-4-5").unwrap();
-            let provider = wrapped(&guard);
+            let guard = guard(0);
+            let provider = wrapped(&guard, ChatMode::Answer);
 
             let mut stream = provider
                 .chat_stream_struct(&messages(), None, None)
@@ -581,14 +846,13 @@ mod tests {
                 chunk.unwrap();
             }
             // 1k input at $1/M + 500 output at $5/M
-            assert!((guard.budget.spent_usd() - 0.0035).abs() < 1e-9);
-            assert_eq!(guard.budget.reserved_usd(), 0.0);
+            assert_spent(&guard, 0.0035);
         }
 
         #[tokio::test]
         async fn tool_stream_settles_final_usage() {
-            let guard = BudgetGuard::new(budget(1.0), "claude-haiku-4-5").unwrap();
-            let provider = wrapped(&guard);
+            let guard = guard(0);
+            let provider = wrapped(&guard, ChatMode::Answer);
 
             let mut stream = provider
                 .chat_stream_with_tools(&messages(), None, None)
@@ -597,16 +861,30 @@ mod tests {
             while let Some(chunk) = stream.next().await {
                 chunk.unwrap();
             }
-            assert!((guard.budget.spent_usd() - 0.0035).abs() < 1e-9);
-            assert_eq!(guard.budget.reserved_usd(), 0.0);
+            assert_spent(&guard, 0.0035);
         }
 
         #[tokio::test]
-        async fn dropped_stream_releases_reservation() {
-            let guard = BudgetGuard::new(budget(1.0), "claude-haiku-4-5")
-                .unwrap()
-                .reserve_output_tokens(1_000);
-            let provider = wrapped(&guard);
+        async fn text_stream_without_usage_charges_estimate() {
+            let guard = guard(0);
+            let provider = wrapped(&guard, ChatMode::Answer);
+
+            let mut stream = provider.chat_stream(&messages(), None).await.unwrap();
+            while let Some(chunk) = stream.next().await {
+                chunk.unwrap();
+            }
+            // 1k estimated input at $1/M + 1k estimated output at $5/M
+            assert_spent(&guard, 0.006);
+        }
+
+        // A stream dropped after one 2,000-char chunk is charged for the
+        // prompt plus that chunk (1k input + 500 output tokens = $0.0035),
+        // not released, and not the 10k output tokens that were reserved.
+
+        #[tokio::test]
+        async fn dropped_tool_stream_charges_delivered_output() {
+            let guard = guard(10_000);
+            let provider = wrapped(&guard, ChatMode::Answer);
 
             let mut stream = provider
                 .chat_stream_with_tools(&messages(), None, None)
@@ -616,8 +894,73 @@ mod tests {
             assert!(guard.budget.reserved_usd() > 0.0);
             drop(stream);
 
-            assert_eq!(guard.budget.reserved_usd(), 0.0);
-            assert!(guard.open.lock().unwrap().is_empty());
+            assert_spent(&guard, 0.0035);
+        }
+
+        #[tokio::test]
+        async fn dropped_struct_stream_charges_delivered_output() {
+            let guard = guard(10_000);
+            let provider = wrapped(&guard, ChatMode::Answer);
+
+            let mut stream = provider
+                .chat_stream_struct(&messages(), None, None)
+                .await
+                .unwrap();
+            stream.next().await.unwrap().unwrap();
+            drop(stream);
+
+            assert_spent(&guard, 0.0035);
+        }
+
+        #[tokio::test]
+        async fn dropped_text_stream_charges_delivered_output() {
+            let guard = guard(10_000);
+            let provider = wrapped(&guard, ChatMode::Answer);
+
+            let mut stream = provider.chat_stream(&messages(), None).await.unwrap();
+            stream.next().await.unwrap().unwrap();
+            drop(stream);
+
+            assert_spent(&guard, 0.0035);
+        }
+
+        #[tokio::test]
+        async fn stream_dropped_before_first_chunk_charges_prompt() {
+            let guard = guard(10_000);
+            let provider = wrapped(&guard, ChatMode::Answer);
+
+            let stream = provider
+                .chat_stream_with_tools(&messages(), None, None)
+                .await
+                .unwrap();
+            drop(stream);
+
+            // The provider accepted the prompt: 1k input at $1/M.
+            assert_spent(&guard, 0.001);
+        }
+
+        #[tokio::test]
+        async fn repeated_early_drops_exhaust_the_budget() {
+            // $0.01 cap; each dropped stream costs $0.0035.
+            let guard = BudgetGuard::new(budget(0.01), "claude-haiku-4-5").unwrap();
+            let provider = wrapped(&guard, ChatMode::Answer);
+
+            let mut rejected = false;
+            for _ in 0..10 {
+                match provider
+                    .chat_stream_with_tools(&messages(), None, None)
+                    .await
+                {
+                    Ok(mut stream) => {
+                        stream.next().await.unwrap().unwrap();
+                    }
+                    Err(_) => {
+                        rejected = true;
+                        break;
+                    }
+                }
+            }
+            assert!(rejected, "early drops must not keep the budget open");
         }
     }
 
