@@ -402,6 +402,16 @@ fn build_provider(b: &PyLLMBuilder) -> PyResult<Arc<dyn LLMProvider>> {
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         }
 
+        "opper" => {
+            use autoagents_llm::backends::opper::Opper;
+            use autoagents_llm::builder::LLMBuilder;
+            let builder = apply_common_builder_fields(LLMBuilder::<Opper>::new(), b);
+            builder
+                .build()
+                .map(|p| p as Arc<dyn LLMProvider>)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        }
+
         "azure_openai" => {
             use autoagents_llm::backends::azure_openai::AzureOpenAI;
             use autoagents_llm::builder::LLMBuilder;
@@ -435,7 +445,7 @@ fn build_provider(b: &PyLLMBuilder) -> PyResult<Arc<dyn LLMProvider>> {
         name => Err(PyRuntimeError::new_err(format!(
             "Unknown LLM backend: '{name}'. Supported backends: \
                  openai, anthropic, ollama, deepseek, google, groq, xai, \
-                 openrouter, requesty, azure_openai, phind, minimax"
+                 openrouter, requesty, opper, azure_openai, phind, minimax"
         ))),
     }
 }

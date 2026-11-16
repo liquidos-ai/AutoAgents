@@ -49,7 +49,7 @@ Optional tools (filesystem, search) live in `autoagents-toolkit`:
 autoagents-toolkit = { version = "0.4.0", features = ["filesystem", "search"] }
 ```
 
-Provider features available on `autoagents`: `openai`, `anthropic`, `openrouter`, `requesty`, `groq`, `google`, `azure_openai`, `xai`, `deepseek`, `ollama`. Use only what you need.
+Provider features available on `autoagents`: `openai`, `anthropic`, `openrouter`, `requesty`, `opper`, `groq`, `google`, `azure_openai`, `xai`, `deepseek`, `ollama`. Use only what you need.
 
 ## Configure Environment
 

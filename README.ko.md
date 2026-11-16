@@ -54,6 +54,7 @@ AutoAgents는 Rust에서 지능형 시스템을 구축하기 위한 모듈식 �
 | **OpenAI** | `openai` | 예 | 예 | 예 | 예 | 이미지 URL 및 인라인 이미지; PDF는 타입화된 오류로 거부됩니다. |
 | **OpenRouter** | `openrouter` | 예 | 예 | 예 | 예 | OpenAI 호환 이미지 입력; PDF는 타입화된 오류로 거부됩니다. |
 | **Requesty** | `requesty` | 예 | 예 | 예 | 예 | OpenAI 호환 이미지 입력; PDF는 타입화된 오류로 거부됩니다. |
+| **Opper** | `opper` | 예 | 예 | 예 | 예 | OpenAI 호환 이미지 입력; PDF는 타입화된 오류로 거부됩니다. |
 | **Anthropic** | `anthropic` | 예 | 예 | 예 | 예 | 이미지, 이미지 URL, PDF는 Anthropic 콘텐츠 블록을 사용합니다. |
 | **DeepSeek** | `deepseek` | 예 | 예 | 예 | 예 | OpenAI 호환 이미지 입력; PDF는 타입화된 오류로 거부됩니다. |
 | **xAI** | `xai` | 예 | 예 | 아니오 | 모델에 따라 다름 | 텍스트 전용 채팅; 멀티모달 입력은 `LLMError::InvalidRequest`를 반환합니다. |

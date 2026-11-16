@@ -23,6 +23,7 @@ full = [
     "azure_openai",
     "openrouter",
     "requesty",
+    "opper",
     "minimax",
     "optim",
 ]
@@ -37,6 +38,7 @@ groq = []
 azure_openai = []
 openrouter = []
 requesty = []
+opper = []
 minimax = []
 optim = []
 # WASI Preview2 (`wasm32-wasip2`) HTTP transport for the OpenAI Responses

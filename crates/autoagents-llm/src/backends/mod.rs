@@ -50,5 +50,8 @@ pub mod openrouter;
 #[cfg(all(feature = "requesty", not(target_arch = "wasm32")))]
 pub mod requesty;
 
+#[cfg(all(feature = "opper", not(target_arch = "wasm32")))]
+pub mod opper;
+
 #[cfg(all(feature = "minimax", not(target_arch = "wasm32")))]
 pub mod minimax;
