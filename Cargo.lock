@@ -5239,16 +5239,23 @@ dependencies = [
 
 [[package]]
 name = "llm-budget"
-version = "0.3.1"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11f50ffa1e7efd987ea86755676661d8eb488f87bf9f72434ad76eb6b81bb4cf"
+checksum = "953fae012ff36c2322d89fae077d65ca413d0b701518ac5849ae9c09c6340dcd"
 dependencies = [
  "dashmap 5.5.3",
+ "llm-prices",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
 ]
+
+[[package]]
+name = "llm-prices"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef8c825f579e4d01ff6e74e54a1d40140c3f81749ff0bd1392e3d95d5e9f8eee"
 
 [[package]]
 name = "lock_api"

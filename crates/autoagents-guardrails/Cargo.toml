@@ -19,7 +19,7 @@ autoagents-llm.workspace = true
 autoagents-protocol.workspace = true
 async-trait = { workspace = true }
 futures = { workspace = true }
-llm-budget = { version = "0.3", optional = true }
+llm-budget = { version = "0.8", optional = true }
 log = { workspace = true }
 serde_json = { workspace = true }
 regex = { workspace = true }
