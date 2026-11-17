@@ -27,6 +27,34 @@
 //! answer that was just paid for still reaches the caller, and every later
 //! request is rejected on the input side with a `budget-exhausted` violation.
 //!
+//! # Sub-agents
+//!
+//! An agent that delegates to several sub-agents at once can give each one
+//! its own guard with [`BudgetGuard::sub_agent`]. The sub-agent's slice
+//! ([`Limit::Usd`] or [`Limit::Fraction`] of what is left) is reserved from
+//! the parent budget before the sub-agent starts, so parallel sub-agents can
+//! never be admitted for more than the parent has left. Every call a
+//! sub-agent settles is booked on the parent at the same moment, and when the
+//! last clone of the sub-agent's guard is dropped, the unused part of its
+//! slice goes back to the parent. A sub-agent that hits its own cap is
+//! stopped without killing the parent.
+//!
+//! ```no_run
+//! use std::sync::Arc;
+//! use autoagents_guardrails::BudgetGuard;
+//! use llm_budget::{AgentBudget, Limit};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let orchestrator = BudgetGuard::new(Arc::new(AgentBudget::builder("orchestrator", 1.00).build()?), "gpt-4o")?;
+//! let researcher = orchestrator.sub_agent("researcher", Limit::Usd(0.40))?;
+//! let writer = orchestrator.sub_agent("writer", Limit::Fraction(0.5))?; // half of the $0.60 left
+//! // Give each sub-agent's LLM its own guard: Guardrails::builder()
+//! //     .input_guard(researcher.clone()).output_guard(researcher) ...
+//! # let _ = (researcher, writer);
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! ```no_run
 //! use std::sync::Arc;
 //! use autoagents_guardrails::{BudgetGuard, Guardrails};
@@ -50,7 +78,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use autoagents_llm::chat::Usage;
-use llm_budget::{AgentBudget, PriceTable, Reservation};
+use llm_budget::{AgentBudget, Limit, PriceTable, Reservation, ScopeGuard};
 
 use crate::{
     guard::{
@@ -97,6 +125,9 @@ pub struct BudgetGuard {
     /// Shared across clones so a guard can be split between the input and
     /// output sides of one engine.
     open: Arc<Mutex<HashMap<u64, OpenCall>>>,
+    /// For a [`sub_agent`](BudgetGuard::sub_agent) guard: the slice reserved
+    /// from the parent budget, refunded when the last clone is dropped.
+    scope: Option<Arc<ScopeGuard>>,
 }
 
 /// A call that passed the input side and has not been settled yet.
@@ -129,6 +160,7 @@ impl Clone for BudgetGuard {
             reserve_output_tokens: self.reserve_output_tokens,
             chars_per_token: self.chars_per_token,
             open: Arc::clone(&self.open),
+            scope: self.scope.clone(),
         }
     }
 }
@@ -151,6 +183,33 @@ impl BudgetGuard {
             reserve_output_tokens: 0,
             chars_per_token: DEFAULT_CHARS_PER_TOKEN,
             open: Arc::new(Mutex::new(HashMap::new())),
+            scope: None,
+        })
+    }
+
+    /// A guard for a sub-agent, on a slice of this guard's budget: `limit`
+    /// is reserved from it now, before the sub-agent makes any call, and the
+    /// new guard caps the sub-agent at that slice. Same model and settings.
+    ///
+    /// Everything the sub-agent spends is booked on this budget at the same
+    /// moment. When the last clone of the returned guard is dropped, the
+    /// unused part of the slice goes back. Sub-agents can have sub-agents.
+    ///
+    /// # Errors
+    /// [`GuardError`] when the slice does not fit in what this budget has
+    /// left, when this budget was killed, or for an invalid `limit`.
+    pub fn sub_agent(&self, name: impl Into<String>, limit: Limit) -> Result<Self, GuardError> {
+        let scope = self
+            .budget
+            .child(name, limit)
+            .map_err(|e| GuardError::new(format!("budget guard: sub-agent slice refused: {e}")))?;
+        Ok(Self {
+            budget: Arc::clone(scope.budget()),
+            model: self.model.clone(),
+            reserve_output_tokens: self.reserve_output_tokens,
+            chars_per_token: self.chars_per_token,
+            open: Arc::new(Mutex::new(HashMap::new())),
+            scope: Some(Arc::new(scope)),
         })
     }
 
@@ -979,5 +1038,103 @@ mod tests {
     fn unknown_model_is_rejected() {
         let b = budget(1.0);
         assert!(BudgetGuard::new(b, "not-a-model").is_err());
+    }
+
+    #[tokio::test]
+    async fn sub_agent_spend_is_booked_on_the_parent_and_the_rest_refunded() {
+        let parent = BudgetGuard::new(budget(1.0), "claude-haiku-4-5").unwrap();
+        let sub = parent
+            .sub_agent("researcher", llm_budget::Limit::Usd(0.25))
+            .unwrap();
+        assert!((parent.budget.reserved_usd() - 0.25).abs() < 1e-9);
+        assert!((sub.budget.limit_usd() - 0.25).abs() < 1e-9);
+
+        let mut input = chat_input("hello world");
+        let ctx = GuardContext::new(crate::guard::GuardOperation::Chat);
+        InputGuard::inspect(&sub, &mut input, &ctx).await.unwrap();
+        let mut output = chat_output(1_000, 500);
+        OutputGuard::inspect(&sub, &mut output, &ctx).await.unwrap();
+        // Booked on the sub-agent and on the parent at the same moment.
+        assert!((sub.budget.spent_usd() - 0.0035).abs() < 1e-9);
+        assert!((parent.budget.spent_usd() - 0.0035).abs() < 1e-9);
+
+        // Dropping the last clone gives the unused slice back.
+        let clone = sub.clone();
+        drop(sub);
+        assert!((parent.budget.reserved_usd() - 0.2465).abs() < 1e-9);
+        drop(clone);
+        assert_eq!(parent.budget.reserved_usd(), 0.0);
+        assert!((parent.budget.remaining_usd() - 0.9965).abs() < 1e-9);
+    }
+
+    #[tokio::test]
+    async fn parallel_sub_agents_cannot_overcommit_the_parent() {
+        let parent = BudgetGuard::new(budget(1.0), "claude-haiku-4-5").unwrap();
+        let a = parent.sub_agent("a", llm_budget::Limit::Usd(0.6)).unwrap();
+        // The second slice does not fit in the $0.40 left: refused up front.
+        assert!(parent.sub_agent("b", llm_budget::Limit::Usd(0.6)).is_err());
+        let b = parent
+            .sub_agent("b", llm_budget::Limit::Fraction(1.0))
+            .unwrap();
+        assert!((b.budget.limit_usd() - 0.4).abs() < 1e-9);
+        assert!(parent.budget.remaining_usd() < 1e-9);
+        drop((a, b));
+        assert!((parent.budget.remaining_usd() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn competing_sub_agent_calls_never_overcommit_the_parent() {
+        // 16 threads ask for a $0.10 slice of a $1.00 budget at the same
+        // moment, over and over: exactly 10 may be admitted each round.
+        for _ in 0..200 {
+            let parent = BudgetGuard::new(budget(1.0), "claude-haiku-4-5").unwrap();
+            let start = Arc::new(std::sync::Barrier::new(16));
+            let handles: Vec<_> = (0..16)
+                .map(|i| {
+                    let parent = parent.clone();
+                    let start = Arc::clone(&start);
+                    std::thread::spawn(move || {
+                        start.wait();
+                        parent
+                            .sub_agent(format!("sub-{i}"), llm_budget::Limit::Usd(0.1))
+                            .ok()
+                    })
+                })
+                .collect();
+            let admitted: Vec<BudgetGuard> = handles
+                .into_iter()
+                .filter_map(|h| h.join().unwrap())
+                .collect();
+            let reserved: f64 = admitted.iter().map(|g| g.budget.limit_usd()).sum();
+            assert_eq!(admitted.len(), 10);
+            assert!(reserved <= 1.0 + 1e-9);
+            assert!(parent.budget.remaining_usd() < 1e-9);
+            drop(admitted);
+            assert!((parent.budget.remaining_usd() - 1.0).abs() < 1e-9);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_sub_agent_over_its_slice_is_stopped_without_killing_the_parent() {
+        let parent = BudgetGuard::new(budget(1.0), "claude-haiku-4-5").unwrap();
+        let sub = parent
+            .sub_agent("runaway", llm_budget::Limit::Usd(0.001))
+            .unwrap();
+        let ctx = GuardContext::new(crate::guard::GuardOperation::Chat);
+        let mut output = chat_output(10_000, 1_000); // $0.015, over the $0.001 slice
+        OutputGuard::inspect(&sub, &mut output, &ctx).await.unwrap();
+        assert!(sub.budget.is_killed());
+        assert!(!parent.budget.is_killed());
+        // The spend happened, so the parent carries it.
+        assert!((parent.budget.spent_usd() - 0.015).abs() < 1e-9);
+
+        let mut input = chat_input("hi");
+        let ctx2 = GuardContext::new(crate::guard::GuardOperation::Chat);
+        let sub_decision = InputGuard::inspect(&sub, &mut input, &ctx2).await.unwrap();
+        assert!(matches!(sub_decision, GuardDecision::Reject(_)));
+        let parent_decision = InputGuard::inspect(&parent, &mut input, &ctx2)
+            .await
+            .unwrap();
+        assert!(matches!(parent_decision, GuardDecision::Pass));
     }
 }
