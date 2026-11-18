@@ -13,6 +13,7 @@ readme.workspace = true
 default = []
 full = ["mcp", "filesystem", "search", "wolfram-alpha", "document-parsing"]
 mcp = ["rmcp", "toml"]
+verification = ["dep:treeproof"]
 filesystem = []
 search = ["reqwest", "once_cell"]
 wolfram-alpha = ["reqwest", "once_cell"]
@@ -59,6 +60,7 @@ rmcp = { workspace = true, optional = true, features = [
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true }
+treeproof = { version = "0.1.1", optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

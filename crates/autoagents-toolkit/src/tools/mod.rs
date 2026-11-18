@@ -11,3 +11,6 @@ pub mod wolfram_alpha;
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "document-parsing"))]
 pub mod document_parsing;
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "verification"))]
+pub mod verification;

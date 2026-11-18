@@ -36,6 +36,7 @@ Reusable tools are in `autoagents-toolkit`:
 
 - Filesystem tools: `ListDir`, `ReadFile`, `WriteFile`, `CopyFile`, `MoveFile`, `DeleteFile`, `SearchFile` (feature: `filesystem`)
 - Web search: `BraveSearch` (feature: `search`, requires `BRAVE_SEARCH_API_KEY` or `BRAVE_API_KEY`)
+- Verification: `RunTests`, `CheckVerified` (feature: `verification`)
 
 Enable features in your `Cargo.toml` as needed.
 
@@ -55,6 +56,28 @@ let list_dir = ListDir::new_with_root_dir(workspace_root.display().to_string());
 Root-scoped tools reject absolute paths, `..` traversal outside the root, and symlink escapes. Directory deletion is non-recursive by default; pass `recursive: true` only when recursive deletion is explicitly intended.
 
 The filesystem constructors named `new()` are also sandboxed to the process current directory by default. Use `new_unrestricted()` only for trusted local workflows where unrestricted host filesystem access is intentional.
+
+### Verification tools
+
+Coding agents tend to report "all tests pass" without having run the tests, or before their last edit. The `verification` feature gives an agent a test tool whose answer it cannot make up:
+
+```rust
+use autoagents_toolkit::tools::verification::{CheckVerified, RunTests};
+
+let workspace_root = std::env::current_dir()?.canonicalize()?;
+
+// The command is fixed by you, not chosen by the model. `detect` picks
+// `cargo test`, `go test ./...`, `python -m pytest` or `npm test` from the repository.
+let run_tests = RunTests::detect(&workspace_root)?;
+// or: RunTests::new(&workspace_root, vec!["cargo".into(), "test".into(), "--workspace".into()]);
+let check_verified = CheckVerified::new(&workspace_root);
+```
+
+`run_tests` runs the command in the workspace (which must be a git repository) and returns `PASSED`, `WARNED` or `FAILED` with test counts. It signs a [treeproof](https://crates.io/crates/treeproof) receipt, an in-toto test-result attestation whose subject is the git tree of the working tree including uncommitted files. A run with 0 tests, an unrecognised test runner, a failing test or a non-zero exit is `FAILED`. Passing results are cached by tree, command, toolchain versions and lockfiles, so calling it again on an unchanged workspace returns at once.
+
+`check_verified` reports whether a passing receipt exists for the workspace exactly as it is now. Any edit after the last passing run makes it unverified, so an agent (or your application, before it accepts the agent's result) can check the claim instead of trusting it. A run that selected only part of the suite does not count, and after a failing run the same command has to pass again. The policy (for example a required command) is read from the `treeproof.toml` committed in the repository, not from the working copy the agent edits.
+
+Receipts and the signing key live in the user cache and config directories by default. Pass the same `treeproof::Context` to both tools with `with_context` to keep them elsewhere, for example per tenant or in tests.
 
 ## MCP
 
